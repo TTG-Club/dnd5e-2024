@@ -18,7 +18,6 @@ import type {
   TargetEffectsResult,
 } from './useTargetEffectResolution';
 
-import { emitEntityCombatState } from '@/core/entityUtils';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import { useTargetStore } from '@/stores/targetStore';
@@ -49,6 +48,7 @@ import {
   DAMAGE_DEDUCTION_LABELS,
   SPELL_NO_TARGETS_LABELS,
 } from '../ui/actor/constants';
+import { changeEntityCombatState } from './entityCombatWrite';
 import {
   buildSaveDamageDefense,
   formatSaveCancelledMessage,
@@ -92,7 +92,6 @@ export function useSpellDamageWithParts() {
    * @param totalHeal - суммарное лечение
    * @param totalTempHeal - суммарные временные ХП (`@heal.temp`)
    * @param effectsToApply - эффекты для наложения (или undefined)
-   * @param socket - сокет
    * @param hit - удар для событий урона цели: типы, крит, кто бил
    * @returns HP до/после, полученные временные ХП и имена наложенных эффектов
    */
@@ -102,7 +101,6 @@ export function useSpellDamageWithParts() {
     totalHeal: number,
     totalTempHeal: number,
     effectsToApply: ActiveEffect[] | undefined,
-    socket: SpellResolutionContext['socket'],
     hit: Omit<DamageHit, 'amount'>,
   ): {
     hpBefore: number;
@@ -117,78 +115,97 @@ export function useSpellDamageWithParts() {
       return { hpBefore: 0, hpAfter: 0, tempHpGained: 0, appliedEffects: [] };
     }
 
-    const hpBefore = resolveEntityCurrentHp(entity);
-    const maxHp = resolveEntityMaxHp(entity);
-    const tempBefore = resolveEntityTempHp(entity);
+    /**
+     * Хиты и эффекты цели после частей. Считается от той сущности, которую
+     * получает: при записи — от свежей, из мира.
+     *
+     * @param target - цель
+     * @returns новая копия цели и итог для сводки
+     */
+    function settleTarget(target: DnDSceneEntity) {
+      const hpBefore = resolveEntityCurrentHp(target);
+      const maxHp = resolveEntityMaxHp(target);
+      const tempBefore = resolveEntityTempHp(target);
 
-    // Запрет лечения: «не может восстанавливать хиты» / «временные хиты»
-    const healing = limitEntityHealing(entity, {
-      hitPoints: totalHeal,
-      temporary: totalTempHeal,
-    });
+      // Запрет лечения: «не может восстанавливать хиты» / «временные хиты»
+      const healing = limitEntityHealing(target, {
+        hitPoints: totalHeal,
+        temporary: totalTempHeal,
+      });
 
-    // Урон сначала снимает временные ХП (правило 5e), остаток — текущие
-    const hpChange = applyHpChange({
-      hpBefore,
-      maxHp,
-      tempBefore,
-      damage: totalDamage,
-      heal: healing.hitPoints,
-    });
+      // Урон сначала снимает временные ХП (правило 5e), остаток — текущие
+      const hpChange = applyHpChange({
+        hpBefore,
+        maxHp,
+        tempBefore,
+        damage: totalDamage,
+        heal: healing.hitPoints,
+      });
 
-    const hpAfter = hpChange.hpAfter;
+      const hpAfter = hpChange.hpAfter;
 
-    // Новые временные ХП не суммируются с оставшимися — берётся большее
-    const tempAfter = Math.max(hpChange.tempAfter, healing.temporary);
+      // Новые временные ХП не суммируются с оставшимися — берётся большее
+      const tempAfter = Math.max(hpChange.tempAfter, healing.temporary);
 
-    const updatedEntity: DnDSceneEntity = JSON.parse(JSON.stringify(entity));
+      const updatedEntity: DnDSceneEntity = JSON.parse(JSON.stringify(target));
 
-    writeEntityHitPoints(updatedEntity, {
-      current: hpAfter,
-      temp: tempAfter,
-    });
+      writeEntityHitPoints(updatedEntity, {
+        current: hpAfter,
+        temp: tempAfter,
+      });
 
-    recordDamageHit(updatedEntity, {
-      ...hit,
-      amount: hpBefore + tempBefore - hpAfter - tempAfter,
-    });
+      recordDamageHit(updatedEntity, {
+        ...hit,
+        amount: hpBefore + tempBefore - hpAfter - tempAfter,
+      });
 
-    const appliedEffects: string[] = [];
+      const appliedEffects: string[] = [];
 
-    if (effectsToApply && effectsToApply.length > 0) {
-      if (!updatedEntity.activeEffects) {
-        updatedEntity.activeEffects = [];
+      if (effectsToApply && effectsToApply.length > 0) {
+        // Один и тот же статус не стакается: повтор ЗАМЕНЯЕТ прежний (5e 2024,
+        // «самый недавний/сильный»); разные эффекты складываются.
+        const instantiated = effectsToApply.map((effect): ActiveEffect =>
+          withInitializedDuration({
+            ...effect,
+            id: generateId('effect'),
+            origin: 'spell',
+          }),
+        );
+
+        updatedEntity.activeEffects = mergeAppliedEffects(
+          updatedEntity.activeEffects ?? [],
+          instantiated,
+        );
+
+        for (const effect of instantiated) {
+          appliedEffects.push(effect.name);
+        }
       }
 
-      // Один и тот же статус не стакается: повтор ЗАМЕНЯЕТ прежний (5e 2024,
-      // «самый недавний/сильный»); разные эффекты складываются.
-      const instantiated = effectsToApply.map((effect): ActiveEffect =>
-        withInitializedDuration({
-          ...effect,
-          id: generateId('effect'),
-          origin: 'spell',
-        }),
-      );
-
-      updatedEntity.activeEffects = mergeAppliedEffects(
-        updatedEntity.activeEffects,
-        instantiated,
-      );
-
-      for (const effect of instantiated) {
-        appliedEffects.push(effect.name);
-      }
+      return {
+        updatedEntity,
+        outcome: {
+          hpBefore,
+          hpAfter,
+          tempHpGained: tempAfter - hpChange.tempAfter,
+          appliedEffects,
+        },
+      };
     }
 
-    // Боевым каналом: цель чужая, полную замену сущности сервер не примет.
-    emitEntityCombatState(socket, updatedEntity);
+    let settled: ReturnType<typeof settleTarget> | undefined;
 
-    return {
-      hpBefore,
-      hpAfter,
-      tempHpGained: tempAfter - hpChange.tempAfter,
-      appliedEffects,
-    };
+    // Боевым каналом: цель чужая, полную замену сущности сервер не примет.
+    // Цель перечитывается в момент записи — части катались до окон
+    // спасбросков, и копия из списка устарела бы
+    changeEntityCombatState(entity.id, (current) => {
+      settled = settleTarget(current);
+
+      return settled.updatedEntity;
+    });
+
+    // Записи не было (соединение, цель исчезла) — сводка всё равно нужна
+    return (settled ?? settleTarget(entity)).outcome;
   }
 
   /**
@@ -282,7 +299,7 @@ export function useSpellDamageWithParts() {
       targetEntities?: readonly SceneEntity[];
     },
   ): Promise<void> {
-    const { spell, spellSaveDC, actors, socket } = context;
+    const { spell, spellSaveDC, actors } = context;
     const { scene, cachedTemplate } = options;
 
     /**
@@ -814,7 +831,6 @@ export function useSpellDamageWithParts() {
           totalHeal,
           totalTempHeal,
           effectsToApply,
-          socket,
           {
             types: listEntityDamageTypes(accumulator.entity.id),
             critical: parts.some((part) => part.critical === true),

@@ -18,6 +18,7 @@
 import type { DamagePart, DefensibleDamageType } from '@vtt/shared';
 
 import type { ActiveEffect, EffectOrigin } from './activeEffectTypes.js';
+import type { EffectChanges } from './combatEffectChanges.js';
 import type { DamageHit } from './damageHits.js';
 import type {
   DamageApplyResult,
@@ -31,6 +32,12 @@ import type { EffectTriggerUsageLedger } from './effectTriggerUsage.js';
 import { generateId, isRecord } from '@vtt/shared';
 
 import { ActiveEffectsArraySchema } from './activeEffectTypes.js';
+import {
+  applyEffectChanges,
+  diffEffects,
+  EffectChangesSchema,
+  readEffectsBaseline,
+} from './combatEffectChanges.js';
 import {
   buildConditionActiveEffect,
   resolveEffectConditionKey,
@@ -330,8 +337,18 @@ export interface DndCombatState {
   hpCurrent: number;
   /** Временные очки здоровья после применения исхода боя */
   hpTemp: number;
-  /** Полный список активных эффектов цели после применения исхода боя */
+  /**
+   * Полный список активных эффектов цели после применения исхода боя.
+   * Остаётся обязательным: старый сервер разницу не знает и берёт его
+   */
   activeEffects: ActiveEffect[];
+  /**
+   * Разница эффектов относительно копии, от которой клиент считал снимок.
+   * Есть поле — сервер сливает её со СВОИМ списком, а `activeEffects` не
+   * берёт: конец каста, снявший эффекты после копии, иначе откатился бы.
+   * Нет поля (старый клиент, копия без основы) — полная замена, как раньше.
+   */
+  effectChanges?: EffectChanges;
   /**
    * Счётчики лимитов срабатываний («не чаще раза в ход»): бросок атаки на
    * клиенте расходует срабатывание. Нет поля — счётчики не трогаются.
@@ -352,11 +369,16 @@ export interface DndCombatState {
  */
 export function pickCombatState(entity: DnDSceneEntity): DndCombatState {
   const damage = readDamageHits(entity);
+  const activeEffects = entity.activeEffects ?? [];
+  const baseline = readEffectsBaseline(entity);
 
   return {
     hpCurrent: resolveEntityCurrentHp(entity),
     hpTemp: resolveEntityTempHp(entity),
-    activeEffects: entity.activeEffects ?? [],
+    activeEffects,
+    ...(baseline === undefined
+      ? {}
+      : { effectChanges: diffEffects(baseline, activeEffects) }),
     ...(entity.system.effectUsage === undefined
       ? {}
       : { effectUsage: entity.system.effectUsage }),
@@ -406,7 +428,18 @@ export function applyCombatState(
   );
 
   const nextTemp = Math.max(0, Math.trunc(hpTemp));
-  const nextEffects = parsedEffects.data;
+
+  const nextEffects = resolveNextEffects(
+    entity.activeEffects ?? [],
+    parsedEffects.data,
+    state.effectChanges,
+  );
+
+  // Негодная разница — снимок целиком отвергнут: полный список от копии
+  // клиента затёр бы то, что сервер изменил после неё
+  if (nextEffects === null) {
+    return false;
+  }
 
   // Счётчики лимитов — только если клиент их прислал: старый клиент их не
   // знает, и снимок без поля не должен стирать счётчики сервера
@@ -443,6 +476,35 @@ export function applyCombatState(
   }
 
   return true;
+}
+
+/**
+ * Список эффектов, который ляжет на сервере: разница от клиента, слитая со
+ * списком сервера, либо (без разницы) полный список снимка.
+ *
+ * @param current - эффекты сущности на сервере
+ * @param fullList - полный список снимка, уже проверенный схемой
+ * @param rawChanges - поле `effectChanges` снимка
+ * @returns новый список; `null` — разница негодна или итог выходит за предел
+ */
+function resolveNextEffects(
+  current: readonly ActiveEffect[],
+  fullList: ActiveEffect[],
+  rawChanges: unknown,
+): ActiveEffect[] | null {
+  if (rawChanges === undefined) {
+    return fullList;
+  }
+
+  const parsedChanges = EffectChangesSchema.safeParse(rawChanges);
+
+  if (!parsedChanges.success) {
+    return null;
+  }
+
+  const merged = applyEffectChanges(current, parsedChanges.data);
+
+  return ActiveEffectsArraySchema.safeParse(merged).success ? merged : null;
 }
 
 /**

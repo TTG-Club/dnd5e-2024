@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { it } from 'vitest';
 
+import { loadChangeEntityCombatState } from './helpers/combatWrite.mjs';
 import { systemRoot } from './helpers/engineBundle.mjs';
 import { loadHandler } from './helpers/sourceHandler.mjs';
 import { createActor, engine, withHp } from './scenarios/_fixtures.mjs';
@@ -54,9 +55,11 @@ async function loadHelpers(entity) {
 
   const ports = {
     resolveEffectConditionKey: engine.resolveEffectConditionKey,
-    useChatStore: () => ({ getSocket: () => ({}) }),
-    useWorldEntities: () => ({ findCurrentDndEntity: () => entity }),
-    emitEntityCombatState: (_socket, snapshot) => emitted.push(snapshot),
+    changeEntityCombatState: await loadChangeEntityCombatState({
+      findEntity: () => entity,
+      emitted,
+      recordEffectsBaseline: engine.recordEffectsBaseline,
+    }),
   };
 
   ports.isCustomEffect = await loadHandler(helperPath, 'isCustomEffect', ports);

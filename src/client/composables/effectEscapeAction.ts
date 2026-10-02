@@ -20,7 +20,7 @@ import type {
 
 import type { CheckRollResult } from '../ui/actor/diceRollTypes';
 
-import { emitEntityCombatState, resolveTokenScale } from '@/core/entityUtils';
+import { resolveTokenScale } from '@/core/entityUtils';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import { useWorldStore } from '@/stores/worldStore';
@@ -50,6 +50,7 @@ import {
 } from '../ui/effect/constants';
 import { EFFECT_ESCAPE_PROMPT_LABELS } from '../ui/effect/escapeLabels';
 import { recordEntityActionSpend } from './actionSpend';
+import { changeEntityCombatState } from './entityCombatWrite';
 import { controlsEntityAsUser } from './gmApprovalRequest';
 import { openSkillCheckModal } from './skillCheckRoll';
 import { useWorldEntities } from './useWorldEntities';
@@ -231,27 +232,24 @@ function settleEscape(
   effect: ActiveEffect,
   succeeded: boolean,
 ): void {
-  const socket = useChatStore().getSocket();
-  const carrier = useWorldEntities().findCurrentDndEntity(carrierId);
-
-  if (!socket || !carrier) {
-    return;
-  }
-
   if (succeeded) {
-    const removed = new Set(
-      listEffectEscapeRemovals(effect, carrier.activeEffects ?? []),
-    );
+    changeEntityCombatState(carrierId, (carrier) => {
+      const removed = new Set(
+        listEffectEscapeRemovals(effect, carrier.activeEffects ?? []),
+      );
 
-    const aftermath = buildEscapeAftermath(effect);
+      const aftermath = buildEscapeAftermath(effect);
 
-    const kept = (carrier.activeEffects ?? []).filter(
-      (entry) => !removed.has(entry.id),
-    );
+      const kept = (carrier.activeEffects ?? []).filter(
+        (entry) => !removed.has(entry.id),
+      );
 
-    emitEntityCombatState(socket, {
-      ...carrier,
-      activeEffects: aftermath ? mergeAppliedEffects(kept, [aftermath]) : kept,
+      return {
+        ...carrier,
+        activeEffects: aftermath
+          ? mergeAppliedEffects(kept, [aftermath])
+          : kept,
+      };
     });
 
     return;
@@ -263,15 +261,25 @@ function settleEscape(
     return;
   }
 
+  let dealt = 0;
+
   // Урон «при провале» пишется ударами в копию: боевой снимок увезёт их на
   // сервер, и там сработают события урона. В чат идёт снятое на деле — после
   // защит цели и вместе с временными хитами
-  const hurt = applyDamagePartsToCopy(carrier, parts);
+  const hurt = changeEntityCombatState(carrierId, (carrier) => {
+    const result = applyDamagePartsToCopy(carrier, parts);
 
-  emitEntityCombatState(socket, hurt.entity);
+    dealt = result.dealt;
+
+    return result.entity;
+  });
+
+  if (!hurt) {
+    return;
+  }
 
   useChatStore().sendMessage(
-    `${effect.name}${EFFECT_ESCAPE_PROMPT_LABELS.failDamageMiddle}${carrier.name}${EFFECT_ESCAPE_PROMPT_LABELS.failDamageSuffix}${hurt.dealt}`,
+    `${effect.name}${EFFECT_ESCAPE_PROMPT_LABELS.failDamageMiddle}${hurt.name}${EFFECT_ESCAPE_PROMPT_LABELS.failDamageSuffix}${dealt}`,
     'text',
   );
 }

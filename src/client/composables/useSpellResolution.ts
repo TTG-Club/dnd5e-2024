@@ -28,7 +28,6 @@ import type {
 } from './spellResolutionShared';
 import type { EffectSaveResults } from './useTargetEffectResolution';
 
-import { emitEntityCombatState } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
 import { useDiceRollerStore } from '@/stores/diceRollerStore';
 import { useProjectileStore } from '@/stores/projectileStore';
@@ -77,6 +76,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { SPELL_NO_TARGETS_LABELS } from '../ui/actor/constants';
+import { changeEntityCombatState } from './entityCombatWrite';
 import {
   buildSaveDamageDefense,
   formatRolledPartLine,
@@ -249,7 +249,6 @@ export function useSpellResolution() {
    * @param damageType - тип урона (для сопротивлений)
    * @param isHealing - является ли лечением
    * @param effectsToApply - эффекты для наложения (если есть)
-   * @param socket - сокет для отправки обновления
    * @param options - дополнительные параметры применения
    * @param options.extraDamageAfterDefenses - доп. урон, уже учитывающий защиты
    *   цели (бонус-части снарядного пути — у них свои типы/защиты); добавляется
@@ -265,7 +264,6 @@ export function useSpellResolution() {
     damageType: string | undefined,
     isHealing: boolean,
     effectsToApply: ActiveEffect[] | undefined,
-    socket: SpellResolutionContext['socket'],
     options: {
       extraDamageAfterDefenses?: number;
       healTemp?: boolean;
@@ -282,111 +280,130 @@ export function useSpellResolution() {
     const extraDamageAfterDefenses = options.extraDamageAfterDefenses ?? 0;
     const healTemp = options.healTemp ?? false;
 
-    const hpBefore = resolveEntityCurrentHp(entity);
-    const maxHp = resolveEntityMaxHp(entity);
+    /**
+     * Исход по цели: хиты, защиты и наложенные эффекты. Считается от той
+     * сущности, которую получает: при записи — от свежей, из мира.
+     *
+     * @param target - цель
+     * @returns новая копия цели и итог для сводки
+     */
+    function settleTarget(target: DnDSceneEntity) {
+      const hpBefore = resolveEntityCurrentHp(target);
+      const maxHp = resolveEntityMaxHp(target);
 
-    let finalDamage = damage;
-    let defenseOutcome: DamageDefenseOutcome = 'normal';
+      let finalDamage = damage;
+      let defenseOutcome: DamageDefenseOutcome = 'normal';
 
-    // Учитываем защиты цели: иммунитет (урон 0), сопротивление (½), уязвимость (×2)
-    if (!isHealing && damageType) {
-      const defenseResult = applyDamageDefenses(
-        damage,
-        damageType,
-        resolveTargetDamageDefenses(
-          entity,
-          resolveAttackerIgnoredResistances(options.hit?.sourceId),
-        ),
-      );
+      // Учитываем защиты цели: иммунитет (урон 0), сопротивление (½), уязвимость (×2)
+      if (!isHealing && damageType) {
+        const defenseResult = applyDamageDefenses(
+          damage,
+          damageType,
+          resolveTargetDamageDefenses(
+            target,
+            resolveAttackerIgnoredResistances(options.hit?.sourceId),
+          ),
+        );
 
-      finalDamage = defenseResult.finalDamage;
-      defenseOutcome = defenseResult.outcome;
-    }
+        finalDamage = defenseResult.finalDamage;
+        defenseOutcome = defenseResult.outcome;
+      }
 
-    if (!isHealing) {
-      finalDamage += extraDamageAfterDefenses;
-    }
+      if (!isHealing) {
+        finalDamage += extraDamageAfterDefenses;
+      }
 
-    const tempBefore = resolveEntityTempHp(entity);
+      const tempBefore = resolveEntityTempHp(target);
 
-    // Запрет лечения: «не может восстанавливать хиты» / «временные хиты»
-    const healing = limitEntityHealing(entity, {
-      hitPoints: isHealing && !healTemp ? finalDamage : 0,
-      temporary: isHealing && healTemp ? finalDamage : 0,
-    });
-
-    // Урон сначала снимает временные ХП (правило 5e), лечение их не трогает;
-    // @heal.temp не лечит текущие хиты — даёт временные (ниже)
-    const hpChange = applyHpChange({
-      hpBefore,
-      maxHp,
-      tempBefore,
-      damage: isHealing ? 0 : finalDamage,
-      heal: healing.hitPoints,
-    });
-
-    // @heal.temp: временные ХП не суммируются с имеющимися — берётся большее
-    const tempAfter = Math.max(hpChange.tempAfter, healing.temporary);
-
-    const hpAfter = hpChange.hpAfter;
-
-    // Deep clone сущности для отправки через сокет.
-    // Shallow spread теряет вложенные свойства Vue reactive proxy.
-    const updatedEntity: DnDSceneEntity = JSON.parse(JSON.stringify(entity));
-
-    writeEntityHitPoints(updatedEntity, {
-      current: hpAfter,
-      temp: tempAfter,
-    });
-
-    if (!isHealing) {
-      recordDamageHit(updatedEntity, {
-        critical: false,
-        ...options.hit,
-        amount: hpBefore + tempBefore - hpAfter - tempAfter,
-        types: damageType ? [damageType] : [],
+      // Запрет лечения: «не может восстанавливать хиты» / «временные хиты»
+      const healing = limitEntityHealing(target, {
+        hitPoints: isHealing && !healTemp ? finalDamage : 0,
+        temporary: isHealing && healTemp ? finalDamage : 0,
       });
-    }
 
-    const appliedEffects: string[] = [];
+      // Урон сначала снимает временные ХП (правило 5e), лечение их не трогает;
+      // @heal.temp не лечит текущие хиты — даёт временные (ниже)
+      const hpChange = applyHpChange({
+        hpBefore,
+        maxHp,
+        tempBefore,
+        damage: isHealing ? 0 : finalDamage,
+        heal: healing.hitPoints,
+      });
 
-    if (effectsToApply && effectsToApply.length > 0) {
-      if (!updatedEntity.activeEffects) {
-        updatedEntity.activeEffects = [];
+      // @heal.temp: временные ХП не суммируются с имеющимися — берётся большее
+      const tempAfter = Math.max(hpChange.tempAfter, healing.temporary);
+
+      const hpAfter = hpChange.hpAfter;
+
+      // Deep clone сущности для отправки через сокет.
+      // Shallow spread теряет вложенные свойства Vue reactive proxy.
+      const updatedEntity: DnDSceneEntity = JSON.parse(JSON.stringify(target));
+
+      writeEntityHitPoints(updatedEntity, {
+        current: hpAfter,
+        temp: tempAfter,
+      });
+
+      if (!isHealing) {
+        recordDamageHit(updatedEntity, {
+          critical: false,
+          ...options.hit,
+          amount: hpBefore + tempBefore - hpAfter - tempAfter,
+          types: damageType ? [damageType] : [],
+        });
       }
 
-      // Один и тот же статус не стакается: повтор ЗАМЕНЯЕТ прежний (5e 2024);
-      // разные эффекты складываются.
-      const instantiated = effectsToApply.map((effect): ActiveEffect =>
-        withInitializedDuration({
-          ...effect,
-          id: generateId('effect'),
-          origin: 'spell',
-        }),
-      );
+      const appliedEffects: string[] = [];
 
-      updatedEntity.activeEffects = mergeAppliedEffects(
-        updatedEntity.activeEffects,
-        instantiated,
-      );
+      if (effectsToApply && effectsToApply.length > 0) {
+        // Один и тот же статус не стакается: повтор ЗАМЕНЯЕТ прежний (5e 2024);
+        // разные эффекты складываются.
+        const instantiated = effectsToApply.map((effect): ActiveEffect =>
+          withInitializedDuration({
+            ...effect,
+            id: generateId('effect'),
+            origin: 'spell',
+          }),
+        );
 
-      for (const effect of instantiated) {
-        appliedEffects.push(effect.name);
+        updatedEntity.activeEffects = mergeAppliedEffects(
+          updatedEntity.activeEffects ?? [],
+          instantiated,
+        );
+
+        for (const effect of instantiated) {
+          appliedEffects.push(effect.name);
+        }
       }
+
+      return {
+        updatedEntity,
+        outcome: {
+          hpBefore,
+          hpAfter,
+          finalDamage,
+          tempHpGained: Math.max(0, tempAfter - hpChange.tempAfter),
+          defenseOutcome,
+          appliedEffects,
+        },
+      };
     }
+
+    let settled: ReturnType<typeof settleTarget> | undefined;
 
     // Боевым каналом, а НЕ полной заменой сущности: цель почти всегда чужая, а
-    // замену целиком сервер принимает только от владельца и ГМа.
-    emitEntityCombatState(socket, updatedEntity);
+    // замену целиком сервер принимает только от владельца и ГМа. Цель
+    // перечитывается в момент записи: между подтверждением броска и записью
+    // бывает ожидание спасброска, и копия из списка устарела бы
+    changeEntityCombatState(entity.id, (current) => {
+      settled = settleTarget(current);
 
-    return {
-      hpBefore,
-      hpAfter,
-      finalDamage,
-      tempHpGained: Math.max(0, tempAfter - hpChange.tempAfter),
-      defenseOutcome,
-      appliedEffects,
-    };
+      return settled.updatedEntity;
+    });
+
+    // Записи не было (соединение, цель исчезла) — сводка всё равно нужна
+    return (settled ?? settleTarget(entity)).outcome;
   }
 
   /**
@@ -414,7 +431,7 @@ export function useSpellResolution() {
       critical?: boolean;
     } = {},
   ): SpellTargetResult {
-    const { spell, damageTotal, spellSaveDC, socket } = context;
+    const { spell, damageTotal, spellSaveDC } = context;
     const bonusParts = options.bonusParts ?? [];
 
     let finalDamage = damageTotal;
@@ -490,7 +507,6 @@ export function useSpellResolution() {
       resolvedDamageType,
       isHealingSpell,
       effectsToApply,
-      socket,
       {
         extraDamageAfterDefenses: bonusDamage,
         healTemp: healsTempHp,

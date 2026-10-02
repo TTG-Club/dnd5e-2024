@@ -4,8 +4,6 @@ import type { ActiveEffect, ConditionRef } from '@vtt/shared/system/dnd.js';
 
 import { computed } from 'vue';
 
-import { emitEntityCombatState } from '@/core/entityUtils';
-import { useChatStore } from '@/stores/chatStore';
 import {
   buildConditionActiveEffect,
   isEffectDormant,
@@ -13,7 +11,7 @@ import {
   withInitializedDuration,
 } from '@vtt/shared/system/dnd.js';
 
-import { useWorldEntities } from './useWorldEntities';
+import { changeEntityCombatState } from './entityCombatWrite';
 
 /** Что нужно хуку: откуда читать эффекты и куда отдавать изменённый список */
 export interface EntityActiveEffectsOptions {
@@ -97,19 +95,12 @@ export function removeEntityCondition(
   entityId: string,
   key: ConditionRef,
 ): boolean {
-  const socket = useChatStore().getSocket();
-  const entity = useWorldEntities().findCurrentDndEntity(entityId);
-
-  if (!socket || !entity) {
-    return false;
-  }
-
-  emitEntityCombatState(socket, {
-    ...entity,
-    activeEffects: dropConditionEffects(entity.activeEffects ?? [], key),
-  });
-
-  return true;
+  return (
+    changeEntityCombatState(entityId, (entity) => ({
+      ...entity,
+      activeEffects: dropConditionEffects(entity.activeEffects ?? [], key),
+    })) !== null
+  );
 }
 
 /**

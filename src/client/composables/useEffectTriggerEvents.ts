@@ -5,12 +5,9 @@ import type {
   EffectTriggerAttackRole,
 } from '@vtt/shared/system/dnd.js';
 
-import { emitEntityCombatState } from '@/core/entityUtils';
-import { useChatStore } from '@/stores/chatStore';
 import { useProjectileStore } from '@/stores/projectileStore';
 import { useTargetStore } from '@/stores/targetStore';
 import { useWorldStore } from '@/stores/worldStore';
-import { isActorEntity, isCreatureEntity } from '@vtt/shared';
 import {
   buildAttackRollEvent,
   hasServerAttackRollTriggers,
@@ -24,6 +21,7 @@ import {
   resolveActiveTurnActorId,
   resolveCombatRound,
 } from './encounterTurn';
+import { changeEntityCombatState } from './entityCombatWrite';
 import { emitSystemClientEvent } from './systemClientEvents';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -109,60 +107,32 @@ function settleAttackRollSide(
   attackType?: IncomingAttackContext['attackType'],
 ): void {
   const { entityId, role } = side;
-  const current = findDndWorldEntity(entityId);
-
-  if (!current) {
-    return;
-  }
-
-  // Deep clone: shallow spread теряет вложенные Vue reactive-свойства
-  const updated: DnDSceneEntity = JSON.parse(JSON.stringify(current));
-
-  const result = runAttackRollTriggers(updated, role, {
-    inCombat: isEntityInCombat(entityId),
-    activeTurnActorId: resolveActiveTurnActorId(),
-    combatRound: resolveCombatRound(),
-    other: side.otherId ? findDndWorldEntity(side.otherId) : undefined,
-    roll: {
-      hasAdvantage: rollMode === 'advantage',
-      hasDisadvantage: rollMode === 'disadvantage',
-    },
-    ...(attackType
-      ? { attack: { kinds: toTriggerAttackKinds(attackType) } }
-      : {}),
-  });
-
-  if (!result.changed) {
-    return;
-  }
-
-  // Снятие — в КАНОНИЧЕСКОЙ сущности стора: оркестратор урона позже клонирует
-  // ту же сущность цели для своего эмита, и без локального снятия его полный
-  // снимок вернул бы эффект обратно. Расход идёт ДО броска, поэтому хиты тут
-  // ещё прежние — запись с уроном делает оркестратор по уже очищенной сущности.
-  const worldStore = useWorldStore();
-  const worldId = worldStore.connectionState.currentWorldId;
-
-  const patch = {
-    activeEffects: updated.activeEffects,
-    ...(result.usageChanged ? { system: updated.system } : {}),
-  };
-
-  if (worldId) {
-    if (isActorEntity(updated)) {
-      worldStore.updateActor(worldId, entityId, patch);
-    } else if (isCreatureEntity(updated)) {
-      worldStore.updateCreature(worldId, entityId, patch);
-    }
-  }
-
-  const socket = useChatStore().getSocket();
 
   // Боевым каналом: снятие с ЦЕЛИ сервер принимает только так — полную замену
-  // чужой сущности он берёт лишь от владельца
-  if (socket) {
-    emitEntityCombatState(socket, updated);
-  }
+  // чужой сущности он берёт лишь от владельца. Снимок несёт разницу эффектов:
+  // запись урона, которую оркестратор соберёт позже из стора (ответ сервера
+  // ещё не пришёл), снятый здесь эффект не вернёт — правка стора на месте
+  // для этого больше не нужна
+  changeEntityCombatState(entityId, (current) => {
+    // Deep clone: shallow spread теряет вложенные Vue reactive-свойства
+    const updated: DnDSceneEntity = JSON.parse(JSON.stringify(current));
+
+    const result = runAttackRollTriggers(updated, role, {
+      inCombat: isEntityInCombat(entityId),
+      activeTurnActorId: resolveActiveTurnActorId(),
+      combatRound: resolveCombatRound(),
+      other: side.otherId ? findDndWorldEntity(side.otherId) : undefined,
+      roll: {
+        hasAdvantage: rollMode === 'advantage',
+        hasDisadvantage: rollMode === 'disadvantage',
+      },
+      ...(attackType
+        ? { attack: { kinds: toTriggerAttackKinds(attackType) } }
+        : {}),
+    });
+
+    return result.changed ? updated : null;
+  });
 }
 
 /**

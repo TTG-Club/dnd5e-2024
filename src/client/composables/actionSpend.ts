@@ -20,10 +20,10 @@ import type {
   RestrictedActionCost,
 } from '@vtt/shared/system/dnd.js';
 
-import { emitEntityCombatState } from '@/core/entityUtils';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import {
+  cloneEntityData,
   formatActionCostBlock,
   isRestrictedActionCost,
   planWeaponAttack,
@@ -41,6 +41,7 @@ import {
   WEAPON_ATTACK_COST_PROMPT_LABELS,
 } from '../ui/effect/constants';
 import { isEntityOwnTurn, resolveCombatRound } from './encounterTurn';
+import { changeEntityCombatState } from './entityCombatWrite';
 import { listAmbientEffects } from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -96,30 +97,28 @@ export function recordEntityActionSpend(
     return;
   }
 
-  const entity = useWorldEntities().findCurrentDndEntity(entityId);
+  changeEntityCombatState(entityId, (entity) => {
+    // Удар вне своего хода — реакция: ни действием, ни атакой хода не считается
+    const spendCost =
+      attack && isRestrictedActionCost(cost)
+        ? resolveAttackCost(cost, isEntityOwnTurn(entity.id))
+        : cost;
 
-  // Удар вне своего хода — реакция: ни действием, ни атакой хода не считается
-  const spendCost =
-    entity && attack && isRestrictedActionCost(cost)
-      ? resolveAttackCost(cost, isEntityOwnTurn(entity.id))
-      : cost;
+    const ledger = recordActionSpend(entity, spendCost, {
+      attack,
+      ambientEffects: listAmbientEffects(entity.id),
+    });
 
-  const ledger = entity
-    ? recordActionSpend(entity, spendCost, {
-        attack,
-        ambientEffects: listAmbientEffects(entity.id),
-      })
-    : undefined;
+    if (!ledger) {
+      return null;
+    }
 
-  const socket = useChatStore().getSocket();
+    // Копия: живую запись стора меняет только ответ сервера
+    const spent = cloneEntityData(entity);
 
-  if (!entity || !ledger || !socket) {
-    return;
-  }
+    spent.system.effectUsage = ledger;
 
-  emitEntityCombatState(socket, {
-    ...entity,
-    system: { ...entity.system, effectUsage: ledger },
+    return spent;
   });
 }
 

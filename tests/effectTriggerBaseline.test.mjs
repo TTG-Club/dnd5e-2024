@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 import { describe, it } from 'vitest';
 
+import { loadChangeEntityCombatState } from './helpers/combatWrite.mjs';
 import { loadHandler } from './helpers/sourceHandler.mjs';
 import {
   createActor,
@@ -212,8 +213,11 @@ describe('фиксация: расход эффекта на броске ата
           updateCreature: (_worldId, id, patch) =>
             storeUpdates.push([id, patch]),
         }),
-        useChatStore: () => ({ getSocket: () => ({}) }),
-        emitEntityCombatState: (_socket, entity) => emitted.push(entity),
+        changeEntityCombatState: await loadChangeEntityCombatState({
+          findEntity: (id) => world.get(id),
+          emitted,
+          recordEffectsBaseline: engine.recordEffectsBaseline,
+        }),
         JSON,
       },
     );
@@ -241,9 +245,19 @@ describe('фиксация: расход эффекта на броске ата
       JSON.stringify(['vex']),
     );
 
+    // Стор на месте больше не правится: снимок несёт разницу эффектов, и
+    // запись урона, собранная позже из стора, снятый эффект не вернёт
+    assert.deepEqual(storeUpdates, []);
+
     assert.equal(
-      JSON.stringify(storeUpdates),
-      JSON.stringify([[hero.id, { activeEffects: [vex] }]]),
+      JSON.stringify(engine.diffEffects([sap, vex], emitted[0].activeEffects)),
+      JSON.stringify({ add: [], update: [], removeIds: ['sap'] }),
+    );
+
+    assert.equal(
+      JSON.stringify(engine.pickCombatState(emitted[0]).effectChanges),
+      JSON.stringify({ add: [], update: [], removeIds: ['sap'] }),
+      'снимок несёт разницу от сущности мира',
     );
 
     assert.equal(

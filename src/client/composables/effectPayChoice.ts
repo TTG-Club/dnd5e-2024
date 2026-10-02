@@ -23,7 +23,7 @@ import type {
   SelfTriggerReport,
 } from '@vtt/shared/system/dnd.js';
 
-import { emitEntityCombatState, emitEntityUpdate } from '@/core/entityUtils';
+import { emitEntityUpdate } from '@/core/entityUtils';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import { generateId } from '@vtt/shared';
@@ -48,6 +48,7 @@ import {
   EFFECT_PAY_PROMPT_MODAL,
 } from '../ui/effect/payLabels';
 import { askCastLevel } from './castLevelPrompt';
+import { sendComputedCombatState } from './entityCombatWrite';
 import { useWorldEntities } from './useWorldEntities';
 
 /** Что и чем оплачивают */
@@ -375,5 +376,5 @@ export function emitActedEntity(
     emitEntityUpdate(socket, withSheetResources(before, acted));
   }
 
-  emitEntityCombatState(socket, acted);
+  sendComputedCombatState(before, acted);
 }

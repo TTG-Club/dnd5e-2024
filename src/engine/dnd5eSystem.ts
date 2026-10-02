@@ -85,6 +85,7 @@ import { syncAutoAppliedConditions } from './autoConditions.js';
 import { normalizeActor, normalizeCreature } from './calculations.js';
 import { resolveClassLabel } from './classLabels.js';
 import { CLASS_KEY_OPTIONS } from './classTypes.js';
+import { recordEffectsBaseline } from './combatEffectChanges.js';
 import {
   listConcentrationEffects,
   withoutCastEffects,
@@ -2479,6 +2480,11 @@ export class Dnd5eVttSystem implements VttSystem {
       return { actorName: entity.name, hpBefore: 0, hpAfter: 0 };
     }
 
+    // Ядро правит здесь свою копию цели и шлёт её боевым снимком: основа
+    // копии превращает снимок в разницу эффектов, и конец каста, снявший
+    // эффекты после копии, не откатывается
+    recordEffectsBaseline(entity, entity.activeEffects ?? []);
+
     return applyTargetDamageImpl(
       entity,
       amount,
@@ -2501,6 +2507,9 @@ export class Dnd5eVttSystem implements VttSystem {
     if (!isDndSceneEntity(entity) || !isEffectOrigin(origin)) {
       return entity.activeEffects ?? [];
     }
+
+    // Основа — до правки списка: ядро присвоит копии итог и пошлёт её снимком
+    recordEffectsBaseline(entity, entity.activeEffects ?? []);
 
     return applyEffectsToEntityImpl(
       entity,

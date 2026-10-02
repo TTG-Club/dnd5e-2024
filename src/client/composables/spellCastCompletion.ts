@@ -16,7 +16,6 @@ import type {
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
-import { emitEntityCombatState } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
 import { useWorldStore } from '@/stores/worldStore';
 import { resolveGridCellSize } from '@vtt/shared';
@@ -37,6 +36,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { resolveCombatRound } from './encounterTurn';
+import { changeEntityCombatState } from './entityCombatWrite';
 import {
   requestEndCasts,
   resolveSpellCastId,
@@ -177,19 +177,19 @@ export function landCasterEventEffects(
   caster: DnDSceneEntity,
   effects: readonly ActiveEffect[],
 ): boolean {
-  const socket = useChatStore().getSocket();
-
-  if (effects.length === 0 || !socket) {
+  if (effects.length === 0) {
     return false;
   }
 
-  // Копия: живую запись стора меняет только ответ сервера
-  emitEntityCombatState(socket, {
-    ...caster,
-    activeEffects: mergeAppliedEffects(caster.activeEffects ?? [], effects),
-  });
-
-  return true;
+  // Заклинатель перечитывается в момент записи; копия — живую запись стора
+  // меняет только ответ сервера. Снимок несёт разницу: прежние эффекты,
+  // снятые сервером концом прежнего каста, не возвращаются
+  return (
+    changeEntityCombatState(caster.id, (current) => ({
+      ...current,
+      activeEffects: mergeAppliedEffects(current.activeEffects ?? [], effects),
+    })) !== null
+  );
 }
 
 /**

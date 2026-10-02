@@ -3,7 +3,6 @@ import type { DnDSceneEntity, Spell } from '@vtt/shared/system/dnd.js';
 
 import type { SpellEffectTargetProblem } from '../ui/actor/constants';
 
-import { emitEntityCombatState } from '@/core/entityUtils';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import { useProjectileStore } from '@/stores/projectileStore';
@@ -28,6 +27,7 @@ import {
   SPELL_EFFECT_TARGET_MODE,
   SPELL_TARGETS_MODAL_KEY_PREFIX,
 } from '../ui/actor/constants';
+import { changeEntityCombatState } from './entityCombatWrite';
 import { resolveSpellCastId, resolveSpellCastLevel } from './spellCasts';
 import {
   getTargetSpellEffects,
@@ -103,9 +103,7 @@ function applyTargetEffectsToEntities(
   casterId: string,
   entities: readonly DnDSceneEntity[],
 ): void {
-  const socket = useChatStore().getSocket();
-
-  if (!socket) {
+  if (!useChatStore().getSocket()) {
     return;
   }
 
@@ -127,9 +125,13 @@ function applyTargetEffectsToEntities(
       }),
     );
 
-    const activeEffects = applyEffectsToEntity(entity, targetEffects, 'spell');
+    // Цель перечитывается в момент записи, а снимок несёт разницу: эффекты
+    // прежнего каста, снятые сервером после выбора целей, не возвращаются
+    changeEntityCombatState(entity.id, (current) => ({
+      ...current,
+      activeEffects: applyEffectsToEntity(current, targetEffects, 'spell'),
+    }));
 
-    emitEntityCombatState(socket, { ...entity, activeEffects });
     names.push(entity.name);
   }
 

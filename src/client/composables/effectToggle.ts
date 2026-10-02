@@ -19,7 +19,7 @@ import type {
   EffectPaid,
 } from '@vtt/shared/system/dnd.js';
 
-import { emitEntityCombatState, emitEntityUpdate } from '@/core/entityUtils';
+import { emitEntityUpdate } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
 import { isActorEntity } from '@vtt/shared';
 import {
@@ -44,6 +44,7 @@ import {
 } from './effectPayChoice';
 import { runWithEffectVariants } from './effectVariantChoice';
 import { resolveCombatRound } from './encounterTurn';
+import { changeEntityCombatState } from './entityCombatWrite';
 import { stampEffectOnApply } from './spellResolutionShared';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -127,12 +128,12 @@ export function toggleEntityEffect(entityId: string, effectId: string): void {
   );
 
   if (switchedOnIds.size > 0) {
-    emitEntityCombatState(socket, {
-      ...entity,
-      activeEffects: effects.map((entry) =>
+    changeEntityCombatState(entityId, (current) => ({
+      ...current,
+      activeEffects: (current.activeEffects ?? []).map((entry) =>
         switchedOnIds.has(entry.id) ? switchOffEffect(entry) : entry,
       ),
-    });
+    }));
 
     return;
   }
