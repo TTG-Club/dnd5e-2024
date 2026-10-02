@@ -43,6 +43,7 @@
   import { CLASS_WIZARD_LABELS, LEVEL_BADGE_SUFFIX } from '../../constants';
   import FeatChoicesFields from '../../feat/FeatChoicesFields.vue';
   import WizardFeatPicker from '../../feat/WizardFeatPicker.vue';
+  import ClassFeatureChoicesView from '../ClassFeatureChoicesView.vue';
   import { SKILL_LABELS } from './constants';
   import WizardFeatureChoicePicker from './WizardFeatureChoicePicker.vue';
   import WizardSpellChip from './WizardSpellChip.vue';
@@ -109,12 +110,32 @@
     props.rows.map((row) => ({
       row,
       badge: rowBadge(row),
+      referenceHint: referenceHint(row),
       skillOptions: skillOptions(row),
       grantedSpells: (props.grantedSpells ?? []).filter(
         (granted) => granted.featureName === row.name,
       ),
     })),
   );
+
+  /**
+   * Пояснение справочного списка вариантов: выбирать из него нечего, а записи
+   * вариантов со своей механикой лягут на лист сами — их игроку и называют.
+   *
+   * @param row - строка уровня
+   * @returns пояснение; `null` — справочного списка у строки нет
+   */
+  function referenceHint(row: WizardLevelRow): string | null {
+    if (!row.referenceChoices.length && !row.referenceGrantNames.length) {
+      return null;
+    }
+
+    return row.referenceGrantNames.length
+      ? CLASS_WIZARD_LABELS.referenceListHint
+          + CLASS_WIZARD_LABELS.referenceGrantsPrefix
+          + row.referenceGrantNames.join(', ')
+      : CLASS_WIZARD_LABELS.referenceListHint;
+  }
 
   /**
    * Навыки, из которых выбирает умение: пустой пул записи означает «любой
@@ -419,6 +440,15 @@
           {{ CLASS_WIZARD_LABELS.reopenedHint }}
         </p>
 
+        <!-- Справочный список: выбирать нечего, механика вариантов ложится
+          на лист сама -->
+        <p
+          v-if="view.referenceHint"
+          class="text-xs text-dimmed"
+        >
+          {{ view.referenceHint }}
+        </p>
+
         <!-- Выборы идут ПЕРЕД описанием: у «Использования заклинаний» описание
           на полстраницы, и вопрос под ним игрок находил, только пролистав
           правила, ради которых карточку не открывал -->
@@ -513,6 +543,13 @@
           v-if="row.description"
           :content="row.description"
           class="text-muted"
+        />
+
+        <!-- Справочный список читают вместе с правилами умения: описание
+          отсылает к нему («мутации из списка ниже») -->
+        <ClassFeatureChoicesView
+          v-if="row.referenceChoices.length"
+          :choices="row.referenceChoices"
         />
       </div>
     </div>

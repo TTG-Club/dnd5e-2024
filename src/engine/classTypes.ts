@@ -243,7 +243,9 @@ export interface ClassFeatureChoice {
    * Активные эффекты варианта: то, что он меняет на листе готовой формулой.
    *
    * Ложатся на актора, только когда вариант выбран, — в эффектах самого умения
-   * они достались бы игроку вместе с воззванием, которого он не брал.
+   * они достались бы игроку вместе с воззванием, которого он не брал. У
+   * справочного списка выбирать нечего: там эффекты и дары каждого открытого
+   * варианта достаются владельцу умения (`collectReferenceOptionGrants`).
    */
   activeEffects?: ActiveEffect[];
   /**
@@ -265,10 +267,10 @@ export interface ClassFeatureChoice {
  * Настройка выбора из {@link ClassFeature.choices}: сколько вариантов берут и
  * как это число растёт по уровням класса.
  *
- * Поля нет у умения, список вариантов которого справочный, — такие варианты
- * только показываются описанием. Так же выгружает их компендиум TTG Club
- * ({@code VttgClass.ChoiceConfig}): пока настройки нет, потребитель ведёт себя
- * как прежде и спрашивает один вариант.
+ * Поля нет у умения, список вариантов которого справочный
+ * ({@link isReferenceClassFeatureChoices}): мастер уровня из такого списка
+ * ничего не спрашивает. Так же выгружает их компендиум TTG Club
+ * ({@code VttgClass.ChoiceConfig}) и так же читает список сайт.
  */
 export interface ClassFeatureChoiceConfig {
   /** Подпись выбора («Таинственные воззвания») */
@@ -323,8 +325,8 @@ export interface ClassFeature {
   choices?: ClassFeatureChoice[];
   /**
    * Настройка выбора из {@link choices}: сколько вариантов берут и как число
-   * растёт по уровням. Нет — список справочный либо выбирают ровно один
-   * вариант, как было до её появления.
+   * растёт по уровням. Нет — список справочный: выбирать из него не нужно
+   * ({@link isReferenceClassFeatureChoices}).
    */
   choiceConfig?: ClassFeatureChoiceConfig;
   /**
@@ -813,7 +815,7 @@ export function isAsiFeatureInClass(
  * @returns варианты уровня; `undefined` — у умения списка нет
  */
 export function openClassFeatureChoices(
-  feature: ClassFeature,
+  feature: Pick<ClassFeature, 'choices'>,
   classLevel: number,
 ): ClassFeatureChoice[] | undefined {
   if (!feature.choices) {
@@ -826,16 +828,37 @@ export function openClassFeatureChoices(
 }
 
 /**
+ * Справочный ли список вариантов умения: варианты есть, а настройки выбора нет.
+ *
+ * Из справочного списка игрок ничего не берёт насовсем: «Мутирующая форма»
+ * друида круга мутации перечисляет 18 мутаций, и друид каждый раз получает
+ * любые из них за очки. Спрашивать «выберите одну» у такого списка — значит
+ * выдумать выбор, которого в правилах нет. Признак тот же, что у сайта и у
+ * выгрузки TTG Club: выбираемый список несёт настройку, справочный — нет.
+ *
+ * @param feature - умение класса или подкласса
+ * @returns `true` — варианты есть и из них не выбирают
+ */
+export function isReferenceClassFeatureChoices(
+  feature: Pick<ClassFeature, 'choices' | 'choiceConfig'>,
+): boolean {
+  return Boolean(feature.choices?.length) && !feature.choiceConfig;
+}
+
+/**
  * Сколько вариантов умения выбрано ВСЕГО к уровню класса.
  *
  * Ступени {@link ClassFeatureChoiceConfig.progression} называют итог к своему
  * уровню, а не прибавку: у колдуна одно воззвание с первого уровня и три со
- * второго. Без настройки выбора умение спрашивает ровно один вариант — так его
- * читали до её появления, и записи старых паков ведут себя как прежде.
+ * второго. Без настройки выбора список справочный
+ * ({@link isReferenceClassFeatureChoices}) и не спрашивает ничего: до 0.8.192
+ * такой список спрашивал один вариант, и мастер уровня требовал выбрать одну
+ * мутацию из списка, из которого по правилам не выбирают.
  *
  * @param feature - умение класса или подкласса
  * @param classLevel - уровень класса
- * @returns сколько вариантов выбрано всего; ноль — умения ещё нет
+ * @returns сколько вариантов выбрано всего; ноль — умения ещё нет либо список
+ *   справочный
  */
 export function classFeatureChoiceTotalAt(
   feature: ClassFeature,
@@ -848,7 +871,7 @@ export function classFeatureChoiceTotalAt(
   const config = feature.choiceConfig;
 
   if (!config) {
-    return 1;
+    return 0;
   }
 
   let total = config.count ?? 1;
