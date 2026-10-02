@@ -605,7 +605,8 @@ it('feat resource with progression and no max formula', () => {
     level3[1],
   ]);
 
-  assert.equal(`${level7[0].current}/${level7[0].max}`, '1/3');
+  // Максимум вырос на один — текущее тоже, потраченное остаётся потраченным
+  assert.equal(`${level7[0].current}/${level7[0].max}`, '2/3');
   assert.equal(warn.mock.calls.length, 0);
 });
 

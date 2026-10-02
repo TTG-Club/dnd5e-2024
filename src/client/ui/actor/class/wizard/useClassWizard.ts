@@ -83,6 +83,7 @@ import {
   raiseTokenDarkvision,
   refreshCounterMaxima,
   refreshFeatCounters,
+  resizeCounterCurrent,
   resolveChosenAbilities,
   resolveChosenDamageDefenses,
   SKILLS_LIST,
@@ -716,8 +717,10 @@ function refreshClassCounter(
     ...(hasOwnRest ? {} : counterDefinitionRest(definition)),
     recovery: counter.recovery ?? definition.recovery,
     max,
-    // Текущее значение не может превышать новый максимум
-    current: Math.min(counter.current, max),
+    // Текущее растёт вместе с максимумом, как хиты, и обрезается при его
+    // падении. Второй проход мастера (`refreshCounterMaxima`) видит уже новый
+    // максимум — рост не прибавляется дважды
+    current: resizeCounterCurrent(counter, max, definition),
     // Название у счётчиков прежних лет не сохранялось и подставлялось только
     // при показе
     name: counter.name?.trim() ? counter.name : definition.name,

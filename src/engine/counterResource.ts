@@ -650,7 +650,8 @@ function counterSignature(counter: ActorCounterState | undefined): string {
 }
 
 /**
- * Пересчитывает максимумы счётчиков с формулой, подрезая остаток.
+ * Пересчитывает максимумы счётчиков с формулой; текущее растёт вместе с
+ * максимумом и обрезается при падении ({@link resizeCounterCurrent}).
  *
  * Нужен при повышении уровня: у ресурса с максимумом по бонусу мастерства он
  * обязан вырасти вместе с ним, а у ресурса, максимум которого упал, в списке
@@ -673,7 +674,13 @@ export function refreshCounterMaxima(
 
     const max = resolveCounterMaxIn(context, counter);
 
-    return { ...counter, max, current: clamp(counter.current, 0, max) };
+    return {
+      ...counter,
+      max,
+      current: resizeCounterCurrent(counter, max, {
+        startsEmpty: counterFillsByAction(counter),
+      }),
+    };
   });
 }
 
@@ -859,6 +866,52 @@ export function initialCounterCurrent(
   max: number,
 ): number {
   return definition.startsEmpty === true ? COUNTER_COUNT_MIN : max;
+}
+
+/**
+ * Текущее значение счётчика при смене максимума — как у хитов на повышении
+ * уровня: максимум вырос на Δ — текущее растёт на Δ (потраченное остаётся
+ * потраченным: 3/5 → 18/20), упал — обрезается.
+ *
+ * Прежние правила остаются у двух: у ресурса «появляется пустым» (его набирают
+ * действием, и рост максимума его не наполняет) и у счётчика, чей прежний
+ * максимум был 0, — «0 из 0» ничего не тратило, и ресурс приходит как новый
+ * ({@link initialCounterCurrent}).
+ *
+ * @param previous - счётчик до пересчёта: текущее и прежний максимум
+ * @param nextMax - новый максимум
+ * @param definition - ресурс «появляется пустым»
+ * @returns новое текущее значение
+ */
+export function resizeCounterCurrent(
+  previous: Pick<ActorCounterState, 'current' | 'max'>,
+  nextMax: number,
+  definition: CounterDefinitionExtras = {},
+): number {
+  if (previous.max <= COUNTER_COUNT_MIN) {
+    return initialCounterCurrent(definition, nextMax);
+  }
+
+  const growth =
+    definition.startsEmpty === true ? 0 : Math.max(0, nextMax - previous.max);
+
+  return clamp(previous.current + growth, COUNTER_COUNT_MIN, nextMax);
+}
+
+/**
+ * Набирается ли ресурс только действием: ни короткий, ни продолжительный
+ * отдых ему ничего не возвращает. Такой ресурс на листе ведёт себя как
+ * «появляется пустым» — у счётчика листа своего признака для этого нет.
+ *
+ * @param counter - счётчик листа
+ * @returns `true`, если отдых его не наполняет
+ */
+export function counterFillsByAction(
+  counter: Pick<ActorCounterState, 'recovery' | 'shortRest' | 'longRest'>,
+): boolean {
+  const rules = getCounterRecoveryRules(counter);
+
+  return rules.shortRest.mode === 'none' && rules.longRest.mode === 'none';
 }
 
 /**

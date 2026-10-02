@@ -45,6 +45,7 @@ import {
   evaluateCounterMaxFormula,
   initialCounterCurrent,
   progressionCounterMax,
+  resizeCounterCurrent,
   withCounterMinimum,
 } from './counterResource.js';
 import {
@@ -1040,13 +1041,13 @@ export function buildFeatCounters(
           && counter.counterKey === definition.key,
       );
 
-      // Потраченное бережём только у ресурса, который уже был: «0 из 0» ничего
-      // не тратило, и появившийся на новой ступени заряд обязан прийти целым —
+      // Потраченное бережём только у ресурса, который уже был, а рост
+      // максимума прибавляет к текущему, как у хитов. «0 из 0» ничего не
+      // тратило, и появившийся на новой ступени заряд обязан прийти целым —
       // либо пустым, если так записан сам ресурс
-      const current =
-        previous && previous.max > COUNTER_COUNT_MIN
-          ? Math.min(previous.current, max)
-          : initialCounterCurrent(definition, max);
+      const current = previous
+        ? resizeCounterCurrent(previous, max, definition)
+        : initialCounterCurrent(definition, max);
 
       return {
         counterKey: definition.key,
