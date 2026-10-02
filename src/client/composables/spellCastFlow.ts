@@ -18,7 +18,6 @@
 import type { MeasurementTemplate } from '@vtt/shared';
 import type {
   DnDActor,
-  DnDSceneEntity,
   RollContext,
   Spell,
   SpellCastPlan,
@@ -56,6 +55,7 @@ import {
   getSpellProjectileCount,
   getTotalLevel,
   hasTargetToken,
+  isDndActor,
   isDndSceneEntity,
   isTargetAtFullHp,
   limitCastLevels,
@@ -76,6 +76,8 @@ import {
   spellIsHealing,
   withFlatDamageBonus,
   withFlatFormulaBonus,
+  withSpentSpellSlot,
+  withSpentSpellUse,
 } from '@vtt/shared/system/dnd.js';
 
 import {
@@ -94,6 +96,7 @@ import {
 } from './damageTypeChoice';
 import { openDiceRollWindow } from './diceRollWindow';
 import { runWithEffectVariants } from './effectVariantChoice';
+import { changeEntitySheet } from './entitySheetWrite';
 import {
   buildRollBonusEvaluator,
   collectProjectileRollBonuses,
@@ -134,9 +137,9 @@ export interface SpellCastRefusal {
 }
 
 /**
- * Всё, чем входы каста различаются. Лист пишет ресурсы своим сохранением
- * (черновик листа иначе затёр бы запись), горячая панель — помощником записи
- * листа; лист отказывает уведомлением, панель — строкой в чат.
+ * Заклинатель общего разбора каста. Входы (лист, горячая панель) собирают его
+ * одной фабрикой {@link createSpellCasterPort} и различаются только отказом:
+ * лист — уведомлением, панель — строкой в чат.
  */
 export interface SpellCasterPort {
   /** Заклинатель */
@@ -147,13 +150,52 @@ export interface SpellCasterPort {
   spendSlot: (castLevel: number, isPactSlot: boolean) => void;
   /** Списывает заряд заклинания с зарядами (врождённого) */
   spendUse: (spell: Spell) => void;
-  /**
-   * Записывает лист после оплаты цены каста. Нет — оплата пишется обычной
-   * записью листа сущности мира
-   */
-  commitPaid?: (paidCaster: DnDSceneEntity) => void;
   /** Каст не начался: говорит почему */
   refuse: (spell: Spell, refusal: SpellCastRefusal) => void;
+}
+
+/**
+ * Заклинатель мира: лист читается из мира в момент обращения, ячейка и заряд
+ * пишутся помощником записи листа из свежей сущности.
+ *
+ * Не через `emit` и `props` компонента: ячейку списывает бросок окна, а окно
+ * живёт в менеджере окон и переживает вкладку и лист — `emit`
+ * размонтированного компонента ничего не делает, и каст проходил бы даром.
+ * Черновик листа в режиме правки — правка владельцем; каст идёт от мира.
+ *
+ * @param actorId - заклинатель
+ * @param refuse - отказ входа: лист — уведомлением, панель — в чат
+ * @returns порт заклинателя
+ */
+export function createSpellCasterPort(
+  actorId: string,
+  refuse: SpellCasterPort['refuse'],
+): SpellCasterPort {
+  return {
+    casterId: actorId,
+    readCaster: () => {
+      const caster = useWorldEntities().findCurrentDndEntity(actorId);
+
+      return caster && isDndActor(caster) ? caster : undefined;
+    },
+    spendSlot: (castLevel, isPactSlot) => {
+      changeEntitySheet(actorId, (caster) =>
+        isDndActor(caster)
+          ? {
+              ...caster,
+              system: withSpentSpellSlot(caster.system, castLevel, isPactSlot),
+            }
+          : null,
+      );
+    },
+    spendUse: (spell) => {
+      changeEntitySheet(actorId, (caster) => ({
+        ...caster,
+        spells: withSpentSpellUse(caster.spells ?? [], spell.id),
+      }));
+    },
+    refuse,
+  };
 }
 
 /** Где шаблон области каста */
@@ -491,7 +533,6 @@ export function proceedWithSpellCast(
     {
       ...(lockedLevel === undefined ? {} : { lockedLevel }),
       availableLevels: resolveCastableSpellLevels(caster, sourceSpell),
-      ...(port.commitPaid ? { commit: port.commitPaid } : {}),
       spendTurn: () => spendSpellCastTurn(sourceSpell, port),
     },
     (spell, castLevel) => {

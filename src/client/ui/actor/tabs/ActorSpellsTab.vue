@@ -9,7 +9,6 @@
     DnDActor,
     DnDCustomBonusContext,
     DnDPreparedLimit,
-    DnDSceneEntity,
     DnDSpellSlotSettings,
     PreparedKind,
     Spell,
@@ -27,7 +26,7 @@
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useChatStore } from '@/stores/chatStore';
   import { useHotbarStore } from '@/stores/hotbarStore';
-  import { generateId, isActorEntity } from '@vtt/shared';
+  import { generateId } from '@vtt/shared';
   import {
     applySpellSlotSettings,
     buildCasterTypeMap,
@@ -58,8 +57,6 @@
     SPELL_SCHOOL_LABELS,
     SPELL_USES_RECOVERY_LABELS,
     syncClassGrantedSpells,
-    withSpentSpellSlot,
-    withSpentSpellUse,
   } from '@vtt/shared/system/dnd.js';
 
   import {
@@ -67,7 +64,10 @@
     formatDamageTileFormula,
     useDamageTypeLabel,
   } from '../../../composables/damageTypeChoice';
-  import { startSpellCast } from '../../../composables/spellCastFlow';
+  import {
+    createSpellCasterPort,
+    startSpellCast,
+  } from '../../../composables/spellCastFlow';
   import { useClassCatalog } from '../../../composables/useClassCatalog';
   import { useCompendiumWarmup } from '../../../composables/useCompendiumWarmup';
   import { listAmbientEffects } from '../../../composables/useResolvedStats';
@@ -1350,33 +1350,20 @@
   }
 
   /**
-   * Заклинатель-лист для общего разбора каста: читается черновик листа, ячейка,
-   * заряд и оплата пишутся сохранением листа (иначе следующее сохранение
-   * черновика их затёрло бы), отказ — уведомлением.
+   * Заклинатель-лист для общего разбора каста: тот же заклинатель мира, что у
+   * горячей панели (ячейку списывает бросок окна, а окно переживает вкладку),
+   * отказ — уведомлением.
    *
    * @returns порт заклинателя
    */
   function createSheetCasterPort(): SpellCasterPort {
-    return {
-      casterId: props.actor.id,
-      readCaster: () => props.actor,
-      spendSlot: (castLevel, isPactSlot) => {
-        emit('update:actor', {
-          system: withSpentSpellSlot(props.actor.system, castLevel, isPactSlot),
-        });
-
-        triggerSaveIfNotEdit();
-      },
-      spendUse: consumeSpellUse,
-      commitPaid: commitPaidCaster,
-      refuse: (_spell, refusal) => {
-        toast.add({
-          title: refusal.title,
-          description: refusal.description,
-          color: 'warning',
-        });
-      },
-    };
+    return createSpellCasterPort(props.actor.id, (_spell, refusal) => {
+      toast.add({
+        title: refusal.title,
+        description: refusal.description,
+        color: 'warning',
+      });
+    });
   }
 
   /**
@@ -1387,38 +1374,6 @@
    */
   function castSpell(sourceSpell: Spell): void {
     startSpellCast(sourceSpell, createSheetCasterPort());
-  }
-
-  /**
-   * Списывает один заряд заклинания с откатом.
-   *
-   * @param spell - заклинание
-   */
-  function consumeSpellUse(spell: Spell): void {
-    emit('update:actor', {
-      spells: withSpentSpellUse(props.actor.spells ?? [], spell.id),
-    });
-
-    triggerSaveIfNotEdit();
-  }
-
-  /**
-   * Записывает лист после оплаты цены каста: ресурсы листа и предметы — тем же
-   * сохранением листа, что и ячейка, чтобы оно оплату не затёрло.
-   *
-   * @param paidCaster - заклинатель со списанными ресурсами
-   */
-  function commitPaidCaster(paidCaster: DnDSceneEntity): void {
-    if (!isActorEntity(paidCaster)) {
-      return;
-    }
-
-    emit('update:actor', {
-      system: paidCaster.system,
-      equipment: paidCaster.equipment,
-    });
-
-    triggerSaveIfNotEdit();
   }
 </script>
 

@@ -55,7 +55,10 @@ import {
 } from './attackRollMode';
 import { requestDamageTypeChoiceFor } from './damageTypeChoice';
 import { openDiceRollWindow } from './diceRollWindow';
-import { prepareAmmunitionShot } from './effectActivationUse';
+import {
+  prepareAmmunitionShot,
+  spendShotAmmunition,
+} from './effectActivationUse';
 import { buildRollBonusEvaluator } from './rollBonusEvaluator';
 import { useBonusDamageParts } from './useBonusDamageParts';
 import {
@@ -66,16 +69,43 @@ import { measureTokenDistanceOnScene } from './useSceneRangeCheck';
 import { useSpellResolution } from './useSpellResolution';
 import { useWorldEntities } from './useWorldEntities';
 
-/** Чем входы удара различаются */
+/**
+ * Атакующий общего удара. Входы (вкладка снаряжения, горячая панель)
+ * собирают его одной фабрикой {@link createWeaponAttackPort} и различаются
+ * только отказом.
+ */
 export interface WeaponAttackPort {
-  /** Атакующий */
-  attackerId: string;
-  /** Атакующий сейчас: лист — черновик листа, панель — мир */
+  /** Атакующий сейчас */
   readAttacker: () => DnDSceneEntity | undefined;
   /** Тратит боеприпас выстрела, когда бросок пошёл */
   spendAmmunition: (ammunitionId: string) => void;
   /** Удар сейчас недоступен: лист — уведомлением, панель — в чат */
   refuse: (reason: string) => void;
+}
+
+/**
+ * Атакующий мира: читается из мира в момент обращения, боеприпас пишется
+ * помощником записи листа из свежей сущности.
+ *
+ * Не через `emit` и `props` вкладки: боеприпас тратит бросок окна, а окно
+ * живёт в менеджере окон и переживает вкладку (`v-if`) и лист — `emit`
+ * размонтированного компонента ничего не делает, и стрела оставалась в
+ * колчане при потраченном действии.
+ *
+ * @param attackerId - атакующий
+ * @param refuse - отказ входа: лист — уведомлением, панель — в чат
+ * @returns порт удара
+ */
+export function createWeaponAttackPort(
+  attackerId: string,
+  refuse: WeaponAttackPort['refuse'],
+): WeaponAttackPort {
+  return {
+    readAttacker: () => useWorldEntities().findCurrentDndEntity(attackerId),
+    spendAmmunition: (ammunitionId) =>
+      spendShotAmmunition(attackerId, ammunitionId),
+    refuse,
+  };
 }
 
 /** Итог проверки дистанции удара по выбранной цели */

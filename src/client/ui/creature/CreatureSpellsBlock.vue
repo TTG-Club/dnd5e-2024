@@ -35,7 +35,6 @@
     ABILITY_LABELS,
     calculateCreatureSpellBlockNumbers,
     collectCreatureSpellIdsInBlocks,
-    consumeCreatureSpellGroupUse,
     createEmptyCreatureSpellcastingBlock,
     createEmptyCreatureSpellGroup,
     ensureCreatureSpellsInBlocks,
@@ -49,10 +48,12 @@
     SPELL_SCHOOL_LABELS,
     SPELL_USES_RECOVERY_LABELS,
     syncCreatureSpellcastingUses,
-    withSpentSpellUse,
   } from '@vtt/shared/system/dnd.js';
 
-  import { startCreatureSpellCast } from '../../composables/creatureSpellCast';
+  import {
+    createCreatureSpellCasterPort,
+    startCreatureSpellCast,
+  } from '../../composables/creatureSpellCast';
   import {
     describeDamageVariantsStat,
     formatDamageTileFormula,
@@ -1352,54 +1353,26 @@
 
   // ── Списание применений ───────────────────────────────────────────────────
 
-  /**
-   * Списывает одно применение на каст.
-   *
-   * У группы «на весь список» счётчик один на всю группу и лежит у неё;
-   * у остальных заряды считает само заклинание.
-   *
-   * @param spell - заклинание
-   * @param placement - группа, из которой идёт каст
-   */
-  function consumeSpellUse(
-    spell: Spell,
-    placement?: CreatureSpellPlacement,
-  ): void {
-    if (placement && isCreatureSpellPoolMode(placement.group.mode)) {
-      updateBlocks(
-        consumeCreatureSpellGroupUse(blocks.value, placement.group.id),
-      );
-
-      return;
-    }
-
-    if (!spell.uses || spell.uses.recovery === 'atWill') {
-      return;
-    }
-
-    updateSpells(withSpentSpellUse(props.spells, spell.id));
-  }
-
   // ── Каст заклинания ───────────────────────────────────────────────────────
 
   /**
-   * Существо-лист для общего разбора каста существа: применение пишется
-   * сохранением листа (черновик иначе затёр бы запись), отказ — уведомлением.
+   * Существо-лист для общего разбора каста существа: то же существо мира, что
+   * у горячей панели (применение тратится после открытия окна, а окно
+   * переживает лист), отказ — уведомлением.
    *
    * @returns порт существа
    */
   function createSheetCreaturePort(): CreatureSpellCasterPort {
-    return {
-      creatureId: props.creatureId,
-      spendUse: consumeSpellUse,
-      refuse: (_spell, refusal) => {
+    return createCreatureSpellCasterPort(
+      props.creatureId,
+      (_spell, refusal) => {
         toast.add({
           title: refusal.title,
           description: refusal.description,
           color: 'warning',
         });
       },
-    };
+    );
   }
 
   /**

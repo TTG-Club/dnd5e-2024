@@ -54,7 +54,6 @@
     normalizeItemQuantity,
     resolveEffectUseCost,
     setItemUsesCurrent,
-    spendAmmunition,
     spendItemUse,
     spendItemUses,
     STARTING_EQUIPMENT_ITEM_KINDS,
@@ -78,7 +77,10 @@
   import { useCompendiumWarmup } from '../../../composables/useCompendiumWarmup';
   import { useResolvedStats } from '../../../composables/useResolvedStats';
   import { useWeaponIcon } from '../../../composables/useWeaponIcon';
-  import { startWeaponAttack } from '../../../composables/weaponAttackRoll';
+  import {
+    createWeaponAttackPort,
+    startWeaponAttack,
+  } from '../../../composables/weaponAttackRoll';
   import {
     DND_MACRO_TYPES,
     ITEM_USE_MACRO_ICON,
@@ -380,20 +382,16 @@
 
   /**
    * Наносит удар оружием — общим путём удара, тем же, что у горячей панели:
-   * боеприпас тратится сохранением листа (черновик иначе затёр бы запись),
-   * отказ — уведомлением.
+   * атакующий и боеприпас — из мира (окно переживает вкладку), отказ —
+   * уведомлением.
    *
    * @param sourceWeapon - оружие с формулой урона; эффекты — до выбора варианта
    */
   function openRollModal(sourceWeapon: DnDGameItem): void {
-    startWeaponAttack(sourceWeapon, {
-      attackerId: props.entity.id,
-      readAttacker: () => props.entity,
-      spendAmmunition: (ammunitionId) => {
-        commitEquipment(spendAmmunition(inventory.value, ammunitionId));
-      },
-      refuse: refuseWeaponAttack,
-    });
+    startWeaponAttack(
+      sourceWeapon,
+      createWeaponAttackPort(props.entity.id, refuseWeaponAttack),
+    );
   }
 
   /**

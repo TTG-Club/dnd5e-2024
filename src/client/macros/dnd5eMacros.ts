@@ -6,12 +6,10 @@ import type { HotbarMacro, SceneEntity } from '@vtt/shared';
 import type {
   ActiveEffect,
   CreatureAction,
-  CreatureSpellPlacement,
   DnDActor,
   DnDCreature,
   DnDGameItem,
   DnDSceneEntity,
-  Spell,
 } from '@vtt/shared/system/dnd.js';
 
 import type { SpellCasterPort } from '../composables/spellCastFlow';
@@ -26,33 +24,36 @@ import { useChatStore } from '@/stores/chatStore';
 import {
   canSwitchOnEffect,
   collectEffectToggleGroup,
-  consumeCreatureSpellGroupUse,
   describeItemUseAvailability,
   describeWeaponAttackAvailability,
   findCreatureActionSection,
   findCreatureSpellPlacement,
-  isCreatureSpellPoolMode,
   isUseActivatedEffect,
   stripDescriptionRollMarkers,
-  withSpentSpellSlot,
-  withSpentSpellUse,
 } from '@vtt/shared/system/dnd.js';
 
 import { startCreatureAction } from '../composables/creatureActionRoll';
-import { startCreatureSpellCast } from '../composables/creatureSpellCast';
+import {
+  createCreatureSpellCasterPort,
+  startCreatureSpellCast,
+} from '../composables/creatureSpellCast';
 import {
   applyEntityEffectUse,
   applyEntityItemUse,
-  spendShotAmmunition,
 } from '../composables/effectActivationUse';
 import {
   readEntityCounters,
   toggleEntityEffect,
 } from '../composables/effectToggle';
-import { changeEntitySheet } from '../composables/entitySheetWrite';
-import { startSpellCast } from '../composables/spellCastFlow';
+import {
+  createSpellCasterPort,
+  startSpellCast,
+} from '../composables/spellCastFlow';
 import { useWorldEntities } from '../composables/useWorldEntities';
-import { startWeaponAttack } from '../composables/weaponAttackRoll';
+import {
+  createWeaponAttackPort,
+  startWeaponAttack,
+} from '../composables/weaponAttackRoll';
 import {
   DND_MACRO_TYPES,
   EFFECT_USE_SLOT_LABELS,
@@ -363,19 +364,14 @@ export function registerDnd5eMacros(): void {
           return;
         }
 
-        // Удар — общим путём удара, тем же, что у вкладки снаряжения:
-        // атакующий читается из мира, боеприпас — помощником записи листа,
+        // Удар — общим путём удара, тем же, что у вкладки снаряжения;
         // отказ — в чат
         const attackerId = result.actor.id;
 
-        startWeaponAttack(result.weapon, {
-          attackerId,
-          readAttacker: () =>
-            useWorldEntities().findCurrentDndEntity(attackerId),
-          spendAmmunition: (ammunitionId) =>
-            spendShotAmmunition(attackerId, ammunitionId),
-          refuse: refuseBlockedMacro,
-        });
+        startWeaponAttack(
+          result.weapon,
+          createWeaponAttackPort(attackerId, refuseBlockedMacro),
+        );
       } catch (err) {
         console.error('[Hotbar] Ошибка выполнения weapon-attack:', err);
       }
@@ -413,44 +409,19 @@ export function registerDnd5eMacros(): void {
 }
 
 /**
- * Заклинатель горячей панели для общего разбора каста: лист читается из мира в
- * момент обращения, ячейка и заряд пишутся помощником записи листа (из свежей
- * сущности), отказ — строкой в чат.
+ * Заклинатель горячей панели для общего разбора каста: тот же заклинатель
+ * мира, что у листа; отказ — строкой в чат.
  *
  * @param actorId - заклинатель
  * @returns порт заклинателя
  */
 function createHotbarCasterPort(actorId: string): SpellCasterPort {
-  return {
-    casterId: actorId,
-    readCaster: () => {
-      const caster = useWorldEntities().findCurrentDndEntity(actorId);
-
-      return caster && isDnDActorEntity(caster) ? caster : undefined;
-    },
-    spendSlot: (castLevel, isPactSlot) => {
-      changeEntitySheet(actorId, (caster) =>
-        isDnDActorEntity(caster)
-          ? {
-              ...caster,
-              system: withSpentSpellSlot(caster.system, castLevel, isPactSlot),
-            }
-          : null,
-      );
-    },
-    spendUse: (spell) => {
-      changeEntitySheet(actorId, (caster) => ({
-        ...caster,
-        spells: withSpentSpellUse(caster.spells ?? [], spell.id),
-      }));
-    },
-    refuse: (spell, refusal) => {
-      useChatStore().sendMessage(
-        `${MACRO_MESSAGE_LABELS.blockedPrefix}${spell.name}: ${refusal.description}`,
-        'text',
-      );
-    },
-  };
+  return createSpellCasterPort(actorId, (spell, refusal) => {
+    useChatStore().sendMessage(
+      `${MACRO_MESSAGE_LABELS.blockedPrefix}${spell.name}: ${refusal.description}`,
+      'text',
+    );
+  });
 }
 
 /**
@@ -541,57 +512,6 @@ function registerCreatureActionMacro(): void {
 }
 
 /**
- * Списывает одно применение заклинания существа и персистит изменение
- * (локально + сокет).
- *
- * У группы «на весь список» счётчик один на всю группу и лежит у неё; у
- * остальных заряды считает само заклинание. Так же, как на листе существа —
- * иначе каст с хотбара расходился бы с кастом со вкладки.
- *
- * @param creatureId - существо-источник
- * @param spell - заклинание
- * @param placement - группа, из которой идёт каст
- */
-function consumeCreatureSpellUse(
-  creatureId: string,
-  spell: Spell,
-  placement: CreatureSpellPlacement | undefined,
-): void {
-  const isPool =
-    placement !== undefined && isCreatureSpellPoolMode(placement.group.mode);
-
-  if (!isPool && (!spell.uses || spell.uses.recovery === 'atWill')) {
-    return;
-  }
-
-  // Существо перечитывается в момент записи: копия, захваченная до окна,
-  // вернула бы хиты и эффекты, изменённые сервером за это время
-  changeEntitySheet(creatureId, (current) => {
-    if (!isDnDCreatureEntity(current)) {
-      return null;
-    }
-
-    if (isPool && placement) {
-      return {
-        ...current,
-        system: {
-          ...current.system,
-          spellcastingBlocks: consumeCreatureSpellGroupUse(
-            current.system.spellcastingBlocks ?? [],
-            placement.group.id,
-          ),
-        },
-      };
-    }
-
-    return {
-      ...current,
-      spells: withSpentSpellUse(current.spells ?? [], spell.id),
-    };
-  });
-}
-
-/**
  * Регистрирует executor для макроса типа `creature-spell` (заклинания существа
  * с хотбара). Резолвит существо и заклинание по id, списывает заряд и открывает
  * бросок тем же многочастным путём, что и лист существа.
@@ -632,17 +552,16 @@ function registerCreatureSpellMacro(): void {
       );
 
       // Каст — общим разбором существа, тем же, что у листа существа
-      startCreatureSpellCast(foundSpell, placement, {
-        creatureId: foundCreature.id,
-        spendUse: (spell, spellPlacement) =>
-          consumeCreatureSpellUse(foundCreature.id, spell, spellPlacement),
-        refuse: (spell, refusal) => {
+      startCreatureSpellCast(
+        foundSpell,
+        placement,
+        createCreatureSpellCasterPort(foundCreature.id, (spell, refusal) => {
           useChatStore().sendMessage(
             `${MACRO_MESSAGE_LABELS.blockedPrefix}${spell.name}: ${refusal.description}`,
             'text',
           );
-        },
-      });
+        }),
+      );
     } catch (err) {
       console.error('[Hotbar] Ошибка выполнения creature-spell:', err);
     }

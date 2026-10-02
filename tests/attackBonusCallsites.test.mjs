@@ -167,7 +167,6 @@ const weaponAttackPath = 'src/client/composables/weaponAttackRoll.ts';
  */
 function createWeaponPort(current, overrides = {}) {
   return {
-    attackerId: current.value.id,
     readAttacker: () => current.value,
     spendAmmunition: () => {},
     refuse: () => {},
@@ -779,6 +778,13 @@ it('registered weapon macro selects melee/ranged dice from the fresh actor and o
   ports.startWeaponAttack = await loadHandler(
     weaponAttackPath,
     'startWeaponAttack',
+    ports,
+  );
+
+  // Порт удара — та же фабрика мира, что у вкладки снаряжения
+  ports.createWeaponAttackPort = await loadHandler(
+    weaponAttackPath,
+    'createWeaponAttackPort',
     ports,
   );
 

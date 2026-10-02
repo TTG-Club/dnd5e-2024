@@ -32,6 +32,7 @@ import {
   calculateCreatureSpellBlockNumbers,
   castReachesTargets,
   collectActiveEffects,
+  consumeCreatureSpellGroupUse,
   getCreatureSpellBlockAbility,
   getCreatureSpellMod,
   getCreatureSpellRollButtonText,
@@ -39,6 +40,7 @@ import {
   getDamageTemplateColor,
   getSpellAttackType,
   hasCreatureSpellUsesLeft,
+  isCreatureSpellPoolMode,
   isDndCreature,
   isDndSceneEntity,
   isTargetAtFullHp,
@@ -50,6 +52,7 @@ import {
   resolveSpellCastPlan,
   retypeCasterSpellDamage,
   spellIsHealing,
+  withSpentSpellUse,
 } from '@vtt/shared/system/dnd.js';
 
 import { ACTOR_SPELLS_TAB_LABELS } from '../ui/actor/constants';
@@ -63,6 +66,7 @@ import {
 } from './damageTypeChoice';
 import { openDiceRollWindow } from './diceRollWindow';
 import { runWithEffectVariants } from './effectVariantChoice';
+import { changeEntitySheet } from './entitySheetWrite';
 import { buildRollBonusEvaluator } from './rollBonusEvaluator';
 import {
   afterSpellCast,
@@ -76,7 +80,11 @@ import { listAmbientEffects } from './useResolvedStats';
 import { useSpellResolution } from './useSpellResolution';
 import { useWorldEntities } from './useWorldEntities';
 
-/** Чем входы каста существа различаются */
+/**
+ * Существо общего разбора каста. Входы (лист существа, горячая панель)
+ * собирают его одной фабрикой {@link createCreatureSpellCasterPort} и
+ * различаются только отказом.
+ */
 export interface CreatureSpellCasterPort {
   /** Существо */
   creatureId: string;
@@ -84,6 +92,76 @@ export interface CreatureSpellCasterPort {
   spendUse: (spell: Spell, placement?: CreatureSpellPlacement) => void;
   /** Каст не начался: говорит почему */
   refuse: (spell: Spell, refusal: SpellCastRefusal) => void;
+}
+
+/**
+ * Списывает одно применение заклинания существа мира. У группы «на весь
+ * список» счётчик один на всю группу и лежит у неё; у остальных заряды
+ * считает само заклинание.
+ *
+ * Существо перечитывается в момент записи: копия, захваченная до окна,
+ * вернула бы хиты и эффекты, изменённые сервером за это время.
+ *
+ * @param creatureId - существо-источник
+ * @param spell - заклинание
+ * @param placement - группа, из которой идёт каст
+ */
+export function spendCreatureSpellUse(
+  creatureId: string,
+  spell: Spell,
+  placement: CreatureSpellPlacement | undefined,
+): void {
+  const isPool =
+    placement !== undefined && isCreatureSpellPoolMode(placement.group.mode);
+
+  if (!isPool && (!spell.uses || spell.uses.recovery === 'atWill')) {
+    return;
+  }
+
+  changeEntitySheet(creatureId, (current) => {
+    if (!isDndCreature(current)) {
+      return null;
+    }
+
+    if (isPool && placement) {
+      return {
+        ...current,
+        system: {
+          ...current.system,
+          spellcastingBlocks: consumeCreatureSpellGroupUse(
+            current.system.spellcastingBlocks ?? [],
+            placement.group.id,
+          ),
+        },
+      };
+    }
+
+    return {
+      ...current,
+      spells: withSpentSpellUse(current.spells ?? [], spell.id),
+    };
+  });
+}
+
+/**
+ * Существо мира: применение пишется помощником записи листа из свежей
+ * сущности — не `emit` листа: применение тратится, когда окно открылось, а
+ * окно переживает лист.
+ *
+ * @param creatureId - существо
+ * @param refuse - отказ входа: лист — уведомлением, панель — в чат
+ * @returns порт существа
+ */
+export function createCreatureSpellCasterPort(
+  creatureId: string,
+  refuse: CreatureSpellCasterPort['refuse'],
+): CreatureSpellCasterPort {
+  return {
+    creatureId,
+    spendUse: (spell, placement) =>
+      spendCreatureSpellUse(creatureId, spell, placement),
+    refuse,
+  };
 }
 
 /**
