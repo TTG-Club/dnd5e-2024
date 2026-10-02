@@ -17,7 +17,7 @@
     CURRENCY_OPTIONS,
     describeWeaponAttack,
     describeWeaponDamage,
-    formatWeaponDamageFormula,
+    describeWeaponDamageDisplay,
     getActorAbilityModifiers,
     getEntityProficiencyBonus,
     isThrowableMeleeWeapon,
@@ -240,7 +240,8 @@
 
   /** Итог урона: кости оружия и статическая прибавка (как в строке листа) */
   const damageTotalLabel = computed(() => {
-    const base = formatWeaponDamageFormula(draftWeapon.value);
+    // Добавки по условию в итог не идут: он повторяет плитку строки листа
+    const base = describeWeaponDamageDisplay(draftWeapon.value).baseFormula;
     const modifier = sumWeaponModifierParts(damageModifierParts.value);
 
     if (modifier === 0) {

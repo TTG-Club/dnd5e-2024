@@ -44,7 +44,11 @@ import {
   getWeaponDamageParts,
 } from './calculations.js';
 import { getConditionEntry } from './conditionTemplates.js';
-import { isAbilityType, SPELL_SAVE_DC_BASE } from './consts.js';
+import {
+  CREATURE_TYPE_LABELS,
+  isAbilityType,
+  SPELL_SAVE_DC_BASE,
+} from './consts.js';
 import {
   parseTargetTypeToken,
   TARGET_TYPE_STRIP_REGEX,
@@ -918,17 +922,54 @@ export interface ConditionalDamageDisplay {
    */
   base: string;
   /**
-   * Добавки по состоянию стороны, каждая со своей пометкой: «1к8 (атакующий:
-   * Окровавленный)»
+   * Добавки по условию, каждая со своей пометкой: «1к8 (атакующий:
+   * Окровавленный)», «2к6 (цель: Исчадие)»
    */
   conditional: string[];
 }
 
+/** Условие слагаемого для показа: ключ группы и пометка «чьё и какое» */
+interface TermDisplayCondition {
+  /** Слагаемые с одним ключом идут под одной пометкой */
+  key: string;
+  /** Пометка: «цель: Лежащий ничком», «цель: Исчадие» */
+  label: string;
+}
+
 /**
- * Раскладывает показ формулы на постоянную часть и добавки по состоянию
- * стороны. Плитке строки листа нужна только постоянная часть: добавок может
- * быть сколько угодно, и в плитку они не помещаются — их место в подсказке.
- * Склеенный показ даёт {@link formatConditionalDamageDisplay}.
+ * Условие, под которым слагаемое достаётся не всем: состояние стороны
+ * (`@target.status.*`, `@self.status.*`) либо тип цели (`@target.type.*`).
+ * Ветки `@target.full`/`@target.notFull` сюда не входят: из них одна бросается
+ * всегда, это не добавка, а «или».
+ *
+ * @param term - слагаемое формулы
+ * @returns условие либо `null`, если слагаемое безусловное
+ */
+function readTermDisplayCondition(term: string): TermDisplayCondition | null {
+  const status = readStatusToken(term);
+
+  if (status) {
+    return {
+      key: `status:${status.side}:${status.status}`,
+      label: `${STATUS_SIDE_LABELS[status.side]}: ${readDamageStatusName(status.status)}`,
+    };
+  }
+
+  const targetType = parseTargetTypeToken(term);
+
+  return targetType
+    ? {
+        key: `type:${targetType}`,
+        label: `${STATUS_SIDE_LABELS.target}: ${CREATURE_TYPE_LABELS[targetType]}`,
+      }
+    : null;
+}
+
+/**
+ * Раскладывает показ формулы на постоянную часть и добавки по условию —
+ * состоянию стороны или типу цели. Плитке строки листа нужна только постоянная
+ * часть: добавок может быть сколько угодно, и в плитку они не помещаются — их
+ * место в подсказке. Склеенный показ даёт {@link formatConditionalDamageDisplay}.
  *
  * @param formula - формула части (возможно с токенами @target)
  * @param resolveTerm - резолвер набора слагаемых в отображаемую строку
@@ -956,38 +997,35 @@ export function splitConditionalDamageDisplay(
   const notFullTerms: string[] = [];
   const commonTerms: string[] = [];
 
-  // Слагаемые по состоянию — сверху остальных, с пометкой «чьё и какое»:
-  // «2к6 (цель: Лежащий ничком)». Слагаемые одного условия идут под одной
-  // пометкой — блок `1к6+1` при условии показывается целиком
+  // Слагаемые по условию — отдельно от остальных, с пометкой «чьё и какое»:
+  // «2к6 (цель: Лежащий ничком)», «2к6 (цель: Исчадие)». Слагаемые одного
+  // условия идут под одной пометкой — блок `1к6+1` показывается целиком
   const statusTerms = new Map<string, { label: string; terms: string[] }>();
 
   for (const rawTerm of splitFormulaTerms(typedFormula)) {
     const match = rawTerm.match(TARGET_CONDITION_DETECT_REGEX);
-    const status = readStatusToken(rawTerm);
+    const condition = readTermDisplayCondition(rawTerm);
 
-    if (status) {
-      const statusTerm = resolveTerm(stripTargetTokens(rawTerm)).trim();
-      const statusKey = `${status.side}:${status.status}`;
+    if (condition) {
+      const conditionTerm = resolveTerm(stripTargetTokens(rawTerm)).trim();
 
-      if (statusTerm.length > 0) {
-        const group = statusTerms.get(statusKey) ?? {
-          label: `${STATUS_SIDE_LABELS[status.side]}: ${readDamageStatusName(status.status)}`,
+      if (conditionTerm.length > 0) {
+        const group = statusTerms.get(condition.key) ?? {
+          label: condition.label,
           terms: [],
         };
 
-        statusTerms.set(statusKey, {
+        statusTerms.set(condition.key, {
           ...group,
-          terms: [...group.terms, statusTerm],
+          terms: [...group.terms, conditionTerm],
         });
       }
 
       continue;
     }
 
-    // Токен типа цели снимается вместе с токенами хитов: «или» показывает
-    // взаимоисключающие ветки, а слагаемое «по нежити» не исключает никакое
-    // другое — оно просто достаётся не всем. Не сняв его, превью показало бы
-    // сырой токен пользователю.
+    // Сюда доходит только токен типа с незнакомым типом (опечатка): условием
+    // он не стал, но и сырым его пользователю показывать нельзя.
     const cleaned = rawTerm
       .replace(TARGET_CONDITION_STRIP_REGEX, '')
       .replace(TARGET_TYPE_STRIP_REGEX, '')

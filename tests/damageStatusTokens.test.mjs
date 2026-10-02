@@ -260,6 +260,27 @@ describe('состояния в показе формулы', () => {
     ]);
   });
 
+  it('плитка урона оружия: добавки по типу цели — отдельно, с названием типа', () => {
+    const display = engine.describeWeaponDamageDisplay({
+      itemType: 'weapon',
+      damageParts: [
+        {
+          formula:
+            '1d6@dmg.slashing + 2d6@dmg.radiant@target.type.fiend'
+            + ' + 2d6@dmg.radiant@target.type.undead',
+          target: 'selected',
+        },
+      ],
+    });
+
+    assert.equal(display.baseFormula, '1к6');
+
+    assert.deepEqual(display.conditionalFormulas, [
+      '2к6 (цель: Исчадие)',
+      '2к6 (цель: Нежить)',
+    ]);
+  });
+
   it('набор целиком под условием остаётся в плитке полным текстом', () => {
     const display = engine.combineDamagePartDisplays([
       { baseFormula: '', conditionalFormulas: ['1к8 (цель: Лежащий ничком)'] },
