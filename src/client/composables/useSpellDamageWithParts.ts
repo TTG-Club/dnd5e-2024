@@ -59,7 +59,10 @@ import {
   resolveAttackerIgnoredResistances,
 } from './spellResolutionShared';
 import { useSpellSavingThrows } from './useSpellSavingThrows';
-import { useTargetEffectResolution } from './useTargetEffectResolution';
+import {
+  targetEffectsCanLand,
+  useTargetEffectResolution,
+} from './useTargetEffectResolution';
 
 /**
  * Композабл для многочастного разрешения урона/лечения заклинания.
@@ -377,9 +380,20 @@ export function useSpellDamageWithParts() {
         }
       }
 
+      // Цель, на которую ни один эффект не ляжет (условие наложения,
+      // иммунитет к состоянию), спасбросок ради эффектов не бросает
       if (hasTargetEffects) {
         for (const entity of targetEntities) {
-          collected.set(entity.id, entity);
+          if (
+            targetEffectsCanLand({
+              spell,
+              entity,
+              spellSaveDC,
+              casterId: context.casterId,
+            })
+          ) {
+            collected.set(entity.id, entity);
+          }
         }
       }
 

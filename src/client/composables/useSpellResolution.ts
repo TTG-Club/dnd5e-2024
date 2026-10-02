@@ -82,6 +82,7 @@ import {
   formatRolledPartLine,
   formatSaveCancelledMessage,
   getPartKindLabel,
+  getTargetSpellEffects,
   isSaveAbility,
   partPassesTargetGate,
   resolveAttackerIgnoredResistances,
@@ -90,6 +91,7 @@ import { useSpellDamageWithParts } from './useSpellDamageWithParts';
 import { useSpellSavingThrows } from './useSpellSavingThrows';
 import {
   listEffectsWithOwnSave,
+  targetEffectsCanLand,
   useTargetEffectResolution,
 } from './useTargetEffectResolution';
 
@@ -116,6 +118,31 @@ export interface ProjectileAttackContext {
   bonusDiceFormulasByTarget: ReadonlyMap<string, readonly string[]>;
   /** Тип атаки для условных бонусов к AC цели (напр. +2 КД от дальнобойных) */
   attackType: 'melee' | 'ranged';
+}
+
+/**
+ * Решает ли спасбросок самого заклинания хоть что-то для этой цели.
+ *
+ * Нет — когда урона у каста нет, эффекты «на цель» есть, но ни один из них на
+ * эту цель не ляжет (условие наложения, иммунитет к состоянию): «Ужасающий
+ * облик» не заставляет бросать того, кто к нему уже невосприимчив. Заклинание
+ * без эффектов спасбросок бросает как раньше: исход нужен ведущему.
+ *
+ * @param entity - цель
+ * @param context - контекст заклинания
+ * @returns `true`, если спасбросок цели нужен
+ */
+function targetNeedsSpellSave(
+  entity: DnDSceneEntity,
+  context: SpellResolutionContext,
+): boolean {
+  const { spell, damageTotal, spellSaveDC, casterId } = context;
+
+  return (
+    damageTotal > 0
+    || getTargetSpellEffects(spell).length === 0
+    || targetEffectsCanLand({ spell, entity, spellSaveDC, casterId })
+  );
 }
 
 /**
@@ -407,8 +434,9 @@ export function useSpellResolution() {
     let finalDamage = damageTotal;
     let saveResult = options.saveResult;
 
-    // Спасбросок (проверка `!== 'none'` сужает saveType до AbilityType)
-    if (spell.saveType !== 'none') {
+    // Спасбросок (проверка `!== 'none'` сужает saveType до AbilityType). Цель,
+    // которой каст ничего не несёт, его не бросает
+    if (spell.saveType !== 'none' && targetNeedsSpellSave(entity, context)) {
       saveResult ??= rollSavingThrow({
         entity,
         ability: spell.saveType,
@@ -685,9 +713,16 @@ export function useSpellResolution() {
     // нет, и в пачку цели попали ради спасбросков эффектов
     const saveAbility = isSaveAbility(spell.saveType) ? spell.saveType : null;
 
+    // Спрашивают только тех, кому спасбросок что-то решает
+    const saveTargets = targets.filter((entity) =>
+      targetNeedsSpellSave(entity, context),
+    );
+
+    const askedIds = new Set(saveTargets.map((entity) => entity.id));
+
     const saves = saveAbility
       ? await resolveSavingThrowsForTargets(
-          targets.map((entity) => ({
+          saveTargets.map((entity) => ({
             entity,
             ability: saveAbility,
             dc: spellSaveDC,
@@ -713,7 +748,7 @@ export function useSpellResolution() {
     for (const entity of targets) {
       const saveResult = saves?.get(entity.id);
 
-      if (saves && !saveResult) {
+      if (saves && askedIds.has(entity.id) && !saveResult) {
         return cancel();
       }
 

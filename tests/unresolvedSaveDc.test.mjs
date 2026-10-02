@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 
 import { describe, it } from 'vitest';
 
-import { loadHandler } from './helpers/sourceHandler.mjs';
+import { loadTargetEffectResolution } from './helpers/targetEffectResolution.mjs';
 import {
   createActor,
   createCreature,
@@ -21,8 +21,6 @@ import {
  * не-заклинателя шёл против Сл 0 — любой бросок успех, бонусное действие
  * потрачено, предупреждения нет.
  */
-
-const resolutionPath = 'src/client/composables/useTargetEffectResolution.ts';
 
 const FEATURE_ID = 'feature_telekinetic';
 
@@ -148,49 +146,15 @@ describe('непосчитанная Сл: клиент не бросает и �
   async function loadResolution() {
     const warnings = [];
 
-    const listEffectsWithOwnSave = await loadHandler(
-      resolutionPath,
-      'listEffectsWithOwnSave',
-      { getTargetSpellEffects: engine.getTargetSpellEffects },
-    );
-
-    const ports = {
-      listEffectsWithOwnSave,
-      // Числа наложившего в фикстуре уже подставлены
-      bindTargetEffectsToCaster: (effects) => [...effects],
-      buildLandingContext: () => ({}),
-      useWorldEntities: () => ({ findEntityCreatureType: () => undefined }),
-      rollEffectDamage: () => ({ damage: 0, outcome: 'normal', lines: [] }),
-      stampEffectOnApply: (effect) => effect,
-      resolveSpellCastId: () => undefined,
-      resolveSpellCastLevel: () => 0,
+    const resolution = await loadTargetEffectResolution(engine, {
       warnUnresolvedSaveDc: (sourceName, problem, outcomeSuffix) =>
         warnings.push([sourceName, problem.tokens, outcomeSuffix]),
-      UNRESOLVED_SAVE_DC_LABELS: engine.UNRESOLVED_SAVE_DC_LABELS,
-      findUnresolvedApplySaveDc: engine.findUnresolvedApplySaveDc,
-      getTargetSpellEffects: engine.getTargetSpellEffects,
-      isDndSceneEntity: engine.isDndSceneEntity,
-      getEntityConditionImmunities: engine.getEntityConditionImmunities,
-      resolveActorStats: engine.resolveActorStats,
-      passesLandingCondition: engine.passesLandingCondition,
-      resolveEffectApplication: engine.resolveEffectApplication,
-      isMagicRoll: engine.isMagicRoll,
-      isMagicalEffect: engine.isMagicalEffect,
-      hasLastingEffectPayload: engine.hasLastingEffectPayload,
-      isImmuneToCondition: engine.isImmuneToCondition,
-      stampSourceTurnSaveDc: engine.stampSourceTurnSaveDc,
-    };
+    });
 
     return {
       warnings,
-      listSaves: await loadHandler(
-        resolutionPath,
-        'listLandingEffectsWithOwnSave',
-        { ...ports },
-      ),
-      collect: await loadHandler(resolutionPath, 'collectTargetEffects', {
-        ...ports,
-      }),
+      listSaves: resolution.listLandingEffectsWithOwnSave,
+      collect: resolution.collectTargetEffects,
     };
   }
 

@@ -169,6 +169,80 @@ function listLandingEffectsWithOwnSave(
 }
 
 /**
+ * Эффекты «на цель», которые проходят условие наложения у этой цели, с числами
+ * наложившего.
+ *
+ * @param input - заклинание, цель, кастер
+ * @returns эффекты, которым цель подходит
+ */
+function listLandingTargetEffects(input: TargetEffectsInput): ActiveEffect[] {
+  const { entity } = input;
+
+  const effects = bindTargetEffectsToCaster(
+    getTargetSpellEffects(input.spell),
+    input.spell,
+    input.casterId,
+  );
+
+  if (!isDndSceneEntity(entity)) {
+    return effects;
+  }
+
+  const landing = buildLandingContext(input);
+
+  return effects.filter((effect) =>
+    passesLandingCondition(effect, entity, landing),
+  );
+}
+
+/**
+ * Состояния, к которым цель невосприимчива. Иммунитет «только от существ этих
+ * типов» считается по наложившему.
+ *
+ * @param input - цель и кастер
+ * @returns ключи состояний
+ */
+function resolveTargetConditionImmunities(
+  input: Pick<TargetEffectsInput, 'entity' | 'casterId'>,
+): readonly string[] {
+  const { entity } = input;
+
+  return isDndSceneEntity(entity)
+    ? getEntityConditionImmunities(
+        entity,
+        [],
+        useWorldEntities().findEntityCreatureType(input.casterId),
+      )
+    : [];
+}
+
+/**
+ * Достанется ли цели хоть что-то от эффектов «на цель»: урон эффекта либо сам
+ * эффект. Эффект не ляжет, если цель не проходит его условие наложения
+ * («невосприимчив к этому источнику» у «Ужасающего облика») или невосприимчива
+ * к его состоянию.
+ *
+ * Нет — спасбросок самого действия у такой цели ничего не решает, и
+ * спрашивать его незачем: лишнее окно, а у чужой цели ещё и запрос владельцу.
+ *
+ * @param input - заклинание, цель, кастер
+ * @returns `true`, если хоть один эффект может лечь или ударить
+ */
+export function targetEffectsCanLand(input: TargetEffectsInput): boolean {
+  const immunities = resolveTargetConditionImmunities(input);
+
+  return listLandingTargetEffects(input).some(
+    (effect) =>
+      (effect.damageParts?.length ?? 0) > 0
+      || (hasLastingEffectPayload(effect)
+        && !(
+          effect.conditionKey !== undefined
+          && isImmuneToCondition(immunities, effect.conditionKey)
+        )),
+  );
+}
+
+/**
  * Характеристика спасброска эффекта у этой цели: «Сила или Ловкость» — лучшая
  * из названных. Сущность без данных системы бросает первой по записи.
  *
@@ -363,13 +437,7 @@ export function useTargetEffectResolution() {
     const landed = spell.saveType === 'none' || !landingSave?.passed;
 
     // Иммунитет «только от существ этих типов» считается по заклинателю
-    const immunities = isDndSceneEntity(entity)
-      ? getEntityConditionImmunities(
-          entity,
-          [],
-          useWorldEntities().findEntityCreatureType(casterId),
-        )
-      : [];
+    const immunities = resolveTargetConditionImmunities(input);
 
     // Флаги цели — для «Увёртливости» на спасброске эффекта
     const targetFlags = isDndSceneEntity(entity)
@@ -382,19 +450,7 @@ export function useTargetEffectResolution() {
     let bonusDamage = 0;
     let defenseOutcome: DamageDefenseOutcome = 'normal';
 
-    const landing = buildLandingContext(input);
-
-    const landingEffects = bindTargetEffectsToCaster(
-      getTargetSpellEffects(spell),
-      spell,
-      casterId,
-    ).filter(
-      (effect) =>
-        !isDndSceneEntity(entity)
-        || passesLandingCondition(effect, entity, landing),
-    );
-
-    for (const effect of landingEffects) {
+    for (const effect of listLandingTargetEffects(input)) {
       // Сл спасброска эффекта не посчиталась: его не бросали, и «провалом»
       // это не считается — эффект не ложится и не бьёт, а человек видит почему
       const unresolvedDc = findUnresolvedApplySaveDc(effect, spellSaveDC);

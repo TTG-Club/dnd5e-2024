@@ -7,6 +7,7 @@ import { describe, it } from 'vitest';
 import { listClientSources, toSystemPath } from './helpers/clientSources.mjs';
 import { systemRoot } from './helpers/engineBundle.mjs';
 import { loadHandler } from './helpers/sourceHandler.mjs';
+import { loadTargetEffectResolution } from './helpers/targetEffectResolution.mjs';
 import {
   createActor,
   createCreature,
@@ -29,7 +30,6 @@ const require = createRequire(`${systemRoot}package.json`);
 const { parse } = require('@vue/compiler-sfc');
 const typescript = require('typescript');
 
-const resolutionPath = 'src/client/composables/useTargetEffectResolution.ts';
 const sharedPath = 'src/client/composables/spellResolutionShared.ts';
 const bindingPath = 'src/client/composables/targetEffectSourceBinding.ts';
 const castsPath = 'src/client/composables/spellCasts.ts';
@@ -145,34 +145,16 @@ async function loadResolution(entities) {
     },
   );
 
-  const collectTargetEffects = await loadHandler(
-    resolutionPath,
-    'collectTargetEffects',
-    {
-      useWorldEntities: () => world,
-      buildLandingContext: (input) => ({
-        source: world.findCurrentDndEntity(input.casterId),
-      }),
-      // У эффекта нет урона при наложении — бросать нечего
-      rollEffectDamage: () => ({ damage: 0, outcome: 'normal', lines: [] }),
-      bindTargetEffectsToCaster,
-      stampEffectOnApply,
-      resolveSpellCastId,
-      resolveSpellCastLevel,
-      getTargetSpellEffects: engine.getTargetSpellEffects,
-      isDndSceneEntity: engine.isDndSceneEntity,
-      getEntityConditionImmunities: engine.getEntityConditionImmunities,
-      resolveActorStats: engine.resolveActorStats,
-      passesLandingCondition: engine.passesLandingCondition,
-      resolveEffectApplication: engine.resolveEffectApplication,
-      isMagicRoll: engine.isMagicRoll,
-      isMagicalEffect: engine.isMagicalEffect,
-      hasLastingEffectPayload: engine.hasLastingEffectPayload,
-      isImmuneToCondition: engine.isImmuneToCondition,
-      stampSourceTurnSaveDc: engine.stampSourceTurnSaveDc,
-      findUnresolvedApplySaveDc: engine.findUnresolvedApplySaveDc,
-    },
-  );
+  const { collectTargetEffects } = await loadTargetEffectResolution(engine, {
+    useWorldEntities: () => world,
+    buildLandingContext: (input) => ({
+      source: world.findCurrentDndEntity(input.casterId),
+    }),
+    bindTargetEffectsToCaster,
+    stampEffectOnApply,
+    resolveSpellCastId,
+    resolveSpellCastLevel,
+  });
 
   return { beginSpellCast, setSpellCastLevel, collectTargetEffects };
 }
