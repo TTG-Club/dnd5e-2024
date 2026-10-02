@@ -25,7 +25,7 @@ import type { DnDActor } from './dndEntities.js';
 import type { FormulaContext } from './formulaParser.js';
 import type { ActorCounterState } from './types.js';
 
-import { isRecord } from '@vtt/shared';
+import { z } from 'zod';
 
 import { ABILITY_KEYS, isAbilityType } from './consts.js';
 import { resolveActorStats } from './effectPipeline.js';
@@ -710,16 +710,31 @@ const ONE_CHARGE_RECOVERY: CounterRecoveryRule = {
 };
 
 /** Режимы правила отдыха: по ним проверяется правило из записи */
-const COUNTER_RECOVERY_MODES: readonly CounterRecoveryMode[] = [
+const COUNTER_RECOVERY_MODES = [
   'none',
   'all',
   'amount',
-];
+] as const satisfies readonly CounterRecoveryMode[];
+
+/**
+ * Правило отдыха в записи ресурса. Незнакомый режим — правило не читается;
+ * число зарядов, которого нет или которое не число, считается единицей, а
+ * меньшее единицы поднимается до неё.
+ */
+const CounterRecoveryRuleSchema = z.object({
+  mode: z.enum(COUNTER_RECOVERY_MODES),
+  amount: z
+    .number()
+    .finite()
+    .catch(COUNTER_RECOVERY_AMOUNT_MIN)
+    .transform((amount) =>
+      Math.max(COUNTER_RECOVERY_AMOUNT_MIN, Math.round(amount)),
+    ),
+});
 
 /**
  * Правило отдыха из записи ресурса. Записи приходят из компендиума и из
- * мастерской как есть, поэтому правило проверяется: незнакомый режим — правила
- * нет, а число зарядов меньше единицы поднимается до неё.
+ * мастерской как есть, поэтому правило проверяется схемой.
  *
  * @param value - правило из записи
  * @returns правило либо `undefined`, если оно не задано или не читается
@@ -727,22 +742,9 @@ const COUNTER_RECOVERY_MODES: readonly CounterRecoveryMode[] = [
 function readCounterRecoveryRule(
   value: unknown,
 ): CounterRecoveryRule | undefined {
-  if (!isRecord(value)) {
-    return undefined;
-  }
+  const parsed = CounterRecoveryRuleSchema.safeParse(value);
 
-  const mode = COUNTER_RECOVERY_MODES.find((entry) => entry === value.mode);
-
-  if (!mode) {
-    return undefined;
-  }
-
-  const amount =
-    typeof value.amount === 'number' && Number.isFinite(value.amount)
-      ? Math.max(COUNTER_RECOVERY_AMOUNT_MIN, Math.round(value.amount))
-      : COUNTER_RECOVERY_AMOUNT_MIN;
-
-  return { mode, amount };
+  return parsed.success ? parsed.data : undefined;
 }
 
 /**
@@ -798,13 +800,16 @@ export interface CounterRecoveryForm {
 export function readCounterRecoveryForm(
   definition: CounterDefinitionExtras & { recovery?: CounterRecovery },
 ): CounterRecoveryForm {
-  const { recovery, shortRest, longRest } = counterDefinitionRest({
+  // Определение без слова отката читается продолжительным отдыхом
+  const recovery: CounterRecovery = definition.recovery ?? 'long';
+
+  const { shortRest, longRest } = counterDefinitionRest({
     ...definition,
-    recovery: definition.recovery ?? 'long',
+    recovery,
   });
 
   if (!shortRest && !longRest) {
-    return { choice: recovery ?? 'long' };
+    return { choice: recovery };
   }
 
   // Задано хоть одно правило — недостающее читается как «ничего»
@@ -815,7 +820,7 @@ export function readCounterRecoveryForm(
   return isNone
     ? { choice: COUNTER_RECOVERY_CHOICE_NONE }
     : {
-        choice: recovery ?? 'long',
+        choice: recovery,
         customRest: {
           ...(shortRest ? { shortRest } : {}),
           ...(longRest ? { longRest } : {}),

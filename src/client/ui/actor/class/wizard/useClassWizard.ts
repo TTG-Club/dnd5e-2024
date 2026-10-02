@@ -12,6 +12,7 @@ import type { Ref } from 'vue';
 import type { AbilityType, ProficiencyLevel, SkillType } from '@vtt/shared';
 import type {
   ActiveEffect,
+  ActorCounterState,
   ClassCounterDefinition,
   ClassDefinition,
   ClassFeature,
@@ -680,6 +681,71 @@ function computeCounterMax(
 }
 
 /**
+ * Счётчик листа после повышения уровня: новый максимум и поля, которых у
+ * записей прежних лет не было. Возвращает новую запись — счётчик актора общий
+ * с хостом, и править его на месте нельзя.
+ *
+ * Своё игрока не трогаем: название, откат, правила отдыха, нижняя граница и
+ * формула берутся из определения, только когда у счётчика их нет.
+ *
+ * @param counter - счётчик с листа
+ * @param definition - определение ресурса класса
+ * @param max - максимум на новом уровне
+ * @returns обновлённый счётчик
+ */
+function refreshClassCounter(
+  counter: ActorCounterState,
+  definition: ClassCounterDefinition,
+  max: number,
+): ActorCounterState {
+  // Раздельные правила отдыха появились у определения позже: счётчик,
+  // заведённый до них и не настроенный игроком, получает их здесь
+  const hasOwnRest = Boolean(counter.shortRest || counter.longRest);
+
+  // Нижняя граница появилась у счётчика позже: у записей, добавленных до неё,
+  // её нет вовсе
+  const min = counter.min ?? definition.min;
+
+  // Формула тоже появилась у классового ресурса позже: записи, заведённые до
+  // неё, получают её на первом же повышении уровня. Пустую не пишем вовсе — у
+  // ресурса со ступенями по уровням формулы нет, и поле осталось бы пустышкой
+  const maxFormula = counter.maxFormula || counterMaxFormulaOf(definition);
+
+  return {
+    ...counter,
+    ...(hasOwnRest ? {} : counterDefinitionRest(definition)),
+    recovery: counter.recovery ?? definition.recovery,
+    max,
+    // Текущее значение не может превышать новый максимум
+    current: Math.min(counter.current, max),
+    // Название у счётчиков прежних лет не сохранялось и подставлялось только
+    // при показе
+    name: counter.name?.trim() ? counter.name : definition.name,
+    shortName: counter.shortName?.trim()
+      ? counter.shortName
+      : definition.shortName,
+    ...(min === undefined ? {} : { min }),
+    ...(maxFormula ? { maxFormula } : {}),
+  };
+}
+
+/**
+ * Название записи варианта умения на листе: «Умение: Вариант». Одно место на
+ * выбранные варианты и варианты справочных списков — по этому же названию
+ * мастер сверяет, лежит ли запись на листе.
+ *
+ * @param featureName - название умения
+ * @param optionName - название варианта
+ * @returns название записи варианта
+ */
+function featureOptionRecordName(
+  featureName: string,
+  optionName: string,
+): string {
+  return `${featureName}${FEATURE_OPTION_SEPARATOR}${optionName}`;
+}
+
+/**
  * Сливает выбранные сейчас варианты с уже взятыми на прошлых уровнях.
  *
  * Именно сливает, а не заменяет: воззвания добираются уровень за уровнем, и
@@ -1069,7 +1135,10 @@ export function useClassWizard(
 
         return collectReferenceOptionGrants(feature, level)
           .filter((grant) => {
-            const recordName = `${feature.name}${FEATURE_OPTION_SEPARATOR}${grant.name}`;
+            const recordName = featureOptionRecordName(
+              feature.name,
+              grant.name,
+            );
 
             return !sheetFeatures.some(
               (existing) =>
@@ -2687,66 +2756,17 @@ export function useClassWizard(
         // Счётчик уже заведён (мастер переоткрыли или это повышение уровня):
         // сверка и по подклассу, иначе ресурс подкласса с ключом ресурса
         // класса сошёл бы за уже выданный
-        const existingCounter = existingCounters.find((existing) =>
+        const existingCounterIndex = existingCounters.findIndex((existing) =>
           isCounterOfDefinition(existing, classDef.key, counterDef),
         );
 
-        if (existingCounter) {
-          // Обновляем max при level-up
-          const newMax = computeCounterMax(
+        if (existingCounterIndex !== -1) {
+          // Счётчик листа не правится на месте — в список идёт его новая копия
+          existingCounters[existingCounterIndex] = refreshClassCounter(
+            existingCounters[existingCounterIndex],
             counterDef,
-            classLevel,
-            counterContext,
+            computeCounterMax(counterDef, classLevel, counterContext),
           );
-
-          existingCounter.max = newMax;
-
-          // current не может превышать новый max
-          if (existingCounter.current > newMax) {
-            existingCounter.current = newMax;
-          }
-
-          // Backfill названия для счётчиков, добавленных до этого фикса
-          // (раньше имя не сохранялось и подставлялось только в рантайме).
-          if (!existingCounter.name?.trim()) {
-            existingCounter.name = counterDef.name;
-          }
-
-          if (!existingCounter.shortName?.trim()) {
-            existingCounter.shortName = counterDef.shortName;
-          }
-
-          existingCounter.recovery ??= counterDef.recovery;
-
-          // Раздельные правила отдыха появились у определения позже: счётчик,
-          // заведённый до них и не настроенный игроком, получает их здесь.
-          // Свои правила игрока не трогаем
-          if (!existingCounter.shortRest && !existingCounter.longRest) {
-            const { shortRest, longRest } = counterDefinitionRest(counterDef);
-
-            if (shortRest) {
-              existingCounter.shortRest = shortRest;
-            }
-
-            if (longRest) {
-              existingCounter.longRest = longRest;
-            }
-          }
-
-          // Нижняя граница появилась у счётчика позже: у записей, добавленных
-          // до неё, её нет вовсе
-          existingCounter.min ??= counterDef.min;
-
-          // Формула тоже появилась у классового ресурса позже: записи,
-          // заведённые до неё, получают её здесь — на первом же повышении
-          // уровня. Своё число игрока при этом не трогаем: оно лежит той же
-          // формулой, и она уже стоит. Пустую не пишем вовсе — у ресурса со
-          // ступенями по уровням формулы нет, и поле осталось бы пустышкой
-          const backfilledFormula = counterMaxFormulaOf(counterDef);
-
-          if (!existingCounter.maxFormula && backfilledFormula) {
-            existingCounter.maxFormula = backfilledFormula;
-          }
 
           continue;
         }
@@ -3259,7 +3279,7 @@ export function useClassWizard(
 
         for (const choice of selected) {
           pushFeature(
-            `${feature.name}${FEATURE_OPTION_SEPARATOR}${choice.name}`,
+            featureOptionRecordName(feature.name, choice.name),
             choice.description,
             feature.level,
             feature.isSubclass ?? false,
@@ -3276,7 +3296,7 @@ export function useClassWizard(
       for (const pick of reopenedPicks) {
         for (const choice of selectedChoicesFor(pick.featureKey)) {
           pushFeature(
-            `${pick.featureName}${FEATURE_OPTION_SEPARATOR}${choice.name}`,
+            featureOptionRecordName(pick.featureName, choice.name),
             choice.description,
             nextLevel.value,
             pick.isSubclass,
@@ -3292,7 +3312,7 @@ export function useClassWizard(
       // его не заменяет, он к нему прилагается
       for (const entry of referenceOptions.value) {
         pushFeature(
-          `${entry.featureName}${FEATURE_OPTION_SEPARATOR}${entry.grant.name}`,
+          featureOptionRecordName(entry.featureName, entry.grant.name),
           entry.grant.description,
           entry.isGainedNow ? entry.featureLevel : nextLevel.value,
           entry.isSubclass,
