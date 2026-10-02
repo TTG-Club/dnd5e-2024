@@ -2,8 +2,9 @@
   // Корневой вход `@nuxt/ui` — это Nuxt-модуль, типы компонентов он не отдаёт
   import type { DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue';
 
-  import type { SceneEntity } from '@vtt/shared';
+  import type { MeasurementTemplate, SceneEntity } from '@vtt/shared';
   import type {
+    ActiveEffect,
     ActorClassEntry,
     ClassDefinition,
     ClassFeature,
@@ -118,7 +119,6 @@
   import {
     completeSpellCast,
     landCasterEventEffects,
-    prepareCasterSpellEffects,
     SPELL_CAST_KEY_PREFIX,
   } from '../../../composables/spellCastCompletion';
   import {
@@ -258,15 +258,17 @@
    * сохранений листа этого каста — иначе они затёрли бы исход срабатывания
    * прежней копией эффектов.
    *
+   * Эффекты готовит и отдаёт сюда общий путь каста — после конца прежней
+   * концентрации: запись ниже меняет лист на месте, и новая метка концентрации
+   * заменяет старую.
+   *
    * @param spell - заклинание
+   * @param casterEffects - готовые эффекты на заклинателя
    */
-  function applyCasterSpellEffects(spell: Spell): void {
-    const casterEffects = prepareCasterSpellEffects(
-      spell,
-      props.actor,
-      spellCasterSource(spell),
-    );
-
+  function landCasterSpellEffects(
+    spell: Spell,
+    casterEffects: ActiveEffect[],
+  ): void {
     if (casterEffects.length === 0) {
       return;
     }
@@ -322,6 +324,28 @@
           resolveSpellcastingAbility(props.actor, spell)
         ],
     };
+  }
+
+  /**
+   * Доводит каст с листа: конец прежней концентрации, эффекты на заклинателе
+   * (своим сохранением листа), зона на месте шаблона. Один вход на все пути
+   * каста — обычный, многочастный, серия снарядов, каст без броска.
+   *
+   * @param spell - заклинание каста
+   * @param template - размещённый шаблон области
+   */
+  function finishSpellCast(
+    spell: Spell,
+    template?: MeasurementTemplate | null,
+  ): void {
+    completeSpellCast({
+      spell,
+      caster: props.actor,
+      source: spellCasterSource(spell),
+      template,
+      landCasterEffects: (casterEffects) =>
+        landCasterSpellEffects(spell, casterEffects),
+    });
   }
 
   /**
@@ -2142,18 +2166,9 @@
         }
       }
 
-      // Самобафф: эффекты с effectTarget 'self' ложатся на заклинателя (напр.
-      // Щит). Безопасно и для уронных заклинаний — без таких эффектов это no-op.
-      applyCasterSpellEffects(spell);
-
-      // Конец прежней концентрации и зона на месте шаблона
-      completeSpellCast({
-        spell,
-        caster: props.actor,
-        source: spellCasterSource(spell),
-        template: cachedTemplate,
-        applyCasterEffects: false,
-      });
+      // Конец прежней концентрации, самобафф (эффекты с effectTarget 'self',
+      // напр. Щит; без таких эффектов — ничего) и зона на месте шаблона
+      finishSpellCast(spell, cachedTemplate);
 
       // Эффекты на цель (effectTarget 'target') без броска атаки и без
       // спасброска — автоприменение (напр. бафф союзника касанием): вешаем
@@ -2220,15 +2235,7 @@
 
       // Многочастный бросок тоже доводит каст: эффекты на заклинателе здесь
       // раньше не накладывались вовсе (окно зовёт только onRollParts)
-      applyCasterSpellEffects(spell);
-
-      completeSpellCast({
-        spell,
-        caster: props.actor,
-        source: spellCasterSource(spell),
-        template: cachedTemplate,
-        applyCasterEffects: false,
-      });
+      finishSpellCast(spell, cachedTemplate);
 
       if (templateId) {
         const templateStore = useSpellTemplateStore();
@@ -2262,6 +2269,10 @@
       if (actors.length === 0 || !socket) {
         return;
       }
+
+      // Серия снарядов тоже доводит каст: окно зовёт только этот обработчик,
+      // и прежняя концентрация с эффектами на заклинателе оставались без него
+      finishSpellCast(spell);
 
       // Серия атак (Мистический заряд, Палящий луч): каждый луч — СВОЙ бросок
       // атаки и свой бросок урона, поэтому плоский бонус получает каждый из
@@ -2338,14 +2349,6 @@
         window.removeEventListener('beforeunload', handleUnload);
 
         runWithDamageTypeChoices(spell, (chosen) => {
-          applyCasterSpellEffects(chosen);
-
-          applySpellTargetEffects(
-            chosen,
-            spellTargetEffectsSource(chosen),
-            effectTargets,
-          );
-
           // Шаблон «Тьмы» тифлинга раньше оставался на карте: каст применился
           // сразу, а снимать его было некому
           const templateStore = useSpellTemplateStore();
@@ -2354,13 +2357,13 @@
             ? templateStore.getPlacedTemplate(templateId)
             : undefined;
 
-          completeSpellCast({
-            spell: chosen,
-            caster: props.actor,
-            source: spellCasterSource(chosen),
-            template: placedTemplate,
-            applyCasterEffects: false,
-          });
+          finishSpellCast(chosen, placedTemplate);
+
+          applySpellTargetEffects(
+            chosen,
+            spellTargetEffectsSource(chosen),
+            effectTargets,
+          );
 
           if (templateId) {
             templateStore.removePlacedTemplate(templateId);

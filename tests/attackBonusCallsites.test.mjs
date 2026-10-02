@@ -538,6 +538,7 @@ for (const relativePath of [
 ]) {
   it(`actual projectile callback in ${relativePath} preserves the captured bonus formulas`, async () => {
     let forwarded;
+    let finishedCasts = 0;
 
     const entity = createEntity();
 
@@ -574,6 +575,13 @@ for (const relativePath of [
         spellSaveDc: 13,
         resolvedStats: { spellSaveDC: 13, value: {} },
         resolvedDamageFormula: '1d6',
+        // Доведение каста: у листа и у горячей панели оно названо по-своему
+        finishSpellCast: () => {
+          finishedCasts += 1;
+        },
+        finishCast: () => {
+          finishedCasts += 1;
+        },
       },
     );
 
@@ -587,6 +595,10 @@ for (const relativePath of [
 
     assert.equal(forwarded.bonusDiceFormulasByTarget, formulas);
     assert.equal(forwarded.rollMode, 'advantage');
+
+    // Серия снарядов доводит каст: конец прежней концентрации и эффекты на
+    // заклинателе раньше оставались без неё
+    assert.equal(finishedCasts, 1);
   });
 }
 

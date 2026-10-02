@@ -52,13 +52,13 @@ const SHIELD = createEffect('Щит', {
 });
 
 /**
- * Настоящее наложение эффектов заклинателя с листа персонажа.
+ * Настоящее наложение эффектов заклинателя с листа персонажа. Готовые эффекты
+ * отдаёт общий путь каста — обработчик получает их вторым аргументом.
  *
  * @param {object} actor - заклинатель (черновик листа)
- * @param {object[]} prepared - эффекты заклинания «на себя»
  * @returns {Promise<object>} обработчик и журналы
  */
-async function loadApply(actor, prepared) {
+async function loadApply(actor) {
   const emitted = [];
   const snapshots = [];
   const order = [];
@@ -66,8 +66,6 @@ async function loadApply(actor, prepared) {
 
   const ports = {
     props: { actor, isEditMode: false },
-    prepareCasterSpellEffects: () => prepared,
-    spellCasterSource: () => ({ saveDc: 15, spellMod: 3 }),
     hasLandingTrigger: engine.hasLandingTrigger,
     mergeAppliedEffects: engine.mergeAppliedEffects,
     emit: (event, payload) => {
@@ -83,7 +81,7 @@ async function loadApply(actor, prepared) {
     setTimeout: (callback) => timers.push(callback),
   };
 
-  const apply = await loadHandler(tabPath, 'applyCasterSpellEffects', ports);
+  const apply = await loadHandler(tabPath, 'landCasterSpellEffects', ports);
 
   return { apply, emitted, snapshots, order, timers };
 }
@@ -92,12 +90,9 @@ describe('эффект «на себя» со срабатыванием «пр�
   it('с листа уходит боевым снимком — после сохранений листа', async () => {
     const actor = withHp(createActor, 60);
 
-    const { apply, emitted, snapshots, order, timers } = await loadApply(
-      actor,
-      [SHIELD, CONTACT],
-    );
+    const { apply, emitted, snapshots, order, timers } = await loadApply(actor);
 
-    apply({ name: 'Связь с иным планом' });
+    apply({ name: 'Связь с иным планом' }, [SHIELD, CONTACT]);
 
     // Обычный самобафф — прежним путём, черновиком листа
     assert.equal(emitted.length, 1);
@@ -125,11 +120,9 @@ describe('эффект «на себя» со срабатыванием «пр�
   it('заклинание без событий наложения идёт как раньше — без снимка', async () => {
     const actor = withHp(createActor, 60);
 
-    const { apply, snapshots, timers, order } = await loadApply(actor, [
-      SHIELD,
-    ]);
+    const { apply, snapshots, timers, order } = await loadApply(actor);
 
-    apply({ name: 'Щит' });
+    apply({ name: 'Щит' }, [SHIELD]);
 
     assert.equal(timers.length, 0);
     assert.equal(snapshots.length, 0);

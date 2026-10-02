@@ -165,7 +165,6 @@ import {
 import {
   completeSpellCast,
   landCasterEventEffects,
-  prepareCasterSpellEffects,
   SPELL_CAST_KEY_PREFIX,
 } from '../composables/spellCastCompletion';
 import { beginSpellCast, setSpellCastLevel } from '../composables/spellCasts';
@@ -1331,7 +1330,6 @@ function openDiceRollForSpell(
         caster: useWorldEntities().findCurrentDndEntity(actor.id) ?? actor,
         source: casterSource,
         template: cachedTemplate,
-        applyCasterEffects: true,
         castKey,
       });
     };
@@ -1638,6 +1636,9 @@ function openDiceRollForSpell(
         return;
       }
 
+      // Серия снарядов тоже доводит каст: окно зовёт только этот обработчик
+      finishCast();
+
       // Серия атак (Мистический заряд, Палящий луч): каждый луч — СВОЙ бросок
       // атаки и свой бросок урона, поэтому плоский бонус получает каждый из
       // них. Правило «один раз к броску» тут и соблюдается: бросков несколько.
@@ -1880,11 +1881,6 @@ function castBuffSpellMacro(
     spellSaveDC: casterSource.saveDc,
   };
 
-  // Эффекты готовятся в момент наложения: круг каста в них становится
-  // известен только после выбора ячейки в окне броска
-  const prepareEffects = (): ActiveEffect[] =>
-    prepareCasterSpellEffects(spell, actor, casterSource);
-
   const worldStore = useWorldStore();
   const chatStore = useChatStore();
 
@@ -1994,32 +1990,35 @@ function castBuffSpellMacro(
           }
         }
 
-        const eventEffects = appendEffects(updatedActor, prepareEffects());
-
-        // Локальный стор + сервер одним полным обновлением сущности
-        worldStore.updateActor(worldId, actor.id, {
-          system: updatedActor.system,
-          activeEffects: updatedActor.activeEffects,
-        });
-
-        if (socket) {
-          emitEntityUpdate(socket, updatedActor);
-        }
-
-        // Следом за обновлением: иначе оно затёрло бы исход срабатывания
-        landCasterEventEffects(updatedActor, eventEffects);
-
-        // Эффекты на выбранную цель (effectTarget 'target') — отдельной
-        // сущности, отдельным обновлением (без гонки с апдейтом кастера).
-        applySpellTargetEffects(spell, targetEffectsSource, effectTargets);
-
+        // Эффекты готовит каст — в момент наложения (круг каста известен
+        // только после выбора ячейки) и после конца прежней концентрации:
+        // запись ниже меняет заклинателя в сторе на месте
         completeSpellCast({
           spell,
           caster: castingActor,
           source: casterSource,
           template: cachedTemplate,
-          applyCasterEffects: false,
+          landCasterEffects: (casterEffects) => {
+            const eventEffects = appendEffects(updatedActor, casterEffects);
+
+            // Локальный стор + сервер одним полным обновлением сущности
+            worldStore.updateActor(worldId, actor.id, {
+              system: updatedActor.system,
+              activeEffects: updatedActor.activeEffects,
+            });
+
+            if (socket) {
+              emitEntityUpdate(socket, updatedActor);
+            }
+
+            // Следом за обновлением: иначе оно затёрло бы исход срабатывания
+            landCasterEventEffects(updatedActor, eventEffects);
+          },
         });
+
+        // Эффекты на выбранную цель (effectTarget 'target') — отдельной
+        // сущности, отдельным обновлением (без гонки с апдейтом кастера).
+        applySpellTargetEffects(spell, targetEffectsSource, effectTargets);
       },
     });
 
@@ -2029,38 +2028,39 @@ function castBuffSpellMacro(
   // Заговоры/врождённые — без ячеек и без окна: тип урона на выбор эффектов
   // спрашивает плашка, затем эффекты ложатся (на себя и/или на цель)
   runWithDamageTypeChoices(sourceSpell, (chosen) => {
-    // Эффекты готовятся по `spell` — он уже с выбранным типом
+    // Анонс эффектов называет `spell` — он уже с выбранным типом
     spell = chosen;
-
-    const worldId = worldStore.connectionState.currentWorldId;
-    const casterEffects = prepareEffects();
-
-    if (worldId && casterEffects.length > 0) {
-      const socket = chatStore.getSocket();
-      const updatedActor: DnDActor = JSON.parse(JSON.stringify(actor));
-
-      const eventEffects = appendEffects(updatedActor, casterEffects);
-
-      worldStore.updateActor(worldId, actor.id, {
-        activeEffects: updatedActor.activeEffects,
-      });
-
-      if (socket) {
-        emitEntityUpdate(socket, updatedActor);
-      }
-
-      landCasterEventEffects(updatedActor, eventEffects);
-    }
-
-    applySpellTargetEffects(chosen, targetEffectsSource, effectTargets);
 
     completeSpellCast({
       spell: chosen,
       caster: actor,
       source: casterSource,
       template: cachedTemplate,
-      applyCasterEffects: false,
+      landCasterEffects: (casterEffects) => {
+        const worldId = worldStore.connectionState.currentWorldId;
+
+        if (!worldId || casterEffects.length === 0) {
+          return;
+        }
+
+        const socket = chatStore.getSocket();
+        const updatedActor: DnDActor = JSON.parse(JSON.stringify(actor));
+
+        const eventEffects = appendEffects(updatedActor, casterEffects);
+
+        worldStore.updateActor(worldId, actor.id, {
+          activeEffects: updatedActor.activeEffects,
+        });
+
+        if (socket) {
+          emitEntityUpdate(socket, updatedActor);
+        }
+
+        landCasterEventEffects(updatedActor, eventEffects);
+      },
     });
+
+    applySpellTargetEffects(chosen, targetEffectsSource, effectTargets);
   });
 }
 
@@ -2848,7 +2848,6 @@ function applyCreatureSpellParts(
     caster: useWorldEntities().findCurrentDndEntity(creature.id) ?? creature,
     source: casterSource,
     template: cachedTemplate,
-    applyCasterEffects: true,
     castKey,
   });
 

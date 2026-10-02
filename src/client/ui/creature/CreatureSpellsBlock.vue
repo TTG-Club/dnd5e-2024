@@ -1835,7 +1835,6 @@
       caster: getCreatureEntity() ?? creature,
       source: casterSource,
       template: cachedTemplate,
-      applyCasterEffects: true,
       castKey,
     });
 

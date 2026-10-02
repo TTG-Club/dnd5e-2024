@@ -921,8 +921,8 @@ it('the actual modal manager keeps a new Bless cast independent from an unfinish
     'src/client/macros/dnd5eMacros.ts',
     'castBuffSpellMacro',
     {
-      prepareCasterSpellEffects: () => [],
-      completeSpellCast: () => {},
+      // Расход ячейки пишет запись эффектов заклинателя — её зовёт каст
+      completeSpellCast: (input) => input.landCasterEffects?.([]),
       beginSpellCast: () => {},
       resolveSpellcastingAbility: () => 'wisdom',
       resolveActorStats: () => ({ abilityMods: {} }),
@@ -1135,10 +1135,8 @@ for (const [kind, instantSpell] of [
         }),
         needsAutoResolution: () => false,
         getSpellAttackType: () => undefined,
-        applyCasterSpellEffects() {},
+        finishSpellCast() {},
         applySpellTargetEffects: runtime.applySpellTargetEffects,
-        spellCasterSource: () => ({ saveDc: 13, spellMod: 3 }),
-        completeSpellCast: () => {},
         beginSpellCast: () => {},
         generateId: (prefix) => `${prefix}_test`,
         SPELL_CAST_KEY_PREFIX: 'cast',
