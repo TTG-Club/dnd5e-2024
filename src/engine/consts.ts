@@ -10,6 +10,7 @@ import type {
   ActorMovement,
   MovementType,
   SkillType,
+  TokenDispositionSetting,
   ToolCategory,
 } from '@vtt/shared';
 
@@ -629,6 +630,13 @@ export function getEquipmentCategoryIcon(
 // Значения по умолчанию для актора
 // ============================================================
 
+/**
+ * Отношение фишки персонажа без настройки: персонажи друг другу союзники.
+ * У существа умолчание своё — «враждебный» (`DEFAULT_CREATURE`).
+ */
+export const DEFAULT_ACTOR_TOKEN_DISPOSITION: TokenDispositionSetting =
+  'friendly';
+
 /** Значения по умолчанию для нового актора D&D 5e */
 export const DEFAULT_ACTOR: Omit<DnDActor, 'id'> = {
   entityType: 'actor',
@@ -641,6 +649,7 @@ export const DEFAULT_ACTOR: Omit<DnDActor, 'id'> = {
   token: {
     frameUrl: 'assets/token-frames/0.png',
     showName: false,
+    disposition: DEFAULT_ACTOR_TOKEN_DISPOSITION,
   },
 
   // Системные данные D&D 5e
