@@ -22,11 +22,13 @@ import type {
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import {
   askRestTriggers,
+  listRestEndedCastIds,
   REST_TRIGGER_SUMMARY_LABEL,
 } from '@vtt/shared/system/dnd.js';
 
 import { EFFECT_QUESTION_PROMPT_MODAL } from '../ui/effect/constants';
 import { sendSelfTriggerReport } from './effectPayChoice';
+import { requestEndCasts, waitForCastsEnded } from './spellCasts';
 
 /**
  * Вопрос срабатывания плашкой стола. Закрытая плашка — отказ.
@@ -56,6 +58,11 @@ const askOnTable: EffectPromptAsker = (payload) =>
  * них, что требуют согласия или цены, затем вызывающий применяет отдых с
  * ответами, и сводка срабатываний уходит в чат.
  *
+ * Отдых заканчивает концентрацию отдыхающего (`listRestEndedCastIds`) — тем же
+ * путём, что кнопка «Прервать концентрацию»: сервер снимает метку, эффекты
+ * каста со всех существ и его зону. Отдых ждёт ответа сервера: лист сохраняет
+ * сущность целиком и иначе вернул бы только что снятую метку.
+ *
  * Сущность перечитывает сам вызывающий: пока человек отвечал, лист мог
  * измениться, а цена списывается с того, что есть на момент применения.
  *
@@ -71,6 +78,11 @@ export async function runRestWithTriggers(
   options: LongRestOptions,
   apply: (triggerOptions: RestTriggerOptions) => void,
 ): Promise<void> {
+  const endedCastIds = listRestEndedCastIds(entity.activeEffects, restType);
+
+  requestEndCasts(entity.id, endedCastIds);
+  await waitForCastsEnded(entity.id, endedCastIds);
+
   const triggerAnswers = await askRestTriggers(
     entity,
     restType,
