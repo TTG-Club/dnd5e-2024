@@ -27,6 +27,7 @@ import { ITEM_TOGGLE_LABELS } from '../ui/effect/constants';
 import { recordEntityActionSpend, warnActionCostBlocked } from './actionSpend';
 import { runWithEffectPay } from './effectPayChoice';
 import { changeEntitySheet } from './entitySheetWrite';
+import { refuseWhileSheetEditing } from './sheetEditLock';
 import { useWorldEntities } from './useWorldEntities';
 
 /**
@@ -76,6 +77,11 @@ export function toggleEntityItemEffect(
   itemId: string,
   effectId: string,
 ): void {
+  // Лист в режиме правки — переключатель ждёт «Сохранить» или отмены
+  if (refuseWhileSheetEditing(entityId)) {
+    return;
+  }
+
   const entity = useWorldEntities().findCurrentDndEntity(entityId);
   const item = entity?.equipment?.find((candidate) => candidate.id === itemId);
 

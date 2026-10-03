@@ -54,10 +54,12 @@
     getSkillSetting,
     getSkillSettingAbility,
     isDndCreature,
+    isDndCreatureRecord,
     isDnDGameItem,
     isProficiencyLevel,
     isSpell,
     listConditions,
+    mergeEntityDraft,
     normalizeCreature,
     PASSIVE_SKILL_BASE,
     resolveAbilityCheckRollMode,
@@ -69,6 +71,10 @@
 
   import { runRestWithTriggers } from '../../composables/restTriggerPrompt';
   import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
+  import {
+    refuseWhileSheetEditing,
+    useSheetEditLock,
+  } from '../../composables/sheetEditLock';
   import { useItemTransfer } from '../../composables/useItemTransfer';
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
@@ -486,6 +492,29 @@
     draft: localCreature,
     isPaused: () => isEditMode.value,
   });
+
+  // Пока лист в правке, существо не действует ни с листа, ни с панелей
+  useSheetEditLock(
+    () => props.creatureId,
+    () => isEditMode.value,
+  );
+
+  /**
+   * Что уходит на сервер по «Сохранить». Черновик правки сливается с миром:
+   * правки владельца — из черновика, всё, что он не трогал, — из мира. Иначе
+   * сохранение вернуло бы то, что мир изменил за время правки (урон, снятый
+   * эффект, списанный заряд).
+   *
+   * @param draft - черновик листа
+   * @returns существо для записи
+   */
+  function resolveCreatureToSave(draft: DnDCreature): DnDCreature {
+    const world = storeCreature.value;
+
+    return isEditMode.value && savedSnapshot.value && world
+      ? mergeEntityDraft(savedSnapshot.value, draft, world, isDndCreatureRecord)
+      : draft;
+  }
 
   function handleImmediateSave() {
     if (
@@ -1024,10 +1053,10 @@
         props.draftSave(JSON.parse(JSON.stringify(localCreature.value)));
         isCreated.value = true;
       } else if (props.creatureId) {
-        props.socket!.emit(
-          'creature:updated',
-          withoutEntityOwnership(localCreature.value),
-        );
+        const saved = resolveCreatureToSave(localCreature.value);
+
+        localCreature.value = saved;
+        props.socket!.emit('creature:updated', withoutEntityOwnership(saved));
       } else {
         const cleanCreature = JSON.parse(JSON.stringify(localCreature.value));
 
@@ -1239,7 +1268,8 @@
    * @param restType - тип отдыха
    */
   function handleRest(restType: RestType): void {
-    if (!localCreature.value) {
+    // Отдых в режиме правки ждёт «Сохранить» или отмены, как и действия
+    if (!localCreature.value || refuseWhileSheetEditing(props.creatureId)) {
       return;
     }
 

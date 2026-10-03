@@ -60,6 +60,7 @@ import {
 import { chooseUseTarget } from './effectUseTargetChoice';
 import { runWithEffectVariants } from './effectVariantChoice';
 import { changeEntitySheet } from './entitySheetWrite';
+import { refuseWhileSheetEditing } from './sheetEditLock';
 import { openSkillCheckModal } from './skillCheckRoll';
 import {
   afterSpellCast,
@@ -190,9 +191,11 @@ export function applyEffectSource(
   spend: () => void,
   withPay: EffectSourceSpend = {},
 ): void {
-  // Запрет траты хода («нет бонусных действий») — до всякого выбора
+  // Лист применившего в режиме правки — применение ждёт «Сохранить» или
+  // отмены. Запрет траты хода («нет бонусных действий») — до всякого выбора
   if (
-    warnActionCostBlocked(
+    refuseWhileSheetEditing(user.id)
+    || warnActionCostBlocked(
       user,
       withPay.cost,
       `${EFFECT_USE_LABELS.blockedTitle}: ${spell.name}`,

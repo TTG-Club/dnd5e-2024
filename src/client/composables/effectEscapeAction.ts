@@ -52,6 +52,7 @@ import { EFFECT_ESCAPE_PROMPT_LABELS } from '../ui/effect/escapeLabels';
 import { recordEntityActionSpend } from './actionSpend';
 import { changeEntityCombatState } from './entityCombatWrite';
 import { controlsEntityAsUser } from './gmApprovalRequest';
+import { refuseWhileSheetEditing } from './sheetEditLock';
 import { openSkillCheckModal } from './skillCheckRoll';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -346,6 +347,15 @@ export function runEscapeAs(
     return false;
   }
 
+  // Лист носителя или действующего в режиме правки — действие ждёт
+  // «Сохранить» или отмены
+  if (
+    refuseWhileSheetEditing(carrier.id)
+    || refuseWhileSheetEditing(actor.entity.id)
+  ) {
+    return false;
+  }
+
   // Причину отказа показывают, а не глотают: иначе кнопка молча не работает
   const unavailable = describeEscapeUnavailable(effect, actor.entity);
 
@@ -390,6 +400,11 @@ export function runEscapeAs(
  * @returns `true`, если действие пошло или задан вопрос
  */
 export function runEffectEscape(carrierId: string, effectId: string): boolean {
+  // Лист носителя в режиме правки — до вопроса «кто действует»
+  if (refuseWhileSheetEditing(carrierId)) {
+    return false;
+  }
+
   const carrier = useWorldEntities().findCurrentDndEntity(carrierId);
   const effect = carrier?.activeEffects?.find((entry) => entry.id === effectId);
 

@@ -654,6 +654,7 @@ it('the shared cast entry opens Bless targets before ordinary confirmation and c
     listAmbientEffects: () => [],
     findSpellCastBlock: () => null,
     retypeCasterSpellDamage: (spell) => spell,
+    withLiveSpellUses: (_spells, spell) => spell,
     resolveCastableSpellLevels: () => [1, 2],
     findSpellCastRefusal: () => null,
     recordEntityActionSpend: () => {},

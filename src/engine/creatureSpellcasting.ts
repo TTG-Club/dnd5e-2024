@@ -27,6 +27,7 @@ import type { DnDCreature, Spell, SpellUsesRecovery } from './dndEntities.js';
 import { generateId, isRecord } from '@vtt/shared';
 
 import { isAbilityType } from './consts.js';
+import { withLiveSpellUses } from './spellLiveUses.js';
 
 // ── Типы ────────────────────────────────────────────────────────────────────
 
@@ -642,8 +643,6 @@ export function hasLiveCreatureSpellUsesLeft(
   spell: Spell,
   placement: CreatureSpellPlacement | undefined,
 ): boolean {
-  const liveSpell = creature.spells?.find((entry) => entry.id === spell.id);
-
   const liveGroup = placement
     ? (creature.system.spellcastingBlocks ?? [])
         .flatMap((block) => block.groups)
@@ -651,7 +650,7 @@ export function hasLiveCreatureSpellUsesLeft(
     : undefined;
 
   return hasCreatureSpellUsesLeft(
-    liveSpell ? { ...spell, uses: liveSpell.uses } : spell,
+    withLiveSpellUses(creature.spells, spell),
     placement && liveGroup ? { ...placement, group: liveGroup } : placement,
   );
 }

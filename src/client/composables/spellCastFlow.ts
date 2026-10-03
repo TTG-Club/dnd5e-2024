@@ -77,6 +77,7 @@ import {
   spellIsHealing,
   withFlatDamageBonus,
   withFlatFormulaBonus,
+  withLiveSpellUses,
   withSpentSpellSlot,
   withSpentSpellUse,
 } from '@vtt/shared/system/dnd.js';
@@ -104,6 +105,7 @@ import {
   buildRollBonusEvaluator,
   collectProjectileRollBonuses,
 } from './rollBonusEvaluator';
+import { refuseWhileSheetEditing } from './sheetEditLock';
 import {
   afterSpellCast,
   completeSpellCast,
@@ -375,6 +377,11 @@ export function startSpellCast(
   sourceSpell: Spell,
   port: SpellCasterPort,
 ): void {
+  // Лист заклинателя в режиме правки — каст ждёт «Сохранить» или отмены
+  if (refuseWhileSheetEditing(port.casterId)) {
+    return;
+  }
+
   const caster = port.readCaster();
 
   if (!caster) {
@@ -399,7 +406,10 @@ export function startSpellCast(
   // «Можете изменить тип урона заклинания» — тип становится выбором
   runWithEffectVariants(
     retypeCasterSpellDamage(sourceSpell, caster),
-    (spell) => {
+    (chosenSpell) => {
+      // Заряды — по листу мира в этот момент: строка листа и ссылка панели
+      // несут заклинание, каким оно было при отрисовке
+      const spell = withLiveSpellUses(caster.spells, chosenSpell);
       const availableLevels = resolveCastableSpellLevels(caster, spell);
       const refusal = findSpellCastRefusal(caster, spell, availableLevels);
 

@@ -196,6 +196,26 @@ describe('заряд заклинания существа доходит до �
     assert.equal(draft.spells[0].uses.current, 0);
   });
 
+  it('заряды заклинания берутся с листа мира, собранное на лету идёт как пришло', () => {
+    const stale = structuredClone(FEAR);
+    const spent = [{ ...FEAR, uses: { ...FEAR.uses, current: 0 } }];
+
+    assert.equal(engine.withLiveSpellUses(spent, stale).uses.current, 0);
+
+    // На листе заклинания нет или оно зарядов не ведёт — решает вход
+    assert.equal(engine.withLiveSpellUses([], stale), stale);
+
+    assert.equal(
+      engine.withLiveSpellUses([{ ...FEAR, uses: undefined }], stale),
+      stale,
+    );
+
+    // Без своих зарядов заряды листа не появляются
+    const plain = { ...FEAR, uses: undefined };
+
+    assert.equal(engine.withLiveSpellUses(spent, plain), plain);
+  });
+
   it('общий счётчик группы проверяется по миру', () => {
     const group = {
       id: 'group_pool',

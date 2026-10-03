@@ -46,6 +46,7 @@ import { runWithEffectVariants } from './effectVariantChoice';
 import { resolveCombatRound } from './encounterTurn';
 import { changeEntityCombatState } from './entityCombatWrite';
 import { changeEntitySheet } from './entitySheetWrite';
+import { refuseWhileSheetEditing } from './sheetEditLock';
 import { stampEffectOnApply } from './spellResolutionShared';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -113,6 +114,11 @@ export function warnNoCounter(counterKey: string): void {
  * @param effectId - эффект
  */
 export function toggleEntityEffect(entityId: string, effectId: string): void {
+  // Лист в режиме правки — переключатель ждёт «Сохранить» или отмены
+  if (refuseWhileSheetEditing(entityId)) {
+    return;
+  }
+
   const socket = useChatStore().getSocket();
   const entity = useWorldEntities().findCurrentDndEntity(entityId);
   const effects = entity?.activeEffects ?? [];

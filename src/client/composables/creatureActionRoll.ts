@@ -65,6 +65,7 @@ import {
 } from './effectActivationUse';
 import { isEntityOwnTurn } from './encounterTurn';
 import { buildRollBonusEvaluator } from './rollBonusEvaluator';
+import { refuseWhileSheetEditing } from './sheetEditLock';
 import { discardSpellTemplate } from './spellResolutionShared';
 import { useBonusDamageParts } from './useBonusDamageParts';
 import { listAmbientEffects } from './useResolvedStats';
@@ -143,6 +144,11 @@ export function startCreatureAction(
   sourceAction: CreatureAction,
   port: CreatureActionPort,
 ): void {
+  // Лист существа в режиме правки — действие ждёт «Сохранить» или отмены
+  if (refuseWhileSheetEditing(port.creatureId)) {
+    return;
+  }
+
   const creature = readCreature(port.creatureId);
 
   if (!creature) {

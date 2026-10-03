@@ -57,10 +57,12 @@
     getTotalLevel,
     isClassDefinition,
     isDndActor,
+    isDndActorRecord,
     isDnDGameItem,
     isSameCounterList,
     isSkillType,
     isSpell,
+    mergeEntityDraft,
     normalizeActor,
     refreshFeatCounters,
     refreshSpeciesCounters,
@@ -73,6 +75,10 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { runRestWithTriggers } from '../../composables/restTriggerPrompt';
+  import {
+    refuseWhileSheetEditing,
+    useSheetEditLock,
+  } from '../../composables/sheetEditLock';
   import { useClassCatalog } from '../../composables/useClassCatalog';
   import { useCompendiumCatalog } from '../../composables/useCompendiumCatalog';
   import { useItemTransfer } from '../../composables/useItemTransfer';
@@ -650,6 +656,29 @@
     isPaused: () => isEditMode.value,
   });
 
+  // Пока лист в правке, персонаж не действует ни с листа, ни с панелей
+  useSheetEditLock(
+    () => props.actorId,
+    () => isEditMode.value,
+  );
+
+  /**
+   * Что уходит на сервер по «Сохранить». Черновик правки сливается с миром:
+   * правки владельца — из черновика, всё, что он не трогал, — из мира. Иначе
+   * сохранение вернуло бы то, что мир изменил за время правки (урон от
+   * другого клиента, срабатывание сервера, списанный ресурс).
+   *
+   * @param draft - черновик листа
+   * @returns персонаж для записи
+   */
+  function resolveActorToSave(draft: DnDActor): DnDActor {
+    const world = storeActor.value;
+
+    return isEditMode.value && savedSnapshot.value && world
+      ? mergeEntityDraft(savedSnapshot.value, draft, world, isDndActorRecord)
+      : draft;
+  }
+
   function handleActorUpdate(updates: Partial<DnDActor>) {
     if (localActor.value) {
       Object.assign(localActor.value, updates);
@@ -723,7 +752,8 @@
    * @param restType - тип отдыха
    */
   function handleRest(restType: RestType): void {
-    if (!localActor.value) {
+    // Отдых в режиме правки ждёт «Сохранить» или отмены, как и действия
+    if (!localActor.value || refuseWhileSheetEditing(props.actorId)) {
       return;
     }
 
@@ -917,10 +947,10 @@
       requireSocket(props.socket);
 
       if (props.actorId) {
-        props.socket.emit(
-          'actor:updated',
-          withoutEntityOwnership(localActor.value),
-        );
+        const saved = resolveActorToSave(localActor.value);
+
+        localActor.value = saved;
+        props.socket.emit('actor:updated', withoutEntityOwnership(saved));
       } else {
         const rawLocalActor = JSON.parse(JSON.stringify(localActor.value));
 

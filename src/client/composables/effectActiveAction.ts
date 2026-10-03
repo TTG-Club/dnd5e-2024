@@ -29,6 +29,7 @@ import {
   warnPayShortfall,
 } from './effectPayChoice';
 import { resolveCombatRound } from './encounterTurn';
+import { refuseWhileSheetEditing } from './sheetEditLock';
 import { emitSystemClientEvent } from './systemClientEvents';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -46,6 +47,11 @@ export function runEntityEffectAction(
   entityId: string,
   effectId: string,
 ): void {
+  // Лист в режиме правки — кнопка ждёт «Сохранить» или отмены
+  if (refuseWhileSheetEditing(entityId)) {
+    return;
+  }
+
   const worldEntities = useWorldEntities();
   const entity = worldEntities.findCurrentDndEntity(entityId);
   const effect = entity?.activeEffects?.find((entry) => entry.id === effectId);

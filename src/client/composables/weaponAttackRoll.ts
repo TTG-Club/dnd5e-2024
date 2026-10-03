@@ -57,6 +57,7 @@ import {
   spendShotAmmunition,
 } from './effectActivationUse';
 import { buildRollBonusEvaluator } from './rollBonusEvaluator';
+import { refuseWhileSheetEditing } from './sheetEditLock';
 import { useBonusDamageParts } from './useBonusDamageParts';
 import {
   buildEntityFormulaContext,
@@ -156,7 +157,8 @@ export function startWeaponAttack(
 ): void {
   const attacker = port.readAttacker();
 
-  if (!attacker) {
+  // Лист атакующего в режиме правки — удар ждёт «Сохранить» или отмены
+  if (!attacker || refuseWhileSheetEditing(attacker.id)) {
     return;
   }
 

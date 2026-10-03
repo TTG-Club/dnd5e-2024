@@ -69,6 +69,7 @@ import { openDiceRollWindow } from './diceRollWindow';
 import { runWithEffectVariants } from './effectVariantChoice';
 import { changeEntitySheet } from './entitySheetWrite';
 import { buildRollBonusEvaluator } from './rollBonusEvaluator';
+import { refuseWhileSheetEditing } from './sheetEditLock';
 import {
   afterSpellCast,
   completeSpellCast,
@@ -192,6 +193,11 @@ export function startCreatureSpellCast(
   placement: CreatureSpellPlacement | undefined,
   port: CreatureSpellCasterPort,
 ): void {
+  // Лист существа в режиме правки — каст ждёт «Сохранить» или отмены
+  if (refuseWhileSheetEditing(port.creatureId)) {
+    return;
+  }
+
   const creature = readCreature(port.creatureId);
 
   if (!creature) {
