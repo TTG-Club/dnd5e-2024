@@ -344,6 +344,33 @@ describe('входы действий проверяют лист первым �
       assert.match(source, /useSheetEditLock\(\s*\(\) => props\.\w+Id,/u);
     }
   });
+
+  it('кнопки действий вкладки эффектов правка не гасит: причину говорит вход действия', () => {
+    const source = readSource('src/client/ui/actor/ActiveEffectsPanel.vue');
+
+    // «Применить», «Вырваться», «При действии»: погашенная кнопка молчит, а
+    // щелчок доходит до `refuseWhileSheetEditing` и объясняет отказ
+    for (const handler of [
+      'applyUseEffect(effect)',
+      'escapeEffect(effect)',
+      'runActiveAction(effect)',
+    ]) {
+      const buttons = [...source.matchAll(/<UButton[^>]*>/gu)]
+        .map((match) => match[0])
+        .filter((button) => button.includes(handler));
+
+      assert.ok(buttons.length > 0, `кнопка ${handler} не найдена`);
+
+      for (const button of buttons) {
+        assert.doesNotMatch(button, /:disabled="[^"]*isEditMode/u, handler);
+      }
+    }
+
+    const start = source.indexOf('function isApplyDisabled');
+    const body = source.slice(start, source.indexOf('\n  }\n', start));
+
+    assert.doesNotMatch(body, /isEditMode/u);
+  });
 });
 
 describe('«Сохранить» сливает черновик с миром', () => {

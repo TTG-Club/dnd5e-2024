@@ -167,17 +167,18 @@
   const toast = useToast();
 
   /**
-   * Недоступна ли кнопка «Применить»: правка листа, нет владельца или ресурса.
+   * Недоступна ли кнопка «Применить»: нет владельца или ресурса.
+   *
+   * Режим правки кнопки действий не гасит («Применить», «Вырваться», «При
+   * действии»): погашенная кнопка причины не говорит. Щелчок доходит до
+   * общего входа действия, и тот отказывает с объяснением
+   * (`refuseWhileSheetEditing`) — как каст и удар с листа в правке.
    *
    * @param effect - эффект с применением
    * @returns `true`, если применить нельзя
    */
   function isApplyDisabled(effect: ActiveEffect): boolean {
-    return (
-      props.isEditMode
-      || !props.owner
-      || !canPayActivation(props.counters, effect.activation)
-    );
+    return !props.owner || !canPayActivation(props.counters, effect.activation);
   }
 
   /**
@@ -726,7 +727,7 @@
             class="px-1.5"
             :label="formatEffectEscapeLabel(effect)"
             :title="EFFECT_ESCAPE_LABELS.hint"
-            :disabled="isEditMode || !owner"
+            :disabled="!owner"
             @click.left.exact.prevent="escapeEffect(effect)"
           />
 
@@ -751,7 +752,7 @@
             class="px-1.5"
             :label="activeActionLabel"
             :title="EFFECT_ACTIVE_ACTION_LABELS.hint"
-            :disabled="isEditMode || !owner"
+            :disabled="!owner"
             @click.left.exact.prevent="runActiveAction(effect)"
           />
 
@@ -916,7 +917,7 @@
         color="warning"
         :label="label"
         :title="EFFECT_ESCAPE_LABELS.hint"
-        :disabled="isEditMode || !owner"
+        :disabled="!owner"
         @click.left.exact.prevent="escapeEffect(effect)"
       />
     </div>
