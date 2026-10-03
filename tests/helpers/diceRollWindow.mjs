@@ -9,6 +9,14 @@ let keyCounter = 0;
 /** Менеджер окон того теста, который сейчас открывает окно */
 let activeModalManager = () => ({ openModal: () => null });
 
+// Проверка и расход перед броском — настоящие: окно получает `beforeRoll`
+// eslint-disable-next-line antfu/no-top-level-await
+const buildBeforeRoll = await loadHandler(
+  DICE_ROLL_WINDOW_PATH,
+  'buildBeforeRoll',
+  {},
+);
+
 // Настоящий помощник собирается один раз на модуль; менеджер окон
 // подставляется на каждый вызов
 // eslint-disable-next-line antfu/no-top-level-await
@@ -24,6 +32,7 @@ const openDiceRollWindow = await loadHandler(
     closeRollWindow: () => false,
     CLOSE_LISTENER_PROP: 'onUpdate:open',
     sourceWindows: new Map(),
+    buildBeforeRoll,
   },
 );
 

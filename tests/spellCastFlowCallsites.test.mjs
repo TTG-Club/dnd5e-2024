@@ -517,6 +517,11 @@ async function playWindows(env, cell) {
 
   const { props } = rollWindow;
 
+  // Бросок окна: проверка и расход хода и заряда — первым делом, как в окне
+  if (props.beforeRoll && !props.beforeRoll(cell.spell.level, true, false)) {
+    return;
+  }
+
   props.onSpellSlotConsume?.(cell.spell.level, true, false);
 
   if (props.onRollParts) {
@@ -941,6 +946,49 @@ describe('матрица: вход × вид каста — лист и горя
       'template:delete:tpl',
     ]);
   });
+
+  /** Заклинание с зарядом и областью: шаблон, окно броска, один заряд */
+  const CHARGED_CONE = {
+    id: 'cone',
+    name: 'Конус холода',
+    level: 5,
+    saveType: 'constitution',
+    deliveryType: 'self',
+    areaOfEffect: { type: 'cone', size: 60 },
+    uses: { max: 1, current: 1, recovery: 'longRest' },
+    damageParts: [{ formula: '8к8', type: 'cold' }],
+  };
+
+  for (const [title, entryName, createCaster] of [
+    ['лист персонажа', 'sheet', createWizard],
+    ['панель персонажа', 'hotbar', createWizard],
+    ['лист существа', 'creatureSheet', createMage],
+    ['панель существа', 'creatureHotbar', createMage],
+  ]) {
+    it(`${title}: окно открыто и закрыто без броска — ход и заряд целы`, async () => {
+      const caster = { ...createCaster(), spells: [CHARGED_CONE] };
+      const env = await loadCastEnvironment([caster]);
+      const cast = await ENTRIES[entryName](env, structuredClone(caster));
+
+      cast(CHARGED_CONE);
+      await Promise.resolve();
+
+      assert.ok(
+        env.windows.some(({ name }) => name === 'DiceRollModal'),
+        'окно броска открыто',
+      );
+
+      // Окно закрыли крестиком: бросок не звался
+      assert.deepEqual(
+        env.sends.filter(
+          (entry) => entry.startsWith('turn:') || entry.startsWith('update:'),
+        ),
+        [],
+      );
+
+      assert.equal(env.world.get(caster.id).spells[0].uses.current, 1);
+    });
+  }
 
   it('атака заклинанием-эффектом: эффекты на цель — после доведения каста и только при попадании', async () => {
     const wizard = createWizard();

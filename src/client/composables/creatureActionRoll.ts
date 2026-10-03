@@ -232,17 +232,50 @@ export function startCreatureAction(
       (chosen, variants, announceChoice) =>
         launchCreatureAction(chosen, creature.id, (templateId) => {
           // Повторное действие заменяет своё прежнее окно: то закрывается
-          // как отменённое (шаблон убирает само), а ход оно уже потратило
+          // как отменённое (шаблон убирает само) и хода не потратило
           const sourceKey = buildRollSourceKey(
             creature.id,
             'action',
             `${port.section ?? ''}${ACTION_SOURCE_SEPARATOR}${sourceAction.name}`,
           );
 
-          const replaced = closeRollWindow(sourceKey);
+          closeRollWindow(sourceKey);
 
-          // Ход и строка чата — когда действие состоялось: отказ по
-          // дистанции и неоткрывшееся окно хода не тратят, шаблон убирается
+          /**
+           * Действие состоялось: трата хода. Окно могло простоять, пока ход
+           * заняло другое действие, — тогда отказ с причиной.
+           *
+           * @returns `false`, если действия не будет
+           */
+          const commitAction = (): boolean => {
+            const actor = readCreature(port.creatureId);
+
+            const actionBlock =
+              actor && port.section
+                ? findCreatureActionBlock(
+                    resolveEntityActionBlocks(
+                      actor,
+                      listAmbientEffects(actor.id),
+                    ),
+                    port.section,
+                    sourceAction,
+                    isEntityOwnTurn(actor.id),
+                  )
+                : null;
+
+            if (actionBlock) {
+              port.refuse(CREATURE_ACTION_BLOCKED_TITLE, actionBlock);
+
+              return false;
+            }
+
+            spendCreatureActionTurn(port, action);
+
+            return true;
+          };
+
+          // Ход тратит бросок окна: отказ по дистанции, неоткрывшееся и
+          // закрытое без броска окно хода не тратят, шаблон убирается
           if (
             openCreatureActionRoll(
               chosen,
@@ -251,12 +284,9 @@ export function startCreatureAction(
               templateId,
               variants,
               sourceKey,
+              commitAction,
             )
           ) {
-            if (!replaced) {
-              spendCreatureActionTurn(port, action);
-            }
-
             announceChoice();
           } else if (templateId) {
             discardSpellTemplate(templateId);
@@ -278,8 +308,10 @@ export function startCreatureAction(
  * @param variants - наборы урона «или» на выбор в окне; пусто — набор один
  * @param sourceKey - источник действия: окно встаёт на место прежнего окна
  *   того же действия
- * @returns `true` — действие состоялось: окно открылось или действие без
- *   урона применено сразу
+ * @param commitAction - действие состоялось: вызывающий тратит ход; `false` —
+ *   действия не будет. У действия с окном зовётся броском окна, у действия
+ *   без урона — сразу
+ * @returns `true` — окно открылось или действие без урона применено сразу
  */
 export function openCreatureActionRoll(
   action: CreatureAction,
@@ -288,6 +320,7 @@ export function openCreatureActionRoll(
   templateId: string | undefined,
   variants: readonly CreatureDamageVariant[] = [],
   sourceKey?: string,
+  commitAction?: () => boolean,
 ): boolean {
   const { buildCreatureRollSetup, buildTargetHpContext } =
     useBonusDamageParts();
@@ -366,6 +399,9 @@ export function openCreatureActionRoll(
       applyParts,
     )
   ) {
+    // Окна нет: действие применено сразу — и ход потрачен сразу
+    commitAction?.();
+
     return true;
   }
 
@@ -408,7 +444,10 @@ export function openCreatureActionRoll(
       // Расход одноразовых эффектов «следующей атаки» на броске атаки существа
       attackerId: creature.id,
     },
-    sourceKey === undefined ? {} : { sourceKey },
+    {
+      ...(sourceKey === undefined ? {} : { sourceKey }),
+      ...(commitAction ? { commit: commitAction } : {}),
+    },
   );
 
   return opened !== null;

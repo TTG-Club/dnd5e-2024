@@ -187,7 +187,8 @@ function readCreature(creatureId: string): DnDCreature | undefined {
 /**
  * Начинает каст заклинания существа: замена типа урона, запрет трат хода,
  * заряды, провал каста, шаблон области — и окно. Ход и применение тратятся,
- * когда каст состоялся: окно открылось, каст применён сразу или сорвался.
+ * когда каст состоялся: в окне бросили, каст применён сразу или сорвался.
+ * Окно, закрытое без броска, ничего не тратит.
  *
  * @param sourceSpell - заклинание существа; варианты эффектов не выбраны
  * @param placement - группа, из которой идёт каст: её числа, круг наложения
@@ -250,24 +251,62 @@ export function startCreatureSpellCast(
         recordEntityActionSpend(creature.id, resolveSpellCastCost(spell));
 
       /**
-       * Окно с шаблоном или без: открылось — тратятся ход и применение; нет
-       * — шаблон убирается.
+       * Каст состоялся: ход и применение. Окно могло простоять долго, а
+       * тратить к броску уже не из чего — заряд общего счётчика ушёл другим
+       * заклинанием группы, ход занят другим действием: тогда отказ с
+       * причиной, и ничего не тратится.
+       *
+       * @returns `false`, если каста не будет
+       */
+      const commitCastStart = (): boolean => {
+        const caster = readCreature(port.creatureId);
+
+        if (!caster) {
+          return false;
+        }
+
+        const castBlock = resolveSpellCastBlock(
+          caster,
+          spell,
+          listAmbientEffects(caster.id),
+        );
+
+        if (castBlock) {
+          port.refuse(spell, {
+            title: ACTOR_SPELLS_TAB_LABELS.castBlockedTitle,
+            description: castBlock,
+          });
+
+          return false;
+        }
+
+        if (!hasLiveCreatureSpellUsesLeft(caster, spell, placement)) {
+          port.refuse(spell, {
+            title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
+            description: ACTOR_SPELLS_TAB_LABELS.noUsesText,
+          });
+
+          return false;
+        }
+
+        spendTurn();
+        spendUse();
+
+        return true;
+      };
+
+      /**
+       * Окно с шаблоном или без: не открылось — шаблон убирается. Ход и
+       * применение тратит бросок окна, а каст без окна — сразу.
        *
        * @param templateId - размещённый шаблон области
        */
       const openRoll = (templateId: string | undefined): void => {
         // Повторный каст того же заклинания заменяет своё прежнее окно: то
-        // закрывается как отменённое, а ход и заряд оно уже потратило
+        // закрывается как отменённое и ничего не потратило
         const sourceKey = buildRollSourceKey(creature.id, 'spell', spell.id);
-        const replaced = closeRollWindow(sourceKey);
 
-        /** Каст состоялся: ход и применение — один раз на каст */
-        const commitCastStart = (): void => {
-          if (!replaced) {
-            spendTurn();
-            spendUse();
-          }
-        };
+        closeRollWindow(sourceKey);
 
         if (
           !openCreatureSpellRoll(
@@ -327,11 +366,12 @@ export function startCreatureSpellCast(
  * @param placement - группа, из которой идёт каст
  * @param sourceKey - источник действия: окно встаёт на место прежнего окна
  *   того же заклинания
- * @param onCastStarted - каст состоялся: вызывающий тратит ход и применение.
- *   У каста без окна зовётся ДО доведения каста: запись заряда — полная
- *   запись сущности, и после доведения она вернула бы серверу эффекты из
- *   стора — прежнюю метку концентрации вместо новой
- * @returns `true` — каст состоялся (окно открылось или каст применён сразу)
+ * @param commitCastStart - каст состоялся: вызывающий тратит ход и
+ *   применение; `false` — тратить не из чего, каста не будет. У каста с окном
+ *   зовётся броском окна, у каста без окна — сразу и ДО доведения каста:
+ *   запись заряда — полная запись сущности, и после доведения она вернула бы
+ *   серверу эффекты из стора — прежнюю метку концентрации вместо новой
+ * @returns `true` — окно открылось или каст применён сразу
  */
 export function openCreatureSpellRoll(
   spell: Spell,
@@ -339,7 +379,7 @@ export function openCreatureSpellRoll(
   templateId: string | undefined,
   placement: CreatureSpellPlacement | undefined,
   sourceKey?: string,
-  onCastStarted?: () => void,
+  commitCastStart?: () => boolean,
 ): boolean {
   // Существо не атакует заклинанием со спасброском или областью
   const usesSaveOrArea =
@@ -405,10 +445,17 @@ export function openCreatureSpellRoll(
   // Ни урона, ни атаки — окну броска катить нечего: каст применяется сразу,
   // тип урона на выбор спросит плашка
   if (plan.window !== 'roll') {
-    // Ресурсы каста — до его доведения (правило `completeSpellCast`)
-    onCastStarted?.();
-
     runWithDamageTypeChoices(setup.pseudoSpell, (chosen) => {
+      // Ресурсы каста — когда выбор сделан (закрытая плашка ничего не
+      // тратит) и до доведения каста (правило `completeSpellCast`)
+      if (commitCastStart && !commitCastStart()) {
+        if (templateId) {
+          discardSpellTemplate(templateId);
+        }
+
+        return;
+      }
+
       applyCreatureSpellParts(
         creature.id,
         chosen,
@@ -504,16 +551,13 @@ export function openCreatureSpellRoll(
       // Расход одноразовых эффектов «следующей атаки» на броске атаки существа
       attackerId: creature.id,
     },
-    sourceKey === undefined ? {} : { sourceKey },
+    {
+      ...(sourceKey === undefined ? {} : { sourceKey }),
+      ...(commitCastStart ? { commit: commitCastStart } : {}),
+    },
   );
 
-  if (opened === null) {
-    return false;
-  }
-
-  onCastStarted?.();
-
-  return true;
+  return opened !== null;
 }
 
 /**

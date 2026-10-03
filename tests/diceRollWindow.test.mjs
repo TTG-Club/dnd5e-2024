@@ -138,6 +138,7 @@ async function loadRollWindow(manager) {
   for (const name of [
     'findOpenSourceWindow',
     'closeRollWindow',
+    'buildBeforeRoll',
     'openDiceRollWindow',
     'buildRollSourceKey',
   ]) {
@@ -253,10 +254,122 @@ describe('повторное действие источника заменяе�
 
       assert.match(
         code,
-        /\{ sourceKey(?:: buildRollSourceKey\([^)]*\))?(?:, onClose: \w+)? \}/u,
+        /\{\s*(?:\.\.\.\(sourceKey === undefined \? \{\} : \{ sourceKey \}\)|sourceKey(?:: buildRollSourceKey\([^)]*\))?),/u,
         `${path}: ключ не отдан окну`,
       );
+
+      assert.match(
+        code,
+        /\bcommit(?::| \})/u,
+        `${path}: расход хода и ресурсов не отдан окну`,
+      );
     }
+  });
+
+  it('проверку перед броском окну собирает только помощник', () => {
+    const offenders = listClientSources()
+      .filter((path) => toSystemPath(path) !== WINDOW_PATH)
+      .filter((path) => !path.endsWith('DiceRollModal.vue'))
+      .filter((path) => /\bbeforeRoll\s*:/u.test(readCode(path)))
+      .map(toSystemPath);
+
+    assert.deepEqual(offenders, []);
+  });
+});
+
+describe('ход и ресурсы тратит бросок, а не открытие окна', () => {
+  /**
+   * Окно источника с расходом и проверкой.
+   *
+   * @param {object} rollWindow - помощник окна
+   * @param {string[]} log - журнал
+   * @param {object} [options] - проверка и исход расхода
+   * @param {() => boolean} [options.validateRoll] - проверка перед броском
+   * @param {() => boolean} [options.commit] - расход
+   * @returns {string | null} id окна
+   */
+  function openSourceWindow(rollWindow, log, options = {}) {
+    return rollWindow.openDiceRollWindow(
+      { onCancel: () => log.push('cancel') },
+      {
+        sourceKey: rollWindow.buildRollSourceKey('wolf', 'spell', 'wave'),
+        commit: () => {
+          log.push('spend');
+
+          return true;
+        },
+        ...options,
+      },
+    );
+  }
+
+  it('отмена — ресурс цел', async () => {
+    const { manager, modals } = createModalManager();
+    const rollWindow = await loadRollWindow(manager);
+    const log = [];
+
+    openSourceWindow(rollWindow, log);
+    manager.closeModal(modals[0].id);
+
+    assert.deepEqual(log, ['cancel']);
+  });
+
+  it('подтверждение — потрачен один раз, даже если окно спросит дважды', async () => {
+    const { manager, modals } = createModalManager();
+    const rollWindow = await loadRollWindow(manager);
+    const log = [];
+
+    openSourceWindow(rollWindow, log);
+
+    assert.deepEqual(log, [], 'открытие ничего не тратит');
+    assert.equal(modals[0].props.beforeRoll(0, false, false), true);
+    assert.equal(modals[0].props.beforeRoll(0, false, false), true);
+    assert.deepEqual(log, ['spend']);
+  });
+
+  it('замена окна — потрачен один раз, броском нового окна', async () => {
+    const { manager, modals } = createModalManager();
+    const rollWindow = await loadRollWindow(manager);
+    const log = [];
+
+    openSourceWindow(rollWindow, log);
+    openSourceWindow(rollWindow, log);
+
+    assert.deepEqual(log, ['cancel'], 'прежнее окно закрыто и не потратило');
+    assert.equal(modals[1].props.beforeRoll(0, false, false), true);
+    assert.deepEqual(log, ['cancel', 'spend']);
+  });
+
+  it('проверка не прошла — расход не зовётся; расход отказал — бросок не идёт', async () => {
+    const { manager, modals } = createModalManager();
+    const rollWindow = await loadRollWindow(manager);
+    const log = [];
+
+    openSourceWindow(rollWindow, log, { validateRoll: () => false });
+
+    assert.equal(modals[0].props.beforeRoll(0, false, false), false);
+    assert.deepEqual(log, [], 'расход не звался');
+
+    let usesLeft = false;
+
+    rollWindow.openDiceRollWindow(
+      {},
+      {
+        commit: () => {
+          log.push(usesLeft ? 'spend' : 'refuse');
+
+          return usesLeft;
+        },
+      },
+    );
+
+    assert.equal(modals[1].props.beforeRoll(0, false, false), false);
+
+    // Заряд вернулся (отдых) — тот же щелчок «Бросить» проходит
+    usesLeft = true;
+
+    assert.equal(modals[1].props.beforeRoll(0, false, false), true);
+    assert.deepEqual(log, ['refuse', 'spend']);
   });
 });
 
@@ -281,6 +394,9 @@ const BREATH = {
 async function loadCreatureAction(windowOpens, creature = WOLF) {
   const log = [];
 
+  /** Свойства открытого окна: бросок окна зовёт `beforeRoll` */
+  const modal = { props: null };
+
   const ports = {
     log,
     readCreature: () => creature ?? undefined,
@@ -304,6 +420,9 @@ async function loadCreatureAction(windowOpens, creature = WOLF) {
     recordEntityActionSpend: () => log.push('turn'),
     resolveCreatureSectionCost: () => 'action',
     isCreatureAttackAction: () => true,
+    ACTION_SOURCE_SEPARATOR: '/',
+    closeRollWindow: () => false,
+    buildRollSourceKey: (...parts) => parts.join(':'),
     warnOpportunityAttack: () => {},
     creatureActionHasSave: engine.creatureActionHasSave,
     collectActiveEffects: () => [],
@@ -324,7 +443,11 @@ async function loadCreatureAction(windowOpens, creature = WOLF) {
     getAttackBonusKey: engine.getAttackBonusKey,
     buildRollBonusEvaluator: () => () => [],
     useModalManager: () => ({
-      openModal: () => (windowOpens ? 'modal' : null),
+      openModal: (_name, props) => {
+        modal.props = props;
+
+        return windowOpens ? 'modal' : null;
+      },
     }),
     CREATURE_ACTIONS_BLOCK_LABELS: { attackRollPrefix: 'Атака: ' },
     CREATURE_ACTION_MENU_LABELS: { attack: 'Атаковать' },
@@ -347,6 +470,7 @@ async function loadCreatureAction(windowOpens, creature = WOLF) {
 
   return {
     log,
+    ports,
     start: (action) =>
       start(action, {
         creatureId: WOLF.id,
@@ -354,10 +478,12 @@ async function loadCreatureAction(windowOpens, creature = WOLF) {
         refuse: (_title, reason) => log.push(`refuse:${reason}`),
         announce: () => log.push('announce'),
       }),
+    /** Бросок в открытом окне: проверка окна перед броском */
+    roll: () => modal.props.beforeRoll(0, false, false),
   };
 }
 
-describe('действие существа: необратимое — после открытия окна', () => {
+describe('действие существа: ход тратит бросок', () => {
   it('окно не открылось — ход не потрачен, шаблон убран, в чат ничего', async () => {
     const { log, start } = await loadCreatureAction(false);
 
@@ -366,12 +492,29 @@ describe('действие существа: необратимое — посл
     assert.deepEqual(log, ['template:place', 'template:discard:tpl']);
   });
 
-  it('окно открылось — ход и строка чата после него', async () => {
-    const { log, start } = await loadCreatureAction(true);
+  it('окно открылось — ход цел; бросок — ход потрачен', async () => {
+    const { log, start, roll } = await loadCreatureAction(true);
 
     start(BREATH);
 
-    assert.deepEqual(log, ['template:place', 'turn', 'chat:или']);
+    assert.deepEqual(log, ['template:place', 'chat:или']);
+    assert.equal(roll(), true);
+    assert.deepEqual(log, ['template:place', 'chat:или', 'turn']);
+  });
+
+  it('ход заняло другое действие, пока окно стояло, — бросок отказывает с причиной', async () => {
+    const { log, ports, start, roll } = await loadCreatureAction(true);
+
+    start(BREATH);
+    ports.findCreatureActionBlock = () => 'действие уже потрачено';
+
+    assert.equal(roll(), false);
+
+    assert.deepEqual(log, [
+      'template:place',
+      'chat:или',
+      'refuse:действие уже потрачено',
+    ]);
   });
 
   it('существа нет в мире — вход говорит почему, а не молчит', async () => {
@@ -403,6 +546,9 @@ const FIRE_BREATH = {
  */
 async function loadCreatureSpell(windowOpens, overrides = {}) {
   const log = [];
+
+  /** Свойства открытого окна: бросок окна зовёт `beforeRoll` */
+  const modal = { props: null };
 
   const ports = {
     ...engine,
@@ -444,10 +590,14 @@ async function loadCreatureSpell(windowOpens, overrides = {}) {
     buildRollBonusEvaluator: () => () => [],
     getCreatureSpellRollButtonText: () => 'Урон',
     useModalManager: () => ({
-      openModal: () => (windowOpens ? 'modal' : null),
+      openModal: (_name, props) => {
+        modal.props = props;
+
+        return windowOpens ? 'modal' : null;
+      },
     }),
     CREATURE_ACTIONS_BLOCK_LABELS: { attackRollPrefix: 'Атака: ' },
-    ACTOR_SPELLS_TAB_LABELS: {},
+    ACTOR_SPELLS_TAB_LABELS: { noUsesTitle: 'Нет зарядов' },
     ...overrides,
   };
 
@@ -465,16 +615,19 @@ async function loadCreatureSpell(windowOpens, overrides = {}) {
 
   return {
     log,
+    ports,
     start: (spell) =>
       start(spell, undefined, {
         creatureId: WOLF.id,
         spendUse: () => log.push('use'),
-        refuse: () => log.push('refuse'),
+        refuse: (_spell, refusal) => log.push(`refuse:${refusal.title}`),
       }),
+    /** Бросок в открытом окне: проверка окна перед броском */
+    roll: () => modal.props.beforeRoll(0, false, false),
   };
 }
 
-describe('заклинание существа: ход и заряд — после открытия окна', () => {
+describe('заклинание существа: ход и заряд тратит бросок', () => {
   it('окно не открылось — ни хода, ни заряда, шаблон убран', async () => {
     const { log, start } = await loadCreatureSpell(false);
 
@@ -483,17 +636,29 @@ describe('заклинание существа: ход и заряд — пос
     assert.deepEqual(log, ['template:place', 'template:discard:tpl']);
   });
 
-  it('окно открылось — ход и заряд', async () => {
-    const { log, start } = await loadCreatureSpell(true);
+  it('окно открылось — ход и заряд целы; бросок — потрачены', async () => {
+    const { log, start, roll } = await loadCreatureSpell(true);
 
     start(FIRE_BREATH);
 
+    assert.deepEqual(log, ['template:place']);
+    assert.equal(roll(), true);
     assert.deepEqual(log, ['template:place', 'turn', 'use']);
+  });
+
+  it('заряд ушёл, пока окно стояло, — бросок отказывает и в долг не тратит', async () => {
+    const { log, ports, start, roll } = await loadCreatureSpell(true);
+
+    start(FIRE_BREATH);
+    ports.hasLiveCreatureSpellUsesLeft = () => false;
+
+    assert.equal(roll(), false);
+    assert.deepEqual(log, ['template:place', 'refuse:Нет зарядов']);
   });
 });
 
-describe('заклинание существа: повторный каст заменяет окно и второй раз не тратит', () => {
-  it('второй щелчок — прежнее окно закрыто, его шаблон убран, ход и заряд потрачены один раз', async () => {
+describe('заклинание существа: повторный каст заменяет окно и тратит один раз', () => {
+  it('второй щелчок — прежнее окно закрыто, его шаблон убран, ход и заряд тратит бросок нового окна', async () => {
     const { manager, modals } = createModalManager();
     const rollWindow = await loadRollWindow(manager);
 
@@ -509,12 +674,13 @@ describe('заклинание существа: повторный каст з�
 
     assert.deepEqual(log, [
       'template:place',
-      'turn',
-      'use',
       'template:place',
       // Прежнее окно закрыто как отменённое — свой шаблон оно убрало само
       'template:discard:tpl',
     ]);
+
+    assert.equal(modals[1].props.beforeRoll(0, false, false), true);
+    assert.deepEqual(log.slice(3), ['turn', 'use']);
 
     assert.deepEqual(
       modals.map((modal) => modal.props.open),

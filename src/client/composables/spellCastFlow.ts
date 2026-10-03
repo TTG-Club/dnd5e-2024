@@ -590,25 +590,62 @@ function spendSpellCastTurn(spell: Spell, port: SpellCasterPort): void {
 }
 
 /**
- * Каст состоялся — окно открылось или каст применён сразу: тратится ход и
+ * Каст состоялся — в окне бросили или каст применён сразу: тратится ход и
  * заряд заклинания с откатом (врождённого) — один раз на каст. До этого
- * момента ничего необратимого: окно, которое не открылось, ход и заряд не
- * съедает.
+ * момента ничего необратимого: окно, которое не открылось или закрыто без
+ * броска, ход и заряд не съедает.
+ *
+ * Окно могло простоять долго, а тратить к броску уже не из чего — заряд
+ * ушёл, ход занят другим действием: тогда отказ с причиной, и ничего не
+ * тратится.
  *
  * @param spell - заклинание
  * @param port - заклинатель
+ * @returns `false`, если каста не будет
  */
-function commitSpellCastStart(spell: Spell, port: SpellCasterPort): void {
+function commitSpellCastStart(spell: Spell, port: SpellCasterPort): boolean {
+  const caster = port.readCaster();
+
+  if (!caster) {
+    return false;
+  }
+
+  const castBlock = findSpellCastBlock(
+    resolveEntityActionBlocks(caster, listAmbientEffects(caster.id)),
+    spell,
+  );
+
+  if (castBlock) {
+    port.refuse(spell, {
+      title: ACTOR_SPELLS_TAB_LABELS.castBlockedTitle,
+      description: castBlock,
+    });
+
+    return false;
+  }
+
+  const liveUses = withLiveSpellUses(caster.spells, spell).uses;
+
+  if (liveUses && liveUses.recovery !== 'atWill' && liveUses.current <= 0) {
+    port.refuse(spell, {
+      title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
+      description: ACTOR_SPELLS_TAB_LABELS.noUsesText,
+    });
+
+    return false;
+  }
+
   spendSpellCastTurn(spell, port);
 
   if (spell.uses && spell.uses.recovery !== 'atWill') {
     port.spendUse(spell);
   }
+
+  return true;
 }
 
 /**
- * Оплаченный каст: шаблон области — и окно; ход и заряд тратит окно, когда
- * откроется.
+ * Оплаченный каст: шаблон области — и окно; ход и заряд тратит бросок окна.
  *
  * @param spell - заклинание (оплачено)
  * @param port - заклинатель
@@ -1018,32 +1055,19 @@ export function settleNoRollSpellCast(session: SpellCastSession): void {
 }
 
 /**
- * Итог открытия окна каста: открылось — каст состоялся (ход, заряд); нет —
- * каст убирается, как при закрытии окна (шаблон, выбор снарядов).
- *
- * Окно, вставшее на место прежнего окна того же заклинания, ход и заряд не
- * тратит: их потратило прежнее.
+ * Итог открытия окна каста: не открылось — каст убирается, как при закрытии
+ * окна (шаблон, выбор снарядов). Ход и заряд открытое окно не тратит: их
+ * тратит бросок (`commit` окна).
  *
  * @param modalId - id окна; `null` — не открылось
- * @param cast - заклинание, заклинатель и заменено ли прежнее окно
- * @param cast.spell - заклинание
- * @param cast.port - заклинатель
- * @param cast.replaced - окно встало на место прежнего окна того же заклинания
  * @param closeWindow - обработчик закрытия окна
  */
 function settleSpellCastWindowOpen(
   modalId: string | null,
-  cast: { spell: Spell; port: SpellCasterPort; replaced: boolean },
   closeWindow: (isOpen: boolean) => void,
 ): void {
   if (!modalId) {
     closeWindow(false);
-
-    return;
-  }
-
-  if (!cast.replaced) {
-    commitSpellCastStart(cast.spell, cast.port);
   }
 }
 
@@ -1074,7 +1098,9 @@ export function openSpellCastWindow(
   // его надо до сборки нового: выбор снарядов один на приложение, и прежнее
   // окно обязано отпустить его раньше, чем его займёт новый каст
   const sourceKey = buildRollSourceKey(caster.id, 'spell', sourceSpell.id);
-  const replaced = closeRollWindow(sourceKey);
+
+  closeRollWindow(sourceKey);
+
   const stats = resolveEntityStats(caster);
   const isInnate = Boolean(sourceSpell.uses);
   const castKey = generateId(SPELL_CAST_KEY_PREFIX);
@@ -1199,9 +1225,14 @@ export function openSpellCastWindow(
   // Каст без окна броска: заговор и врождённое — сразу, уровневое — окном
   // выбора круга
   if (plan.window === 'none') {
-    commitSpellCastStart(sourceSpell, port);
-
     runWithDamageTypeChoices(sourceSpell, (chosen) => {
+      // Ход и заряд — когда выбор сделан: закрытая плашка ничего не тратит
+      if (!commitSpellCastStart(sourceSpell, port)) {
+        abandonSpellCast(session, isCurrentProjectileCast);
+
+        return;
+      }
+
       session.state.spell = chosen;
       settleNoRollSpellCast(session);
     });
@@ -1228,6 +1259,9 @@ export function openSpellCastWindow(
 
   const slotProps = buildSpellSlotProps(session, caster, lockedLevel);
 
+  /** Бросок окна подтверждён: ход и заряд заклинания */
+  const commitCast = (): boolean => commitSpellCastStart(sourceSpell, port);
+
   if (plan.window === 'confirm') {
     const confirmOpened = openDiceRollWindow(
       {
@@ -1235,7 +1269,6 @@ export function openSpellCastWindow(
         rollLabel: sourceSpell.name,
         rollButtonText: SPELL_MENU_LABELS.cast,
         skipRoll: true,
-        beforeRoll: effectTargets?.validate ?? isCurrentProjectileCast,
         damageTypeChoice,
         ...slotProps,
         onRoll: () => {
@@ -1243,14 +1276,15 @@ export function openSpellCastWindow(
           settleNoRollSpellCast(session);
         },
       },
-      { sourceKey, onClose: handleModalClose },
+      {
+        sourceKey,
+        onClose: handleModalClose,
+        validateRoll: effectTargets?.validate ?? isCurrentProjectileCast,
+        commit: commitCast,
+      },
     );
 
-    settleSpellCastWindowOpen(
-      confirmOpened,
-      { spell: sourceSpell, port, replaced },
-      handleModalClose,
-    );
+    settleSpellCastWindowOpen(confirmOpened, handleModalClose);
 
     return session;
   }
@@ -1360,16 +1394,16 @@ export function openSpellCastWindow(
         releaseUnload();
         settleSpellRoll(session, rolledTotal, chosenDamageType, attack);
       },
-      beforeRoll: isCurrentProjectileCast,
     },
-    { sourceKey, onClose: handleModalClose },
+    {
+      sourceKey,
+      onClose: handleModalClose,
+      validateRoll: isCurrentProjectileCast,
+      commit: commitCast,
+    },
   );
 
-  settleSpellCastWindowOpen(
-    rollOpened,
-    { spell: sourceSpell, port, replaced },
-    handleModalClose,
-  );
+  settleSpellCastWindowOpen(rollOpened, handleModalClose);
 
   return session;
 }

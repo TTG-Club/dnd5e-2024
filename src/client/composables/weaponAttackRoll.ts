@@ -203,7 +203,7 @@ export function startWeaponAttack(
           isDisadvantage: Boolean(rangeCheck?.disadvantage),
           // Боеприпас и действие хода тратятся, когда бросок пошёл, а не при
           // открытии окна
-          beforeRoll: () => {
+          commit: () => {
             if (ammunitionId) {
               port.spendAmmunition(ammunitionId);
             }
@@ -228,13 +228,13 @@ export function startWeaponAttack(
  * @param port - вход удара
  * @param options - помеха по дистанции и расход перед броском
  * @param options.isDisadvantage - стартовать с помехой
- * @param options.beforeRoll - расход боеприпаса и хода, когда бросок пошёл
+ * @param options.commit - расход боеприпаса и хода, когда бросок пошёл
  */
 export function openWeaponAttackRoll(
   weapon: DnDGameItem,
   attacker: DnDSceneEntity,
   port: WeaponAttackPort,
-  options: { isDisadvantage: boolean; beforeRoll: () => boolean },
+  options: { isDisadvantage: boolean; commit: () => boolean },
 ): void {
   const resolvedStats = resolveEntityStats(attacker);
 
@@ -363,11 +363,13 @@ export function openWeaponAttackRoll(
       damageTypeChoice,
       // Расход одноразовых эффектов «следующей атаки» (Злая насмешка и т.п.)
       attackerId: attacker.id,
-      beforeRoll: options.beforeRoll,
     },
     // Повторный удар тем же оружием заменяет своё прежнее окно. Ход и
     // боеприпас тратит бросок — замена ничего не тратит
-    { sourceKey: buildRollSourceKey(attacker.id, 'weapon', weapon.id) },
+    {
+      sourceKey: buildRollSourceKey(attacker.id, 'weapon', weapon.id),
+      commit: options.commit,
+    },
   );
 }
 

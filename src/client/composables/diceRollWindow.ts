@@ -17,6 +17,11 @@
  * своё прежнее окно новым, а не копит второе. Прежнее окно закрывается как
  * отменённое — его шаблон убирается, выбор снарядов сворачивается; окна
  * разных источников живут независимо.
+ *
+ * Ход и ресурсы действия (заряд, боеприпас) тратит бросок, а не открытие
+ * окна: вызывающий отдаёт расход помощнику (`commit`), и тот зовёт его, когда
+ * бросок подтверждён. Окно, закрытое без броска — крестиком или заменой, —
+ * ничего не потратило, и возвращать нечего.
  */
 
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
@@ -36,6 +41,16 @@ const SOURCE_KEY_SEPARATOR = ':';
 /** Чем действует сущность: от этого зависит, чьё окно заменяется */
 export type RollSourceKind = 'weapon' | 'spell' | 'action';
 
+/**
+ * Проверка окна перед броском (`beforeRoll` окна): круг каста, тратится ли
+ * ячейка и чья она. `false` — бросок не идёт, окно остаётся открытым
+ */
+export type RollValidator = (
+  castLevel: number,
+  consumeSlot: boolean,
+  isPactSlot: boolean,
+) => boolean;
+
 /** Как открыть окно броска */
 export interface DiceRollWindowOptions {
   /** Ключ окна; нет — новый на каждое открытие */
@@ -53,6 +68,15 @@ export interface DiceRollWindowOptions {
    * полноценного SDK», п. 36)
    */
   onClose?: (isOpen: boolean) => void;
+  /** Проверка перед броском: выбор целей и снарядов ещё в силе */
+  validateRoll?: RollValidator;
+  /**
+   * Бросок подтверждён — действие состоялось: вызывающий тратит ход и
+   * ресурсы действия (заряд, боеприпас). Зовётся после проверки, один раз на
+   * окно. `false` — тратить уже не из чего (заряд ушёл другим окном, ход
+   * занят): вызывающий сам сказал почему, бросок не идёт, окно остаётся
+   */
+  commit?: () => boolean;
 }
 
 /** Окно действия источника */
@@ -110,9 +134,9 @@ function findOpenSourceWindow(sourceKey: string): SourceWindow | undefined {
 /**
  * Закрывает открытое окно источника как отменённое: окно сворачивает своё
  * действие само (`onCancel` — шаблон области), обработчик закрытия — то, что
- * вёл вызывающий (шаблон и выбор снарядов заклинания персонажа). Потраченное
- * прежним окном при открытии (ход, заряд) не возвращается — заменяющее окно
- * это второй раз не тратит: вызывающий узнаёт о замене по ответу.
+ * вёл вызывающий (шаблон и выбор снарядов заклинания персонажа). Ход и заряд
+ * прежнее окно не тратило — их тратит бросок, — поэтому заменяющее окно
+ * потратит их один раз, когда бросят в нём.
  *
  * Зовётся перед тем, как действие начнёт собирать новое окно: выбор снарядов
  * у заклинаний один на приложение, и прежнее окно обязано отпустить его
@@ -136,11 +160,40 @@ export function closeRollWindow(sourceKey: string): boolean {
 }
 
 /**
+ * Свойство `beforeRoll` окна из проверки и расхода вызывающего: сперва
+ * проверка, затем расход — один раз, даже если окно позовёт проверку снова.
+ *
+ * @param validateRoll - проверка перед броском
+ * @param commit - расход хода и ресурсов действия
+ * @returns проверка окна
+ */
+function buildBeforeRoll(
+  validateRoll: RollValidator | undefined,
+  commit: (() => boolean) | undefined,
+): RollValidator {
+  let committed = false;
+
+  return (castLevel, consumeSlot, isPactSlot) => {
+    if (validateRoll && !validateRoll(castLevel, consumeSlot, isPactSlot)) {
+      return false;
+    }
+
+    if (commit && !committed) {
+      committed = commit();
+
+      return committed;
+    }
+
+    return true;
+  };
+}
+
+/**
  * Открывает окно броска со своим ключом.
  *
- * Всё, чего нельзя отменить (трата хода, списание, строка в чат), вызывающий
- * делает только после того, как окно открылось; размещённый до окна шаблон
- * при неудаче убирает.
+ * Открытие окна ничего не тратит: ход, заряд и боеприпас вызывающий отдаёт в
+ * `commit`, и они тратятся, когда бросок подтверждён. Размещённый до окна
+ * шаблон при неудаче и отмене убирает вызывающий.
  *
  * @param props - свойства окна
  * @param options - ключ окна, источник действия и обработчик закрытия
@@ -151,7 +204,7 @@ export function openDiceRollWindow(
   props: Record<string, unknown>,
   options: DiceRollWindowOptions = {},
 ): string | null {
-  const { sourceKey, onClose } = options;
+  const { sourceKey, onClose, validateRoll, commit } = options;
 
   if (sourceKey !== undefined) {
     closeRollWindow(sourceKey);
@@ -159,6 +212,9 @@ export function openDiceRollWindow(
 
   const modalId = useModalManager().openModal(DICE_ROLL_MODAL, {
     ...props,
+    ...(validateRoll || commit
+      ? { beforeRoll: buildBeforeRoll(validateRoll, commit) }
+      : {}),
     ...(onClose ? { [CLOSE_LISTENER_PROP]: onClose } : {}),
     _modalKey: options.modalKey ?? generateId(DICE_ROLL_MODAL_KEY_PREFIX),
   });

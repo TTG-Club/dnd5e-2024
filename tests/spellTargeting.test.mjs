@@ -900,7 +900,7 @@ async function loadCastWindow(overrides) {
     settleNoRollSpellCast: () => {},
     window: { addEventListener() {}, removeEventListener() {} },
     // Ход и заряд тратятся, когда каст состоялся: здесь их не пишут
-    commitSpellCastStart: () => {},
+    commitSpellCastStart: () => true,
     ...overrides,
   };
 
