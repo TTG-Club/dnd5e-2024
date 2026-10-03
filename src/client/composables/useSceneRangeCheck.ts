@@ -45,6 +45,9 @@ export interface SpellRangeCheckResult {
  * попавшийся токен — атака «дальнего» гоблина давала помеху за дистанцию или
  * «цель вне досягаемости», хотя бил тот, что стоит рядом.
  *
+ * Цель — единственная фишка самого атакующего: расстояние 0. Применение «на
+ * цель» с дальностью допускает получателем самого применившего.
+ *
  * @param attackerActorId - ID актора-атакующего (ищутся его токены)
  * @param targetTokenId - ID токена-цели
  * @returns расстояние и единицы измерения, либо null (нет сцены / токенов)
@@ -91,14 +94,19 @@ export function measureTokenDistanceOnScene(
       ),
     );
 
-  if (distances.length === 0) {
+  // Других фишек у атакующего нет, а цель — его собственная: до себя 0.
+  // Иначе выбрать себя получателем (выпить своё зелье) было бы нельзя
+  const isSelfTarget =
+    distances.length === 0 && targetToken.actorId === attackerActorId;
+
+  if (distances.length === 0 && !isSelfTarget) {
     return null;
   }
 
   const units = scene.gridSettings.units ?? 'ft';
 
   return {
-    distance: Math.round(Math.min(...distances)),
+    distance: isSelfTarget ? 0 : Math.round(Math.min(...distances)),
     units,
     unitLabel: DISTANCE_UNIT_SHORT[units] ?? units,
   };
