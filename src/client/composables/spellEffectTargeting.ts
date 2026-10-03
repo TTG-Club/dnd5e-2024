@@ -29,6 +29,7 @@ import {
   SPELL_EFFECT_TARGET_MODE,
   SPELL_TARGETS_MODAL_KEY_PREFIX,
 } from '../ui/actor/constants';
+import { refuseAction } from './actionRefusal';
 import { listAttackResolutionEntities } from './attackRollSnapshot';
 import { changeEntityCombatState } from './entityCombatWrite';
 import { resolveSpellCastId, resolveSpellCastLevel } from './spellCasts';
@@ -324,7 +325,7 @@ export function requestSpellEffectTargets(
   }
 
   if (!hasCastContext()) {
-    chatStore.sendMessage(SPELL_EFFECT_TARGET_LABELS.unavailable, 'text');
+    refuseAction(spell.name, SPELL_EFFECT_TARGET_LABELS.unavailable);
 
     return;
   }
@@ -498,7 +499,7 @@ export function requestSpellEffectTargets(
       const problem = findProblem(castLevel, consumeSlot, isPactSlot);
 
       if (problem) {
-        chatStore.sendMessage(SPELL_EFFECT_TARGET_LABELS[problem], 'text');
+        refuseAction(spell.name, SPELL_EFFECT_TARGET_LABELS[problem]);
       }
 
       return problem === null;

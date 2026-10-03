@@ -75,7 +75,7 @@ import { refuseWhileSheetEditing } from './sheetEditLock';
 import { discardSpellTemplate } from './spellResolutionShared';
 import { useBonusDamageParts } from './useBonusDamageParts';
 import { listAmbientEffects } from './useResolvedStats';
-import { announceOutOfReach } from './useSceneRangeCheck';
+import { refuseOutOfReach } from './useSceneRangeCheck';
 import { useSpellResolution } from './useSpellResolution';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -216,7 +216,7 @@ export function startCreatureAction(
       );
 
       if (rangeCheck && !rangeCheck.allowed) {
-        announceOutOfReach(action.name, rangeCheck);
+        refuseOutOfReach(action.name, rangeCheck);
 
         return;
       }

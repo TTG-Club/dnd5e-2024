@@ -18,7 +18,6 @@
     SheetRowStat,
   } from '../sheetRowTypes';
 
-  import { useToast } from '@nuxt/ui/composables';
   import { computed, ref, toRef } from 'vue';
 
   import { loadCompendiumManifests } from '@/core/compendiumDataClient';
@@ -59,6 +58,7 @@
     withLoadedAmmunition,
   } from '@vtt/shared/system/dnd.js';
 
+  import { refuseWeaponAttack } from '../../../composables/actionRefusal';
   import {
     formatDamageBonusLines,
     formatDamageTileFormula,
@@ -117,9 +117,6 @@
   import { getItemIcon } from '../utils/itemIcon';
 
   const props = defineProps<Props>();
-
-  // Уведомления берутся в setup: в обработчике клика `useToast()` не работает
-  const toast = useToast();
 
   const { resolvedStats } = useResolvedStats(toRef(() => props.entity));
 
@@ -386,19 +383,6 @@
       sourceWeapon,
       createWeaponAttackPort(props.entity.id, refuseWeaponAttack),
     );
-  }
-
-  /**
-   * Говорит, почему удар сейчас недоступен.
-   *
-   * @param reason - причина запрета
-   */
-  function refuseWeaponAttack(reason: string): void {
-    toast.add({
-      title: ACTOR_EQUIPMENT_TAB_LABELS.attackBlockedTitle,
-      description: reason,
-      color: 'warning',
-    });
   }
 
   /**

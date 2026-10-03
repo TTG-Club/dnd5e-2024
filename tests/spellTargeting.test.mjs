@@ -26,6 +26,7 @@ const hostFixture = `
 import { reactive } from 'vue';
 export const fixture = reactive({ world: null, scene: null, user: { id: 'player' }, isGM: false, canPerformActions: true });
 export const messages = [];
+export const refusals = [];
 export const updates = [];
 export const prompts = [];
 export const socket = {};
@@ -106,7 +107,7 @@ const bundle = await build({
         builder.onLoad({ filter: /.*/, namespace: 'host-api' }, (request) => {
           const exports = {
             '@nuxt/ui/composables':
-              'export const useToast = () => ({ add: () => {} });',
+              'import { refusals } from "test:host"; export const useToast = () => ({ add: (toast) => refusals.push(toast) });',
             '@/stores/targetStore':
               'export const useTargetStore = () => ({ targetTokenId: null });',
             '@/stores/spellTemplateStore':
@@ -231,6 +232,7 @@ function createActor(id, ownerIds = []) {
 beforeEach(() => {
   runtime.setActivePinia(runtime.createPinia());
   runtime.messages.length = 0;
+  runtime.refusals.length = 0;
   runtime.updates.length = 0;
   runtime.prompts.length = 0;
 
@@ -1044,8 +1046,9 @@ it('a spell narrowed to a chosen variant still matches its full record on the sh
   );
 
   assert.equal(
-    runtime.messages.some(
-      ([text]) => text === runtime.SPELL_EFFECT_TARGET_LABELS.changed,
+    runtime.refusals.some(
+      ({ description }) =>
+        description === runtime.SPELL_EFFECT_TARGET_LABELS.changed,
     ),
     false,
     'каст не отклонён',
@@ -1087,24 +1090,28 @@ it('spent spell uses do not invalidate already confirmed effects and preparation
   selection.prompt.props.onConfirm(1);
   assert.equal(selection.selected.targets.validate(1, false, false), true);
   caster.spells[0].prepared = false;
+  runtime.refusals.length = 0;
   runtime.messages.length = 0;
   assert.equal(selection.selected.targets.validate(1, false, false), false);
 
   // Причина отказа названа своя, а не «цели изменились»: цели на месте
   assert.deepEqual(
-    runtime.messages.map(([text]) => text),
+    runtime.refusals.map(({ description }) => description),
     [runtime.SPELL_EFFECT_TARGET_LABELS.notPrepared],
   );
 
   caster.spells[0].prepared = true;
   caster.spells[0].uses.current = 0;
-  runtime.messages.length = 0;
+  runtime.refusals.length = 0;
   assert.equal(selection.selected.targets.validate(1, false, false), false);
 
   assert.deepEqual(
-    runtime.messages.map(([text]) => text),
+    runtime.refusals.map(({ description }) => description),
     [runtime.SPELL_EFFECT_TARGET_LABELS.noUses],
   );
+
+  // Отказ видит только действовавший: в общий чат он не уходит
+  assert.deepEqual(runtime.messages, []);
 
   assert.equal(selection.selected.targets.validate(), true);
   selection.selected.targets.apply();

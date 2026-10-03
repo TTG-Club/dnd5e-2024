@@ -2,13 +2,13 @@ import type { DistanceUnit, Token } from '@vtt/shared';
 import type { Spell } from '@vtt/shared/system/dnd.js';
 
 import { resolveTokenScale } from '@/core/entityUtils';
-import { useChatStore } from '@/stores/chatStore';
 import { useTargetStore } from '@/stores/targetStore';
 import { useWorldStore } from '@/stores/worldStore';
 import { DISTANCE_UNIT_SHORT, getTokenEdgeDistance } from '@vtt/shared';
 import { checkSpellRange, getSpellMaxRange } from '@vtt/shared/system/dnd.js';
 
 import { OUT_OF_RANGE_LABELS } from '../ui/actor/constants';
+import { refuseAction } from './actionRefusal';
 
 /** Результат измерения дистанции между токенами на сцене */
 export interface SceneTokenDistance {
@@ -166,7 +166,7 @@ export function getSpellMaxRangeOnScene(spell: Spell): number | null {
 
 /**
  * Гейт по дистанции для конкретного токена-цели: если цель вне дистанции
- * заклинания — отправляет ⛔-сообщение в чат и блокирует действие.
+ * заклинания — говорит об этом действовавшему и блокирует действие.
  *
  * Используется и для одиночной цели (`isSpellCastBlockedByRange`),
  * и per-target при распределении снарядов (`projectileStore`).
@@ -197,36 +197,36 @@ export function isSpellTargetBlockedByRange(
       ? ''
       : `${OUT_OF_RANGE_LABELS.spellRangePrefix}${rangeCheck.maxRange} ${rangeCheck.unitLabel}`;
 
-  useChatStore().sendMessage(
-    `${OUT_OF_RANGE_LABELS.prefix}${spell.name}${OUT_OF_RANGE_LABELS.outOfSpellRange}${rangeCheck.distance} ${rangeCheck.unitLabel}${maxRangeSuffix}${OUT_OF_RANGE_LABELS.close}`,
-    'text',
+  refuseAction(
+    spell.name,
+    `${OUT_OF_RANGE_LABELS.outOfSpellRange}${rangeCheck.distance} ${rangeCheck.unitLabel}${maxRangeSuffix}${OUT_OF_RANGE_LABELS.close}`,
   );
 
   return true;
 }
 
 /**
- * Удар оружием или действие существа не достаёт до цели: строка в чат. Одна
- * на оба пути — вкладку снаряжения, лист существа и горячую панель.
+ * Удар оружием или действие существа не достаёт до цели: отказ действовавшему.
+ * Один на оба пути — вкладку снаряжения, лист существа и горячую панель.
  *
  * @param sourceName - чем бьют
  * @param measurement - расстояние до цели
  * @param measurement.distance - расстояние
  * @param measurement.unitLabel - единица
  */
-export function announceOutOfReach(
+export function refuseOutOfReach(
   sourceName: string,
   measurement: { distance: number; unitLabel: string },
 ): void {
-  useChatStore().sendMessage(
-    `${OUT_OF_RANGE_LABELS.prefix}${sourceName}${OUT_OF_RANGE_LABELS.outOfReach}${measurement.distance} ${measurement.unitLabel}${OUT_OF_RANGE_LABELS.close}`,
-    'text',
+  refuseAction(
+    sourceName,
+    `${OUT_OF_RANGE_LABELS.outOfReach}${measurement.distance} ${measurement.unitLabel}${OUT_OF_RANGE_LABELS.close}`,
   );
 }
 
 /**
  * Гейт каста по дистанции: если выбрана цель и она вне дистанции заклинания —
- * отправляет ⛔-сообщение в чат и блокирует каст.
+ * говорит об этом действовавшему и блокирует каст.
  *
  * Зеркалирует поведение оружейной атаки (`weapon-attack` в `dnd5eMacros.ts`):
  * без выбранной цели каст не блокируется. AoE-заклинания ограничиваются

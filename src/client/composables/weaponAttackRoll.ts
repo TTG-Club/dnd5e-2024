@@ -66,8 +66,8 @@ import {
   resolveEntityStats,
 } from './useResolvedStats';
 import {
-  announceOutOfReach,
   measureTokenDistanceOnScene,
+  refuseOutOfReach,
 } from './useSceneRangeCheck';
 import { useSpellResolution } from './useSpellResolution';
 import { useWorldEntities } from './useWorldEntities';
@@ -194,7 +194,7 @@ export function startWeaponAttack(
           : null;
 
         if (rangeCheck && !rangeCheck.allowed) {
-          announceOutOfReach(weapon.name, rangeCheck);
+          refuseOutOfReach(weapon.name, rangeCheck);
 
           return;
         }

@@ -10,7 +10,6 @@
 
   import type { SheetRowStat } from '../actor/sheetRowTypes';
 
-  import { useToast } from '@nuxt/ui/composables';
   import { computed, ref } from 'vue';
 
   import { startHotbarDrag } from '@/core/utils/hotbarDrag';
@@ -34,6 +33,7 @@
     SAVE_TYPE_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
+  import { refuseAction } from '../../composables/actionRefusal';
   import { startCreatureAction } from '../../composables/creatureActionRoll';
   import {
     formatDamagePartsText,
@@ -130,8 +130,6 @@
     'update': [actions: CreatureAction[]];
     'update:legendaryCount': [count: number];
   }>();
-
-  const toast = useToast();
 
   /** Запреты существа — одним расчётом на весь раздел; `null` — раздела нет */
   const actionBlocks = computed(() => {
@@ -367,9 +365,7 @@
     startCreatureAction(sourceAction, {
       creatureId: props.creatureId,
       section: props.section,
-      refuse: (title, reason) => {
-        toast.add({ title, description: reason, color: 'warning' });
-      },
+      refuse: refuseAction,
       announce: shareActionToChat,
     });
   }

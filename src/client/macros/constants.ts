@@ -43,6 +43,4 @@ export const ITEM_ACTION_BLOCK_HINTS: Record<ItemActionBlock, string> = {
 export const MACRO_MESSAGE_LABELS = {
   /** Нет ячеек: «…: у вас нет доступных ячеек заклинаний 3 круга или выше.» */
   noSlotsMiddle: ': у вас нет доступных ячеек заклинаний ',
-  /** Отказ слота под запретом: «⛔ Реакция недоступна: Электрошок» */
-  blockedPrefix: '⛔ ',
 } as const;

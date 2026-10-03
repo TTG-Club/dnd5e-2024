@@ -10,13 +10,9 @@ import type {
   DnDCreature,
   DnDGameItem,
   DnDSceneEntity,
-  Spell,
 } from '@vtt/shared/system/dnd.js';
 
-import type {
-  SpellCasterPort,
-  SpellCastRefusal,
-} from '../composables/spellCastFlow';
+import type { SpellCasterPort } from '../composables/spellCastFlow';
 
 import { registerMacro } from '@/core/registries/macroRegistry';
 import { useChatStore } from '@/stores/chatStore';
@@ -36,6 +32,11 @@ import {
   stripDescriptionRollMarkers,
 } from '@vtt/shared/system/dnd.js';
 
+import {
+  refuseAction,
+  refuseSpellCast,
+  refuseWeaponAttack,
+} from '../composables/actionRefusal';
 import { startCreatureAction } from '../composables/creatureActionRoll';
 import {
   createCreatureSpellCasterPort,
@@ -62,7 +63,6 @@ import {
   DND_MACRO_TYPES,
   EFFECT_USE_SLOT_LABELS,
   FEATURE_TOGGLE_SLOT_LABELS,
-  MACRO_MESSAGE_LABELS,
 } from './constants';
 import { toHotbarSlotState } from './hotbarSlotState';
 
@@ -311,24 +311,6 @@ function executeFeatureToggle(macro: HotbarMacro): void {
 }
 
 /**
- * Отказ с панели: слот нажали, а трата хода под запретом («Реакция
- * недоступна: Электрошок»). Причина уходит строкой в чат — окна у панели нет.
- *
- * @param reason - причина запрета либо `null`
- * @returns `true`, если действие отменено
- */
-function refuseBlockedMacro(reason: string | null): boolean {
-  if (reason) {
-    useChatStore().sendMessage(
-      `${MACRO_MESSAGE_LABELS.blockedPrefix}${reason}`,
-      'text',
-    );
-  }
-
-  return reason !== null;
-}
-
-/**
  * Регистрирует все D&D 5e macro executor'ы в macroRegistry.
  * Вызывается один раз при монтировании сцены.
  */
@@ -368,13 +350,13 @@ export function registerDnd5eMacros(): void {
           return;
         }
 
-        // Удар — общим путём удара, тем же, что у вкладки снаряжения;
-        // отказ — в чат
+        // Удар — общим путём удара и с тем же отказом, что у вкладки
+        // снаряжения
         const attackerId = result.actor.id;
 
         startWeaponAttack(
           result.weapon,
-          createWeaponAttackPort(attackerId, refuseBlockedMacro),
+          createWeaponAttackPort(attackerId, refuseWeaponAttack),
         );
       } catch (err) {
         console.error('[Hotbar] Ошибка выполнения weapon-attack:', err);
@@ -420,21 +402,7 @@ export function registerDnd5eMacros(): void {
  * @returns порт заклинателя
  */
 function createHotbarCasterPort(actorId: string): SpellCasterPort {
-  return createSpellCasterPort(actorId, refuseSpellInChat);
-}
-
-/**
- * Отказ каста с горячей панели — строкой «⛔ <заклинание>: <причина>» в чат.
- * Причина заклинание не называет: его называет эта строка.
- *
- * @param spell - заклинание
- * @param refusal - почему каст не начался
- */
-function refuseSpellInChat(spell: Spell, refusal: SpellCastRefusal): void {
-  useChatStore().sendMessage(
-    `${MACRO_MESSAGE_LABELS.blockedPrefix}${spell.name}: ${refusal.description}`,
-    'text',
-  );
+  return createSpellCasterPort(actorId, refuseSpellCast);
 }
 
 /**
@@ -508,14 +476,12 @@ function registerCreatureActionMacro(): void {
         return;
       }
 
-      // Действие — общим путём действия существа, тем же, что у листа
-      // существа: отказ — в чат, запись без броска и эффектов — описанием
+      // Действие — общим путём действия существа и с тем же отказом, что у
+      // листа существа; запись без броска и эффектов — описанием
       startCreatureAction(foundAction, {
         creatureId: foundCreature.id,
         section: findCreatureActionSection(foundCreature, foundAction),
-        refuse: (_title, reason) => {
-          refuseBlockedMacro(reason);
-        },
+        refuse: refuseAction,
         announce: announceCreatureAction,
       });
     } catch (err) {
@@ -568,7 +534,7 @@ function registerCreatureSpellMacro(): void {
       startCreatureSpellCast(
         foundSpell,
         placement,
-        createCreatureSpellCasterPort(foundCreature.id, refuseSpellInChat),
+        createCreatureSpellCasterPort(foundCreature.id, refuseSpellCast),
       );
     } catch (err) {
       console.error('[Hotbar] Ошибка выполнения creature-spell:', err);

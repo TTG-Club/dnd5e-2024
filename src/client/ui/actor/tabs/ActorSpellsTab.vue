@@ -58,6 +58,7 @@
     syncClassGrantedSpells,
   } from '@vtt/shared/system/dnd.js';
 
+  import { refuseSpellCast } from '../../../composables/actionRefusal';
   import {
     describeDamageVariantsStat,
     formatDamageTileFormula,
@@ -1362,13 +1363,7 @@
    * @returns порт заклинателя
    */
   function createSheetCasterPort(): SpellCasterPort {
-    return createSpellCasterPort(props.actor.id, (_spell, refusal) => {
-      toast.add({
-        title: refusal.title,
-        description: refusal.description,
-        color: 'warning',
-      });
-    });
+    return createSpellCasterPort(props.actor.id, refuseSpellCast);
   }
 
   /**

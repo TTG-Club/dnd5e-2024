@@ -18,7 +18,6 @@ import type {
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
-import { useChatStore } from '@/stores/chatStore';
 import { generateId } from '@vtt/shared';
 import {
   buildEffectGroupUseSpell,
@@ -47,6 +46,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { EFFECT_USE_LABELS } from '../ui/effect/constants';
+import { refuseAction } from './actionRefusal';
 import { recordEntityActionSpend, warnActionCostBlocked } from './actionSpend';
 import { placeAreaTemplate } from './areaTemplateTargets';
 import { runWithDamageTypeChoices } from './damageTypeChoice';
@@ -445,17 +445,14 @@ export function applyActionSelfEffects(
  *
  * @param entity - стрелок
  * @param weapon - оружие
- * @returns выстрел либо `null`, если бить нечем (в чат ушло пояснение)
+ * @returns выстрел либо `null`, если бить нечем (стрелку сказано почему)
  */
 export function prepareAmmunitionShot(
   entity: DnDSceneEntity,
   weapon: DnDGameItem,
 ): AmmunitionShot | null {
   if (isItemDepleted(weapon)) {
-    useChatStore().sendMessage(
-      `${EFFECT_USE_LABELS.blockedPrefix}${weapon.name}${EFFECT_USE_LABELS.depletedSuffix}`,
-      'text',
-    );
+    refuseAction(weapon.name, EFFECT_USE_LABELS.depleted);
 
     return null;
   }
@@ -469,10 +466,7 @@ export function prepareAmmunitionShot(
   const ammunition = findWeaponAmmunition(equipment, weapon);
 
   if (!ammunition) {
-    useChatStore().sendMessage(
-      `${EFFECT_USE_LABELS.blockedPrefix}${weapon.name}${EFFECT_USE_LABELS.noAmmunitionSuffix}`,
-      'text',
-    );
+    refuseAction(weapon.name, EFFECT_USE_LABELS.noAmmunition);
 
     return null;
   }

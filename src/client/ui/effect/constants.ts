@@ -1084,9 +1084,10 @@ export const EFFECT_USE_LABELS = {
   skillDcRollButton: 'Бросить проверку',
   noCounterPrefix: 'Ресурс «',
   noCounterSuffix: '» исчерпан.',
-  blockedPrefix: '⛔ ',
-  noAmmunitionSuffix: ': нет боеприпасов',
-  depletedSuffix: ': закончились',
+  /** Отказ удара: у оружия с боеприпасами их нет */
+  noAmmunition: 'Нет боеприпасов.',
+  /** Отказ удара: заряды или количество оружия кончились */
+  depleted: 'Закончились.',
   /** Подпись кнопки применения на панели быстрого доступа */
   hotbarPrefix: 'Использовать: ',
 } as const;

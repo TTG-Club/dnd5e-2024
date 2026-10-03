@@ -50,6 +50,7 @@
     syncCreatureSpellcastingUses,
   } from '@vtt/shared/system/dnd.js';
 
+  import { refuseSpellCast } from '../../composables/actionRefusal';
   import {
     createCreatureSpellCasterPort,
     startCreatureSpellCast,
@@ -1363,16 +1364,7 @@
    * @returns порт существа
    */
   function createSheetCreaturePort(): CreatureSpellCasterPort {
-    return createCreatureSpellCasterPort(
-      props.creatureId,
-      (_spell, refusal) => {
-        toast.add({
-          title: refusal.title,
-          description: refusal.description,
-          color: 'warning',
-        });
-      },
-    );
+    return createCreatureSpellCasterPort(props.creatureId, refuseSpellCast);
   }
 
   /**

@@ -106,6 +106,7 @@ describe('храповик: разбор каста — только в общи
 
 const constants = await loadEngineBundle(`
   export {
+    ACTION_REFUSAL_LABELS,
     ACTOR_SPELLS_TAB_LABELS,
     PROJECTILE_MODAL_KEY_PREFIX,
     PROJECTILE_PROMPT_MODAL,
@@ -114,8 +115,10 @@ const constants = await loadEngineBundle(`
     SPELL_ROLL_BUTTON_LABELS,
   } from './src/client/ui/actor/constants.ts';
   export { CREATURE_ACTIONS_BLOCK_LABELS } from './src/client/ui/creature/constants.ts';
-  export { MACRO_MESSAGE_LABELS } from './src/client/macros/constants.ts';
 `);
+
+/** Отказ действия — один помощник на лист и панель */
+const REFUSAL_PATH = 'src/client/composables/actionRefusal.ts';
 
 const SHEET_PATH = 'src/client/ui/actor/tabs/ActorSpellsTab.vue';
 const CREATURE_SHEET_PATH = 'src/client/ui/creature/CreatureSpellsBlock.vue';
@@ -302,11 +305,17 @@ async function loadCastEnvironment(entities, { windowOpens = true } = {}) {
     }),
     discardSpellTemplate: (templateId) =>
       sends.push(`template:discard:${templateId}`),
-    // Отказ листа — уведомлением
-    toast: { add: ({ description }) => sends.push(`toast:${description}`) },
+    // Отказ — уведомлением у действовавшего: и с листа, и с панели
+    useSystemToastStore: () => ({
+      add: ({ description }) => sends.push(`toast:${description}`),
+    }),
     isDnDActorEntity: (entity) => entity?.entityType === 'actor',
     isDnDCreatureEntity: (entity) => entity?.entityType === 'creature',
   };
+
+  for (const name of ['refuseAction', 'refuseSpellCast']) {
+    ports[name] = await loadHandler(REFUSAL_PATH, name, ports);
+  }
 
   ports.needsSpellEffectTargets = await loadHandler(
     TARGETING_PATH,
@@ -336,21 +345,13 @@ async function loadCastEnvironment(entities, { windowOpens = true } = {}) {
  * уходит в консоль.
  *
  * @param {object} env - окружение
- * @returns {Promise<object>} порты макросов
+ * @returns {object} порты макросов
  */
-async function loadMacroPorts(env) {
-  const ports = {
+function loadMacroPorts(env) {
+  return {
     ...env.ports,
     console: { warn: assert.fail, error: assert.fail },
   };
-
-  ports.refuseSpellInChat = await loadHandler(
-    MACROS_PATH,
-    'refuseSpellInChat',
-    ports,
-  );
-
-  return ports;
 }
 
 /**
@@ -385,7 +386,7 @@ const ENTRIES = {
    * @returns {Promise<(spell: object) => void>} каст
    */
   async hotbar(env, caster) {
-    const ports = await loadMacroPorts(env);
+    const ports = loadMacroPorts(env);
 
     ports.createHotbarCasterPort = await loadHandler(
       MACROS_PATH,
@@ -436,7 +437,7 @@ const ENTRIES = {
     const macro = await loadHandler(
       MACROS_PATH,
       'creature-spell',
-      await loadMacroPorts(env),
+      loadMacroPorts(env),
       true,
     );
 
@@ -468,26 +469,16 @@ function describeWindowProps(props) {
 }
 
 /**
- * Отказ входа одним видом: лист — уведомлением, панель — строкой
- * «⛔ <заклинание>: <причина>» в чат. Это единственное, чем входы
- * различаются намеренно.
+ * Отказ входа: уведомление у действовавшего — одно и то же с листа и с
+ * панели («<заклинание>: <причина>»). В чат отказ не уходит.
  *
  * @param {string} entry - отправка
- * @returns {string} отправка без вида отказа
+ * @returns {string} отказ с причиной без названия заклинания
  */
 function normalizeRefusal(entry) {
-  const chatRefusal = entry.match(
-    new RegExp(
-      `^chat:${constants.MACRO_MESSAGE_LABELS.blockedPrefix}[^:]+: (.*)$`,
-      'u',
-    ),
-  );
+  const refusal = entry.match(/^toast:[^:]+: (.*)$/u);
 
-  if (chatRefusal) {
-    return `refuse:${chatRefusal[1]}`;
-  }
-
-  return entry.startsWith('toast:') ? `refuse:${entry.slice(6)}` : entry;
+  return refusal ? `refuse:${refusal[1]}` : entry;
 }
 
 /**
@@ -987,6 +978,31 @@ describe('матрица: вход × вид каста — лист и горя
       );
 
       assert.equal(env.world.get(caster.id).spells[0].uses.current, 1);
+    });
+  }
+
+  for (const [title, entryName, createCaster] of [
+    ['лист персонажа', 'sheet', createWizard],
+    ['панель персонажа', 'hotbar', createWizard],
+    ['лист существа', 'creatureSheet', createMage],
+    ['панель существа', 'creatureHotbar', createMage],
+  ]) {
+    it(`${title}: отказ «нет зарядов» видит только действовавший — в чат ничего`, async () => {
+      const spent = {
+        ...CHARGED_CONE,
+        uses: { ...CHARGED_CONE.uses, current: 0 },
+      };
+
+      const caster = { ...createCaster(), spells: [spent] };
+      const env = await loadCastEnvironment([caster]);
+      const cast = await ENTRIES[entryName](env, structuredClone(caster));
+
+      cast(spent);
+      await Promise.resolve();
+
+      assert.deepEqual(env.sends, [
+        `toast:${spent.name}: ${constants.ACTOR_SPELLS_TAB_LABELS.noUsesText}`,
+      ]);
     });
   }
 
