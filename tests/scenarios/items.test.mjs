@@ -776,6 +776,51 @@ describe('каталог: предметы', () => {
       'не стрелковое оружие не заряжают',
     );
 
+    // Боеприпас с типом — только оружию своего типа; применяемое (зелье с
+    // эффектом «при применении», категория «Зелья») в боеприпасы не идёт
+    const typedBow = {
+      ...sling,
+      id: 'bow',
+      name: 'Лук',
+      ammunitionType: 'arrows',
+    };
+
+    const typedArrows = { ...stones, id: 'arrows', ammunitionType: 'arrows' };
+    const typedBolts = { ...stones, id: 'bolts', ammunitionType: 'bolts' };
+
+    const healing = {
+      ...stones,
+      id: 'healing',
+      name: 'Зелье лечения',
+      equipmentCategory: 'potion',
+    };
+
+    const oil = {
+      ...stones,
+      id: 'oil',
+      name: 'Масло',
+      activeEffects: [createEffect('oil', { activation: { mode: 'use' } })],
+    };
+
+    assert.deepEqual(
+      engine
+        .listLoadableAmmunition(
+          [typedBow, typedArrows, typedBolts, stones, healing, oil],
+          typedBow,
+        )
+        .map((item) => item.id),
+      ['arrows', 'stones'],
+      'стрелы и нетипизированный расходник; болты, зелье и масло — нет',
+    );
+
+    assert.deepEqual(
+      engine
+        .listLoadableAmmunition([sling, typedArrows, typedBolts], sling)
+        .map((item) => item.id),
+      ['arrows', 'bolts'],
+      'оружию без типа годится боеприпас любого типа',
+    );
+
     // Не заряжено и типа нет — праща стреляет, ничего не тратя
     assert.equal(engine.tracksWeaponAmmunition(equipment, sling), false);
     assert.equal(engine.findLoadedAmmunition(equipment, sling), undefined);

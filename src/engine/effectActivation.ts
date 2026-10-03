@@ -38,6 +38,7 @@ import {
   isToggleActivatedEffect,
   isUseActivatedEffect,
 } from './activeEffectTypes.js';
+import { POTION_EQUIPMENT_CATEGORY } from './consts.js';
 import { cloneEntityData } from './dataClone.js';
 import { hasItemUsesPrice } from './effectPayTypes.js';
 import {
@@ -802,8 +803,35 @@ export function weaponUsesAmmunition(weapon: DnDGameItem): boolean {
 }
 
 /**
- * Можно ли зарядить предмет в оружие: любой расходуемый предмет, кроме самого
- * оружия и того, что стреляет само.
+ * Годится ли расходуемый предмет в боеприпасы по своему виду. Боеприпас с
+ * типом (`ammunitionType`) — только оружию того же типа: болты в лук не
+ * заряжают. Предмет без типа — любой, кроме применяемого: зелье и масло
+ * (эффект «при применении», категория «Зелья») пьют и наносят, а не
+ * выстреливают. Так у стрел из компендиума, которым тип ещё не записан, и у
+ * самодельных камней для пращи остаётся ручной выбор.
+ *
+ * @param item - расходуемый предмет инвентаря
+ * @param weapon - оружие
+ * @returns `true`, если предмет предлагается в боеприпасы
+ */
+function fitsWeaponAmmunition(item: DnDGameItem, weapon: DnDGameItem): boolean {
+  if (item.ammunitionType !== undefined) {
+    return (
+      weapon.ammunitionType === undefined
+      || item.ammunitionType === weapon.ammunitionType
+    );
+  }
+
+  return (
+    !hasItemUseEffects(item)
+    && item.equipmentCategory !== POTION_EQUIPMENT_CATEGORY
+  );
+}
+
+/**
+ * Можно ли зарядить предмет в оружие: расходуемый предмет, годный в
+ * боеприпасы ({@link fitsWeaponAmmunition}), кроме самого оружия и того, что
+ * стреляет само.
  *
  * @param item - предмет инвентаря
  * @param weapon - оружие
@@ -814,12 +842,13 @@ function isLoadableAmmunition(item: DnDGameItem, weapon: DnDGameItem): boolean {
     item.id !== weapon.id
     && Boolean(item.consumable)
     && !weaponUsesAmmunition(item)
+    && fitsWeaponAmmunition(item, weapon)
   );
 }
 
 /**
- * Чем можно зарядить оружие: расходуемые предметы инвентаря. У оружия без
- * свойства «Боеприпасы» — ничем.
+ * Чем можно зарядить оружие: расходуемые предметы инвентаря, годные в
+ * боеприпасы. У оружия без свойства «Боеприпасы» — ничем.
  *
  * @param equipment - инвентарь
  * @param weapon - оружие
