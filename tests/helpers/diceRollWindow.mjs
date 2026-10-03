@@ -20,6 +20,9 @@ const openDiceRollWindow = await loadHandler(
     DICE_ROLL_MODAL: 'DiceRollModal',
     DICE_ROLL_MODAL_KEY_PREFIX: 'dice-roll',
     generateId: (prefix) => `${prefix}-${(keyCounter += 1)}`,
+    // Окна источников тесты входов не ведут: заменять нечего
+    closeRollWindow: () => false,
+    sourceWindowIds: new Map(),
   },
 );
 
@@ -29,10 +32,10 @@ const openDiceRollWindow = await loadHandler(
  * окном: так тесты, написанные до помощника, видят окно открытым.
  *
  * @param {() => { openModal: Function }} useModalManager - менеджер окон теста
- * @returns {(props: object, modalKey?: string) => string | null} помощник
+ * @returns {(props: object, options?: object) => string | null} помощник
  */
 export function bindOpenDiceRollWindow(useModalManager) {
-  return (props, modalKey) => {
+  return (props, options) => {
     activeModalManager = () => ({
       openModal: (name, modalProps) => {
         const modalId = useModalManager().openModal(name, modalProps);
@@ -41,8 +44,6 @@ export function bindOpenDiceRollWindow(useModalManager) {
       },
     });
 
-    return modalKey === undefined
-      ? openDiceRollWindow(props)
-      : openDiceRollWindow(props, modalKey);
+    return openDiceRollWindow(props, options);
   };
 }

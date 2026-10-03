@@ -99,7 +99,11 @@ import {
   requestDamageTypeChoiceFor,
   runWithDamageTypeChoices,
 } from './damageTypeChoice';
-import { openDiceRollWindow } from './diceRollWindow';
+import {
+  buildRollSourceKey,
+  closeRollWindow,
+  openDiceRollWindow,
+} from './diceRollWindow';
 import { runWithEffectVariants } from './effectVariantChoice';
 import { changeEntitySheet } from './entitySheetWrite';
 import {
@@ -1017,21 +1021,29 @@ export function settleNoRollSpellCast(session: SpellCastSession): void {
  * Итог открытия окна каста: открылось — каст состоялся (ход, заряд); нет —
  * каст убирается, как при закрытии окна (шаблон, выбор снарядов).
  *
+ * Окно, вставшее на место прежнего окна того же заклинания, ход и заряд не
+ * тратит: их потратило прежнее.
+ *
  * @param modalId - id окна; `null` — не открылось
- * @param spell - заклинание
- * @param port - заклинатель
+ * @param cast - заклинание, заклинатель и заменено ли прежнее окно
+ * @param cast.spell - заклинание
+ * @param cast.port - заклинатель
+ * @param cast.replaced - окно встало на место прежнего окна того же заклинания
  * @param closeWindow - обработчик закрытия окна
  */
 function settleSpellCastWindowOpen(
   modalId: string | null,
-  spell: Spell,
-  port: SpellCasterPort,
+  cast: { spell: Spell; port: SpellCasterPort; replaced: boolean },
   closeWindow: (isOpen: boolean) => void,
 ): void {
-  if (modalId) {
-    commitSpellCastStart(spell, port);
-  } else {
+  if (!modalId) {
     closeWindow(false);
+
+    return;
+  }
+
+  if (!cast.replaced) {
+    commitSpellCastStart(cast.spell, cast.port);
   }
 }
 
@@ -1057,6 +1069,12 @@ export function openSpellCastWindow(
   }
 
   const { template, lockedLevel, effectTargets } = options;
+
+  // Повторный каст того же заклинания заменяет своё прежнее окно. Закрыть
+  // его надо до сборки нового: выбор снарядов один на приложение, и прежнее
+  // окно обязано отпустить его раньше, чем его займёт новый каст
+  const sourceKey = buildRollSourceKey(caster.id, 'spell', sourceSpell.id);
+  const replaced = closeRollWindow(sourceKey);
   const stats = resolveEntityStats(caster);
   const isInnate = Boolean(sourceSpell.uses);
   const castKey = generateId(SPELL_CAST_KEY_PREFIX);
@@ -1211,25 +1229,27 @@ export function openSpellCastWindow(
   const slotProps = buildSpellSlotProps(session, caster, lockedLevel);
 
   if (plan.window === 'confirm') {
-    const confirmOpened = openDiceRollWindow({
-      'title': `${ACTOR_SPELLS_TAB_LABELS.rollTitlePrefix}${sourceSpell.name}`,
-      'rollLabel': sourceSpell.name,
-      'rollButtonText': SPELL_MENU_LABELS.cast,
-      'skipRoll': true,
-      'beforeRoll': effectTargets?.validate ?? isCurrentProjectileCast,
-      damageTypeChoice,
-      ...slotProps,
-      'onRoll': () => {
-        releaseUnload();
-        settleNoRollSpellCast(session);
+    const confirmOpened = openDiceRollWindow(
+      {
+        'title': `${ACTOR_SPELLS_TAB_LABELS.rollTitlePrefix}${sourceSpell.name}`,
+        'rollLabel': sourceSpell.name,
+        'rollButtonText': SPELL_MENU_LABELS.cast,
+        'skipRoll': true,
+        'beforeRoll': effectTargets?.validate ?? isCurrentProjectileCast,
+        damageTypeChoice,
+        ...slotProps,
+        'onRoll': () => {
+          releaseUnload();
+          settleNoRollSpellCast(session);
+        },
+        'onUpdate:open': handleModalClose,
       },
-      'onUpdate:open': handleModalClose,
-    });
+      { sourceKey },
+    );
 
     settleSpellCastWindowOpen(
       confirmOpened,
-      sourceSpell,
-      port,
+      { spell: sourceSpell, port, replaced },
       handleModalClose,
     );
 
@@ -1265,86 +1285,93 @@ export function openSpellCastWindow(
       )
     : [];
 
-  const rollOpened = openDiceRollWindow({
-    'title': `${ACTOR_SPELLS_TAB_LABELS.rollTitlePrefix}${sourceSpell.name}`,
-    'rollLabel': sourceSpell.name,
-    'rollButtonText': SPELL_ROLL_BUTTON_LABELS[plan.rollKind ?? 'damage'],
-    'formula': resolvedDamageFormula,
-    // Без известной цели ветки «полные / не полные хиты» показываются через
-    // «или», а не суммой
-    'formulaDisplay':
-      targetIsFull === undefined && hasTargetToken(firstPartFormula)
-        ? formatConditionalDamageDisplay(firstPartFormula, (subFormula) =>
-            resolveSpellDamageFormula(sourceSpell, caster, subFormula, stats),
-          )
-        : undefined,
-    'attackModifier': attackType
-      ? calculateSpellAttackModifier(caster, sourceSpell, stats)
-      : undefined,
-    'initialRollMode': spellAttackRoll?.mode ?? 'normal',
-    'rollModeReasons': spellAttackRoll?.reasons,
-    // Расход одноразовых эффектов «следующей атаки» на броске атаки
-    'attackerId': caster.id,
-    'evaluateBonusRollFormulas': hasProjectiles
-      ? undefined
-      : evaluateAttackBonusRollFormulas,
-    'evaluateProjectileBonusRollFormulas':
-      hasProjectiles && evaluateAttackBonusRollFormulas
-        ? (context: RollContext) =>
-            collectProjectileRollBonuses(
-              context,
-              evaluateAttackBonusRollFormulas,
+  const rollOpened = openDiceRollWindow(
+    {
+      'title': `${ACTOR_SPELLS_TAB_LABELS.rollTitlePrefix}${sourceSpell.name}`,
+      'rollLabel': sourceSpell.name,
+      'rollButtonText': SPELL_ROLL_BUTTON_LABELS[plan.rollKind ?? 'damage'],
+      'formula': resolvedDamageFormula,
+      // Без известной цели ветки «полные / не полные хиты» показываются через
+      // «или», а не суммой
+      'formulaDisplay':
+        targetIsFull === undefined && hasTargetToken(firstPartFormula)
+          ? formatConditionalDamageDisplay(firstPartFormula, (subFormula) =>
+              resolveSpellDamageFormula(sourceSpell, caster, subFormula, stats),
             )
+          : undefined,
+      'attackModifier': attackType
+        ? calculateSpellAttackModifier(caster, sourceSpell, stats)
         : undefined,
-    'incomingAttackType': attackType,
-    'isHealing': spellIsHealing(sourceSpell),
-    'damageType': getSpellPrimaryDamageType(sourceSpell),
-    'skipDamageApplication': plan.needsTargetResolution,
-    'skipChatMessage': hasProjectiles,
-    // Атакующие снаряды: окно отдаёт контекст, серию бросков катит разбор
-    'onProjectileAttack':
-      hasProjectiles && attackType
-        ? (rollContext: Omit<ProjectileAttackContext, 'attackType'>) => {
+      'initialRollMode': spellAttackRoll?.mode ?? 'normal',
+      'rollModeReasons': spellAttackRoll?.reasons,
+      // Расход одноразовых эффектов «следующей атаки» на броске атаки
+      'attackerId': caster.id,
+      'evaluateBonusRollFormulas': hasProjectiles
+        ? undefined
+        : evaluateAttackBonusRollFormulas,
+      'evaluateProjectileBonusRollFormulas':
+        hasProjectiles && evaluateAttackBonusRollFormulas
+          ? (context: RollContext) =>
+              collectProjectileRollBonuses(
+                context,
+                evaluateAttackBonusRollFormulas,
+              )
+          : undefined,
+      'incomingAttackType': attackType,
+      'isHealing': spellIsHealing(sourceSpell),
+      'damageType': getSpellPrimaryDamageType(sourceSpell),
+      'skipDamageApplication': plan.needsTargetResolution,
+      'skipChatMessage': hasProjectiles,
+      // Атакующие снаряды: окно отдаёт контекст, серию бросков катит разбор
+      'onProjectileAttack':
+        hasProjectiles && attackType
+          ? (rollContext: Omit<ProjectileAttackContext, 'attackType'>) => {
+              releaseUnload();
+              settleSpellProjectileAttack(session, rollContext);
+            }
+          : undefined,
+      damageTypeChoice,
+      // Атакующее заклинание-эффект (без многочастного пути): попадание
+      // запоминается, эффекты на цель ложатся после доведения каста.
+      // Многочастные накладывают их сами
+      'onHit':
+        attackType && plan.hasTargetEffects && !useMultiPart
+          ? () => {
+              session.state.attackLanded = true;
+            }
+          : undefined,
+      'damageParts': useMultiPart ? resolvedParts : undefined,
+      'onRollParts': useMultiPart
+        ? (parts: RolledSpellDamagePart[], attack?: AttackRollSnapshot) => {
             releaseUnload();
-            settleSpellProjectileAttack(session, rollContext);
+            settleSpellRollParts(session, parts, attack);
           }
         : undefined,
-    damageTypeChoice,
-    // Атакующее заклинание-эффект (без многочастного пути): попадание
-    // запоминается, эффекты на цель ложатся после доведения каста.
-    // Многочастные накладывают их сами
-    'onHit':
-      attackType && plan.hasTargetEffects && !useMultiPart
-        ? () => {
-            session.state.attackLanded = true;
-          }
+      // Снарядам бонус-части катает разбор, а не окно
+      'evaluateBonusDamageParts': useMultiPart
+        ? evaluateSpellBonusParts
         : undefined,
-    'damageParts': useMultiPart ? resolvedParts : undefined,
-    'onRollParts': useMultiPart
-      ? (parts: RolledSpellDamagePart[], attack?: AttackRollSnapshot) => {
-          releaseUnload();
-          settleSpellRollParts(session, parts, attack);
-        }
-      : undefined,
-    // Снарядам бонус-части катает разбор, а не окно
-    'evaluateBonusDamageParts': useMultiPart
-      ? evaluateSpellBonusParts
-      : undefined,
-    ...slotProps,
-    'spellScalingDice': sourceSpell.scaling?.additionalDice,
-    'onRoll': (
-      rolledTotal: number,
-      chosenDamageType?: string,
-      attack?: AttackRollSnapshot,
-    ) => {
-      releaseUnload();
-      settleSpellRoll(session, rolledTotal, chosenDamageType, attack);
+      ...slotProps,
+      'spellScalingDice': sourceSpell.scaling?.additionalDice,
+      'onRoll': (
+        rolledTotal: number,
+        chosenDamageType?: string,
+        attack?: AttackRollSnapshot,
+      ) => {
+        releaseUnload();
+        settleSpellRoll(session, rolledTotal, chosenDamageType, attack);
+      },
+      'beforeRoll': isCurrentProjectileCast,
+      'onUpdate:open': handleModalClose,
     },
-    'beforeRoll': isCurrentProjectileCast,
-    'onUpdate:open': handleModalClose,
-  });
+    { sourceKey },
+  );
 
-  settleSpellCastWindowOpen(rollOpened, sourceSpell, port, handleModalClose);
+  settleSpellCastWindowOpen(
+    rollOpened,
+    { spell: sourceSpell, port, replaced },
+    handleModalClose,
+  );
 
   return session;
 }

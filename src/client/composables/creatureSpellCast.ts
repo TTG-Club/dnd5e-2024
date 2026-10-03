@@ -67,7 +67,11 @@ import {
   requestDamageTypeChoiceFor,
   runWithDamageTypeChoices,
 } from './damageTypeChoice';
-import { openDiceRollWindow } from './diceRollWindow';
+import {
+  buildRollSourceKey,
+  closeRollWindow,
+  openDiceRollWindow,
+} from './diceRollWindow';
 import { runWithEffectVariants } from './effectVariantChoice';
 import { changeEntitySheet } from './entitySheetWrite';
 import { buildRollBonusEvaluator } from './rollBonusEvaluator';
@@ -252,9 +256,24 @@ export function startCreatureSpellCast(
        * @param templateId - размещённый шаблон области
        */
       const openRoll = (templateId: string | undefined): void => {
-        if (openCreatureSpellRoll(spell, creature, templateId, placement)) {
-          spendTurn();
-          spendUse();
+        // Повторный каст того же заклинания заменяет своё прежнее окно: то
+        // закрывается как отменённое, а ход и заряд оно уже потратило
+        const sourceKey = buildRollSourceKey(creature.id, 'spell', spell.id);
+        const replaced = closeRollWindow(sourceKey);
+
+        if (
+          openCreatureSpellRoll(
+            spell,
+            creature,
+            templateId,
+            placement,
+            sourceKey,
+          )
+        ) {
+          if (!replaced) {
+            spendTurn();
+            spendUse();
+          }
         } else if (templateId) {
           discardSpellTemplate(templateId);
         }
@@ -301,6 +320,8 @@ export function startCreatureSpellCast(
  * @param creature - существо-источник
  * @param templateId - размещённый шаблон области
  * @param placement - группа, из которой идёт каст
+ * @param sourceKey - источник действия: окно встаёт на место прежнего окна
+ *   того же заклинания
  * @returns `true` — каст состоялся (окно открылось или каст применён сразу)
  */
 export function openCreatureSpellRoll(
@@ -308,6 +329,7 @@ export function openCreatureSpellRoll(
   creature: DnDCreature,
   templateId: string | undefined,
   placement: CreatureSpellPlacement | undefined,
+  sourceKey?: string,
 ): boolean {
   // Существо не атакует заклинанием со спасброском или областью
   const usesSaveOrArea =
@@ -430,44 +452,47 @@ export function openCreatureSpellRoll(
       attack,
     );
 
-  const opened = openDiceRollWindow({
-    title: usesAttack
-      ? `${CREATURE_ACTIONS_BLOCK_LABELS.attackRollPrefix}${spell.name}`
-      : spell.name,
-    rollLabel: spell.name,
-    rollButtonText: getCreatureSpellRollButtonText(usesAttack, isHealing),
-    formula: setup.baseParts[0]?.formula ?? '',
-    attackModifier: usesAttack ? numbers.attackBonus : undefined,
-    evaluateBonusRollFormulas: usesAttack
-      ? buildRollBonusEvaluator(
-          () => readCreature(creature.id),
-          SPELL_ATTACK_KEY,
-        )
-      : undefined,
-    initialRollMode: spellAttackRoll?.mode ?? 'normal',
-    rollModeReasons: spellAttackRoll?.reasons,
-    incomingAttackType: plan.attackType,
-    damageType: getDamagePartsPrimaryType(spell.damageParts),
-    isHealing,
-    damageParts: setup.baseParts,
-    spellLevel: castLevel === undefined ? undefined : spell.level,
-    availableSpellLevels: castLevel === undefined ? undefined : [castLevel],
-    spellScalingDice:
-      castLevel === undefined ? undefined : spell.scaling?.additionalDice,
-    evaluateBonusDamageParts: setup.evaluateBonusDamageParts,
-    onRollParts: applyParts,
-    // Атака без частей урона: окно не зовёт `onRollParts`, и эффекты на
-    // попадании разбирает тот же оркестратор с пустым набором частей
-    onHit:
-      usesAttack && !plan.hasDamage && setup.pseudoSpell.activeEffects
-        ? (attack?: AttackRollSnapshot) => applyParts([], attack)
+  const opened = openDiceRollWindow(
+    {
+      title: usesAttack
+        ? `${CREATURE_ACTIONS_BLOCK_LABELS.attackRollPrefix}${spell.name}`
+        : spell.name,
+      rollLabel: spell.name,
+      rollButtonText: getCreatureSpellRollButtonText(usesAttack, isHealing),
+      formula: setup.baseParts[0]?.formula ?? '',
+      attackModifier: usesAttack ? numbers.attackBonus : undefined,
+      evaluateBonusRollFormulas: usesAttack
+        ? buildRollBonusEvaluator(
+            () => readCreature(creature.id),
+            SPELL_ATTACK_KEY,
+          )
         : undefined,
-    damageTypeChoice,
-    // Отмена окна обязана убрать шаблон: он размещается ДО броска
-    onCancel: templateId ? () => discardSpellTemplate(templateId) : undefined,
-    // Расход одноразовых эффектов «следующей атаки» на броске атаки существа
-    attackerId: creature.id,
-  });
+      initialRollMode: spellAttackRoll?.mode ?? 'normal',
+      rollModeReasons: spellAttackRoll?.reasons,
+      incomingAttackType: plan.attackType,
+      damageType: getDamagePartsPrimaryType(spell.damageParts),
+      isHealing,
+      damageParts: setup.baseParts,
+      spellLevel: castLevel === undefined ? undefined : spell.level,
+      availableSpellLevels: castLevel === undefined ? undefined : [castLevel],
+      spellScalingDice:
+        castLevel === undefined ? undefined : spell.scaling?.additionalDice,
+      evaluateBonusDamageParts: setup.evaluateBonusDamageParts,
+      onRollParts: applyParts,
+      // Атака без частей урона: окно не зовёт `onRollParts`, и эффекты на
+      // попадании разбирает тот же оркестратор с пустым набором частей
+      onHit:
+        usesAttack && !plan.hasDamage && setup.pseudoSpell.activeEffects
+          ? (attack?: AttackRollSnapshot) => applyParts([], attack)
+          : undefined,
+      damageTypeChoice,
+      // Отмена окна обязана убрать шаблон: он размещается ДО броска
+      onCancel: templateId ? () => discardSpellTemplate(templateId) : undefined,
+      // Расход одноразовых эффектов «следующей атаки» на броске атаки существа
+      attackerId: creature.id,
+    },
+    sourceKey === undefined ? {} : { sourceKey },
+  );
 
   return opened !== null;
 }

@@ -144,6 +144,15 @@ export async function loadHandler(relativePath, name, ports, macro = false) {
       ports.listAmbientEffects?.(entity.id) ?? [],
     );
 
+  // Разделитель раздела и названия в ключе источника действия существа
+  ports.ACTION_SOURCE_SEPARATOR ??= '/';
+
+  // Окно того же источника у фикстур не открыто: заменять нечего
+  ports.closeRollWindow ??= () => false;
+
+  ports.buildRollSourceKey ??= (entityId, kind, sourceId) =>
+    [entityId, kind, sourceId].join(':');
+
   // Лист фикстур не в режиме правки: проверка листа проходная
   ports.refuseWhileSheetEditing ??= () => false;
 

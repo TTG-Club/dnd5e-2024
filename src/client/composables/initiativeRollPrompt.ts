@@ -66,7 +66,7 @@ export function promptInitiativeRoll(
         });
       },
     },
-    modalKey,
+    { modalKey },
   );
 
   onCancelled(() => {

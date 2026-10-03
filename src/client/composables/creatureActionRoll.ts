@@ -59,7 +59,11 @@ import {
   runDamagelessCreatureAction,
   runWithCreatureDamageChoice,
 } from './creatureDamageChoice';
-import { openDiceRollWindow } from './diceRollWindow';
+import {
+  buildRollSourceKey,
+  closeRollWindow,
+  openDiceRollWindow,
+} from './diceRollWindow';
 import {
   applyActionSelfEffects,
   applyActionUseEffects,
@@ -74,6 +78,9 @@ import { listAmbientEffects } from './useResolvedStats';
 import { announceOutOfReach } from './useSceneRangeCheck';
 import { useSpellResolution } from './useSpellResolution';
 import { useWorldEntities } from './useWorldEntities';
+
+/** Разделитель раздела статблока и названия в ключе источника действия */
+const ACTION_SOURCE_SEPARATOR = '/';
 
 /** Чем входы действия существа различаются */
 export interface CreatureActionPort {
@@ -224,6 +231,16 @@ export function startCreatureAction(
       creature,
       (chosen, variants, announceChoice) =>
         launchCreatureAction(chosen, creature.id, (templateId) => {
+          // Повторное действие заменяет своё прежнее окно: то закрывается
+          // как отменённое (шаблон убирает само), а ход оно уже потратило
+          const sourceKey = buildRollSourceKey(
+            creature.id,
+            'action',
+            `${port.section ?? ''}${ACTION_SOURCE_SEPARATOR}${sourceAction.name}`,
+          );
+
+          const replaced = closeRollWindow(sourceKey);
+
           // Ход и строка чата — когда действие состоялось: отказ по
           // дистанции и неоткрывшееся окно хода не тратят, шаблон убирается
           if (
@@ -233,9 +250,13 @@ export function startCreatureAction(
               isDisadvantage,
               templateId,
               variants,
+              sourceKey,
             )
           ) {
-            spendCreatureActionTurn(port, action);
+            if (!replaced) {
+              spendCreatureActionTurn(port, action);
+            }
+
             announceChoice();
           } else if (templateId) {
             discardSpellTemplate(templateId);
@@ -255,6 +276,8 @@ export function startCreatureAction(
  * @param isDisadvantage - стартовать с помехой (проверка дистанции)
  * @param templateId - размещённый шаблон области
  * @param variants - наборы урона «или» на выбор в окне; пусто — набор один
+ * @param sourceKey - источник действия: окно встаёт на место прежнего окна
+ *   того же действия
  * @returns `true` — действие состоялось: окно открылось или действие без
  *   урона применено сразу
  */
@@ -264,6 +287,7 @@ export function openCreatureActionRoll(
   isDisadvantage: boolean,
   templateId: string | undefined,
   variants: readonly CreatureDamageVariant[] = [],
+  sourceKey?: string,
 ): boolean {
   const { buildCreatureRollSetup, buildTargetHpContext } =
     useBonusDamageParts();
@@ -353,36 +377,39 @@ export function openCreatureActionRoll(
         { forceDisadvantage: isDisadvantage },
       );
 
-  const opened = openDiceRollWindow({
-    title: usesSaveOrArea
-      ? action.name
-      : `${CREATURE_ACTIONS_BLOCK_LABELS.attackRollPrefix}${action.name}`,
-    rollLabel: action.name,
-    rollButtonText: usesSaveOrArea
-      ? SPELL_DAMAGE_ROLL_BUTTON
-      : CREATURE_ACTION_MENU_LABELS.attack,
-    formula: primary.formula,
-    attackModifier: usesSaveOrArea ? undefined : action.attackBonus,
-    evaluateBonusRollFormulas: usesSaveOrArea
-      ? undefined
-      : buildRollBonusEvaluator(
-          () => readCreature(creature.id),
-          getAttackBonusKey(action.rangeType),
-        ),
-    initialRollMode: actionAttackRoll?.mode ?? 'normal',
-    rollModeReasons: actionAttackRoll?.reasons,
-    incomingAttackType: getAttackFlagCategory(action.rangeType),
-    damageType: primary.damageType,
-    damageParts: primary.damageParts,
-    evaluateBonusDamageParts: primary.evaluateBonusDamageParts,
-    onRollParts: primary.onRollParts,
-    damageTypeChoice: primary.damageTypeChoice,
-    damageVariants: variants.length > 0 ? rollVariants : undefined,
-    // Отмена окна обязана убрать шаблон: он размещается ДО броска
-    onCancel: templateId ? () => discardSpellTemplate(templateId) : undefined,
-    // Расход одноразовых эффектов «следующей атаки» на броске атаки существа
-    attackerId: creature.id,
-  });
+  const opened = openDiceRollWindow(
+    {
+      title: usesSaveOrArea
+        ? action.name
+        : `${CREATURE_ACTIONS_BLOCK_LABELS.attackRollPrefix}${action.name}`,
+      rollLabel: action.name,
+      rollButtonText: usesSaveOrArea
+        ? SPELL_DAMAGE_ROLL_BUTTON
+        : CREATURE_ACTION_MENU_LABELS.attack,
+      formula: primary.formula,
+      attackModifier: usesSaveOrArea ? undefined : action.attackBonus,
+      evaluateBonusRollFormulas: usesSaveOrArea
+        ? undefined
+        : buildRollBonusEvaluator(
+            () => readCreature(creature.id),
+            getAttackBonusKey(action.rangeType),
+          ),
+      initialRollMode: actionAttackRoll?.mode ?? 'normal',
+      rollModeReasons: actionAttackRoll?.reasons,
+      incomingAttackType: getAttackFlagCategory(action.rangeType),
+      damageType: primary.damageType,
+      damageParts: primary.damageParts,
+      evaluateBonusDamageParts: primary.evaluateBonusDamageParts,
+      onRollParts: primary.onRollParts,
+      damageTypeChoice: primary.damageTypeChoice,
+      damageVariants: variants.length > 0 ? rollVariants : undefined,
+      // Отмена окна обязана убрать шаблон: он размещается ДО броска
+      onCancel: templateId ? () => discardSpellTemplate(templateId) : undefined,
+      // Расход одноразовых эффектов «следующей атаки» на броске атаки существа
+      attackerId: creature.id,
+    },
+    sourceKey === undefined ? {} : { sourceKey },
+  );
 
   return opened !== null;
 }

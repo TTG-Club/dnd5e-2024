@@ -52,7 +52,7 @@ import {
 } from './attackRollMode';
 import { listAttackResolutionEntities } from './attackRollSnapshot';
 import { requestDamageTypeChoiceFor } from './damageTypeChoice';
-import { openDiceRollWindow } from './diceRollWindow';
+import { buildRollSourceKey, openDiceRollWindow } from './diceRollWindow';
 import {
   prepareAmmunitionShot,
   spendShotAmmunition,
@@ -285,82 +285,90 @@ export function openWeaponAttackRoll(
     },
   );
 
-  openDiceRollWindow({
-    title: `${ACTOR_EQUIPMENT_TAB_LABELS.attackRollPrefix}${weapon.name}`,
-    rollLabel: weapon.name,
-    rollButtonText: hasSave
-      ? SPELL_DAMAGE_ROLL_BUTTON
-      : ACTOR_SPELLS_TAB_LABELS.attackRoll,
-    // Формула для показа: бросок идёт многочастным путём по частям
-    formula: weaponPartsSetup.baseParts[0]?.formula ?? '',
-    attackModifier: hasSave ? undefined : baseMod,
-    evaluateBonusRollFormulas: hasSave
-      ? undefined
-      : buildRollBonusEvaluator(
-          () =>
-            useWorldEntities().findCurrentDndEntity(attacker.id)
-            ?? port.readAttacker(),
-          attackKey,
-        ),
-    initialRollMode: weaponAttackRoll.mode,
-    rollModeReasons: weaponAttackRoll.reasons,
-    critThreshold: resolveTargetedCritThreshold(
-      attacker,
-      resolvedStats.critThreshold,
-    ),
-    incomingAttackType,
-    evaluateConditionalBonuses: (modalContext: {
-      hasAdvantage: boolean;
-      hasDisadvantage: boolean;
-    }) => {
-      // Хиты цели читаются в момент броска — для условий target.hp.*
-      // («Убийца»); предмет броска — для «только этим предметом»
-      const rollContext = {
-        ...modalContext,
-        target: buildTargetHpContext(undefined, attacker.id),
-        itemId: weapon.id,
-      };
-
-      // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — от
-      // итоговых чисел атакующего
-      const formulaContext = buildEntityFormulaContext(attacker, resolvedStats);
-
-      return {
-        attackBonus: evaluateConditionalBonuses(
-          combinedEffects,
-          attackKey,
-          rollContext,
-          formulaContext,
-        ),
-        damageBonus: evaluateConditionalBonuses(
-          combinedEffects,
-          damageKey,
-          rollContext,
-          formulaContext,
-        ),
-      };
-    },
-    damageType: getWeaponPrimaryDamageType(weapon, resolvedStats),
-    damageParts: weaponPartsSetup.baseParts,
-    evaluateBonusDamageParts: weaponPartsSetup.evaluateBonusDamageParts,
-    // Эффекты «на цель» гейтит оркестратор (по спасброску и попаданию);
-    // прямого `onHit` нет — он вешал эффект на каждое попадание мимо спасброска
-    onRollParts: (
-      parts: RolledSpellDamagePart[],
-      attack?: AttackRollSnapshot,
-    ) =>
-      applyWeaponAttackParts(
-        attacker.id,
-        weaponSpell,
-        parts,
-        weaponSaveDC,
-        attack,
+  openDiceRollWindow(
+    {
+      title: `${ACTOR_EQUIPMENT_TAB_LABELS.attackRollPrefix}${weapon.name}`,
+      rollLabel: weapon.name,
+      rollButtonText: hasSave
+        ? SPELL_DAMAGE_ROLL_BUTTON
+        : ACTOR_SPELLS_TAB_LABELS.attackRoll,
+      // Формула для показа: бросок идёт многочастным путём по частям
+      formula: weaponPartsSetup.baseParts[0]?.formula ?? '',
+      attackModifier: hasSave ? undefined : baseMod,
+      evaluateBonusRollFormulas: hasSave
+        ? undefined
+        : buildRollBonusEvaluator(
+            () =>
+              useWorldEntities().findCurrentDndEntity(attacker.id)
+              ?? port.readAttacker(),
+            attackKey,
+          ),
+      initialRollMode: weaponAttackRoll.mode,
+      rollModeReasons: weaponAttackRoll.reasons,
+      critThreshold: resolveTargetedCritThreshold(
+        attacker,
+        resolvedStats.critThreshold,
       ),
-    damageTypeChoice,
-    // Расход одноразовых эффектов «следующей атаки» (Злая насмешка и т.п.)
-    attackerId: attacker.id,
-    beforeRoll: options.beforeRoll,
-  });
+      incomingAttackType,
+      evaluateConditionalBonuses: (modalContext: {
+        hasAdvantage: boolean;
+        hasDisadvantage: boolean;
+      }) => {
+        // Хиты цели читаются в момент броска — для условий target.hp.*
+        // («Убийца»); предмет броска — для «только этим предметом»
+        const rollContext = {
+          ...modalContext,
+          target: buildTargetHpContext(undefined, attacker.id),
+          itemId: weapon.id,
+        };
+
+        // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — от
+        // итоговых чисел атакующего
+        const formulaContext = buildEntityFormulaContext(
+          attacker,
+          resolvedStats,
+        );
+
+        return {
+          attackBonus: evaluateConditionalBonuses(
+            combinedEffects,
+            attackKey,
+            rollContext,
+            formulaContext,
+          ),
+          damageBonus: evaluateConditionalBonuses(
+            combinedEffects,
+            damageKey,
+            rollContext,
+            formulaContext,
+          ),
+        };
+      },
+      damageType: getWeaponPrimaryDamageType(weapon, resolvedStats),
+      damageParts: weaponPartsSetup.baseParts,
+      evaluateBonusDamageParts: weaponPartsSetup.evaluateBonusDamageParts,
+      // Эффекты «на цель» гейтит оркестратор (по спасброску и попаданию);
+      // прямого `onHit` нет — он вешал эффект на каждое попадание мимо спасброска
+      onRollParts: (
+        parts: RolledSpellDamagePart[],
+        attack?: AttackRollSnapshot,
+      ) =>
+        applyWeaponAttackParts(
+          attacker.id,
+          weaponSpell,
+          parts,
+          weaponSaveDC,
+          attack,
+        ),
+      damageTypeChoice,
+      // Расход одноразовых эффектов «следующей атаки» (Злая насмешка и т.п.)
+      attackerId: attacker.id,
+      beforeRoll: options.beforeRoll,
+    },
+    // Повторный удар тем же оружием заменяет своё прежнее окно. Ход и
+    // боеприпас тратит бросок — замена ничего не тратит
+    { sourceKey: buildRollSourceKey(attacker.id, 'weapon', weapon.id) },
+  );
 }
 
 /**

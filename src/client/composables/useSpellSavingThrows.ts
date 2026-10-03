@@ -439,7 +439,7 @@ export function useSpellSavingThrows() {
         },
         onCancel: options.onCancel,
       },
-      options.modalKey,
+      options.modalKey === undefined ? {} : { modalKey: options.modalKey },
     );
   }
 

@@ -59,18 +59,203 @@ describe('окно броска — один помощник', () => {
         DICE_ROLL_MODAL: 'DiceRollModal',
         DICE_ROLL_MODAL_KEY_PREFIX: 'dice-roll',
         generateId: (prefix) => `${prefix}-${(counter += 1)}`,
+        closeRollWindow: () => assert.fail('без источника заменять нечего'),
+        sourceWindowIds: new Map(),
       },
     );
 
     assert.equal(openDiceRollWindow({ title: 'А' }), 'modal-1');
     openDiceRollWindow({ title: 'Б' });
-    openDiceRollWindow({ title: 'Инициатива' }, 'initiative:wolf');
+
+    openDiceRollWindow(
+      { title: 'Инициатива' },
+      { modalKey: 'initiative:wolf' },
+    );
 
     assert.deepEqual(opened, [
       { name: 'DiceRollModal', key: 'dice-roll-1' },
       { name: 'DiceRollModal', key: 'dice-roll-2' },
       { name: 'DiceRollModal', key: 'initiative:wolf' },
     ]);
+  });
+});
+
+/**
+ * Менеджер окон, как у ядра: окно узнают по `_modalKey`, закрытие ставит
+ * `open: false`, а само окно на это сворачивает своё действие (`onCancel`) —
+ * так делает `DiceRollModal`, пока в нём не бросили.
+ *
+ * @returns {object} менеджер и его окна
+ */
+function createModalManager() {
+  const modals = [];
+
+  const manager = {
+    openModal: (component, props) => {
+      const modal = {
+        id: `modal-${modals.length + 1}`,
+        component,
+        props: { ...props, open: true },
+      };
+
+      modals.push(modal);
+
+      return modal.id;
+    },
+    getModal: (modalId) => modals.find((modal) => modal.id === modalId),
+    closeModal: (modalId) => {
+      const modal = manager.getModal(modalId);
+
+      if (modal?.props.open) {
+        modal.props.open = false;
+        modal.props.onCancel?.();
+      }
+    },
+  };
+
+  return { manager, modals };
+}
+
+/**
+ * Настоящий помощник окна броска поверх менеджера окон теста.
+ *
+ * @param {object} manager - менеджер окон
+ * @returns {Promise<object>} открытие, закрытие окна источника и ключ источника
+ */
+async function loadRollWindow(manager) {
+  let counter = 0;
+
+  const ports = {
+    useModalManager: () => manager,
+    DICE_ROLL_MODAL: 'DiceRollModal',
+    DICE_ROLL_MODAL_KEY_PREFIX: 'dice-roll',
+    CLOSE_LISTENER_PROP: 'onUpdate:open',
+    SOURCE_KEY_SEPARATOR: ':',
+    sourceWindowIds: new Map(),
+    generateId: (prefix) => `${prefix}-${(counter += 1)}`,
+  };
+
+  for (const name of [
+    'isCloseListener',
+    'findOpenSourceWindow',
+    'closeRollWindow',
+    'openDiceRollWindow',
+    'buildRollSourceKey',
+  ]) {
+    ports[name] = await loadHandler(WINDOW_PATH, name, ports);
+  }
+
+  return ports;
+}
+
+describe('повторное действие источника заменяет своё окно', () => {
+  it('то же оружие — прежнее окно закрыто как отменённое, разные источники живут рядом', async () => {
+    const { manager, modals } = createModalManager();
+    const rollWindow = await loadRollWindow(manager);
+    const log = [];
+
+    const sword = rollWindow.buildRollSourceKey('hero', 'weapon', 'sword');
+    const bow = rollWindow.buildRollSourceKey('hero', 'weapon', 'bow');
+    const wolfBite = rollWindow.buildRollSourceKey('wolf', 'weapon', 'sword');
+
+    assert.notEqual(sword, bow);
+
+    assert.notEqual(
+      sword,
+      wolfBite,
+      'то же оружие другой сущности — другой источник',
+    );
+
+    /**
+     * Окно источника с шаблоном и обработчиком закрытия.
+     *
+     * @param {string} sourceKey - источник
+     * @param {string} label - подпись для журнала
+     * @returns {string | null} id окна
+     */
+    const open = (sourceKey, label) =>
+      rollWindow.openDiceRollWindow(
+        {
+          'title': label,
+          'onCancel': () => log.push(`cancel:${label}`),
+          'onUpdate:open': (isOpen) => log.push(`close:${label}:${isOpen}`),
+        },
+        { sourceKey },
+      );
+
+    open(sword, 'меч-1');
+    open(bow, 'лук');
+    open(wolfBite, 'волк');
+
+    assert.deepEqual(log, [], 'разные источники друг друга не закрывают');
+
+    open(sword, 'меч-2');
+
+    assert.deepEqual(log, ['cancel:меч-1', 'close:меч-1:false']);
+
+    assert.deepEqual(
+      modals
+        .filter((modal) => modal.props.open)
+        .map((modal) => modal.props.title),
+      ['лук', 'волк', 'меч-2'],
+    );
+
+    assert.equal(new Set(modals.map((modal) => modal.props._modalKey)).size, 4);
+  });
+
+  it('окно, в котором уже бросили, не трогается: оно закрылось само', async () => {
+    const { manager, modals } = createModalManager();
+    const rollWindow = await loadRollWindow(manager);
+    const sourceKey = rollWindow.buildRollSourceKey('hero', 'spell', 'bolt');
+    const log = [];
+
+    rollWindow.openDiceRollWindow(
+      { 'onUpdate:open': () => log.push('close') },
+      { sourceKey },
+    );
+
+    // Бросок закрыл окно: менеджер ещё держит его на время анимации
+    modals[0].props.open = false;
+
+    assert.equal(rollWindow.closeRollWindow(sourceKey), false);
+
+    rollWindow.openDiceRollWindow({}, { sourceKey });
+
+    assert.deepEqual(log, []);
+    assert.equal(rollWindow.closeRollWindow(sourceKey), true);
+
+    assert.equal(
+      rollWindow.closeRollWindow(sourceKey),
+      false,
+      'закрыто один раз',
+    );
+  });
+
+  it('входы действий открывают окно с ключом источника', () => {
+    const SOURCES = {
+      'src/client/composables/weaponAttackRoll.ts':
+        /buildRollSourceKey\(attacker\.id, 'weapon', weapon\.id\)/u,
+      'src/client/composables/spellCastFlow.ts':
+        /buildRollSourceKey\(caster\.id, 'spell', sourceSpell\.id\)/u,
+      [CREATURE_SPELL_PATH]:
+        /buildRollSourceKey\(creature\.id, 'spell', spell\.id\)/u,
+      [CREATURE_ACTION_PATH]:
+        /buildRollSourceKey\(\s*creature\.id,\s*'action',/u,
+    };
+
+    for (const [path, pattern] of Object.entries(SOURCES)) {
+      const code = readCode(
+        listClientSources().find((source) => toSystemPath(source) === path),
+      );
+
+      assert.match(code, pattern, `${path}: окно без ключа источника`);
+
+      assert.match(
+        code,
+        /\{ sourceKey(?:: buildRollSourceKey\([^)]*\))? \}/u,
+        `${path}: ключ не отдан окну`,
+      );
+    }
   });
 });
 
@@ -212,9 +397,10 @@ const FIRE_BREATH = {
  * Окружение заклинания существа: окно броска открывается или нет.
  *
  * @param {boolean} windowOpens - вернёт ли менеджер окно
+ * @param {object} [overrides] - порты поверх окружения (настоящее окно броска)
  * @returns {Promise<object>} вход каста и журнал
  */
-async function loadCreatureSpell(windowOpens) {
+async function loadCreatureSpell(windowOpens, overrides = {}) {
   const log = [];
 
   const ports = {
@@ -261,6 +447,7 @@ async function loadCreatureSpell(windowOpens) {
     }),
     CREATURE_ACTIONS_BLOCK_LABELS: { attackRollPrefix: 'Атака: ' },
     ACTOR_SPELLS_TAB_LABELS: {},
+    ...overrides,
   };
 
   ports.openCreatureSpellRoll = await loadHandler(
@@ -301,5 +488,37 @@ describe('заклинание существа: ход и заряд — пос
     start(FIRE_BREATH);
 
     assert.deepEqual(log, ['template:place', 'turn', 'use']);
+  });
+});
+
+describe('заклинание существа: повторный каст заменяет окно и второй раз не тратит', () => {
+  it('второй щелчок — прежнее окно закрыто, его шаблон убран, ход и заряд потрачены один раз', async () => {
+    const { manager, modals } = createModalManager();
+    const rollWindow = await loadRollWindow(manager);
+
+    const { log, start } = await loadCreatureSpell(true, {
+      useModalManager: () => manager,
+      openDiceRollWindow: rollWindow.openDiceRollWindow,
+      closeRollWindow: rollWindow.closeRollWindow,
+      buildRollSourceKey: rollWindow.buildRollSourceKey,
+    });
+
+    start(FIRE_BREATH);
+    start(FIRE_BREATH);
+
+    assert.deepEqual(log, [
+      'template:place',
+      'turn',
+      'use',
+      'template:place',
+      // Прежнее окно закрыто как отменённое — свой шаблон оно убрало само
+      'template:discard:tpl',
+    ]);
+
+    assert.deepEqual(
+      modals.map((modal) => modal.props.open),
+      [false, true],
+      'окно одно — новое',
+    );
   });
 });

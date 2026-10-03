@@ -96,6 +96,6 @@ export function openSkillCheckModal(
       ...(options.targetDc === undefined ? {} : { targetDc: options.targetDc }),
       onCheckRoll: options.onRoll,
     },
-    options.modalKey,
+    options.modalKey === undefined ? {} : { modalKey: options.modalKey },
   );
 }
