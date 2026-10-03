@@ -322,6 +322,7 @@ export function applyEffectSource(
           chosen.areaOfEffect,
           user.id,
           getSpellMaxRangeOnScene(chosen),
+          chosen,
           settle,
         );
 

@@ -9,27 +9,37 @@
 
 import type { MeasurementTemplate, SpellAreaOfEffect } from '@vtt/shared';
 
+import type { AreaTargetsInput } from './areaTargetChoice';
+
 import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
 import { useWorldStore } from '@/stores/worldStore';
 import { resolveGridCellSize } from '@vtt/shared';
-import { findTokensInTemplate } from '@vtt/shared/system/dnd.js';
+
+import { resolveAreaTargets } from './areaTargetChoice';
+import { useWorldEntities } from './useWorldEntities';
 
 /** Цвет шаблона выбора получателей: нейтральный, типа урона у него нет */
 const AREA_TEMPLATE_COLOR = 0x8b5cf6;
 
 /**
- * Ставит на карту шаблон области и отдаёт тех, кого он накрыл. Шаблон после
+ * Ставит на карту шаблон области и отдаёт тех, кого он задел. Шаблон после
  * этого снимается: он нужен только для выбора получателей и места зоны.
+ *
+ * Кого задел шаблон, решает общее правило области (`resolveAreaTargets`):
+ * мёртвых он не задевает, а правило `areaChoice` среди эффектов источника
+ * отсеивает накрытых и просит применившего отметить получателей.
  *
  * @param area - форма и размер шаблона
  * @param originEntityId - от чьей фишки ставится шаблон
  * @param maxDistance - предел расстояния до точки шаблона; `null` — без предела
- * @param proceed - продолжение: накрытые сущности без повторов и сам шаблон
+ * @param source - что применяют: название и эффекты с правилом выбора
+ * @param proceed - продолжение: задетые сущности без повторов и сам шаблон
  */
 export function placeAreaTemplate(
   area: SpellAreaOfEffect,
   originEntityId: string,
   maxDistance: number | null,
+  source: AreaTargetsInput['source'],
   proceed: (targetIds: string[], template: MeasurementTemplate) => void,
 ): void {
   const templateStore = useSpellTemplateStore();
@@ -51,13 +61,22 @@ export function placeAreaTemplate(
         return;
       }
 
-      const targetIds = findTokensInTemplate(
-        template,
-        scene.tokens ?? [],
-        resolveGridCellSize(scene.gridSettings),
-      ).flatMap((token) => (token.actorId ? [token.actorId] : []));
-
-      proceed([...new Set(targetIds)], template);
+      resolveAreaTargets(
+        {
+          source,
+          casterId: originEntityId,
+          template,
+          tokens: scene.tokens ?? [],
+          gridSize: resolveGridCellSize(scene.gridSettings),
+          entities: useWorldEntities().getCurrentWorldEntities(),
+        },
+        (targets) => {
+          proceed(
+            targets.map((target) => target.id),
+            template,
+          );
+        },
+      );
     },
     maxDistance,
   );

@@ -44,7 +44,6 @@ import {
   detectFormulaDamageType,
   doubleDiceInFormula,
   evaluateDefensiveACBonus,
-  findTokensInTemplate,
   formatDamageDefenseSuffix,
   formatProjectileOutcomeLine,
   getNaturalD20Roll,
@@ -75,6 +74,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { SPELL_NO_TARGETS_LABELS } from '../ui/actor/constants';
+import { resolveAreaTargets } from './areaTargetChoice';
 import {
   resolveSelectedAttackTarget,
   withAttackHeldEffects,
@@ -838,73 +838,65 @@ export function useSpellResolution() {
       && (isForeignOwnedTarget(entity) || !resolveAutoSaves(entity));
 
     if (aoeContext) {
-      // AoE: находим токены в области шаблона
-      const affectedTokens = findTokensInTemplate(
-        aoeContext.template,
-        aoeContext.tokens,
-        aoeContext.gridSize,
+      // AoE: кого накрыл шаблон и кого из них задеть — общим правилом
+      // области: без мёртвых, с выбором применившего, если он настроен.
+      // Без выбора продолжение идёт сразу, с выбором — после ответа
+      resolveAreaTargets(
+        {
+          source: spell,
+          casterId: context.casterId,
+          template: aoeContext.template,
+          tokens: aoeContext.tokens,
+          gridSize: aoeContext.gridSize,
+          entities: actors,
+        },
+        (areaTargets) => {
+          /** Свои цели с авто-спасброском: бросок и применение идут тут же */
+          const localAutoTargets: DnDSceneEntity[] = [];
+
+          /** Цели, чей спасбросок разрешается снаружи: окном или запросом владельцу */
+          const resolvedSaveTargets: DnDSceneEntity[] = [];
+
+          for (const entity of areaTargets) {
+            if (needsResolvedSave(entity)) {
+              resolvedSaveTargets.push(entity);
+            } else {
+              localAutoTargets.push(entity);
+            }
+          }
+
+          // Фаза 1: свои авто-цели — синхронно, их результат уходит в чат
+          // сразу
+          for (const entity of localAutoTargets) {
+            try {
+              const result = processTarget(entity, context);
+
+              results.push(result);
+            } catch (error) {
+              console.error(
+                `[SpellResolution] Ошибка обработки цели "${entity.name}":`,
+                error,
+              );
+            }
+          }
+
+          // Фаза 2: спасброски окнами и запросами владельцам — одной пачкой
+          if (resolvedSaveTargets.length > 0) {
+            void processTargetsWithResolvedSaves(
+              resolvedSaveTargets,
+              context,
+              // сводку шлём там, только если своих авто-целей не было
+              localAutoTargets.length === 0,
+            );
+          }
+
+          // Сводка по своим авто-целям. По остальным её отправит пачка —
+          // после того, как все бросят.
+          if (localAutoTargets.length > 0) {
+            sendAoeSummary(spell, results);
+          }
+        },
       );
-
-      /** Свои цели с авто-спасброском: бросок и применение идут тут же */
-      const localAutoTargets: DnDSceneEntity[] = [];
-
-      /** Цели, чей спасбросок разрешается снаружи: окном или запросом владельцу */
-      const resolvedSaveTargets: DnDSceneEntity[] = [];
-
-      for (const token of affectedTokens) {
-        const entity = actors.find(
-          (entityItem) => entityItem.id === token.actorId,
-        );
-
-        if (!entity) {
-          continue;
-        }
-
-        // Пропускаем сущности без корректных данных системы
-        if (!isDndSceneEntity(entity)) {
-          console.warn(
-            `[SpellResolution] Сущность "${entity.name}" (${entity.id}) не имеет system.abilities — пропущена`,
-          );
-
-          continue;
-        }
-
-        if (needsResolvedSave(entity)) {
-          resolvedSaveTargets.push(entity);
-        } else {
-          localAutoTargets.push(entity);
-        }
-      }
-
-      // Фаза 1: свои авто-цели — синхронно, их результат уходит в чат сразу
-      for (const entity of localAutoTargets) {
-        try {
-          const result = processTarget(entity, context);
-
-          results.push(result);
-        } catch (error) {
-          console.error(
-            `[SpellResolution] Ошибка обработки цели "${entity.name}":`,
-            error,
-          );
-        }
-      }
-
-      // Фаза 2: спасброски окнами и запросами владельцам — одной пачкой
-      if (resolvedSaveTargets.length > 0) {
-        void processTargetsWithResolvedSaves(
-          resolvedSaveTargets,
-          context,
-          // сводку шлём там, только если своих авто-целей не было
-          localAutoTargets.length === 0,
-        );
-      }
-
-      // Сводка по своим авто-целям. По остальным её отправит пачка — после
-      // того, как все бросят.
-      if (localAutoTargets.length > 0) {
-        sendAoeSummary(spell, results);
-      }
     } else {
       // Single-target: выбранная цель — из сущностей разбора
       const targetEntity = resolveSelectedAttackTarget(actors);

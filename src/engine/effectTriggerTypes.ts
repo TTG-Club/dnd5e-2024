@@ -325,6 +325,63 @@ export const DEFAULT_TRIGGER_CHOOSER: EffectTriggerChooser = 'subject';
 /** Сколько целей выбирают без поля `count` */
 export const DEFAULT_TRIGGER_CHOICE_COUNT = 1;
 
+/**
+ * Как выбирают из тех, кого накрыла область: `all` — все, кого правило
+ * допускает (выбора нет, правило только отсеивает); `upTo` — применивший
+ * отмечает не больше предела, можно никого; `exactly` — ровно предел (или
+ * всех, если допущенных меньше).
+ */
+export const AREA_CHOICE_MODES = ['all', 'upTo', 'exactly'] as const;
+
+/** Режим выбора из области */
+export type AreaChoiceMode = (typeof AREA_CHOICE_MODES)[number];
+
+/**
+ * Кого задеть, если применивший выбор не сделал (закрыл плашку): никого или
+ * всех, кого правило допускает
+ */
+export const AREA_CHOICE_FALLBACKS = ['none', 'all'] as const;
+
+/** Что делать без выбора */
+export type AreaChoiceFallback = (typeof AREA_CHOICE_FALLBACKS)[number];
+
+/** Без поля `fallback`: закрытая плашка никого не задевает */
+export const DEFAULT_AREA_CHOICE_FALLBACK: AreaChoiceFallback = 'none';
+
+/**
+ * Без поля `target`: все в области вместе с применившим — как у области без
+ * правила выбора
+ */
+export const DEFAULT_AREA_CHOICE_TARGET: EffectTriggerAreaTarget =
+  'allWithSelf';
+
+/** Наибольшая длина формулы предела выбора из области */
+export const MAX_AREA_CHOICE_FORMULA_LENGTH = 200;
+
+/**
+ * «На выбор из тех, кто в области»: кого из накрытых шаблоном задевает
+ * применение. Поле эффекта (`ActiveEffect.areaChoice`): одно правило на
+ * применение, его несёт любой эффект заклинания, действия существа или
+ * применения умения и предмета с областью. Нет правила — задеты все, кого
+ * накрыл шаблон.
+ *
+ * Отбор — словарь «всем в радиусе» (`EffectTriggerAreaTarget`): отношение
+ * считается от применившего по фишкам.
+ */
+export interface EffectAreaChoice {
+  /**
+   * Сколько можно отметить: число либо формула от чисел применившего
+   * (`@castLevel`, `@mod.cha`). Нет — без предела
+   */
+  count?: number | string;
+  /** Как выбирают; нет — `upTo` у правила с числом и `all` без числа */
+  mode?: AreaChoiceMode;
+  /** Кого можно выбрать; нет — всех в области вместе с применившим */
+  target?: EffectTriggerAreaTarget;
+  /** Кого задеть, если выбор не сделан; нет — никого */
+  fallback?: AreaChoiceFallback;
+}
+
 /** Радиус новой строки «по выбору», фт */
 export const DEFAULT_TRIGGER_CHOICE_RADIUS = 30;
 

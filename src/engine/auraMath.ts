@@ -84,8 +84,8 @@ export interface AuraSourceToken {
  * @returns союзник, враг или нейтральный
  */
 export function getRelativeDisposition(
-  source: Token,
-  target: Token,
+  source: Pick<Token, 'disposition'>,
+  target: Pick<Token, 'disposition'>,
 ): TokenDisposition {
   const sourceDisposition = source.disposition ?? 'neutral';
   const targetDisposition = target.disposition ?? 'neutral';

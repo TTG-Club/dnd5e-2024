@@ -25,7 +25,6 @@ import {
   applyHpChange,
   applyMultiTypeDamageDefenses,
   describeSpellSaveSource,
-  findTokensInTemplate,
   formatDamageDefenseSuffix,
   formatDiceFormula,
   getSpellSaveCondition,
@@ -47,6 +46,7 @@ import {
   DAMAGE_DEDUCTION_LABELS,
   SPELL_NO_TARGETS_LABELS,
 } from '../ui/actor/constants';
+import { chooseAreaTargets } from './areaTargetChoice';
 import { resolveSelectedAttackTarget } from './attackRollSnapshot';
 import { changeEntityCombatState } from './entityCombatWrite';
 import {
@@ -319,19 +319,18 @@ export function useSpellDamageWithParts() {
         ...options.targetEntities.filter((entity) => entity.system?.abilities),
       );
     } else if (cachedTemplate && scene) {
-      const affectedTokens = findTokensInTemplate(
-        cachedTemplate,
-        scene.tokens ?? [],
-        resolveGridCellSize(scene.gridSettings),
+      // Кого накрыл шаблон и кого из них задеть — общим правилом области:
+      // без мёртвых, с выбором применившего, если он настроен
+      targetEntities.push(
+        ...(await chooseAreaTargets({
+          source: spell,
+          casterId: context.casterId,
+          template: cachedTemplate,
+          tokens: scene.tokens ?? [],
+          gridSize: resolveGridCellSize(scene.gridSettings),
+          entities: actors,
+        })),
       );
-
-      for (const token of affectedTokens) {
-        const entity = actors.find((item) => item.id === token.actorId);
-
-        if (entity?.system?.abilities) {
-          targetEntities.push(entity);
-        }
-      }
     } else {
       // Выбранная цель — из сущностей разбора: с эффектами, которые
       // израсходовал бросок этой атаки

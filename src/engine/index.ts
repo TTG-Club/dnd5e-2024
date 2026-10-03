@@ -5,6 +5,7 @@ export * from './activeEffectTypes.js';
 export * from './actorSenses.js';
 export * from './actorValidation.js';
 export * from './applyTimeFormulas.js';
+export * from './areaChoice.js';
 export * from './areaShift.js';
 export * from './armorState.js';
 export * from './attackKind.js';

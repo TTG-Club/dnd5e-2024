@@ -67,6 +67,7 @@ export const AURA_CONDITION_DROPPED_FIELDS = [
   'originId',
   'aura',
   'areaTrigger',
+  'areaChoice',
   'effectTarget',
   'magical',
   'endsWithAreaId',

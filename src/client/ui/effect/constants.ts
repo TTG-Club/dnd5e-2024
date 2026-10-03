@@ -931,6 +931,12 @@ export const EFFECT_VARIANT_PROMPT_MODAL = 'EffectVariantPromptModal';
 /** Имя плашки вопроса человеку с закрытым списком ответов */
 export const EFFECT_QUESTION_PROMPT_MODAL = 'EffectQuestionPromptModal';
 
+/**
+ * Имя плашки выбора цели: получатели срабатывания «по выбору» и цели области
+ * «на выбор из тех, кто в области»
+ */
+export const EFFECT_TARGET_PROMPT_MODAL = 'EffectTargetPromptModal';
+
 /** Подписи плашки выбора варианта и строки чата */
 export const EFFECT_VARIANT_PROMPT_LABELS = {
   titlePrefix: '«',

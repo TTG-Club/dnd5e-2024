@@ -24,7 +24,10 @@ import {
   SAVE_OVERRIDE_OPTIONS,
 } from '@vtt/shared/system/dnd.js';
 
-import { EFFECT_QUESTION_PROMPT_MODAL } from '../ui/effect/constants';
+import {
+  EFFECT_QUESTION_PROMPT_MODAL,
+  EFFECT_TARGET_PROMPT_MODAL,
+} from '../ui/effect/constants';
 import {
   answerWithSaveOverride,
   spendEntitySaveOverride,
@@ -288,7 +291,7 @@ function promptTargetChoice(
     request,
     reply,
     (settle, modalKey) =>
-      openModal('EffectTargetPromptModal', {
+      openModal(EFFECT_TARGET_PROMPT_MODAL, {
         _modalKey: modalKey,
         candidates: payload.candidates,
         count: payload.count,

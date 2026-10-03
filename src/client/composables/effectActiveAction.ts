@@ -93,6 +93,13 @@ export function runEntityEffectAction(
       toUseAreaOfEffect(template),
       entityId,
       null,
+      // Правило выбора несёт сам эффект с кнопкой
+      {
+        id: boundEffect.id,
+        name: boundEffect.name,
+        level: 0,
+        activeEffects: [boundEffect],
+      },
       (targetIds) => {
         emitSystemClientEvent(
           buildEffectActionEvent(entityId, effectId, targetIds),

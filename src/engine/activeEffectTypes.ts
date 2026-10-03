@@ -40,7 +40,11 @@ import type { DnDCustomBonusContext } from './customBonuses.js';
 import type { EffectCastRule } from './effectCastRuleTypes.js';
 import type { EffectChangeStep } from './effectChangeSteps.js';
 import type { EffectPaid, EffectPay } from './effectPayTypes.js';
-import type { EffectActionCost, EffectTrigger } from './effectTriggerTypes.js';
+import type {
+  EffectActionCost,
+  EffectAreaChoice,
+  EffectTrigger,
+} from './effectTriggerTypes.js';
 import type { EffectVariantPick } from './effectVariants.js';
 
 import { z } from 'zod';
@@ -83,6 +87,8 @@ import {
   SaveDcFormulaSchema,
 } from './effectSchemaParts.js';
 import {
+  AREA_CHOICE_FALLBACKS,
+  AREA_CHOICE_MODES,
   EFFECT_ACTION_COSTS,
   EFFECT_CAST_OWNERS,
   EFFECT_NOTIFY_TARGETS,
@@ -104,6 +110,7 @@ import {
   EFFECT_TRIGGER_REST_TYPES,
   EFFECT_TRIGGER_SAVE_MODES,
   EFFECT_TRIGGER_TURN_OWNERS,
+  MAX_AREA_CHOICE_FORMULA_LENGTH,
   MAX_NOTIFY_TEXT_LENGTH,
   MAX_TRIGGER_CHANCE_PERCENT,
   MAX_TRIGGER_CHOICE_COUNT,
@@ -2474,6 +2481,15 @@ export interface ActiveEffect extends BaseActiveEffect {
   areaTrigger?: AreaEffectTrigger;
 
   /**
+   * «На выбор из тех, кто в области»: кого из накрытых шаблоном задевает
+   * применение («Замедление»: до шести существ на выбор в кубе). Правило одно
+   * на применение — заклинание, действие существа, применение умения или
+   * предмета с областью; нет — задеты все, кого накрыл шаблон
+   * (`areaChoice.ts`)
+   */
+  areaChoice?: EffectAreaChoice;
+
+  /**
    * Цель применения эффекта.
    * - `'self'` (по умолчанию) — применяется к владельцу при экипировке
    * - `'target'` — применяется к цели при попадании атакой
@@ -3753,6 +3769,24 @@ const EffectTriggerLimitSchema = z.object({
   key: z.string().min(1).optional().catch(undefined),
 });
 
+/** Zod-схема правила «на выбор из тех, кто в области» */
+const EffectAreaChoiceSchema = z.object({
+  count: z
+    .union([
+      z
+        .number()
+        .int()
+        .min(MIN_TRIGGER_CHOICE_COUNT)
+        .max(MAX_TRIGGER_CHOICE_COUNT),
+      z.string().trim().min(1).max(MAX_AREA_CHOICE_FORMULA_LENGTH),
+    ])
+    .optional()
+    .catch(undefined),
+  mode: z.enum(AREA_CHOICE_MODES).optional().catch(undefined),
+  target: z.enum(EFFECT_TRIGGER_AREA_TARGETS).optional().catch(undefined),
+  fallback: z.enum(AREA_CHOICE_FALLBACKS).optional().catch(undefined),
+});
+
 /** Zod-схема получателя «по выбору» */
 const EffectTriggerChoiceSchema = z.object({
   radius: z.preprocess(coerceOptionalNumber, z.number().min(0)),
@@ -3905,6 +3939,7 @@ export const ActiveEffectSchema = z.object({
   flags: EffectFlagsSchema.catch([]),
   aura: EffectAuraSchema.optional(),
   areaTrigger: z.enum(['stay', 'enter', 'exit']).optional(),
+  areaChoice: EffectAreaChoiceSchema.optional().catch(undefined),
   // Незнакомая доставка обнуляет поле, а не отвергает эффект: снимок сущности
   // разбирается целиком, и один эффект не должен ронять запись урона
   effectTarget: z.enum(['self', 'target', 'zone']).optional().catch(undefined),
