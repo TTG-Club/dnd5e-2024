@@ -17,6 +17,7 @@ import type {
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
+import type { AttackRollSnapshot } from './attackRollSnapshot';
 import type { RolledSpellDamagePart } from './useSpellResolution';
 
 import { useChatStore } from '@/stores/chatStore';
@@ -50,6 +51,7 @@ import {
   resolveTargetedAttackRoll,
   resolveTargetedCritThreshold,
 } from './attackRollMode';
+import { listAttackResolutionEntities } from './attackRollSnapshot';
 import { requestDamageTypeChoiceFor } from './damageTypeChoice';
 import { openDiceRollWindow } from './diceRollWindow';
 import {
@@ -347,8 +349,17 @@ export function openWeaponAttackRoll(
     evaluateBonusDamageParts: weaponPartsSetup.evaluateBonusDamageParts,
     // Эффекты «на цель» гейтит оркестратор (по спасброску и попаданию);
     // прямого `onHit` нет — он вешал эффект на каждое попадание мимо спасброска
-    onRollParts: (parts: RolledSpellDamagePart[]) =>
-      applyWeaponAttackParts(attacker.id, weaponSpell, parts, weaponSaveDC),
+    onRollParts: (
+      parts: RolledSpellDamagePart[],
+      attack?: AttackRollSnapshot,
+    ) =>
+      applyWeaponAttackParts(
+        attacker.id,
+        weaponSpell,
+        parts,
+        weaponSaveDC,
+        attack,
+      ),
     damageTypeChoice,
     // Расход одноразовых эффектов «следующей атаки» (Злая насмешка и т.п.)
     attackerId: attacker.id,
@@ -364,15 +375,18 @@ export function openWeaponAttackRoll(
  * @param pseudoSpell - псевдо-заклинание оружия (со спасброском оружия)
  * @param parts - брошенные части урона
  * @param spellSaveDC - Сл спасброска оружия
+ * @param attack - снимок броска атаки: стороны удара считаются с эффектами,
+ *   которые бросок израсходовал
  */
 export function applyWeaponAttackParts(
   attackerId: string,
   pseudoSpell: Spell,
   parts: RolledSpellDamagePart[],
   spellSaveDC: number,
+  attack?: AttackRollSnapshot,
 ): void {
   const socket = useChatStore().getSocket();
-  const actors = useWorldEntities().getCurrentWorldEntities();
+  const actors = listAttackResolutionEntities(attack);
 
   if (actors.length === 0 || !socket) {
     return;
@@ -386,6 +400,7 @@ export function applyWeaponAttackParts(
       actors,
       socket,
       casterId: attackerId,
+      attack,
     },
     parts,
     { scene: useWorldStore().currentScene },

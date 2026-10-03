@@ -293,6 +293,71 @@ describe('каталог: события срабатываний', () => {
     );
   });
 
+  it('[E06c] Одноразовый эффект цели действует на эту атаку и снимается после неё', () => {
+    const system = new engine.Dnd5eVttSystem();
+
+    // Сопротивление огню до следующей атаки по носителю
+    const ward = createEffect('Защитный знак', {
+      flags: ['resistance.fire'],
+      consumeOn: 'attackOnCarrier',
+    });
+
+    /**
+     * Удар огнём: расход эффекта броском, затем урон — в тике броска либо
+     * после показа броска, когда ответ сервера эффект из мира уже убрал.
+     *
+     * @param {boolean} echoBeforeDamage - ответ сервера пришёл до урона
+     * @returns {object} хиты и эффекты цели на сервере
+     */
+    const strike = (echoBeforeDamage) => {
+      const server = withHp(createActor, 30, { activeEffects: [ward] });
+      const store = structuredClone(server);
+
+      // Окно броска расходует эффект на копии и шлёт снимок
+      const rolled = structuredClone(store);
+
+      engine.recordCombatBaseline(rolled, rolled);
+      engine.runAttackRollTriggers(rolled, 'target', { inCombat: true });
+
+      const held = engine.listHeldAttackEffects(
+        store.activeEffects,
+        rolled.activeEffects,
+      );
+
+      system.settleCombatState(server, engine.pickCombatState(rolled));
+
+      if (echoBeforeDamage) {
+        store.activeEffects = structuredClone(server.activeEffects);
+      }
+
+      // Удар считается по свежей цели с израсходованным эффектом
+      const defenses = engine.resolveTargetDamageDefenses(
+        engine.withHeldAttackEffects(store, held),
+        undefined,
+      );
+
+      const damaged = structuredClone(store);
+
+      engine.recordCombatBaseline(damaged, damaged);
+
+      engine.writeEntityHitPoints(damaged, {
+        current:
+          30 - engine.applyDamageDefenses(10, 'fire', defenses).finalDamage,
+        temp: 0,
+      });
+
+      system.settleCombatState(server, engine.pickCombatState(damaged));
+
+      return {
+        hp: engine.resolveEntityCurrentHp(server),
+        effects: server.activeEffects.length,
+      };
+    };
+
+    assert.deepEqual(strike(false), { hp: 25, effects: 0 });
+    assert.deepEqual(strike(true), strike(false), 'итог не зависит от сети');
+  });
+
   it('[E07] «Атака попала» и «атака промахнулась» — части условия', () => {
     const landed = engine.writeTriggerCondition([{ kind: 'attackLanded' }]);
     const missed = engine.writeTriggerCondition([{ kind: 'attackMissed' }]);

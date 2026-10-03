@@ -17,6 +17,7 @@ import type {
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
+import type { AttackRollSnapshot } from './attackRollSnapshot';
 import type { CreatureDamageVariant } from './creatureDamageChoice';
 import type { CreatureRollSetup } from './useBonusDamageParts';
 import type { RolledSpellDamagePart } from './useSpellResolution';
@@ -51,6 +52,7 @@ import {
 import { recordEntityActionSpend, warnOpportunityAttack } from './actionSpend';
 import { runCreatureActionChoices } from './attackKindChoice';
 import { resolveTargetedAttackRoll } from './attackRollMode';
+import { listAttackResolutionEntities } from './attackRollSnapshot';
 import {
   buildCreatureRollVariants,
   launchCreatureAction,
@@ -299,11 +301,13 @@ export function openCreatureActionRoll(
    * @param chosenAction - действие с решённым типом урона
    * @param actionSpell - его псевдо-заклинание
    * @param parts - брошенные части; у действия без урона — пусто
+   * @param attack - снимок броска атаки, если бросок попадания был
    */
   const applyParts = (
     chosenAction: CreatureAction,
     actionSpell: Spell,
     parts: RolledSpellDamagePart[],
+    attack?: AttackRollSnapshot,
   ): void =>
     applyCreatureActionParts(
       creature.id,
@@ -311,6 +315,7 @@ export function openCreatureActionRoll(
       actionSpell,
       parts,
       templateId,
+      attack,
     );
 
   // У каждого набора урона «или» свои части, тип урона на выбор и применение
@@ -392,6 +397,8 @@ export function openCreatureActionRoll(
  * @param pseudoSpell - псевдо-заклинание действия
  * @param parts - брошенные части урона
  * @param templateId - размещённый шаблон области
+ * @param attack - снимок броска атаки: стороны удара считаются с эффектами,
+ *   которые бросок израсходовал
  */
 export function applyCreatureActionParts(
   creatureId: string,
@@ -399,9 +406,10 @@ export function applyCreatureActionParts(
   pseudoSpell: Spell,
   parts: RolledSpellDamagePart[],
   templateId: string | undefined,
+  attack?: AttackRollSnapshot,
 ): void {
   const socket = useChatStore().getSocket();
-  const actors = useWorldEntities().getCurrentWorldEntities();
+  const actors = listAttackResolutionEntities(attack);
   const templateStore = useSpellTemplateStore();
 
   const cachedTemplate = templateId
@@ -421,6 +429,7 @@ export function applyCreatureActionParts(
         actors,
         socket,
         casterId: creatureId,
+        attack,
       },
       parts,
       { scene: useWorldStore().currentScene, cachedTemplate },

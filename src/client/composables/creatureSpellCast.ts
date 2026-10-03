@@ -19,6 +19,7 @@ import type {
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
+import type { AttackRollSnapshot } from './attackRollSnapshot';
 import type { SpellCasterSource } from './spellCastCompletion';
 import type { SpellCastRefusal } from './spellCastFlow';
 import type { RolledSpellDamagePart } from './useSpellResolution';
@@ -60,6 +61,7 @@ import { ACTOR_SPELLS_TAB_LABELS } from '../ui/actor/constants';
 import { CREATURE_ACTIONS_BLOCK_LABELS } from '../ui/creature/constants';
 import { recordEntityActionSpend } from './actionSpend';
 import { resolveTargetedAttackRoll } from './attackRollMode';
+import { listAttackResolutionEntities } from './attackRollSnapshot';
 import { runWithCastFailure } from './castFailure';
 import {
   requestDamageTypeChoiceFor,
@@ -412,8 +414,12 @@ export function openCreatureSpellRoll(
    * Применяет каст брошенными частями.
    *
    * @param parts - части урона
+   * @param attack - снимок броска атаки, если бросок попадания был
    */
-  const applyParts = (parts: RolledSpellDamagePart[]): void =>
+  const applyParts = (
+    parts: RolledSpellDamagePart[],
+    attack?: AttackRollSnapshot,
+  ): void =>
     applyCreatureSpellParts(
       creature.id,
       castSpell,
@@ -421,6 +427,7 @@ export function openCreatureSpellRoll(
       templateId,
       casterSource,
       castKey,
+      attack,
     );
 
   const opened = openDiceRollWindow({
@@ -453,7 +460,7 @@ export function openCreatureSpellRoll(
     // попадании разбирает тот же оркестратор с пустым набором частей
     onHit:
       usesAttack && !plan.hasDamage && setup.pseudoSpell.activeEffects
-        ? () => applyParts([])
+        ? (attack?: AttackRollSnapshot) => applyParts([], attack)
         : undefined,
     damageTypeChoice,
     // Отмена окна обязана убрать шаблон: он размещается ДО броска
@@ -477,6 +484,8 @@ export function openCreatureSpellRoll(
  * @param templateId - размещённый шаблон области
  * @param casterSource - Сл блока и модификатор характеристики существа
  * @param castKey - ключ каста: окно зовёт применение и по попаданию, и по частям
+ * @param attack - снимок броска атаки: стороны удара считаются с эффектами,
+ *   которые бросок израсходовал
  */
 export function applyCreatureSpellParts(
   creatureId: string,
@@ -485,6 +494,7 @@ export function applyCreatureSpellParts(
   templateId: string | undefined,
   casterSource: SpellCasterSource,
   castKey: string,
+  attack?: AttackRollSnapshot,
 ): void {
   const templateStore = useSpellTemplateStore();
 
@@ -515,7 +525,10 @@ export function applyCreatureSpellParts(
     }),
     () => {
       const socket = useChatStore().getSocket();
-      const actors = useWorldEntities().getCurrentWorldEntities();
+
+      // Цели читаются после ожидания: эффекты прежнего каста уже сняты, а
+      // израсходованные броском этой атаки — на месте
+      const actors = listAttackResolutionEntities(attack);
 
       // Цели нечего получить — ни урона, ни эффекта («Щит» только на себя):
       // оркестратор писал бы в чат «цель не выбрана» к касту, который удался
@@ -535,6 +548,7 @@ export function applyCreatureSpellParts(
           actors,
           socket,
           casterId: creatureId,
+          attack,
         },
         parts,
         { scene: useWorldStore().currentScene, cachedTemplate },

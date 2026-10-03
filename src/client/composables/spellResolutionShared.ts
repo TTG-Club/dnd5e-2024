@@ -17,6 +17,7 @@ import type {
   TargetHpGate,
 } from '@vtt/shared/system/dnd.js';
 
+import type { AttackRollSnapshot } from './attackRollSnapshot';
 import type { RollBonusEvaluator } from './rollBonusEvaluator';
 
 import { useChatStore } from '@/stores/chatStore';
@@ -40,6 +41,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { SAVING_THROW_ROLL_LABELS } from '../ui/actor/constants';
+import { withAttackHeldEffects } from './attackRollSnapshot';
 import { resolveActiveTurnActorId } from './encounterTurn';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -103,6 +105,13 @@ export interface SpellResolutionContext {
    * рассеивался, а срок «до хода наложившего» терял якорь
    */
   casterId: string;
+  /**
+   * Снимок броска атаки, если разбору предшествовал бросок попадания:
+   * стороны удара считаются с эффектами, которые этот бросок израсходовал
+   * (`attackRollSnapshot.ts`). Сущности в `actors` вызывающий собирает тем
+   * же снимком (`listAttackResolutionEntities`)
+   */
+  attack?: AttackRollSnapshot;
 }
 
 /**
@@ -329,11 +338,17 @@ export function formatTargetGateSuffix(
 /**
  * Сопротивления, которые игнорирует урон атакующего («Сила могилы»).
  *
+ * Атакующий берётся с эффектами, которые израсходовал бросок этой атаки:
+ * «следующая атака игнорирует сопротивление» действует на этот удар, даже
+ * когда ответ сервера эффект из мира уже убрал.
+ *
  * @param attackerId - атакующий; без него — ничего
+ * @param attack - снимок броска атаки; нет — удар без броска попадания
  * @returns типы урона
  */
 export function resolveAttackerIgnoredResistances(
   attackerId: string | undefined,
+  attack?: AttackRollSnapshot,
 ): string[] {
   if (!attackerId) {
     return [];
@@ -342,7 +357,9 @@ export function resolveAttackerIgnoredResistances(
   const attacker = useWorldEntities().findCurrentDndEntity(attackerId);
 
   return attacker
-    ? listIgnoredResistances(resolveActorStats(attacker).activeFlags)
+    ? listIgnoredResistances(
+        resolveActorStats(withAttackHeldEffects(attacker, attack)).activeFlags,
+      )
     : [];
 }
 

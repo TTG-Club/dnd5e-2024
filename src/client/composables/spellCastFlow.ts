@@ -23,6 +23,7 @@ import type {
   SpellCastPlan,
 } from '@vtt/shared/system/dnd.js';
 
+import type { AttackRollSnapshot } from './attackRollSnapshot';
 import type { SpellCasterSource } from './spellCastCompletion';
 import type {
   SpellEffectTargets,
@@ -93,6 +94,7 @@ import {
 import { recordEntityActionSpend } from './actionSpend';
 import { chooseAreaCastLevel } from './areaCastLevelChoice';
 import { resolveTargetedAttackRoll } from './attackRollMode';
+import { listAttackResolutionEntities } from './attackRollSnapshot';
 import { runWithCastFailureAndPay } from './castFailure';
 import {
   requestDamageTypeChoiceFor,
@@ -773,11 +775,13 @@ export function abandonSpellCast(
  * @param session - каст
  * @param rolledTotal - итог окна
  * @param chosenDamageType - тип урона, выбранный в окне
+ * @param attack - снимок броска атаки, если бросок попадания был
  */
 export function settleSpellRoll(
   session: SpellCastSession,
   rolledTotal: number,
   chosenDamageType?: string,
+  attack?: AttackRollSnapshot,
 ): void {
   markSpellCastApplied(session);
 
@@ -794,7 +798,10 @@ export function settleSpellRoll(
       plan.needsTargetResolution
       && (damageTotal > 0 || plan.hasTargetEffects)
     ) {
-      resolveSpellTargets(session, damageTotal, template, chosenDamageType);
+      resolveSpellTargets(session, damageTotal, template, {
+        chosenDamageType,
+        attack,
+      });
     }
 
     // Эффекты на цель без спасброска: без броска атаки — сразу (бафф союзника
@@ -808,6 +815,7 @@ export function settleSpellRoll(
         spell,
         targetEffectsSourceOf(session),
         plan.attackType ? undefined : session.effectTargets,
+        attack,
       );
     }
   });
@@ -819,19 +827,23 @@ export function settleSpellRoll(
  * @param session - каст
  * @param damageTotal - урон окна
  * @param template - шаблон области
- * @param chosenDamageType - тип урона, выбранный в окне
+ * @param options - что окно знает о броске
+ * @param options.chosenDamageType - тип урона, выбранный в окне
+ * @param options.attack - снимок броска атаки, если бросок попадания был
  */
 function resolveSpellTargets(
   session: SpellCastSession,
   damageTotal: number,
   template: MeasurementTemplate | null,
-  chosenDamageType: string | undefined,
+  options: { chosenDamageType?: string; attack?: AttackRollSnapshot },
 ): void {
   const { spell } = session.state;
+  const { chosenDamageType, attack } = options;
   const socket = useChatStore().getSocket();
 
-  // Цели читаются после ожидания: эффекты прежнего каста уже сняты
-  const actors = useWorldEntities().getCurrentWorldEntities();
+  // Цели читаются после ожидания: эффекты прежнего каста уже сняты, а
+  // израсходованные броском этой атаки — на месте
+  const actors = listAttackResolutionEntities(attack);
 
   if (actors.length === 0 || !socket) {
     return;
@@ -859,6 +871,7 @@ function resolveSpellTargets(
       socket,
       overrideDamageType: chosenDamageType,
       casterId: session.port.casterId,
+      attack,
     },
     {
       hasProjectiles: session.hasProjectiles,
@@ -875,10 +888,12 @@ function resolveSpellTargets(
  *
  * @param session - каст
  * @param parts - брошенные части
+ * @param attack - снимок броска атаки, если бросок попадания был
  */
 export function settleSpellRollParts(
   session: SpellCastSession,
   parts: RolledSpellDamagePart[],
+  attack?: AttackRollSnapshot,
 ): void {
   markSpellCastApplied(session);
 
@@ -887,7 +902,7 @@ export function settleSpellRollParts(
   // Многочастный бросок тоже доводит каст: окно зовёт только его
   afterSpellCast(finishSpellCast(session, template), () => {
     const socket = useChatStore().getSocket();
-    const actors = useWorldEntities().getCurrentWorldEntities();
+    const actors = listAttackResolutionEntities(attack);
 
     if (actors.length === 0 || !socket) {
       return;
@@ -901,6 +916,7 @@ export function settleSpellRollParts(
         actors,
         socket,
         casterId: session.port.casterId,
+        attack,
       },
       parts,
       { scene: useWorldStore().currentScene, cachedTemplate: template },
@@ -943,7 +959,7 @@ export function settleSpellProjectileAttack(
   // Серия снарядов тоже доводит каст: окно зовёт только этот обработчик
   afterSpellCast(finishSpellCast(session, null), () => {
     const socket = useChatStore().getSocket();
-    const actors = useWorldEntities().getCurrentWorldEntities();
+    const actors = listAttackResolutionEntities(rollContext.attack);
 
     if (actors.length === 0 || !socket) {
       return;
@@ -957,6 +973,7 @@ export function settleSpellProjectileAttack(
         actors,
         socket,
         casterId: session.port.casterId,
+        attack: rollContext.attack,
       },
       {
         hasProjectiles: true,
@@ -1302,9 +1319,9 @@ export function openSpellCastWindow(
         : undefined,
     'damageParts': useMultiPart ? resolvedParts : undefined,
     'onRollParts': useMultiPart
-      ? (parts: RolledSpellDamagePart[]) => {
+      ? (parts: RolledSpellDamagePart[], attack?: AttackRollSnapshot) => {
           releaseUnload();
-          settleSpellRollParts(session, parts);
+          settleSpellRollParts(session, parts, attack);
         }
       : undefined,
     // Снарядам бонус-части катает разбор, а не окно
@@ -1313,9 +1330,13 @@ export function openSpellCastWindow(
       : undefined,
     ...slotProps,
     'spellScalingDice': sourceSpell.scaling?.additionalDice,
-    'onRoll': (rolledTotal: number, chosenDamageType?: string) => {
+    'onRoll': (
+      rolledTotal: number,
+      chosenDamageType?: string,
+      attack?: AttackRollSnapshot,
+    ) => {
       releaseUnload();
-      settleSpellRoll(session, rolledTotal, chosenDamageType);
+      settleSpellRoll(session, rolledTotal, chosenDamageType, attack);
     },
     'beforeRoll': isCurrentProjectileCast,
     'onUpdate:open': handleModalClose,

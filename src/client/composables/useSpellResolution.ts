@@ -19,6 +19,7 @@ import type {
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
+import type { AttackRollSnapshot } from './attackRollSnapshot';
 import type {
   AoeContext,
   RolledSpellDamagePart,
@@ -31,7 +32,6 @@ import type { EffectSaveResults } from './useTargetEffectResolution';
 import { useChatStore } from '@/stores/chatStore';
 import { useDiceRollerStore } from '@/stores/diceRollerStore';
 import { useProjectileStore } from '@/stores/projectileStore';
-import { useTargetStore } from '@/stores/targetStore';
 import { generateId, resolveGridCellSize } from '@vtt/shared';
 import {
   applyDamageDefenses,
@@ -75,6 +75,10 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { SPELL_NO_TARGETS_LABELS } from '../ui/actor/constants';
+import {
+  resolveSelectedAttackTarget,
+  withAttackHeldEffects,
+} from './attackRollSnapshot';
 import { changeEntityCombatState } from './entityCombatWrite';
 import {
   buildSaveDamageDefense,
@@ -117,6 +121,11 @@ export interface ProjectileAttackContext {
   bonusDiceFormulasByTarget: ReadonlyMap<string, readonly string[]>;
   /** Тип атаки для условных бонусов к AC цели (напр. +2 КД от дальнобойных) */
   attackType: 'melee' | 'ranged';
+  /**
+   * Снимок броска атаки серии: стороны считаются с эффектами, которые
+   * бросок израсходовал
+   */
+  attack?: AttackRollSnapshot;
 }
 
 /**
@@ -153,7 +162,8 @@ function targetNeedsSpellSave(
  * @param bonusParts - брошенные бонус-части (значения общие на каст)
  * @param saveResult - результат спасброска цели (если был)
  * @param spell - заклинание: что даёт успех и его характеристика
- * @param attackerId - заклинатель: какие сопротивления игнорирует его урон
+ * @param context - контекст каста: заклинатель (какие сопротивления
+ *   игнорирует его урон) и снимок броска атаки
  * @returns суммарный бонус-урон с учётом гейтов, спасброска и защит
  */
 function computeBonusDamageForEntity(
@@ -161,7 +171,7 @@ function computeBonusDamageForEntity(
   bonusParts: RolledSpellDamagePart[],
   saveResult: SavingThrowResult | undefined,
   spell: Spell,
-  attackerId: string | undefined,
+  context: Pick<SpellResolutionContext, 'casterId' | 'attack'>,
 ): number {
   let total = 0;
 
@@ -169,7 +179,7 @@ function computeBonusDamageForEntity(
 
   const damageDefenses = resolveTargetDamageDefenses(
     entity,
-    resolveAttackerIgnoredResistances(attackerId),
+    resolveAttackerIgnoredResistances(context.casterId, context.attack),
   );
 
   for (const part of bonusParts) {
@@ -210,7 +220,6 @@ function computeBonusDamageForEntity(
  */
 export function useSpellResolution() {
   const chatStore = useChatStore();
-  const targetStore = useTargetStore();
 
   const {
     isForeignOwnedTarget,
@@ -238,6 +247,8 @@ export function useSpellResolution() {
    * @param options.healTemp - лечение временными ХП (`@heal.temp`): вместо
    *   прибавления к текущим хитам применяется правило «берётся большее»
    * @param options.hit - крит и кто бил — для событий урона цели
+   * @param options.attack - снимок броска атаки: защиты цели считаются с
+   *   эффектами, которые бросок израсходовал
    * @returns результат применения
    */
   function applyResultsToEntity(
@@ -250,6 +261,7 @@ export function useSpellResolution() {
       extraDamageAfterDefenses?: number;
       healTemp?: boolean;
       hit?: Omit<DamageHit, 'amount' | 'types'>;
+      attack?: AttackRollSnapshot;
     } = {},
   ): {
     hpBefore: number;
@@ -281,9 +293,14 @@ export function useSpellResolution() {
         const defenseResult = applyDamageDefenses(
           damage,
           damageType,
+          // Хиты — свежей цели, защиты — её же с эффектами, которые
+          // израсходовал бросок этой атаки
           resolveTargetDamageDefenses(
-            target,
-            resolveAttackerIgnoredResistances(options.hit?.sourceId),
+            withAttackHeldEffects(target, options.attack),
+            resolveAttackerIgnoredResistances(
+              options.hit?.sourceId,
+              options.attack,
+            ),
           ),
         );
 
@@ -480,7 +497,7 @@ export function useSpellResolution() {
           bonusParts,
           saveResult,
           spell,
-          context.casterId,
+          context,
         ) + targetEffects.bonusDamage;
 
     const damageResult = applyResultsToEntity(
@@ -496,6 +513,7 @@ export function useSpellResolution() {
           critical: options.critical ?? false,
           sourceId: context.casterId,
         },
+        attack: context.attack,
       },
     );
 
@@ -888,8 +906,8 @@ export function useSpellResolution() {
         sendAoeSummary(spell, results);
       }
     } else {
-      // Single-target: берём цель из targetStore
-      const targetEntity = targetStore.getTargetActor();
+      // Single-target: выбранная цель — из сущностей разбора
+      const targetEntity = resolveSelectedAttackTarget(actors);
 
       if (targetEntity) {
         // Пропускаем сущности без корректных данных системы

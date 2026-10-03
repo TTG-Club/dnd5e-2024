@@ -12,6 +12,7 @@ import type {
 } from '@vtt/shared/system/dnd.js';
 
 import type { RollDamageVariant } from '../ui/actor/diceRollTypes';
+import type { AttackRollSnapshot } from './attackRollSnapshot';
 import type { CreatureRollSetup } from './useBonusDamageParts';
 import type { RolledSpellDamagePart } from './useSpellResolution';
 
@@ -439,6 +440,7 @@ export function buildCreatureRollVariants(
     chosenAction: CreatureAction,
     actionSpell: Spell,
     parts: RolledSpellDamagePart[],
+    attack?: AttackRollSnapshot,
   ) => void,
 ): RollDamageVariant[] {
   const damageSets =
@@ -465,8 +467,8 @@ export function buildCreatureRollVariants(
       damageParts: setup.baseParts,
       evaluateBonusDamageParts: setup.evaluateBonusDamageParts,
       damageTypeChoice,
-      onRollParts: (parts) => {
-        apply(chosenAction, actionSpell, parts);
+      onRollParts: (parts, attack) => {
+        apply(chosenAction, actionSpell, parts, attack);
       },
       // Выбор человека называется в чате; без вариантов называть нечего
       onSelect: () => {

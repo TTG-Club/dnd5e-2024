@@ -132,6 +132,10 @@ export async function loadHandler(relativePath, name, ports, macro = false) {
   // с уроном разбор отвечает «нет» и окно открывается как раньше
   ports.runDamagelessCreatureAction ??= () => false;
 
+  // Снимка броска атаки у фикстур нет: сущности разбора — сущности мира
+  ports.listAttackResolutionEntities ??= () =>
+    ports.useWorldEntities?.().getCurrentWorldEntities() ?? [];
+
   // Лист фикстур не в режиме правки: проверка листа проходная
   ports.refuseWhileSheetEditing ??= () => false;
 

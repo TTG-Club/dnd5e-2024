@@ -9,6 +9,7 @@
     RollContext,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { AttackRollSnapshot } from '../../composables/attackRollSnapshot';
   import type { DamageTypeChoiceRequest } from '../../composables/damageTypeChoice';
   import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import type {
@@ -166,7 +167,11 @@
      * сверяется с планом каста (`resolvePlannedDamageTotal`), а заклинание
      * без частей урона окно броска не открывает вовсе (`resolveSpellCastPlan`).
      */
-    onRoll?: (damageTotal: number, resolvedDamageType?: string) => void;
+    onRoll?: (
+      damageTotal: number,
+      resolvedDamageType?: string,
+      attack?: AttackRollSnapshot,
+    ) => void;
     /** Проверяет актуальность каста до расхода ячейки и применения эффектов. */
     beforeRoll?: (
       castLevel: number,
@@ -179,8 +184,14 @@
      * вместо `onRoll`. Применение делегируется наружу (resolveSpellDamageWithParts).
      */
     damageParts?: SpellDamagePartInput[];
-    /** Коллбэк многочастного пути: получает брошенные части. */
-    onRollParts?: (parts: RolledSpellDamagePart[]) => void;
+    /**
+     * Коллбэк многочастного пути: получает брошенные части и снимок броска
+     * атаки (если бросок попадания был) — по нему разбор считает удар.
+     */
+    onRollParts?: (
+      parts: RolledSpellDamagePart[],
+      attack?: AttackRollSnapshot,
+    ) => void;
     /**
      * Roll-time сборщик бонус-частей урона от Active Effects (кость-формулы в
      * `damage.*`, в т.ч. условные «+2к6 при преимуществе»). Вызывается в момент
@@ -209,7 +220,7 @@
      */
     onCancel?: () => void;
     /** Коллбэк при попадании атаки (вызывается даже если нет формулы урона). */
-    onHit?: () => void;
+    onHit?: (attack?: AttackRollSnapshot) => void;
     /**
      * Тип урона на выбор у источника броска (`@dmg.choice(…)`): окно
      * показывает поле «Тип урона» и в начале броска отдаёт итог — до урона,
@@ -225,9 +236,11 @@
     /**
      * Кто атакует. На броске атаки (попадание ИЛИ промах) окно расходует
      * срабатывания «следующей атаки» у атакующего и целей — ДО самого броска:
-     * режим (преим./помеха) уже зафиксирован в `attackRollMode`, а снятие
-     * эффекта должно опередить эмит урона по цели. Не расходуется при отмене
-     * окна и при бросках без атаки (чистый урон / лечение / спасбросок).
+     * режим (преим./помеха) уже зафиксирован в `attackRollMode`. Израсходованный
+     * эффект действует на саму эту атаку: бросок отдаёт обработчикам урона
+     * снимок (`AttackRollSnapshot`), и удар считается с этими эффектами, успел
+     * ответ сервера убрать их из мира или нет. Не расходуется при отмене окна
+     * и при бросках без атаки (чистый урон / лечение / спасбросок).
      */
     attackerId?: string;
     /**
@@ -759,35 +772,38 @@
    * Бросок атаки состоялся: срабатывания «следующей атаки» у атакующего и целей.
    *
    * @param projectile - серия снарядов (цели — назначенные цели снарядов)
-   * @returns цели броска — для сообщения серверу после урона
+   * @returns снимок броска: цели и израсходованные эффекты сторон — его
+   *   получают обработчики урона; атакующий неизвестен — `undefined`
    */
-  function announceAttackRoll(projectile: boolean): string[] {
+  function announceAttackRoll(
+    projectile: boolean,
+  ): AttackRollSnapshot | undefined {
     return props.attackerId
       ? dispatchAttackRollTriggers(props.attackerId, {
           projectile,
           rollMode: attackRollMode.value,
           attackType: props.incomingAttackType,
         })
-      : [];
+      : undefined;
   }
 
   /**
    * Бросок атаки и его урон записаны: сервер выполнит срабатывания атаки со
    * спасброском, уроном и действиями другой стороне.
    *
-   * @param targetIds - цели броска
+   * @param attack - снимок броска; нет — атакующий неизвестен, сообщать не о ком
    * @param landed - попал ли бросок; не задано — здесь это ещё неизвестно
    * @param critical - попадание критическое
    */
   function finishAttackRoll(
-    targetIds: readonly string[],
+    attack: AttackRollSnapshot | undefined,
     landed?: boolean,
     critical = false,
   ): void {
-    if (props.attackerId) {
+    if (attack) {
       reportAttackRoll(
-        props.attackerId,
-        targetIds,
+        attack.attackerId,
+        attack.targetIds,
         attackRollMode.value,
         landed,
         critical,
@@ -864,9 +880,9 @@
       // выполняет вызывающий — по броску на каждый снаряд против AC его цели.
       if (props.onProjectileAttack) {
         // Расход одноразовых эффектов ДО броска: режим (преим./помеха) уже
-        // зафиксирован в attackRollMode, а снятие эффекта должно опередить эмит
-        // урона по цели — иначе два полных снапшота сущности гонятся.
-        const projectileTargetIds = announceAttackRoll(true);
+        // зафиксирован в attackRollMode. Израсходованное едет в разбор снимком
+        // броска — серия считается с ним
+        const projectileAttack = announceAttackRoll(true);
 
         props.onProjectileAttack({
           attackModifier:
@@ -875,9 +891,10 @@
             + currentConditionalBonuses.value.attackBonus,
           rollMode: attackRollMode.value,
           bonusDiceFormulasByTarget,
+          attack: projectileAttack,
         });
 
-        finishAttackRoll(projectileTargetIds);
+        finishAttackRoll(projectileAttack);
 
         return;
       }
@@ -927,16 +944,16 @@
         }
 
         if (attackTargetAc !== null) {
-          // Расход одноразовых эффектов ДО броска (режим уже зафиксирован):
-          // снятие должно опередить эмит урона по цели, без гонки снапшотов.
-          const partsTargetIds = announceAttackRoll(false);
+          // Расход одноразовых эффектов ДО броска (режим уже зафиксирован).
+          // Части катаются после показа броска — удар считается по снимку
+          const partsAttack = announceAttackRoll(false);
 
           // Атака: бросок попадания → части на попадании
           performPartsAttackRoll(
             attackTargetAc,
             effectiveParts,
             bonusDiceFormulas,
-            partsTargetIds,
+            partsAttack,
           );
         } else {
           performPartsRoll(effectiveParts);
@@ -947,16 +964,21 @@
 
       // --- Двухэтапная атака (D&D 5e) ---
       let damageTotal = 0;
-      let attackTargetIds: string[] | null = null;
+      let attackSnapshot: AttackRollSnapshot | undefined;
       let attackLanded: boolean | undefined;
       let attackCritical = false;
 
       if (attackTargetAc !== null) {
-        // Расход одноразовых эффектов ДО броска (режим уже зафиксирован):
-        // снятие должно опередить эмит урона по цели, без гонки снапшотов.
-        attackTargetIds = announceAttackRoll(false);
+        // Расход одноразовых эффектов ДО броска (режим уже зафиксирован).
+        // Урон окно применяет в этом же тике — мир расхода ещё не видел; а
+        // обработчик `onRoll` разбирает цели позже и считает их по снимку
+        attackSnapshot = announceAttackRoll(false);
 
-        const attack = performAttackRoll(attackTargetAc, bonusDiceFormulas);
+        const attack = performAttackRoll(
+          attackTargetAc,
+          bonusDiceFormulas,
+          attackSnapshot,
+        );
 
         damageTotal = attack.total;
         attackLanded = attack.landed;
@@ -967,12 +989,10 @@
       }
 
       if (props.onRoll) {
-        props.onRoll(damageTotal, resolvedDamageType.value);
+        props.onRoll(damageTotal, resolvedDamageType.value, attackSnapshot);
       }
 
-      if (attackTargetIds) {
-        finishAttackRoll(attackTargetIds, attackLanded, attackCritical);
-      }
+      finishAttackRoll(attackSnapshot, attackLanded, attackCritical);
     } catch (err) {
       console.error(DICE_ROLL_LOG_PREFIX, err);
 
@@ -1042,6 +1062,7 @@
    *
    * @param targetAc - класс доспеха цели
    * @param bonusDiceFormulas - бонусы, зафиксированные до расхода эффектов
+   * @param attack - снимок броска: его получает обработчик попадания
    * @returns урон броска, попал ли он и критически ли: попадание и крит уходят
    *   серверу вместе с событием броска — по ним работают части условия «атака
    *   попала» и удвоение костей урона срабатываний
@@ -1049,6 +1070,7 @@
   function performAttackRoll(
     targetAc: number,
     bonusDiceFormulas: readonly string[],
+    attack: AttackRollSnapshot | undefined,
   ): { total: number; landed: boolean; critical: boolean } {
     const attackMod =
       (props.attackModifier ?? 0)
@@ -1099,7 +1121,7 @@
     chatStore.sendMessage(attackFormula, 'roll', attackOutput.attackRoll);
 
     if (attackOutput.attackResult.isHit && props.onHit) {
-      props.onHit();
+      props.onHit(attack);
     }
 
     // Бросок урона показываем только ПОСЛЕ отображения броска атаки:
@@ -1267,10 +1289,13 @@
    *
    * @param parts - части урона/лечения
    * @param isCrit - крит (удваивает кубики урон-частей)
+   * @param attack - снимок броска атаки: по нему разбор считает удар; нет —
+   *   частям не предшествовал бросок попадания
    */
   async function rollPartsSequentially(
     parts: SpellDamagePartInput[],
     isCrit: boolean,
+    attack?: AttackRollSnapshot,
   ): Promise<void> {
     const rolled: RolledSpellDamagePart[] = [];
 
@@ -1336,7 +1361,7 @@
       });
     }
 
-    rollOnRollParts.value?.(rolled);
+    rollOnRollParts.value?.(rolled, attack);
   }
 
   /**
@@ -1357,13 +1382,14 @@
    * @param targetAc - класс доспеха цели
    * @param parts - части урона/лечения (включая бонус-части эффектов)
    * @param bonusDiceFormulas - бонусы попадания, не влияющие на урон
-   * @param targetIds - цели броска — для сообщения серверу после урона
+   * @param attack - снимок броска: цели — для сообщения серверу после урона,
+   *   израсходованные эффекты — для разбора частей после показа броска
    */
   function performPartsAttackRoll(
     targetAc: number,
     parts: SpellDamagePartInput[],
     bonusDiceFormulas: readonly string[],
-    targetIds: readonly string[],
+    attack: AttackRollSnapshot | undefined,
   ): void {
     const attackMod =
       (props.attackModifier ?? 0)
@@ -1397,12 +1423,12 @@
     chatStore.sendMessage(attackFormula, 'roll', attackOutput.attackRoll);
 
     if (attackOutput.attackResult.isHit && props.onHit) {
-      props.onHit();
+      props.onHit(attack);
     }
 
     // На промахе урона нет
     if (!attackOutput.attackResult.isHit) {
-      finishAttackRoll(targetIds, false);
+      finishAttackRoll(attack, false);
 
       return;
     }
@@ -1410,10 +1436,11 @@
     const isCrit = attackOutput.attackResult.isCriticalHit;
 
     // Сначала показываем бросок атаки, затем по очереди — части урона; сервер
-    // узнаёт о броске после урона
+    // узнаёт о броске после урона. За время показа ответ сервера убирает
+    // израсходованные эффекты из мира — части разбираются по снимку броска
     void waitForAttackDisplay()
-      .then(() => rollPartsSequentially(parts, isCrit))
-      .then(() => finishAttackRoll(targetIds, true, isCrit));
+      .then(() => rollPartsSequentially(parts, isCrit, attack))
+      .then(() => finishAttackRoll(attack, true, isCrit));
   }
 </script>
 

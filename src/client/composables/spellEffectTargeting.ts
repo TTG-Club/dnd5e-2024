@@ -2,6 +2,7 @@ import type { MeasurementTemplate } from '@vtt/shared';
 import type { DnDSceneEntity, Spell } from '@vtt/shared/system/dnd.js';
 
 import type { SpellEffectTargetProblem } from '../ui/actor/constants';
+import type { AttackRollSnapshot } from './attackRollSnapshot';
 
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
@@ -29,6 +30,7 @@ import {
   SPELL_EFFECT_TARGET_MODE,
   SPELL_TARGETS_MODAL_KEY_PREFIX,
 } from '../ui/actor/constants';
+import { listAttackResolutionEntities } from './attackRollSnapshot';
 import { changeEntityCombatState } from './entityCombatWrite';
 import { resolveSpellCastId, resolveSpellCastLevel } from './spellCasts';
 import {
@@ -561,11 +563,13 @@ export function requestSpellEffectTargets(
  * @param spell - заклинание
  * @param source - заклинатель и его Сл спасброска
  * @param effectTargets - цели, зафиксированные при выборе; без них — выбранная цель
+ * @param attack - снимок броска атаки, если эффекты ложатся по попаданию
  */
 function resolveSpellTargetEffects(
   spell: Spell,
   source: SpellTargetEffectsSource,
   effectTargets?: SpellEffectTargets,
+  attack?: AttackRollSnapshot,
 ): void {
   const targetEntities = effectTargets
     ? effectTargets.claimEntities()
@@ -584,9 +588,10 @@ function resolveSpellTargetEffects(
       spell,
       damageTotal: 0,
       spellSaveDC: source.spellSaveDC,
-      actors: useWorldEntities().getCurrentWorldEntities(),
+      actors: listAttackResolutionEntities(attack),
       socket,
       casterId: source.casterId,
+      attack,
     },
     [],
     {
@@ -609,14 +614,17 @@ function resolveSpellTargetEffects(
  * @param spell - заклинание
  * @param source - заклинатель и его Сл спасброска
  * @param effectTargets - цели, зафиксированные при выборе; без них — выбранная цель
+ * @param attack - снимок броска атаки, если эффекты ложатся по попаданию:
+ *   цель разбирается с эффектами, которые бросок израсходовал
  */
 export function applySpellTargetEffects(
   spell: Spell,
   source: SpellTargetEffectsSource,
   effectTargets?: SpellEffectTargets,
+  attack?: AttackRollSnapshot,
 ): void {
   if (targetEffectsNeedResolution(spell)) {
-    resolveSpellTargetEffects(spell, source, effectTargets);
+    resolveSpellTargetEffects(spell, source, effectTargets, attack);
 
     return;
   }

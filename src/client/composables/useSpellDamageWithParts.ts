@@ -20,7 +20,6 @@ import type {
 
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
-import { useTargetStore } from '@/stores/targetStore';
 import { generateId, resolveGridCellSize } from '@vtt/shared';
 import {
   applyHpChange,
@@ -48,6 +47,7 @@ import {
   DAMAGE_DEDUCTION_LABELS,
   SPELL_NO_TARGETS_LABELS,
 } from '../ui/actor/constants';
+import { resolveSelectedAttackTarget } from './attackRollSnapshot';
 import { changeEntityCombatState } from './entityCombatWrite';
 import {
   buildSaveDamageDefense,
@@ -69,7 +69,6 @@ import {
  */
 export function useSpellDamageWithParts() {
   const chatStore = useChatStore();
-  const targetStore = useTargetStore();
   const { openModal } = useModalManager();
 
   const { resolveSavingThrowsForTargets } = useSpellSavingThrows();
@@ -312,7 +311,7 @@ export function useSpellDamageWithParts() {
     }
 
     // 1. Целевые сущности: заранее выбранные цели, AoE-шаблон или одиночная
-    // цель из targetStore
+    // цель (`resolveSelectedAttackTarget`)
     const targetEntities: SceneEntity[] = [];
 
     if (options.targetEntities) {
@@ -334,7 +333,9 @@ export function useSpellDamageWithParts() {
         }
       }
     } else {
-      const targetEntity = targetStore.getTargetActor();
+      // Выбранная цель — из сущностей разбора: с эффектами, которые
+      // израсходовал бросок этой атаки
+      const targetEntity = resolveSelectedAttackTarget(actors);
 
       if (targetEntity?.system?.abilities) {
         targetEntities.push(targetEntity);
@@ -349,6 +350,7 @@ export function useSpellDamageWithParts() {
     // Сопротивления целей, которые игнорирует урон заклинателя
     const ignoredResistances = resolveAttackerIgnoredResistances(
       context.casterId,
+      context.attack,
     );
 
     // Разделяем части по адресату:

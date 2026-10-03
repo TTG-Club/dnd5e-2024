@@ -124,6 +124,8 @@ const bundle = await build({
               'import { modalManager } from "test:host"; export const useModalManager = () => modalManager;',
             '@/stores/initiativeStore':
               'export const useInitiativeStore = () => ({ encounter: null });',
+            '@/stores/targetStore':
+              'export const useTargetStore = () => ({ getTargetActor: () => null });',
             '@/stores/spellTemplateStore':
               'export const useSpellTemplateStore = () => ({});',
             '@/stores/projectileStore':
