@@ -834,6 +834,7 @@ it('closing an obsolete cast window preserves the new Bless session and removes 
 
   const handleModalClose = await loadHandler(FLOW_PATH, 'handleModalClose', {
     handleUnload,
+    PAGE_UNLOAD_EVENT: 'beforeunload',
     window: {
       removeEventListener: (...argumentsList) => removed.push(argumentsList),
     },
@@ -869,6 +870,8 @@ async function loadCastWindow(overrides) {
     resolveActorStats: () => ({ damageBonuses: { spell: 0 }, abilityMods: {} }),
     generateId: (prefix) => `${prefix}_${randomUUID()}`,
     SPELL_CAST_KEY_PREFIX: 'cast',
+    SPELL_ATTACK_KEY: 'attack.spell',
+    PAGE_UNLOAD_EVENT: 'beforeunload',
     beginSpellCast: () => {},
     getTotalLevel: () => 1,
     getSpellProjectileCount: () => 0,

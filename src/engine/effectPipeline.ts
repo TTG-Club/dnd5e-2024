@@ -1879,6 +1879,9 @@ export const WEAPON_DAMAGE_KEY = 'damage.weapon';
 /** Ключ атаки «только этим предметом» */
 export const WEAPON_ATTACK_KEY = 'attack.weapon';
 
+/** Ключ атаки заклинанием: его собирают броски каста персонажа и существа */
+export const SPELL_ATTACK_KEY = 'attack.spell';
+
 /** Ключи, привязанные к предмету: без предмета броска они ничего не дают */
 const ITEM_SCOPED_KEYS: ReadonlySet<string> = new Set([
   WEAPON_DAMAGE_KEY,

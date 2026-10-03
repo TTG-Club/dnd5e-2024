@@ -24,6 +24,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import {
+  PROJECTILE_PROMPT_MODAL,
   SPELL_EFFECT_TARGET_LABELS,
   SPELL_EFFECT_TARGET_MODE,
   SPELL_TARGETS_MODAL_KEY_PREFIX,
@@ -540,7 +541,7 @@ export function requestSpellEffectTargets(
     return true;
   }
 
-  useModalManager().openModal('ProjectilePromptModal', {
+  useModalManager().openModal(PROJECTILE_PROMPT_MODAL, {
     _modalKey: generateId(SPELL_TARGETS_MODAL_KEY_PREFIX),
     targetingSessionId,
     spell,

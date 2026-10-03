@@ -51,6 +51,7 @@ import {
   resolveSpellCastCost,
   resolveSpellCastPlan,
   retypeCasterSpellDamage,
+  SPELL_ATTACK_KEY,
   spellIsHealing,
   withSpentSpellUse,
 } from '@vtt/shared/system/dnd.js';
@@ -421,7 +422,10 @@ export function openCreatureSpellRoll(
     formula: setup.baseParts[0]?.formula ?? '',
     attackModifier: usesAttack ? numbers.attackBonus : undefined,
     evaluateBonusRollFormulas: usesAttack
-      ? buildRollBonusEvaluator(() => readCreature(creature.id), 'attack.spell')
+      ? buildRollBonusEvaluator(
+          () => readCreature(creature.id),
+          SPELL_ATTACK_KEY,
+        )
       : undefined,
     initialRollMode: spellAttackRoll?.mode ?? 'normal',
     rollModeReasons: spellAttackRoll?.reasons,

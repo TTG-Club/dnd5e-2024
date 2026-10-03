@@ -108,6 +108,8 @@ const constants = await loadEngineBundle(`
   export {
     ACTOR_SPELLS_TAB_LABELS,
     PROJECTILE_MODAL_KEY_PREFIX,
+    PROJECTILE_PROMPT_MODAL,
+    SPELL_CAST_PROMPT_ID_PREFIX,
     SPELL_MENU_LABELS,
     SPELL_ROLL_BUTTON_LABELS,
   } from './src/client/ui/actor/constants.ts';
@@ -198,6 +200,8 @@ async function loadCastEnvironment(entities, { windowOpens = true } = {}) {
     changeEntityCombatState: writes.changeEntityCombatState,
     generateId: (prefix) => `${prefix}-${(idCounter += 1)}`,
     SPELL_CAST_KEY_PREFIX: 'cast',
+    SPELL_ATTACK_KEY: 'attack.spell',
+    PAGE_UNLOAD_EVENT: 'beforeunload',
     window: { addEventListener() {}, removeEventListener() {} },
     useWorldEntities: () => ({
       findCurrentDndEntity: (entityId) => world.get(entityId),

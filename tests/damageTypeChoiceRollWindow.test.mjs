@@ -272,6 +272,8 @@ function createPorts(applied) {
     resolveCreatureSpellSaveDC: (_spell, blockSaveDC) => blockSaveDC,
     generateId: (prefix) => `${prefix}_test`,
     SPELL_CAST_KEY_PREFIX: 'cast',
+    SPELL_ATTACK_KEY: 'attack.spell',
+    PAGE_UNLOAD_EVENT: 'beforeunload',
     beginSpellCast: () => {},
     spellIsHealing: () => false,
     applyActionParts: record,

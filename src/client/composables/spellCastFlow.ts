@@ -73,6 +73,7 @@ import {
   resolveSpellDamageFormula,
   resolveSpellSaveDC,
   retypeCasterSpellDamage,
+  SPELL_ATTACK_KEY,
   spellIsHealing,
   withFlatDamageBonus,
   withFlatFormulaBonus,
@@ -83,6 +84,8 @@ import {
 import {
   ACTOR_SPELLS_TAB_LABELS,
   PROJECTILE_MODAL_KEY_PREFIX,
+  PROJECTILE_PROMPT_MODAL,
+  SPELL_CAST_PROMPT_ID_PREFIX,
   SPELL_MENU_LABELS,
   SPELL_ROLL_BUTTON_LABELS,
 } from '../ui/actor/constants';
@@ -129,6 +132,23 @@ import {
 } from './useSceneRangeCheck';
 import { useSpellResolution } from './useSpellResolution';
 import { useWorldEntities } from './useWorldEntities';
+
+/** Событие ухода со страницы: недоведённый каст убирается и по нему */
+const PAGE_UNLOAD_EVENT = 'beforeunload';
+
+/** Свойства окна броска для выбора круга и списания ячейки */
+interface SpellSlotWindowProps {
+  /** Круг по умолчанию; у заговора круга нет */
+  spellLevel: number | undefined;
+  availableSpellLevels: number[];
+  spellLevelLocked: boolean;
+  /** Круг ячеек договора; 0 — ячеек договора нет */
+  pactSlotLevel: number;
+  /** Списание ячейки; у заклинания с зарядами ячейка не тратится */
+  onSpellSlotConsume:
+    | ((castLevel: number, consumeSlot: boolean, isPactSlot: boolean) => void)
+    | undefined;
+}
 
 /** Почему каст не начался: заголовок и пояснение */
 export interface SpellCastRefusal {
@@ -461,7 +481,7 @@ function chooseSpellCastTargets(
       (tokenId) => !isSpellTargetBlockedByRange(spell, caster.id, tokenId),
     );
 
-    useModalManager().openModal('ProjectilePromptModal', {
+    useModalManager().openModal(PROJECTILE_PROMPT_MODAL, {
       _modalKey: `${PROJECTILE_MODAL_KEY_PREFIX}-${projectileStore.sessionId}`,
       targetingSessionId: projectileStore.sessionId,
       spell,
@@ -477,7 +497,7 @@ function chooseSpellCastTargets(
 
   // Обычное заклинание — подтверждение плашкой
   const promptStore = useActionPromptStore();
-  const promptId = `spell-cast-${spell.id}`;
+  const promptId = `${SPELL_CAST_PROMPT_ID_PREFIX}${spell.id}`;
 
   promptStore.addPrompt({
     id: promptId,
@@ -1145,19 +1165,19 @@ export function openSpellCastWindow(
   const handleUnload = (): void =>
     abandonSpellCast(session, isCurrentProjectileCast);
 
-  window.addEventListener('beforeunload', handleUnload);
+  window.addEventListener(PAGE_UNLOAD_EVENT, handleUnload);
 
   /** Закрытие окна: недоведённый каст убирается */
   const handleModalClose = (isOpen: boolean): void => {
     if (!isOpen) {
-      window.removeEventListener('beforeunload', handleUnload);
+      window.removeEventListener(PAGE_UNLOAD_EVENT, handleUnload);
       handleUnload();
     }
   };
 
   /** Применение снимает слежение за уходом со страницы */
   const releaseUnload = (): void =>
-    window.removeEventListener('beforeunload', handleUnload);
+    window.removeEventListener(PAGE_UNLOAD_EVENT, handleUnload);
 
   const slotProps = buildSpellSlotProps(session, caster, lockedLevel);
 
@@ -1194,7 +1214,7 @@ export function openSpellCastWindow(
         () =>
           useWorldEntities().findCurrentDndEntity(caster.id)
           ?? port.readCaster(),
-        'attack.spell',
+        SPELL_ATTACK_KEY,
       )
     : undefined;
 
@@ -1309,7 +1329,7 @@ function buildSpellSlotProps(
   session: SpellCastSession,
   caster: DnDActor,
   lockedLevel: number | undefined,
-) {
+): SpellSlotWindowProps {
   const spell = session.state.spell;
   const isInnate = Boolean(spell.uses);
   const pactSlotInfo = getPactSlotInfo(caster.system?.classes ?? []);

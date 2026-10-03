@@ -250,6 +250,8 @@ async function loadCreatureSpell(windowOpens) {
     getCreatureSpellMod: () => 2,
     generateId: (prefix) => `${prefix}-1`,
     SPELL_CAST_KEY_PREFIX: 'cast',
+    SPELL_ATTACK_KEY: 'attack.spell',
+    PAGE_UNLOAD_EVENT: 'beforeunload',
     beginSpellCast: () => {},
     resolveTargetedAttackRoll: () => ({ mode: 'normal' }),
     buildRollBonusEvaluator: () => () => [],

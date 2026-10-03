@@ -3360,6 +3360,12 @@ export const DICE_ROLL_MODAL_KEY_PREFIX = 'dice-roll';
 /** Префикс окна распределения снарядов, привязанного к сессии карты. */
 export const PROJECTILE_MODAL_KEY_PREFIX = 'projectile';
 
+/** Имя окна распределения снарядов и выбора целей в менеджере окон ядра */
+export const PROJECTILE_PROMPT_MODAL = 'ProjectilePromptModal';
+
+/** Префикс id плашки подтверждения каста: дальше идёт id заклинания */
+export const SPELL_CAST_PROMPT_ID_PREFIX = 'spell-cast-';
+
 /** Префикс окна выбора разных целей заклинания-эффекта. */
 export const SPELL_TARGETS_MODAL_KEY_PREFIX = 'spell-targets';
 
