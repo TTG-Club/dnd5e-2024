@@ -43,6 +43,7 @@ import { useChatStore } from '@/stores/chatStore';
 import {
   applyEffectChanges,
   applyTriggerUsageChanges,
+  changesCombatState,
   diffEffects,
   diffTriggerUsage,
   hasTriggerUsageChanges,
@@ -383,7 +384,10 @@ export function readSentActiveEffects(
  * @param entityId - сущность
  * @param change - новое состояние от свежей сущности: НОВЫЙ объект (живую
  *   запись стора меняет только ответ сервера); `null` — ничего не слать
- * @returns отправленная копия; нет соединения, сущности или изменения — `null`
+ * @returns копия после преобразования; нет соединения, сущности или
+ *   преобразование вернуло `null` — `null`. Копия, которая ничего не меняет
+ *   (цель спаслась, «-0 HP»), возвращается, но не шлётся: сервер такой снимок
+ *   отвергает с предупреждением в журнале, а вызывающему она нужна для чата
  */
 export function changeEntityCombatState(
   entityId: string | null | undefined,
@@ -408,6 +412,11 @@ export function changeEntityCombatState(
 
   // Основа — свежая сущность: от неё и считалось преобразование
   recordCombatBaseline(next, current);
+
+  if (!changesCombatState(current, next)) {
+    return next;
+  }
+
   emitEntityCombatState(socket, next);
   rememberSentTriggerUsage(current, current, next);
   rememberSentEffects(current, next);
@@ -427,7 +436,8 @@ export function changeEntityCombatState(
  *
  * @param base - сущность, от которой считали копию
  * @param computed - копия после действия (не запись стора)
- * @returns `true`, если снимок ушёл
+ * @returns `true`, если снимок ушёл либо копия ничего не меняет и слать
+ *   нечего; `false` — нет соединения
  */
 export function sendComputedCombatState(
   base: DnDSceneEntity,
@@ -440,6 +450,11 @@ export function sendComputedCombatState(
   }
 
   recordCombatBaseline(computed, base);
+
+  if (!changesCombatState(base, computed)) {
+    return true;
+  }
+
   emitEntityCombatState(socket, computed);
 
   const storeEntity = useWorldEntities().findCurrentDndEntity(computed.id);

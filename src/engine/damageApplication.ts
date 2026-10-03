@@ -71,6 +71,7 @@ import {
 import {
   applyTriggerUsageChanges,
   diffTriggerUsage,
+  hasTriggerUsageChanges,
   parseTriggerUsage,
   readTriggerUsage,
   TriggerUsageChangesSchema,
@@ -373,6 +374,41 @@ export interface DndCombatState {
    * и «хиты упали до 0». Нет поля — событий урона нет (отмена, правка хитов).
    */
   damage?: DamageHit[];
+}
+
+/**
+ * Меняет ли копия хоть что-нибудь в боевом состоянии относительно основы:
+ * хиты, эффекты, журнал срабатываний либо удар с потерей хитов (удар по
+ * лежащему на нуле хиты не меняет, но двигает спасброски от смерти).
+ *
+ * Тот же перечень, по которому сервер решает, принять ли снимок
+ * ({@link applyCombatState}): снимок без изменений он отвергает, а ядро пишет
+ * об этом предупреждение в журнал. Такой снимок клиент не шлёт.
+ *
+ * @param base - сущность, от которой считали копию
+ * @param next - копия после действия
+ * @returns `false`, если снимку нечего нести
+ */
+export function changesCombatState(
+  base: DnDSceneEntity,
+  next: DnDSceneEntity,
+): boolean {
+  const effectChanges = diffEffects(
+    base.activeEffects ?? [],
+    next.activeEffects ?? [],
+  );
+
+  return (
+    resolveEntityCurrentHp(next) !== resolveEntityCurrentHp(base)
+    || resolveEntityTempHp(next) !== resolveEntityTempHp(base)
+    || effectChanges.add.length > 0
+    || effectChanges.update.length > 0
+    || effectChanges.removeIds.length > 0
+    || hasTriggerUsageChanges(
+      diffTriggerUsage(readTriggerUsage(base), readTriggerUsage(next)),
+    )
+    || readDamageHits(next).some((hit) => (hit.dealt ?? 0) > 0)
+  );
 }
 
 /**

@@ -79,6 +79,9 @@ async function loadSentTriggerUsage(findEntity, clock = {}) {
  * @param {(entityId: string) => object | undefined} options.findEntity - сущность мира
  * @param {object[]} options.emitted - журнал отправленных снимков
  * @param {(copy: object, base: object) => void} [options.recordCombatBaseline] - запись основы
+ * @param {(base: object, next: object) => boolean} [options.changesCombatState] -
+ *   «меняет ли копия что-нибудь» из того же движка, которым тест пишет удары:
+ *   удары живут в WeakMap движка
  * @param {object | null} [options.socket] - сокет; `null` — соединения нет
  * @param {object} [options.sent] - память посланного журнала (общая с записью листа)
  * @returns {Promise<Function>} помощник записи
@@ -87,6 +90,7 @@ export async function loadChangeEntityCombatState({
   findEntity,
   emitted,
   recordCombatBaseline = () => {},
+  changesCombatState = engine.changesCombatState,
   socket = {},
   sent,
 }) {
@@ -98,6 +102,7 @@ export async function loadChangeEntityCombatState({
     recordCombatBaseline,
     rememberSentTriggerUsage: sentPorts.rememberSentTriggerUsage,
     rememberSentEffects: sentPorts.rememberSentEffects,
+    changesCombatState,
     emitEntityCombatState: (_socket, entity) => emitted.push(entity),
   });
 }
@@ -112,6 +117,8 @@ export async function loadChangeEntityCombatState({
  * @param {(copy: object, base: object) => void} [options.recordCombatBaseline] -
  *   запись основы из того же движка, которым тест читает снимок: основа живёт
  *   в WeakMap движка
+ * @param {(base: object, next: object) => boolean} [options.changesCombatState] -
+ *   «меняет ли копия что-нибудь» из того же движка, которым тест пишет удары
  * @param {(kind: 'update' | 'combat', entity: object) => void} [options.onSend] -
  *   каждая отправка по порядку: полная запись или боевой снимок
  * @param {object} [options.clock] - часы и ход боя памяти посланного журнала
@@ -120,6 +127,7 @@ export async function loadChangeEntityCombatState({
 export async function loadEntityWrites({
   world,
   recordCombatBaseline = () => {},
+  changesCombatState = engine.changesCombatState,
   onSend = () => {},
   clock,
 }) {
@@ -141,6 +149,7 @@ export async function loadEntityWrites({
     findEntity,
     emitted: combatLog,
     recordCombatBaseline,
+    changesCombatState,
     sent,
   });
 
@@ -193,6 +202,7 @@ export async function loadEntityWrites({
     recordCombatBaseline,
     rememberSentTriggerUsage: sent.rememberSentTriggerUsage,
     rememberSentEffects: sent.rememberSentEffects,
+    changesCombatState,
     useChatStore: () => ({ getSocket: () => ({}) }),
     useWorldEntities: () => ({ findCurrentDndEntity: findEntity }),
     emitEntityCombatState: (_socket, entity) => combatLog.push(entity),
