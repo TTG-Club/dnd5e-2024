@@ -19,6 +19,8 @@
 
 import type { DnDSceneEntity } from '@vtt/shared/system/dnd.js';
 
+import type { SheetWriteSection } from './worldSheetSections';
+
 import { emitEntityUpdate } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
 import { useWorldStore } from '@/stores/worldStore';
@@ -128,8 +130,9 @@ export function changeEntitySheet(
   }
 
   // Стор — сразу: следующая запись в том же тике читает уже новые разделы.
-  // Разделы листа — переменной: базовый тип актёра ядра инвентаря не знает
-  const sections = {
+  // Разделы — по списку `SHEET_WRITE_SECTIONS`: те же подтягивают из мира
+  // открытые листы; новый раздел в списке без строки здесь не соберётся
+  const sections: Pick<DnDSceneEntity, SheetWriteSection> = {
     system: stored.system,
     equipment: stored.equipment,
     spells: stored.spells,

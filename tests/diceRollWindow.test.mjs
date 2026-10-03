@@ -223,7 +223,7 @@ async function loadCreatureSpell(windowOpens) {
     resolveSpellCastBlock: () => null,
     listAmbientEffects: () => [],
     retypeCasterSpellDamage: (spell) => spell,
-    hasCreatureSpellUsesLeft: () => true,
+    hasLiveCreatureSpellUsesLeft: () => true,
     runWithCastFailure: (_spell, _caster, _options, proceed) => proceed(),
     recordEntityActionSpend: () => log.push('turn'),
     resolveSpellAreaAtLevel: () => undefined,

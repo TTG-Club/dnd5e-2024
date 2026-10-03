@@ -77,6 +77,7 @@
   import { useCompendiumCatalog } from '../../composables/useCompendiumCatalog';
   import { useItemTransfer } from '../../composables/useItemTransfer';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
+  import { useWorldSheetSync } from '../../composables/useWorldSheetSync';
   import { useSystemDataStore } from '../../stores/systemDataStore';
   import { withoutEntityOwnership } from '../entity-ownership/utils';
   import ActorCenterPanel from './ActorCenterPanel.vue';
@@ -631,9 +632,8 @@
   );
 
   /**
-   * Синхронизация изменяемых извне разделов актёра из store в localActor:
-   * equipment (передача предметов между токенами), system (HP, слоты, размер)
-   * и spells (редактирование заклинаний, в т.ч. из других окон).
+   * Разделы, которые система пишет в мир во время игры (ресурсы листа,
+   * предметы, заклинания, эффекты, хиты), подтягиваются из стора в localActor.
    *
    * Зачем: localActor — глубокая копия на момент открытия листа, а все
    * сохранения отправляют актёра ЦЕЛИКОМ (`actor:updated`). Без обратной
@@ -642,46 +642,13 @@
    * формулы заклинаний).
    *
    * В режиме редактирования синхронизация выключена: локальные правки имеют
-   * приоритет до «Сохранить»/«Отменить». Цикл store → localActor → store
-   * не возникает: присваивание в localActor ничего не отправляет на сервер —
-   * emit происходит только в явных обработчиках сохранения.
+   * приоритет до «Сохранить»/«Отменить».
    */
-  watch(
-    [
-      () => storeActor.value?.equipment,
-      () => storeActor.value?.system,
-      () => storeActor.value?.spells,
-      () => storeActor.value?.activeEffects,
-    ],
-    ([newEquipment, newSystem, newSpells, newActiveEffects]) => {
-      if (!localActor.value || isEditMode.value) {
-        return;
-      }
-
-      if (newEquipment) {
-        localActor.value.equipment = JSON.parse(JSON.stringify(newEquipment));
-      }
-
-      if (newSystem) {
-        localActor.value.system = JSON.parse(JSON.stringify(newSystem));
-      }
-
-      if (newSpells) {
-        localActor.value.spells = JSON.parse(JSON.stringify(newSpells));
-      }
-
-      // Активные эффекты тоже меняются извне (каст самобаффа из хотбара/другого
-      // окна добавляет эффект через worldStore) — без синхронизации открытый
-      // лист показывал бы устаревшие КД/эффекты, а сохранение листа затёрло бы
-      // их на сервере.
-      if (newActiveEffects) {
-        localActor.value.activeEffects = JSON.parse(
-          JSON.stringify(newActiveEffects),
-        );
-      }
-    },
-    { deep: true },
-  );
+  const { pullFromWorld } = useWorldSheetSync({
+    readWorld: () => storeActor.value,
+    draft: localActor,
+    isPaused: () => isEditMode.value,
+  });
 
   function handleActorUpdate(updates: Partial<DnDActor>) {
     if (localActor.value) {
@@ -883,6 +850,9 @@
 
       isEditMode.value = false;
       savedSnapshot.value = null;
+
+      // Правок нет — черновик догоняет мир: за время правки он мог измениться
+      pullFromWorld();
     }
   }
 

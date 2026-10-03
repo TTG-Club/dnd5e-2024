@@ -39,7 +39,7 @@ import {
   getDamagePartsPrimaryType,
   getDamageTemplateColor,
   getSpellAttackType,
-  hasCreatureSpellUsesLeft,
+  hasLiveCreatureSpellUsesLeft,
   isCreatureSpellPoolMode,
   isDndCreature,
   isDndSceneEntity,
@@ -217,7 +217,11 @@ export function startCreatureSpellCast(
   runWithEffectVariants(
     retypeCasterSpellDamage(sourceSpell, creature),
     (spell) => {
-      if (!hasCreatureSpellUsesLeft(spell, placement)) {
+      // Заряды — по существу мира в этот момент: строка листа и ссылка
+      // панели несут заклинание, каким оно было при отрисовке
+      const liveCreature = readCreature(port.creatureId) ?? creature;
+
+      if (!hasLiveCreatureSpellUsesLeft(liveCreature, spell, placement)) {
         port.refuse(spell, {
           title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
           description: ACTOR_SPELLS_TAB_LABELS.noUsesText,

@@ -626,6 +626,37 @@ export function hasCreatureSpellUsesLeft(
 }
 
 /**
+ * Остались ли применения у заклинания существа — по самому существу, а не по
+ * копии заклинания у вызывающего. Строка листа и ссылка горячей панели
+ * приносят заклинание и группу, какими они были при отрисовке; заряд за это
+ * время мог списать другой вход, и проверка по копии пускала каст без
+ * ограничения.
+ *
+ * @param creature - существо мира в момент каста
+ * @param spell - заклинание, каким его принёс вход
+ * @param placement - место заклинания в блоках, каким его принёс вход
+ * @returns `true`, если каст возможен
+ */
+export function hasLiveCreatureSpellUsesLeft(
+  creature: Pick<DnDCreature, 'spells' | 'system'>,
+  spell: Spell,
+  placement: CreatureSpellPlacement | undefined,
+): boolean {
+  const liveSpell = creature.spells?.find((entry) => entry.id === spell.id);
+
+  const liveGroup = placement
+    ? (creature.system.spellcastingBlocks ?? [])
+        .flatMap((block) => block.groups)
+        .find((group) => group.id === placement.group.id)
+    : undefined;
+
+  return hasCreatureSpellUsesLeft(
+    liveSpell ? { ...spell, uses: liveSpell.uses } : spell,
+    placement && liveGroup ? { ...placement, group: liveGroup } : placement,
+  );
+}
+
+/**
  * Списывает одно применение общего счётчика группы.
  *
  * @param blocks - блоки заклинаний существа

@@ -72,6 +72,7 @@
   import { useItemTransfer } from '../../composables/useItemTransfer';
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
+  import { useWorldSheetSync } from '../../composables/useWorldSheetSync';
   import { useSystemDataStore } from '../../stores/systemDataStore';
   import {
     ABILITY_CHECK_ROLL_LABELS,
@@ -472,52 +473,19 @@
   );
 
   /**
-   * Синхронизация system из store в localCreature.
+   * Разделы, которые система пишет в мир во время игры (ресурсы листа,
+   * предметы, заклинания, эффекты, хиты), подтягиваются из стора в
+   * localCreature — тем же помощником, что у листа персонажа. Пока лист
+   * открыт, их меняют снаружи: каст списывает заряд «N/день», бой накладывает
+   * и снимает эффекты, передача предмета правит инвентарь. Без этого лист
+   * показывал бы прежнее, а следующая его правка отправила бы на сервер
+   * устаревший раздел и затёрла бы списанное.
    */
-  watch(
-    () => storeCreature.value?.system,
-    (newSystem) => {
-      if (localCreature.value && newSystem && !isEditMode.value) {
-        localCreature.value.system = JSON.parse(JSON.stringify(newSystem));
-      }
-    },
-    { deep: true },
-  );
-
-  /**
-   * Синхронизация activeEffects из store в localCreature: наложенные в бою
-   * эффекты (статус/DoT по цели) и снятые повторным спасом должны появляться
-   * в списке существа сразу, без перезагрузки страницы.
-   */
-  watch(
-    () => storeCreature.value?.activeEffects,
-    (newActiveEffects) => {
-      if (localCreature.value && newActiveEffects && !isEditMode.value) {
-        localCreature.value.activeEffects = JSON.parse(
-          JSON.stringify(newActiveEffects),
-        );
-      }
-    },
-    { deep: true },
-  );
-
-  /**
-   * Синхронизация инвентаря из store в localCreature. Нужна по той же причине,
-   * что и у эффектов: пока лист открыт, инвентарь могли поменять снаружи —
-   * передачей предмета или списанием заряда. Без этого следующая правка листа
-   * отправила бы на сервер устаревший инвентарь и затёрла бы чужую.
-   */
-  watch(
-    () => storeCreature.value?.equipment,
-    (newEquipment) => {
-      if (localCreature.value && newEquipment && !isEditMode.value) {
-        localCreature.value.equipment = JSON.parse(
-          JSON.stringify(newEquipment),
-        );
-      }
-    },
-    { deep: true },
-  );
+  const { pullFromWorld } = useWorldSheetSync({
+    readWorld: () => storeCreature.value,
+    draft: localCreature,
+    isPaused: () => isEditMode.value,
+  });
 
   function handleImmediateSave() {
     if (
@@ -1024,6 +992,9 @@
 
       isEditMode.value = false;
       savedSnapshot.value = null;
+
+      // Правок нет — черновик догоняет мир: за время правки он мог измениться
+      pullFromWorld();
     }
   }
 
