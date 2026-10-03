@@ -1492,7 +1492,10 @@
             {{ DICE_ROLL_LABELS.spellLevelLocked }}
           </p>
 
+          <!-- Галочка есть только там, где ячейку есть кому списать: у
+            существа и у заклинания с зарядами ячеек нет -->
           <UCheckbox
+            v-if="onSpellSlotConsume"
             v-model="consumeSpellSlot"
             :label="DICE_ROLL_LABELS.consumeSlot"
           />

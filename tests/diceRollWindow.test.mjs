@@ -523,3 +523,16 @@ describe('заклинание существа: повторный каст з�
     );
   });
 });
+
+describe('галочка «Тратить ячейку заклинаний»', () => {
+  it('показана только там, где ячейку есть кому списать', () => {
+    assert.match(
+      readFileSync('src/client/ui/actor/DiceRollModal.vue', 'utf8'),
+      /<UCheckbox\s+v-if="onSpellSlotConsume"\s+v-model="consumeSpellSlot"/u,
+    );
+  });
+
+  it('окно каста существа списание ячейки не передаёт: ячеек у существа нет', () => {
+    assert.doesNotMatch(readCode(CREATURE_SPELL_PATH), /onSpellSlotConsume/u);
+  });
+});
