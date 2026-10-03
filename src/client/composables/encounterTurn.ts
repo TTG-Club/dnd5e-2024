@@ -61,3 +61,20 @@ export function resolveCombatRound(): number | undefined {
     ? encounter.round
     : undefined;
 }
+
+/** Метка «боя нет»: вне боя ход не меняется */
+const NO_COMBAT_TURN_STAMP = '';
+
+/**
+ * Метка идущего хода: раунд и место в порядке инициативы. Меняется с каждым
+ * концом хода — по ней узнают, что счётчики хода и раунда сервер уже сбросил.
+ *
+ * @returns метка хода; вне боя — пустая
+ */
+export function resolveTurnStamp(): string {
+  const encounter = useInitiativeStore().encounter;
+
+  return encounter?.isActive === true && encounter.currentTurnIndex >= 0
+    ? `${encounter.round}:${encounter.currentTurnIndex}`
+    : NO_COMBAT_TURN_STAMP;
+}

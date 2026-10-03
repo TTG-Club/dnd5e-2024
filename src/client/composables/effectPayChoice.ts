@@ -47,7 +47,10 @@ import {
   EFFECT_PAY_PROMPT_MODAL,
 } from '../ui/effect/payLabels';
 import { askCastLevel } from './castLevelPrompt';
-import { sendComputedCombatState } from './entityCombatWrite';
+import {
+  sendComputedCombatState,
+  sendTriggerUsageSpend,
+} from './entityCombatWrite';
 import { changeEntitySheet } from './entitySheetWrite';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -91,6 +94,11 @@ export function warnPayShortfall(sourceName: string, shortfall: string): void {
 /**
  * Сохраняет платящего после оплаты и пишет в чат, что потрачено.
  *
+ * Ресурсы листа несёт запись листа (своя у вызывающего или общая), отметку
+ * оплаты в журнале срабатываний (бесплатная кость) — боевой снимок, и шлёт
+ * его только это место: разницей «платящий до оплаты → после». Дальше по
+ * действию платящий идёт уже с отметкой, и следующая разница её не повторит.
+ *
  * @param request - что и чем оплачивают
  * @param settlement - итог оплаты
  */
@@ -107,6 +115,8 @@ function commitPaySettlement(
       withSheetResources(current, settlement.entity),
     );
   }
+
+  sendTriggerUsageSpend(request.payer, settlement.entity);
 
   if (settlement.notes.length > 0) {
     useChatStore().sendMessage(
@@ -354,8 +364,12 @@ export function sendSelfTriggerReport(
 /**
  * Отправляет сущность после действия, выполненного на клиенте (кнопка «При
  * действии», включение переключателя): ресурсы листа — обычным сохранением,
- * хиты и эффекты — боевым каналом. Боевой канал счётчиков, костей хитов и
- * ячеек не несёт, и списанная срабатыванием цена без этого терялась.
+ * хиты, эффекты и журнал срабатываний — боевым каналом. Боевой канал
+ * счётчиков, костей хитов и ячеек не несёт, и списанная срабатыванием цена
+ * без этого терялась.
+ *
+ * Журнал уходит один раз — разницей «до → после» в боевом снимке: запись
+ * листа его не шлёт (`withSheetResources` журнал копии не переносит).
  *
  * @param before - сущность до действия
  * @param acted - копия после действия

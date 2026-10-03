@@ -20,30 +20,38 @@ const usagePorts = {
   withTriggerUsage: engine.withTriggerUsage,
 };
 
+/** Срок памяти посланного журнала — как в помощнике */
+const SENT_USAGE_TTL_MS = 5000;
+
 /**
  * Настоящие функции памяти посланного журнала с общим состоянием.
  *
  * @param {(entityId: string) => object | undefined} findEntity - сущность мира
+ * @param {object} [clock] - часы и ход боя, которыми управляет тест
+ * @param {() => number} [clock.now] - текущее время, мс
+ * @param {() => string} [clock.turnStamp] - метка идущего хода
  * @returns {Promise<object>} `readSentTriggerUsage` и `rememberSentTriggerUsage`
  */
-async function loadSentTriggerUsage(findEntity) {
+async function loadSentTriggerUsage(findEntity, clock = {}) {
   const ports = {
     ...usagePorts,
     sentTriggerUsage: new Map(),
+    SENT_USAGE_TTL_MS,
+    Date: { now: () => clock.now?.() ?? 0 },
+    resolveTurnStamp: () => clock.turnStamp?.() ?? '',
     useWorldEntities: () => ({ findCurrentDndEntity: findEntity }),
+    Object,
+    Set,
   };
 
-  ports.readSentTriggerUsage = await loadHandler(
-    COMBAT_WRITE_PATH,
+  for (const name of [
+    'coversSentTriggerUsage',
+    'forgetStaleSentTriggerUsage',
     'readSentTriggerUsage',
-    ports,
-  );
-
-  ports.rememberSentTriggerUsage = await loadHandler(
-    COMBAT_WRITE_PATH,
     'rememberSentTriggerUsage',
-    ports,
-  );
+  ]) {
+    ports[name] = await loadHandler(COMBAT_WRITE_PATH, name, ports);
+  }
 
   return ports;
 }
@@ -90,18 +98,20 @@ export async function loadChangeEntityCombatState({
  *   в WeakMap движка
  * @param {(kind: 'update' | 'combat', entity: object) => void} [options.onSend] -
  *   каждая отправка по порядку: полная запись или боевой снимок
+ * @param {object} [options.clock] - часы и ход боя памяти посланного журнала
  * @returns {Promise<object>} помощники, журналы отправок и ошибок
  */
 export async function loadEntityWrites({
   world,
   recordCombatBaseline = () => {},
   onSend = () => {},
+  clock,
 }) {
   const findEntity = (entityId) => world.get(entityId);
   const emitted = [];
   const updated = [];
   const errors = [];
-  const sent = await loadSentTriggerUsage(findEntity);
+  const sent = await loadSentTriggerUsage(findEntity, clock);
 
   // Журнал снимков с вызовом onSend на каждую отправку
   const combatLog = {
@@ -128,7 +138,6 @@ export async function loadEntityWrites({
     {
       ...usagePorts,
       readSentTriggerUsage: sent.readSentTriggerUsage,
-      changeEntityCombatState,
       keepsCombatState: await loadHandler(
         SHEET_WRITE_PATH,
         'keepsCombatState',
@@ -155,11 +164,74 @@ export async function loadEntityWrites({
     },
   );
 
+  const combatPorts = {
+    ...usagePorts,
+    changeEntityCombatState,
+    recordCombatBaseline,
+    rememberSentTriggerUsage: sent.rememberSentTriggerUsage,
+    useChatStore: () => ({ getSocket: () => ({}) }),
+    useWorldEntities: () => ({ findCurrentDndEntity: findEntity }),
+    emitEntityCombatState: (_socket, entity) => combatLog.push(entity),
+  };
+
+  const sendComputedCombatState = await loadHandler(
+    COMBAT_WRITE_PATH,
+    'sendComputedCombatState',
+    combatPorts,
+  );
+
+  const sendTriggerUsageSpend = await loadHandler(
+    COMBAT_WRITE_PATH,
+    'sendTriggerUsageSpend',
+    combatPorts,
+  );
+
   return {
     changeEntityCombatState,
     changeEntitySheet,
+    sendComputedCombatState,
+    sendTriggerUsageSpend,
     emitted,
     updated,
     errors,
+  };
+}
+
+/**
+ * Сервер одной сущности: полную запись принимает целиком, боевой снимок
+ * сливает правилами системы — как ядро и система.
+ *
+ * @param {object} engineBundle - движок, которым тест читает снимок
+ * @param {object} entity - сущность сервера
+ * @returns {object} приём записей и текущая сущность
+ */
+export function createEntityServer(engineBundle, entity) {
+  const system = new engineBundle.Dnd5eVttSystem();
+
+  let current = entity;
+
+  return {
+    get entity() {
+      return current;
+    },
+    receiveUpdate(next) {
+      current = structuredClone(next);
+    },
+    receiveCombatState(copy) {
+      system.settleCombatState(current, engineBundle.pickCombatState(copy));
+    },
+    /**
+     * Отправка клиента в порядке прихода.
+     *
+     * @param {'update' | 'combat'} kind - полная запись или боевой снимок
+     * @param {object} sent - что прислал клиент
+     */
+    receive(kind, sent) {
+      if (kind === 'update') {
+        this.receiveUpdate(sent);
+      } else {
+        this.receiveCombatState(sent);
+      }
+    },
   };
 }

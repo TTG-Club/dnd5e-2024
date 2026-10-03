@@ -215,28 +215,6 @@ export function applyTriggerUsageChanges(
 }
 
 /**
- * Журнал с расходом из другой копии сущности: по каждому ключу — большее из
- * двух чисел. Копия, снятая раньше, ничего не снимает и не уменьшает: сброс и
- * расход, записанные сервером после неё, остаются.
- *
- * @param current - журнал свежей сущности
- * @param spent - журнал копии после траты
- * @returns новый журнал
- */
-export function mergeTriggerUsageSpend(
-  current: EffectTriggerUsageLedger,
-  spent: EffectTriggerUsageLedger,
-): EffectTriggerUsageLedger {
-  return Object.entries(spent).reduce<EffectTriggerUsageLedger>(
-    (ledger, [key, entry]) =>
-      entry.used > (ledger[key]?.used ?? 0)
-        ? { ...ledger, [key]: entry }
-        : ledger,
-    { ...current },
-  );
-}
-
-/**
  * Записывает счётчики субъекту; пустые не хранятся.
  *
  * @param entity - субъект

@@ -57,7 +57,6 @@ import { collectActiveEffects, resolveActorStats } from './effectPipeline.js';
 import {
   consumeTriggerUse,
   isTriggerLimitReached,
-  mergeTriggerUsageSpend,
   readTriggerUsage,
   writeTriggerUsage,
 } from './effectTriggerUsage.js';
@@ -975,29 +974,18 @@ export function settleEffectPay(
 }
 
 /**
- * Переносит списанные ресурсы на живую сущность сервера: счётчики, кости
- * хитов, ячейки, вдохновение, заряды предметов и отметку бесплатной кости.
- * Эффекты и хиты не трогаются — их в это время меняет само срабатывание.
+ * Переносит списанные ресурсы листа с копии на сущность: счётчики, кости
+ * хитов, ячейки, вдохновение и предметы. Хиты, эффекты и журнал срабатываний
+ * не трогаются — это боевое состояние.
  *
- * Журнал срабатываний не копируется: платящий мог быть снят раньше, и его
- * журнал вернул бы сброшенное или стёр израсходованное после. С живого
- * журнала ничего не снимается — по каждому ключу берётся большее
- * (`mergeTriggerUsageSpend`), и трата оплаты (отметка бесплатной кости)
- * ложится сверху.
- *
- * @param live - живая сущность (меняется)
- * @param settled - платящий после оплаты
+ * @param live - сущность (меняется)
+ * @param settled - копия со списанными ресурсами
  */
-export function applyPaySettlement(
+function applySheetResources(
   live: DnDSceneEntity,
   settled: DnDSceneEntity,
 ): void {
   live.equipment = settled.equipment;
-
-  writeTriggerUsage(
-    live,
-    mergeTriggerUsageSpend(readTriggerUsage(live), readTriggerUsage(settled)),
-  );
 
   if (!isActorEntity(live) || !isActorEntity(settled)) {
     return;
@@ -1009,6 +997,28 @@ export function applyPaySettlement(
   live.system.spellSlotsUsed = settled.system.spellSlotsUsed;
   live.system.pactSlotsUsed = settled.system.pactSlotsUsed;
   live.system.inspiration = settled.system.inspiration;
+}
+
+/**
+ * Записывает оплату срабатывания в живую сущность: списанные ресурсы листа и
+ * отметку оплаты в журнале срабатываний (бесплатная кость).
+ *
+ * Платящий после оплаты посчитан от этой же сущности в этом же вызове
+ * (`settleEffectPay(live, …)`), поэтому его журнал — это журнал сущности с
+ * отметками оплаты, и ложится он целиком. Копию, снятую раньше (оплата прошла
+ * через вопросы человеку), сюда отдавать нельзя: её ресурсы переносит
+ * {@link withSheetResources}, а расход журнала уходит отдельно разницей «до
+ * оплаты → после» — боевым снимком.
+ *
+ * @param live - живая сущность (меняется)
+ * @param settled - платящий после оплаты, посчитанный от `live`
+ */
+export function applyPaySettlement(
+  live: DnDSceneEntity,
+  settled: DnDSceneEntity,
+): void {
+  applySheetResources(live, settled);
+  writeTriggerUsage(live, readTriggerUsage(settled));
 }
 
 /** Поля листа, которые меняет оплата: их несёт обычное сохранение сущности */
@@ -1054,10 +1064,15 @@ export function sheetResourcesDiffer(
 
 /**
  * Сущность с ресурсами листа из другой её копии: счётчики, кости хитов,
- * ячейки, вдохновение и предметы — оттуда, остальное (хиты, эффекты) — своё.
- * Так оплата сохраняется отдельно от боевого снимка.
+ * ячейки, вдохновение и предметы — оттуда, остальное — своё: хиты, эффекты и
+ * журнал срабатываний. Так оплата сохраняется отдельно от боевого снимка.
  *
- * @param base - сущность, чьи хиты и эффекты остаются
+ * Журнал копии сюда не переносится: копия могла быть снята раньше, и её
+ * журнал — не расход, а устаревшее целое. Расход журнала считает тот, кто
+ * делал действие, разницей «до → после», и шлёт его боевым снимком ровно один
+ * раз (`entityCombatWrite.ts`).
+ *
+ * @param base - сущность, чьи хиты, эффекты и журнал остаются
  * @param spent - копия со списанными ресурсами
  * @returns новая сущность
  */
@@ -1067,7 +1082,7 @@ export function withSheetResources(
 ): DnDSceneEntity {
   const merged = cloneEntityData(base);
 
-  applyPaySettlement(merged, spent);
+  applySheetResources(merged, spent);
 
   return merged;
 }

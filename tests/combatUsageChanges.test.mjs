@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 
 import { describe, it } from 'vitest';
 
-import { loadEntityWrites } from './helpers/combatWrite.mjs';
+import {
+  createEntityServer,
+  loadEntityWrites,
+} from './helpers/combatWrite.mjs';
 import {
   createActor,
   createCreature,
@@ -269,48 +272,10 @@ describe('разница журнала: сервер сливает со сво
       engine.hasTriggerUsageChanges(engine.diffTriggerUsage(base, base)),
       false,
     );
-
-    // Перенос траты из другой копии: ничего не снимает и не уменьшает
-    assert.deepEqual(
-      engine.mergeTriggerUsageSpend(
-        { kept: { used: 2, per: 'turn' }, server: { used: 1, per: 'turn' } },
-        { kept: { used: 1, per: 'turn' }, free: { used: 1, per: 'longRest' } },
-      ),
-      {
-        kept: { used: 2, per: 'turn' },
-        server: { used: 1, per: 'turn' },
-        free: { used: 1, per: 'longRest' },
-      },
-    );
   });
 });
 
 describe('запись листа не откатывает журнал', () => {
-  /**
-   * Сервер: принимает полную запись целиком и сливает боевые снимки — как
-   * ядро и система.
-   *
-   * @param {object} entity - сущность сервера (меняется)
-   * @returns {object} приём записей
-   */
-  function createServer(entity) {
-    const system = new engine.Dnd5eVttSystem();
-
-    let current = entity;
-
-    return {
-      get entity() {
-        return current;
-      },
-      receiveUpdate(next) {
-        current = structuredClone(next);
-      },
-      receiveCombatState(copy) {
-        system.settleCombatState(current, engine.pickCombatState(copy));
-      },
-    };
-  }
-
   /**
    * Мир клиента и сервер с одной сущностью.
    *
@@ -325,7 +290,7 @@ describe('запись листа не откатывает журнал', () =>
       recordCombatBaseline: engine.recordCombatBaseline,
     });
 
-    const server = createServer(structuredClone(entity));
+    const server = createEntityServer(engine, structuredClone(entity));
 
     return { world, server, ...writes };
   }
@@ -398,11 +363,18 @@ describe('запись листа не откатывает журнал', () =>
     ]);
   });
 
-  it('расход журнала в записи листа уходит боевым снимком, а не полной записью', async () => {
+  it('запись листа журнал не шлёт: расход уходит боевым помощником, один раз', async () => {
     const hero = withHp(createActor, TARGET_HP, { activeEffects: [FOCUS] });
 
-    const { world, server, changeEntitySheet, emitted, updated } =
-      await setup(hero);
+    const {
+      world,
+      server,
+      changeEntitySheet,
+      sendTriggerUsageSpend,
+      emitted,
+      updated,
+      errors,
+    } = await setup(hero);
 
     // Сервер записал расход, стор его ещё не видел
     engine.consumeTriggerUse(server.entity, 'server|key', {
@@ -410,78 +382,103 @@ describe('запись листа не откатывает журнал', () =>
       per: 'turn',
     });
 
-    // Только журнал: полной записи нет, расход — разницей
-    changeEntitySheet(hero.id, (current) =>
-      engine.withTriggerUsage(current, {
-        ...engine.readTriggerUsage(current),
-        'override|key': { used: 1, per: 'longRest' },
-      }),
+    // Оплата на копии: отметка бесплатной кости и вдохновение
+    const payer = world.get(hero.id);
+
+    const paid = engine.withTriggerUsage(
+      { ...payer, system: { ...payer.system, inspiration: true } },
+      { 'free|die': { used: 1, per: 'longRest' } },
     );
 
-    assert.equal(updated.length, 0);
+    // Ресурсы — записью листа: журнал копии в неё не попадает
+    changeEntitySheet(hero.id, (current) =>
+      engine.withSheetResources(current, paid),
+    );
+
+    assert.equal(updated.length, 1);
+    assert.equal(emitted.length, 0, 'запись листа боевой снимок не шлёт');
+    assert.equal(updated[0].system.effectUsage?.['free|die'], undefined);
+    assert.deepEqual(errors, []);
+
+    // Расход журнала — боевым помощником, разницей «до оплаты → после»
+    assert.equal(sendTriggerUsageSpend(payer, paid), true);
     assert.equal(emitted.length, 1);
+
     server.receiveCombatState(emitted[0]);
 
     assert.deepEqual(
       Object.keys(engine.readTriggerUsage(server.entity)).sort(),
-      ['override|key', 'server|key'],
+      ['free|die', 'server|key'],
+      'расход дошёл и расход сервера не стёрт',
     );
 
-    // Лист и журнал вместе: запись — с прежним журналом, расход — снимком
-    // следом
-    changeEntitySheet(hero.id, (current) => {
-      const paid = engine.withTriggerUsage(current, {
-        ...engine.readTriggerUsage(current),
-        'free|die': { used: 1, per: 'longRest' },
-      });
-
-      return { ...paid, system: { ...paid.system, inspiration: true } };
-    });
-
-    assert.equal(updated.length, 1);
-    assert.equal(updated[0].system.effectUsage?.['free|die'], undefined);
-    assert.equal(emitted.length, 2);
-
-    server.receiveUpdate(updated[0]);
-    server.receiveCombatState(emitted[1]);
-
-    assert.equal(
-      engine.readTriggerUsage(server.entity)['free|die'].used,
-      1,
-      'расход дошёл снимком',
-    );
-
-    assert.equal(
-      engine.readTriggerUsage(server.entity)['override|key'].used,
-      1,
-      'первый расход запись не стёрла',
-    );
-
+    assert.equal(engine.readTriggerUsage(server.entity)['free|die'].used, 1);
     assert.equal(world.get(hero.id).system.inspiration, true);
-    assert.equal(server.entity.system.inspiration, true);
+
+    // Без расхода слать нечего
+    assert.equal(sendTriggerUsageSpend(paid, paid), false);
+    assert.equal(emitted.length, 1);
   });
 
-  it('перенос оплаты с ранней копии не снимает и не уменьшает журнал', () => {
+  it('преобразование листа, тронувшее журнал, — ошибка: журнал не уходит', async () => {
+    const hero = withHp(createActor, TARGET_HP);
+    const { changeEntitySheet, emitted, updated, errors } = await setup(hero);
+
+    // Только журнал: писать нечего
+    assert.equal(
+      changeEntitySheet(hero.id, (current) =>
+        engine.withTriggerUsage(current, {
+          'override|key': { used: 1, per: 'longRest' },
+        }),
+      ),
+      null,
+    );
+
+    // Журнал вместе с листом: лист уходит, журнал — нет
+    changeEntitySheet(hero.id, (current) => {
+      const marked = engine.withTriggerUsage(current, {
+        'override|key': { used: 1, per: 'longRest' },
+      });
+
+      return { ...marked, system: { ...marked.system, inspiration: true } };
+    });
+
+    assert.equal(errors.length, 2);
+    assert.equal(emitted.length, 0);
+    assert.equal(updated.length, 1);
+    assert.equal(updated[0].system.effectUsage, undefined);
+    assert.equal(updated[0].system.inspiration, true);
+  });
+
+  it('перенос оплаты с ранней копии журнал не трогает: ключ прошлого хода не возвращается', () => {
+    // Свежая сущность: ход кончился, сервер сбросил счётчики хода
     const live = withHp(createActor, TARGET_HP, {
       system: {
         ...createActor().system,
-        effectUsage: { 'server|key': { used: 1, per: 'turn' } },
+        effectUsage: { 'server|key': { used: 1, per: 'longRest' } },
       },
     });
 
-    // Копия снята до расхода сервера, оплата отметила бесплатную кость
+    // Копия снята до конца хода: вопрос о цене висел через него
     const spent = withHp(createActor, TARGET_HP, {
       system: {
         ...createActor().system,
-        effectUsage: { 'free|die': { used: 1, per: 'longRest' } },
+        inspiration: true,
+        effectUsage: {
+          'turnSpend|action': { used: 1, per: 'turn' },
+          'free|die': { used: 1, per: 'longRest' },
+        },
       },
     });
 
     const merged = engine.withSheetResources(live, spent);
 
-    assert.deepEqual(engine.readTriggerUsage(merged), {
-      'server|key': { used: 1, per: 'turn' },
-      'free|die': { used: 1, per: 'longRest' },
-    });
+    assert.equal(merged.system.inspiration, true, 'ресурсы листа — с копии');
+
+    assert.deepEqual(
+      engine.readTriggerUsage(merged),
+      { 'server|key': { used: 1, per: 'longRest' } },
+      'журнал — свежей сущности',
+    );
   });
 });

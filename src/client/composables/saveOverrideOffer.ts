@@ -44,6 +44,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { EFFECT_QUESTION_PROMPT_MODAL } from '../ui/effect/constants';
+import { changeEntityCombatState } from './entityCombatWrite';
 import { changeEntitySheet } from './entitySheetWrite';
 import { controlsEntityAsUser, isGameMasterUser } from './gmApprovalRequest';
 
@@ -129,20 +130,21 @@ export function spendEntitySaveOverride(
   const chatStore = useChatStore();
 
   // Носитель перечитывается: списание зовётся посреди разбора спасброска, и
-  // копия разбора старше хитов и эффектов сервера
+  // копия разбора старше хитов и эффектов сервера. Счётчик листа — записью
+  // листа, отметка лимита в журнале срабатываний — боевым снимком: журнал
+  // едет только им
   changeEntitySheet(entity.id, (current) => {
-    const { effectUsage, classCounters } = spendSaveOverride(
-      current,
-      available.source,
-    );
+    const { classCounters } = spendSaveOverride(current, available.source);
 
-    const spent = effectUsage
-      ? withTriggerUsage(current, effectUsage)
-      : current;
+    return classCounters && isActorEntity(current)
+      ? { ...current, system: { ...current.system, classCounters } }
+      : null;
+  });
 
-    return classCounters && isActorEntity(spent)
-      ? { ...spent, system: { ...spent.system, classCounters } }
-      : spent;
+  changeEntityCombatState(entity.id, (current) => {
+    const { effectUsage } = spendSaveOverride(current, available.source);
+
+    return effectUsage ? withTriggerUsage(current, effectUsage) : null;
   });
 
   chatStore.sendMessage(

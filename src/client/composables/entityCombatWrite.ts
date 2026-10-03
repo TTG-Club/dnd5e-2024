@@ -13,10 +13,16 @@
  * срабатываний, и сервер сливает её со своим состоянием
  * (`combatEffectChanges.ts`).
  *
- * Журнал, посланный снимком, помнится до ответа сервера
- * ({@link readSentTriggerUsage}): полная запись листа в том же тике берёт его
- * отсюда, а не из стора, где расхода ещё нет, — иначе она вернула бы серверу
- * прежний журнал.
+ * Журнал срабатываний едет ТОЛЬКО этим каналом и ровно один раз на действие:
+ * расход считает тот, кто делал действие, разницей «до → после»
+ * ({@link changeEntityCombatState}, {@link sendComputedCombatState},
+ * {@link sendTriggerUsageSpend}). Запись листа журнал не шлёт и из
+ * преобразования не берёт (`entitySheetWrite.ts`).
+ *
+ * Журнал, посланный снимком, помнится, пока стор его не догнал
+ * ({@link readSentTriggerUsage}): полная запись листа берёт его отсюда, а не
+ * из стора, где расхода ещё нет, — иначе она вернула бы серверу прежний
+ * журнал.
  */
 
 import type {
@@ -32,29 +38,85 @@ import {
   hasTriggerUsageChanges,
   readTriggerUsage,
   recordCombatBaseline,
+  withTriggerUsage,
 } from '@vtt/shared/system/dnd.js';
 
+import { resolveTurnStamp } from './encounterTurn';
 import { useWorldEntities } from './useWorldEntities';
 
-/** Журнал, посланный боевым снимком, пока сервер его не вернул */
+/**
+ * Сколько помнится посланный журнал, если стор его так и не догнал: снимок
+ * мог не лечь (пауза, нет прав), и без срока запись листа носила бы расход,
+ * которого на сервере нет
+ */
+const SENT_USAGE_TTL_MS = 5000;
+
+/** Журнал, посланный боевыми снимками, пока стор его не догнал */
 interface SentTriggerUsage {
-  /**
-   * Раздел `system` записи стора в момент отправки. Ответ сервера заменяет
-   * раздел целиком (`Object.assign` стора хоста), и другой объект значит:
-   * стор догнал сервер, помнить больше нечего
-   */
-  storeSystem: DnDSceneEntity['system'];
-  /** Журнал после всех посланных снимков */
+  /** Журнал сервера после всех посланных снимков */
   ledger: EffectTriggerUsageLedger;
+  /** Ключи, снятые посланными снимками */
+  removedKeys: readonly string[];
+  /**
+   * Ход боя в момент отправки. Конец хода сбрасывает счётчики хода и раунда
+   * на сервере: журнал, посланный в прошлом ходу, вернул бы их обратно
+   */
+  turnStamp: string;
+  /** Когда ушёл последний снимок, мс */
+  sentAt: number;
 }
 
 /** Посланные журналы по id сущности */
 const sentTriggerUsage = new Map<string, SentTriggerUsage>();
 
 /**
+ * Догнал ли стор посланное: по каждому посланному ключу в журнале стора не
+ * меньше, а снятых ключей в нём нет. Сверка по содержимому, а не по смене
+ * объекта `system`: ответ сервера на БОЛЕЕ РАННЕЕ сообщение тоже меняет
+ * объект, но расхода ещё не несёт.
+ *
+ * @param storeLedger - журнал записи стора
+ * @param sent - посланное
+ * @returns `true`, если помнить больше нечего
+ */
+function coversSentTriggerUsage(
+  storeLedger: EffectTriggerUsageLedger,
+  sent: SentTriggerUsage,
+): boolean {
+  return (
+    Object.entries(sent.ledger).every(
+      ([key, entry]) => (storeLedger[key]?.used ?? 0) >= entry.used,
+    )
+    && sent.removedKeys.every(
+      (key) => key in sent.ledger || !(key in storeLedger),
+    )
+  );
+}
+
+/**
+ * Забывает посланные журналы, которые уже не действуют: вышел срок или
+ * сменился ход. Зовётся на каждом чтении и на каждой отправке — память не
+ * копит сущности, к которым больше не обращаются.
+ *
+ * @param now - текущее время, мс
+ */
+function forgetStaleSentTriggerUsage(now: number): void {
+  const turnStamp = resolveTurnStamp();
+
+  for (const [entityId, sent] of sentTriggerUsage) {
+    if (now - sent.sentAt > SENT_USAGE_TTL_MS || sent.turnStamp !== turnStamp) {
+      sentTriggerUsage.delete(entityId);
+    }
+  }
+}
+
+/**
  * Журнал сущности с расходом, который ушёл боевым снимком, но в стор ещё не
  * вернулся. Его берёт полная запись листа: она заменяет сущность целиком, и
  * журнал из стора стёр бы только что посланный расход.
+ *
+ * Пока стор посланного не догнал, по каждому ключу берётся большее из стора и
+ * посланного: расход, записанный сервером по чужому снимку, тоже остаётся.
  *
  * @param storeEntity - запись стора
  * @returns журнал для записи
@@ -62,15 +124,34 @@ const sentTriggerUsage = new Map<string, SentTriggerUsage>();
 export function readSentTriggerUsage(
   storeEntity: DnDSceneEntity,
 ): EffectTriggerUsageLedger {
+  forgetStaleSentTriggerUsage(Date.now());
+
+  const storeLedger = readTriggerUsage(storeEntity);
   const sent = sentTriggerUsage.get(storeEntity.id);
 
-  if (sent && sent.storeSystem === storeEntity.system) {
-    return sent.ledger;
+  if (!sent) {
+    return storeLedger;
   }
 
-  sentTriggerUsage.delete(storeEntity.id);
+  if (coversSentTriggerUsage(storeLedger, sent)) {
+    sentTriggerUsage.delete(storeEntity.id);
 
-  return readTriggerUsage(storeEntity);
+    return storeLedger;
+  }
+
+  const removed = new Set(sent.removedKeys);
+
+  const kept = Object.fromEntries(
+    Object.entries(storeLedger).filter(([key]) => !removed.has(key)),
+  );
+
+  return Object.entries(sent.ledger).reduce<EffectTriggerUsageLedger>(
+    (ledger, [key, entry]) =>
+      entry.used > (ledger[key]?.used ?? 0)
+        ? { ...ledger, [key]: entry }
+        : ledger,
+    kept,
+  );
 }
 
 /**
@@ -95,12 +176,21 @@ function rememberSentTriggerUsage(
     return;
   }
 
+  // Чтение раньше записи: оно же забывает устаревшее
+  const ledger = applyTriggerUsageChanges(
+    readSentTriggerUsage(storeEntity),
+    changes,
+  );
+
+  const pending = sentTriggerUsage.get(storeEntity.id);
+
   sentTriggerUsage.set(storeEntity.id, {
-    storeSystem: storeEntity.system,
-    ledger: applyTriggerUsageChanges(
-      readSentTriggerUsage(storeEntity),
-      changes,
-    ),
+    ledger,
+    removedKeys: [
+      ...new Set([...(pending?.removedKeys ?? []), ...changes.removeKeys]),
+    ],
+    turnStamp: resolveTurnStamp(),
+    sentAt: Date.now(),
   });
 }
 
@@ -180,4 +270,40 @@ export function sendComputedCombatState(
   }
 
   return true;
+}
+
+/**
+ * Шлёт расход журнала срабатываний, посчитанный на копии, — и только его:
+ * хиты и эффекты остаются как у свежей сущности. Так уходит отметка оплаты
+ * (бесплатная кость): ресурсы листа после вопросов человеку несёт запись
+ * листа, а журнал она не шлёт.
+ *
+ * Расход — разница «основа → копия», а не журнал копии: сервер прибавит её к
+ * своему журналу, и то, что он записал за время вопросов, остаётся.
+ *
+ * @param base - сущность, от которой считали копию
+ * @param computed - копия после действия
+ * @returns `true`, если расход был и ушёл
+ */
+export function sendTriggerUsageSpend(
+  base: DnDSceneEntity,
+  computed: DnDSceneEntity,
+): boolean {
+  const changes = diffTriggerUsage(
+    readTriggerUsage(base),
+    readTriggerUsage(computed),
+  );
+
+  if (!hasTriggerUsageChanges(changes)) {
+    return false;
+  }
+
+  return (
+    changeEntityCombatState(computed.id, (current) =>
+      withTriggerUsage(
+        current,
+        applyTriggerUsageChanges(readTriggerUsage(current), changes),
+      ),
+    ) !== null
+  );
 }
