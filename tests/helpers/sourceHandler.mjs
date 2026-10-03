@@ -136,6 +136,14 @@ export async function loadHandler(relativePath, name, ports, macro = false) {
   ports.listAttackResolutionEntities ??= () =>
     ports.useWorldEntities?.().getCurrentWorldEntities() ?? [];
 
+  // Числа сущности с аурами карты — тем же расчётом, что помощник клиента,
+  // из портов теста: расчёт чисел и ауры тест даёт сам
+  ports.resolveEntityStats ??= (entity) =>
+    ports.resolveActorStats(
+      entity,
+      ports.listAmbientEffects?.(entity.id) ?? [],
+    );
+
   // Лист фикстур не в режиме правки: проверка листа проходная
   ports.refuseWhileSheetEditing ??= () => false;
 

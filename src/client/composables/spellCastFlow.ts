@@ -62,7 +62,6 @@ import {
   limitCastLevels,
   MAX_SPELL_SLOT_LEVEL,
   pickCantripTierParts,
-  resolveActorStats,
   resolveDamagePartsForCast,
   resolveEntityActionBlocks,
   resolveEntityCreatureType,
@@ -128,6 +127,7 @@ import {
 import {
   collectEffectsWithAuras,
   listAmbientEffects,
+  resolveEntityStats,
 } from './useResolvedStats';
 import {
   getSpellMaxRangeOnScene,
@@ -310,7 +310,7 @@ export function resolveCastableSpellLevels(
  * @returns круги не ниже круга заклинания
  */
 function listSlotSpellLevels(caster: DnDActor, spell: Spell): number[] {
-  const stats = resolveActorStats(caster);
+  const stats = resolveEntityStats(caster);
 
   return getAvailableSpellLevels(caster, spell.level, MAX_SPELL_SLOT_LEVEL, {
     abilityMods: stats.abilityMods,
@@ -655,7 +655,9 @@ export function resolveSpellCasterSource(
   caster: DnDActor,
   spell: Spell,
 ): SpellCasterSource {
-  const stats = resolveActorStats(caster);
+  // С аурами карты, как на листе и у применения умений: аура, поднявшая
+  // заклинательную характеристику, поднимает и Сл
+  const stats = resolveEntityStats(caster);
 
   return {
     saveDc: resolveSpellSaveDC(caster, spell, stats),
@@ -1055,7 +1057,7 @@ export function openSpellCastWindow(
   }
 
   const { template, lockedLevel, effectTargets } = options;
-  const stats = resolveActorStats(caster);
+  const stats = resolveEntityStats(caster);
   const isInnate = Boolean(sourceSpell.uses);
   const castKey = generateId(SPELL_CAST_KEY_PREFIX);
 

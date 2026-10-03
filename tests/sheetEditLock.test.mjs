@@ -108,11 +108,8 @@ const UNGUARDED_REASONS = {
     'фабрика порта: пишет только охраняемый разбор каста',
   createWeaponAttackPort: 'фабрика порта: пишет только охраняемый удар',
   hasActionSelfEffects: 'ничего не пишет',
-  buildItemUseSpend: 'ничего не пишет: расход исполняет applyEffectSource',
   listEscapeHelpOffers: 'ничего не пишет',
   readEntityCounters: 'ничего не пишет',
-  payEntityActivation: 'ничего не пишет: считает копию',
-  warnNoCounter: 'ничего не пишет: уведомление',
   applyEntityEffectUse: 'идёт через applyEffectSource',
   applyEntityItemUse: 'идёт через applyEffectSource',
   runRestWithTriggers:

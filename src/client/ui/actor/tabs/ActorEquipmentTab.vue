@@ -28,7 +28,6 @@
   import { useHotbarStore } from '@/stores/hotbarStore';
   import { DISTANCE_UNIT_SHORT, formatItemCost } from '@vtt/shared';
   import {
-    buildItemUseSpell,
     calculateWeaponAttackModifier,
     calculateWeaponDamageModifier,
     canSpendItemUses,
@@ -52,9 +51,7 @@
     listSourceDamageTypeChoices,
     loadWeaponAmmunition,
     normalizeItemQuantity,
-    resolveEffectUseCost,
     setItemUsesCurrent,
-    spendItemUse,
     spendItemUses,
     STARTING_EQUIPMENT_ITEM_KINDS,
     TOOL_CATEGORIES,
@@ -68,10 +65,7 @@
     formatDamageTypeChoiceLabel,
     resolveDamageStatIcon,
   } from '../../../composables/damageTypeChoice';
-  import {
-    applyEffectSource,
-    buildItemUseSpend,
-  } from '../../../composables/effectActivationUse';
+  import { applyEntityItemUse } from '../../../composables/effectActivationUse';
   import { toggleEntityItemEffect } from '../../../composables/itemEffectToggle';
   import { useCarryingCapacity } from '../../../composables/useCarryingCapacity';
   import { useCompendiumWarmup } from '../../../composables/useCompendiumWarmup';
@@ -783,6 +777,10 @@
    * Применяет предмет: эффекты применения ложатся на персонажа или цель,
    * предмет теряет заряд или единицу количества.
    *
+   * Тем же путём мира, что кнопка горячей панели (`applyEntityItemUse`):
+   * заряд списывается после выбора цели и вопроса о цене, а вкладка к этому
+   * времени может быть размонтирована — её `emit` ничего бы не списал.
+   *
    * @param item - предмет
    */
   function applyItemUse(item: DnDGameItem): void {
@@ -790,13 +788,7 @@
       return;
     }
 
-    applyEffectSource(
-      buildItemUseSpell(item),
-      props.entity,
-      resolvedStats.value?.spellSaveDC ?? 0,
-      () => commitEquipment(spendItemUse(inventory.value, item.id)),
-      buildItemUseSpend(item.id, resolveEffectUseCost(item.activeEffects)),
-    );
+    applyEntityItemUse(props.entity.id, item.id);
   }
 
   /**

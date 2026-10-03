@@ -19,7 +19,6 @@ import {
   isSpellReady,
   pickEffectVariants,
   readEffectVariantChoices,
-  resolveActorStats,
   spellHasDamage,
   targetEffectsNeedResolution,
 } from '@vtt/shared/system/dnd.js';
@@ -39,6 +38,7 @@ import {
   stampEffectOnApply,
 } from './spellResolutionShared';
 import { bindTargetEffectsToCaster } from './targetEffectSourceBinding';
+import { resolveEntityStats } from './useResolvedStats';
 import { isSpellTargetBlockedByRange } from './useSceneRangeCheck';
 import { useSpellDamageWithParts } from './useSpellDamageWithParts';
 import { useSpellResolution } from './useSpellResolution';
@@ -406,7 +406,7 @@ export function requestSpellEffectTargets(
         caster,
         castLevel,
         isPactSlot,
-        resolveActorStats(caster).abilityBonusContext,
+        resolveEntityStats(caster).abilityBonusContext,
       )
         ? null
         : 'noSlot';

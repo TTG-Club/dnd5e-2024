@@ -10,13 +10,14 @@ import {
   formatDiceLetters,
   getSpellDamageParts,
   labelPaidTokens,
-  resolveActorStats,
   resolveSpellDamageFormula,
   scaleDamageFormula,
   splitConditionalDamageDisplay,
   stripDamageTypeTokens,
   stripFormulaVariables,
 } from '@vtt/shared/system/dnd.js';
+
+import { resolveEntityStats } from '../../../composables/useResolvedStats';
 
 /** Что уточняет показ урона: владелец заклинания и круг наложения */
 interface SpellDamageDisplayOptions {
@@ -80,7 +81,8 @@ export function describeSpellDamageDisplay(
 ): DamageSetDisplay {
   const { actor, castLevel } = options;
 
-  const stats = actor ? resolveActorStats(actor) : null;
+  // С аурами карты — как считает каст: строка листа показывает урон броска
+  const stats = actor ? resolveEntityStats(actor) : null;
 
   const scalingDice = spell.scaling?.additionalDice;
 

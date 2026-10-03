@@ -37,7 +37,6 @@ import {
   listEffectEscapeRemovals,
   listEscapeChecks,
   mergeAppliedEffects,
-  resolveActorStats,
   resolveEscapeRollMode,
 } from '@vtt/shared/system/dnd.js';
 
@@ -54,6 +53,7 @@ import { changeEntityCombatState } from './entityCombatWrite';
 import { controlsEntityAsUser } from './gmApprovalRequest';
 import { refuseWhileSheetEditing } from './sheetEditLock';
 import { openSkillCheckModal } from './skillCheckRoll';
+import { resolveEntityStats } from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
 
 /** Кто действует, чтобы снять эффект */
@@ -318,7 +318,7 @@ function rollEscapeCheck(
         effect,
         flags,
         ...(holder
-          ? { holderFlags: resolveActorStats(holder).activeFlags }
+          ? { holderFlags: resolveEntityStats(holder).activeFlags }
           : {}),
       }),
     onRoll: (result: CheckRollResult) => {
@@ -373,7 +373,7 @@ export function runEscapeAs(
     return true;
   }
 
-  const stats = resolveActorStats(actor.entity);
+  const stats = resolveEntityStats(actor.entity);
 
   chooseOne(
     EFFECT_ESCAPE_PROMPT_LABELS.skillQuestion,

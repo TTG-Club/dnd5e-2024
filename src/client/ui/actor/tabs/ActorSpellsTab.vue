@@ -49,7 +49,6 @@
     parseSpellcastingSettings,
     parseSpellSlotSettings,
     PREPARED_LIMIT_EMPTY_VALUE,
-    resolveActorStats,
     resolveEntityActionBlocks,
     resolveSpellSaveDC,
     settleBookCantrips,
@@ -70,7 +69,10 @@
   } from '../../../composables/spellCastFlow';
   import { useClassCatalog } from '../../../composables/useClassCatalog';
   import { useCompendiumWarmup } from '../../../composables/useCompendiumWarmup';
-  import { listAmbientEffects } from '../../../composables/useResolvedStats';
+  import {
+    listAmbientEffects,
+    resolveEntityStats,
+  } from '../../../composables/useResolvedStats';
   import CompendiumDataModal from '../../compendium/CompendiumDataModal.vue';
   import ActorSpellRow from '../ActorSpellRow.vue';
   import {
@@ -139,8 +141,11 @@
 
   const isSettingsModalOpen = ref(false);
 
-  /** Resolved stats для отображения Spell Save DC и бонуса атаки */
-  const resolvedStats = computed(() => resolveActorStats(props.actor));
+  /**
+   * Resolved stats для отображения Spell Save DC и бонуса атаки — с аурами
+   * карты, тем же расчётом, что у каста: показанная Сл и Сл каста одна
+   */
+  const resolvedStats = computed(() => resolveEntityStats(props.actor));
 
   /** Запреты трат хода — одним расчётом на весь список заклинаний */
   const actionBlocks = computed(() =>

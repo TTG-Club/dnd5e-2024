@@ -34,7 +34,6 @@ import {
   isItemDepleted,
   isUseActivatedEffect,
   listSaveDcSkills,
-  resolveActorStats,
   resolveEffectUseCost,
   settleUseSpellArea,
   SKILLS_LABELS,
@@ -78,7 +77,7 @@ import {
   findUnresolvedTargetSaveDc,
   warnUnresolvedSaveDc,
 } from './unresolvedSaveDc';
-import { listAmbientEffects } from './useResolvedStats';
+import { resolveEntityStats } from './useResolvedStats';
 import { getSpellMaxRangeOnScene } from './useSceneRangeCheck';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -553,7 +552,7 @@ export function applyEntityEffectUse(entityId: string, effectId: string): void {
   applyEffectSource(
     buildEffectGroupUseSpell(group),
     entity,
-    resolveActorStats(entity, listAmbientEffects(entity.id)).spellSaveDC,
+    resolveEntityStats(entity).spellSaveDC,
     () => {
       changeEntitySheet(entityId, (current) =>
         payEntityActivation(current, effect),
@@ -585,7 +584,7 @@ export function applyEntityItemUse(entityId: string, itemId: string): void {
   applyEffectSource(
     buildItemUseSpell(item),
     entity,
-    resolveActorStats(entity, listAmbientEffects(entity.id)).spellSaveDC,
+    resolveEntityStats(entity).spellSaveDC,
     () =>
       updateEntityEquipment(entityId, (equipment) =>
         spendItemUse(equipment, itemId),

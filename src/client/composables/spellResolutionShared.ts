@@ -43,6 +43,7 @@ import {
 import { SAVING_THROW_ROLL_LABELS } from '../ui/actor/constants';
 import { withAttackHeldEffects } from './attackRollSnapshot';
 import { resolveActiveTurnActorId } from './encounterTurn';
+import { resolveEntityStats } from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
 
 // Выбор эффектов заклинания по доставке живёт в движке (его проверяют тесты
@@ -358,7 +359,7 @@ export function resolveAttackerIgnoredResistances(
 
   return attacker
     ? listIgnoredResistances(
-        resolveActorStats(withAttackHeldEffects(attacker, attack)).activeFlags,
+        resolveEntityStats(withAttackHeldEffects(attacker, attack)).activeFlags,
       )
     : [];
 }

@@ -21,12 +21,11 @@ import {
   bindTargetEffectsToSource,
   buildOwnerSaveDcContext,
   listEffectSaveDcs,
-  resolveActorStats,
   resolveSpellcastingAbility,
 } from '@vtt/shared/system/dnd.js';
 
 import { resolveSpellCastLevel } from './spellCasts';
-import { listAmbientEffects } from './useResolvedStats';
+import { resolveEntityStats } from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
 
 /**
@@ -38,7 +37,7 @@ import { useWorldEntities } from './useWorldEntities';
  * @returns модификатор характеристики
  */
 function resolveCasterSpellMod(caster: DnDSceneEntity, spell: Spell): number {
-  return resolveActorStats(caster, listAmbientEffects(caster.id)).abilityMods[
+  return resolveEntityStats(caster).abilityMods[
     resolveSpellcastingAbility(caster, spell)
   ];
 }

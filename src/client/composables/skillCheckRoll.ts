@@ -18,13 +18,12 @@ import {
   getSkillSetting,
   getSkillSettingAbility,
   resolveAbilityCheckRollMode,
-  resolveActorStats,
   SKILLS_LABELS,
 } from '@vtt/shared/system/dnd.js';
 
 import { openDiceRollWindow } from './diceRollWindow';
 import { buildRollBonusEvaluator } from './rollBonusEvaluator';
-import { listAmbientEffects } from './useResolvedStats';
+import { resolveEntityStats } from './useResolvedStats';
 
 /** Разделитель навыка и имени в подписи броска */
 const SKILL_ROLL_LABEL_SEPARATOR = ' — ';
@@ -67,7 +66,7 @@ export function openSkillCheckModal(
   skill: SkillType,
   options: SkillCheckRollOptions,
 ): void {
-  const stats = resolveActorStats(entity, listAmbientEffects(entity.id));
+  const stats = resolveEntityStats(entity);
 
   // Характеристику навыка берут из настройки листа, как при броске навыка на
   // листе: Атлетику переводят на Телосложение — и флаги читаются по нему

@@ -43,7 +43,6 @@
   import { getActiveSocket } from '@/system-runtime/activeSocket';
   import {
     advanceEffectStage,
-    buildEffectGroupUseSpell,
     buildRuntimeConditionRecord,
     canAdvanceEffectStage,
     canPayActivation,
@@ -60,23 +59,17 @@
     listCarriedEffectEntries,
     listEffectActiveActions,
     listSelectableConditions,
-    payActivation,
     resolveActionCostBlock,
-    resolveActorStats,
-    resolveEffectUseCost,
   } from '@vtt/shared/system/dnd.js';
 
-  import { applyEffectSource } from '../../composables/effectActivationUse';
+  import { applyEntityEffectUse } from '../../composables/effectActivationUse';
   import { runEntityEffectAction } from '../../composables/effectActiveAction';
   import {
     listEscapeHelpOffers,
     runEffectEscape,
     runEscapeAs,
   } from '../../composables/effectEscapeAction';
-  import {
-    payEntityActivation,
-    toggleEntityEffect,
-  } from '../../composables/effectToggle';
+  import { toggleEntityEffect } from '../../composables/effectToggle';
   import { requestEndCasts } from '../../composables/spellCasts';
   import { useActiveEffectModal } from '../../composables/useActiveEffectModal';
   import {
@@ -142,7 +135,6 @@
     /** Новый список эффектов сущности */
     'update:effects': [effects: ActiveEffect[]];
     /** Ресурсы после оплаты применения или включения */
-    'update:counters': [counters: ActorCounterState[]];
   }>();
 
   const effectsRef = computed(() => props.effects);
@@ -189,30 +181,6 @@
   }
 
   /**
-   * Предупреждает, что ресурса на применение или включение не хватает.
-   *
-   * @param effect - эффект с применением
-   */
-  function warnNoCounter(effect: ActiveEffect): void {
-    toast.add({
-      title: EFFECT_USE_LABELS.noCounterTitle,
-      description: `${EFFECT_USE_LABELS.noCounterPrefix}${effect.activation?.counter ?? ''}${EFFECT_USE_LABELS.noCounterSuffix}`,
-      color: 'warning',
-    });
-  }
-
-  /**
-   * Тратит ресурс применения или включения.
-   *
-   * @param effect - эффект с применением
-   */
-  function payEffectActivation(effect: ActiveEffect): void {
-    if (effect.activation?.counter) {
-      emit('update:counters', payActivation(props.counters, effect.activation));
-    }
-  }
-
-  /**
    * Переключает эффект. Переключатель на листе в просмотре идёт тем же путём,
    * что строка особенности и панель быстрого доступа: варианты — одна кнопка
    * с выбором при включении, ресурс тратит только включение с нуля, а смена
@@ -237,34 +205,19 @@
    * Применяет эффект листа вместе с вариантами его группы: выбор варианта,
    * затем копия ложится на владельца или цель, ресурс тратится один раз.
    *
+   * Тем же путём мира, что кнопка горячей панели (`applyEntityEffectUse`):
+   * ресурс списывается после выбора цели и вопроса о цене, а панель к этому
+   * времени может быть размонтирована — её `emit` ничего бы не списал. И Сл
+   * спасброска одна на лист и панель — с аурами карты.
+   *
    * @param effect - эффект «при применении»
    */
   function applyUseEffect(effect: ActiveEffect): void {
     const { owner } = props;
 
-    if (!owner) {
-      return;
+    if (owner) {
+      applyEntityEffectUse(owner.id, effect.id);
     }
-
-    if (!canPayActivation(props.counters, effect.activation)) {
-      warnNoCounter(effect);
-
-      return;
-    }
-
-    const group = collectEffectUseGroup(props.effects, effect);
-
-    applyEffectSource(
-      buildEffectGroupUseSpell(group),
-      owner,
-      resolveActorStats(owner).spellSaveDC,
-      () => payEffectActivation(effect),
-      // С ценой ресурсом счётчик применения уходит тем же сохранением
-      {
-        spendOn: (paidUser) => payEntityActivation(paidUser, effect),
-        cost: resolveEffectUseCost(group),
-      },
-    );
   }
 
   /**

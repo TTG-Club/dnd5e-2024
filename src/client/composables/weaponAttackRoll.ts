@@ -33,7 +33,6 @@ import {
   getWeaponPrimaryDamageType,
   isSaveAbility,
   isTargetAtFullHp,
-  resolveActorStats,
   resolveWeaponSaveDc,
 } from '@vtt/shared/system/dnd.js';
 
@@ -64,7 +63,7 @@ import { useBonusDamageParts } from './useBonusDamageParts';
 import {
   buildEntityFormulaContext,
   collectEffectsWithAuras,
-  listAmbientEffects,
+  resolveEntityStats,
 } from './useResolvedStats';
 import {
   announceOutOfReach,
@@ -237,10 +236,7 @@ export function openWeaponAttackRoll(
   port: WeaponAttackPort,
   options: { isDisadvantage: boolean; beforeRoll: () => boolean },
 ): void {
-  const resolvedStats = resolveActorStats(
-    attacker,
-    listAmbientEffects(attacker.id),
-  );
+  const resolvedStats = resolveEntityStats(attacker);
 
   const combinedEffects = collectEffectsWithAuras(attacker);
   const attackKey = getAttackBonusKey(weapon.rangeType);

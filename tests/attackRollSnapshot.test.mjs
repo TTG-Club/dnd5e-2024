@@ -159,7 +159,8 @@ async function setup(entities) {
     {
       ...snapshotPorts,
       listIgnoredResistances: engine.listIgnoredResistances,
-      resolveActorStats: engine.resolveActorStats,
+      // Аур на карте нет: числа — по самой сущности
+      resolveEntityStats: (entity) => engine.resolveActorStats(entity),
     },
   );
 
