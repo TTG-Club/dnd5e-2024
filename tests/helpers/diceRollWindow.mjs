@@ -22,7 +22,8 @@ const openDiceRollWindow = await loadHandler(
     generateId: (prefix) => `${prefix}-${(keyCounter += 1)}`,
     // Окна источников тесты входов не ведут: заменять нечего
     closeRollWindow: () => false,
-    sourceWindowIds: new Map(),
+    CLOSE_LISTENER_PROP: 'onUpdate:open',
+    sourceWindows: new Map(),
   },
 );
 

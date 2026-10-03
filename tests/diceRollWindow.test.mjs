@@ -60,7 +60,7 @@ describe('окно броска — один помощник', () => {
         DICE_ROLL_MODAL_KEY_PREFIX: 'dice-roll',
         generateId: (prefix) => `${prefix}-${(counter += 1)}`,
         closeRollWindow: () => assert.fail('без источника заменять нечего'),
-        sourceWindowIds: new Map(),
+        sourceWindows: new Map(),
       },
     );
 
@@ -131,12 +131,11 @@ async function loadRollWindow(manager) {
     DICE_ROLL_MODAL_KEY_PREFIX: 'dice-roll',
     CLOSE_LISTENER_PROP: 'onUpdate:open',
     SOURCE_KEY_SEPARATOR: ':',
-    sourceWindowIds: new Map(),
+    sourceWindows: new Map(),
     generateId: (prefix) => `${prefix}-${(counter += 1)}`,
   };
 
   for (const name of [
-    'isCloseListener',
     'findOpenSourceWindow',
     'closeRollWindow',
     'openDiceRollWindow',
@@ -176,11 +175,13 @@ describe('повторное действие источника заменяе�
     const open = (sourceKey, label) =>
       rollWindow.openDiceRollWindow(
         {
-          'title': label,
-          'onCancel': () => log.push(`cancel:${label}`),
-          'onUpdate:open': (isOpen) => log.push(`close:${label}:${isOpen}`),
+          title: label,
+          onCancel: () => log.push(`cancel:${label}`),
         },
-        { sourceKey },
+        {
+          sourceKey,
+          onClose: (isOpen) => log.push(`close:${label}:${isOpen}`),
+        },
       );
 
     open(sword, 'меч-1');
@@ -210,8 +211,8 @@ describe('повторное действие источника заменяе�
     const log = [];
 
     rollWindow.openDiceRollWindow(
-      { 'onUpdate:open': () => log.push('close') },
-      { sourceKey },
+      {},
+      { sourceKey, onClose: () => log.push('close') },
     );
 
     // Бросок закрыл окно: менеджер ещё держит его на время анимации
@@ -252,7 +253,7 @@ describe('повторное действие источника заменяе�
 
       assert.match(
         code,
-        /\{ sourceKey(?:: buildRollSourceKey\([^)]*\))? \}/u,
+        /\{ sourceKey(?:: buildRollSourceKey\([^)]*\))?(?:, onClose: \w+)? \}/u,
         `${path}: ключ не отдан окну`,
       );
     }

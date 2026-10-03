@@ -210,6 +210,7 @@ describe('фиксация: расход эффекта на броске ата
         isDndSceneEntity: engine.isDndSceneEntity,
         runAttackRollTriggers: engine.runAttackRollTriggers,
         listHeldAttackEffects: engine.listHeldAttackEffects,
+        cloneEntityData: engine.cloneEntityData,
         isEntityInCombat: () => inCombat,
         resolveActiveTurnActorId: () => null,
         resolveCombatRound: () => undefined,

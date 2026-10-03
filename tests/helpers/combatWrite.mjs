@@ -159,6 +159,12 @@ export async function loadEntityWrites({
         updated.push(entity);
         onSend('update', entity);
       },
+      SHEET_WRITE_LOG_PREFIX: '[test]',
+      SHEET_WRITE_ERRORS: await loadHandler(
+        SHEET_WRITE_PATH,
+        'SHEET_WRITE_ERRORS',
+        {},
+      ),
       console: { error: (message) => errors.push(message) },
       JSON,
     },

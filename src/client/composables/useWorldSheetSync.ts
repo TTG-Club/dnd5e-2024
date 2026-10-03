@@ -21,7 +21,7 @@ import {
 /** Что связывает черновик листа с миром */
 export interface WorldSheetSyncOptions<Entity extends DnDSceneEntity> {
   /** Сущность мира; нет — лист не привязан к миру (новая, запись компендиума) */
-  readWorld: () => DnDSceneEntity | null | undefined;
+  readWorld: () => Entity | null | undefined;
   /** Черновик листа */
   draft: Ref<Entity | null>;
   /**

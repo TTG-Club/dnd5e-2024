@@ -13,6 +13,7 @@ import { useTargetStore } from '@/stores/targetStore';
 import { useWorldStore } from '@/stores/worldStore';
 import {
   buildAttackRollEvent,
+  cloneEntityData,
   hasServerAttackRollTriggers,
   isDndSceneEntity,
   listHeldAttackEffects,
@@ -129,7 +130,7 @@ function settleAttackRollSide(
   // для этого больше не нужна
   changeEntityCombatState(entityId, (current) => {
     // Deep clone: shallow spread теряет вложенные Vue reactive-свойства
-    const updated: DnDSceneEntity = JSON.parse(JSON.stringify(current));
+    const updated = cloneEntityData(current);
 
     const result = runAttackRollTriggers(updated, role, {
       inCombat: isEntityInCombat(entityId),
@@ -151,12 +152,10 @@ function settleAttackRollSide(
 
     // Копии: запись стора ответ сервера заменит, а удар считается по
     // эффектам, какими они были до расхода
-    held = JSON.parse(
-      JSON.stringify(
-        listHeldAttackEffects(
-          current.activeEffects ?? [],
-          updated.activeEffects ?? [],
-        ),
+    held = cloneEntityData(
+      listHeldAttackEffects(
+        current.activeEffects ?? [],
+        updated.activeEffects ?? [],
       ),
     );
 

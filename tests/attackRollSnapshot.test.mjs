@@ -130,6 +130,7 @@ async function setup(entities) {
     listAttackTargetIds: () => (targetId ? [targetId] : []),
     runAttackRollTriggers: engine.runAttackRollTriggers,
     listHeldAttackEffects: engine.listHeldAttackEffects,
+    cloneEntityData: engine.cloneEntityData,
     toTriggerAttackKinds: engine.toTriggerAttackKinds,
     isEntityInCombat: () => false,
     resolveActiveTurnActorId: () => null,

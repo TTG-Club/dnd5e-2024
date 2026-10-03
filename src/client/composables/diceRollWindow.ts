@@ -19,8 +19,6 @@
  * разных источников живут независимо.
  */
 
-import type { ModalInstance } from '@/shared_ui/composables/useModalManager';
-
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { generateId } from '@vtt/shared';
 
@@ -29,10 +27,7 @@ import { DICE_ROLL_MODAL_KEY_PREFIX } from '../ui/actor/constants';
 /** Имя окна броска в менеджере окон ядра */
 const DICE_ROLL_MODAL = 'DiceRollModal';
 
-/**
- * Обработчик закрытия окна в его свойствах. Менеджер окон, закрывая окно сам
- * (`closeModal`), события окна не шлёт — обработчик зовёт помощник
- */
+/** Свойство окна, в которое ложится обработчик закрытия */
 const CLOSE_LISTENER_PROP = 'onUpdate:open';
 
 /** Разделитель частей ключа источника */
@@ -51,10 +46,25 @@ export interface DiceRollWindowOptions {
    * заменяет
    */
   sourceKey?: string;
+  /**
+   * Обработчик закрытия окна: помощник кладёт его в свойства окна и зовёт
+   * сам, когда закрывает окно ради замены, — менеджер окон, закрывая окно
+   * (`closeModal`), события окна не шлёт (README, § «Чего не хватает для
+   * полноценного SDK», п. 36)
+   */
+  onClose?: (isOpen: boolean) => void;
 }
 
-/** Окна действий по источнику: id окна в менеджере окон */
-const sourceWindowIds = new Map<string, string>();
+/** Окно действия источника */
+interface SourceWindow {
+  /** id окна в менеджере окон */
+  modalId: string;
+  /** Обработчик закрытия, который ведёт вызывающий */
+  onClose: ((isOpen: boolean) => void) | undefined;
+}
+
+/** Окна действий по источнику */
+const sourceWindows = new Map<string, SourceWindow>();
 
 /**
  * Ключ источника действия: то же оружие, заклинание или действие той же
@@ -75,31 +85,24 @@ export function buildRollSourceKey(
 }
 
 /**
- * Обработчик закрытия окна: функция от «открыто ли».
- *
- * @param value - свойство окна
- * @returns `true`, если это обработчик
- */
-function isCloseListener(value: unknown): value is (isOpen: boolean) => void {
-  return typeof value === 'function';
-}
-
-/**
  * Открытое окно источника, в котором ещё не бросили. Окно, которое бросило
  * или закрыто, из учёта выбывает: оно уже закрывается само.
  *
  * @param sourceKey - источник действия
- * @returns окно менеджера либо `undefined`
+ * @returns окно источника либо `undefined`
  */
-function findOpenSourceWindow(sourceKey: string): ModalInstance | undefined {
-  const modalId = sourceWindowIds.get(sourceKey);
-  const modal = modalId ? useModalManager().getModal(modalId) : undefined;
+function findOpenSourceWindow(sourceKey: string): SourceWindow | undefined {
+  const sourceWindow = sourceWindows.get(sourceKey);
 
-  if (modal?.props.open === true) {
-    return modal;
+  const modal = sourceWindow
+    ? useModalManager().getModal(sourceWindow.modalId)
+    : undefined;
+
+  if (sourceWindow && modal?.props.open === true) {
+    return sourceWindow;
   }
 
-  sourceWindowIds.delete(sourceKey);
+  sourceWindows.delete(sourceKey);
 
   return undefined;
 }
@@ -119,20 +122,15 @@ function findOpenSourceWindow(sourceKey: string): ModalInstance | undefined {
  * @returns `true`, если окно было и закрыто: новое встаёт на его место
  */
 export function closeRollWindow(sourceKey: string): boolean {
-  const modal = findOpenSourceWindow(sourceKey);
+  const sourceWindow = findOpenSourceWindow(sourceKey);
 
-  if (!modal) {
+  if (!sourceWindow) {
     return false;
   }
 
-  const closeListener = modal.props[CLOSE_LISTENER_PROP];
-
-  sourceWindowIds.delete(sourceKey);
-  useModalManager().closeModal(modal.id);
-
-  if (isCloseListener(closeListener)) {
-    closeListener(false);
-  }
+  sourceWindows.delete(sourceKey);
+  useModalManager().closeModal(sourceWindow.modalId);
+  sourceWindow.onClose?.(false);
 
   return true;
 }
@@ -145,7 +143,7 @@ export function closeRollWindow(sourceKey: string): boolean {
  * при неудаче убирает.
  *
  * @param props - свойства окна
- * @param options - ключ окна и источник действия
+ * @param options - ключ окна, источник действия и обработчик закрытия
  * @returns id окна; `null` — окно не открылось (окно с этим ключом уже есть,
  *   и менеджер поднял его)
  */
@@ -153,7 +151,7 @@ export function openDiceRollWindow(
   props: Record<string, unknown>,
   options: DiceRollWindowOptions = {},
 ): string | null {
-  const { sourceKey } = options;
+  const { sourceKey, onClose } = options;
 
   if (sourceKey !== undefined) {
     closeRollWindow(sourceKey);
@@ -161,11 +159,12 @@ export function openDiceRollWindow(
 
   const modalId = useModalManager().openModal(DICE_ROLL_MODAL, {
     ...props,
+    ...(onClose ? { [CLOSE_LISTENER_PROP]: onClose } : {}),
     _modalKey: options.modalKey ?? generateId(DICE_ROLL_MODAL_KEY_PREFIX),
   });
 
   if (modalId !== null && sourceKey !== undefined) {
-    sourceWindowIds.set(sourceKey, modalId);
+    sourceWindows.set(sourceKey, { modalId, onClose });
   }
 
   return modalId;

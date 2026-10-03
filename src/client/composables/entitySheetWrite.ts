@@ -35,6 +35,15 @@ import {
 import { readSentTriggerUsage } from './entityCombatWrite';
 import { useWorldEntities } from './useWorldEntities';
 
+/** Метка сообщений помощника в журнале браузера */
+const SHEET_WRITE_LOG_PREFIX = '[entitySheetWrite]';
+
+/** Что помощник пишет в журнал, отказывая записи или замечая чужой раздел */
+const SHEET_WRITE_ERRORS = {
+  combatState: 'хиты и эффекты меняет боевой снимок, а не запись листа',
+  triggerUsage: 'журнал срабатываний шлёт боевой снимок, а не запись листа',
+};
+
 /**
  * Не тронуты ли хиты и эффекты: их меняет только боевой снимок. Полная запись
  * с другими хитами или эффектами затёрла бы то, что сервер изменил после
@@ -100,7 +109,7 @@ export function changeEntitySheet(
 
   if (!keepsCombatState(current, changed)) {
     console.error(
-      `[entitySheetWrite] ${current.name}: хиты и эффекты меняет боевой снимок, а не запись листа`,
+      `${SHEET_WRITE_LOG_PREFIX} ${current.name}: ${SHEET_WRITE_ERRORS.combatState}`,
     );
 
     return null;
@@ -112,7 +121,7 @@ export function changeEntitySheet(
     JSON.stringify(readTriggerUsage(changed)) !== JSON.stringify(storeLedger)
   ) {
     console.error(
-      `[entitySheetWrite] ${current.name}: журнал срабатываний шлёт боевой снимок, а не запись листа`,
+      `${SHEET_WRITE_LOG_PREFIX} ${current.name}: ${SHEET_WRITE_ERRORS.triggerUsage}`,
     );
   }
 

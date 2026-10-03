@@ -12,6 +12,8 @@
 
 import type { DnDSceneEntity } from '@vtt/shared/system/dnd.js';
 
+import { cloneEntityData } from '@vtt/shared/system/dnd.js';
+
 /**
  * Разделы, которые кладёт в мир запись листа (`changeEntitySheet`): ресурсы
  * листа, предметы, заклинания
@@ -48,18 +50,17 @@ export const WORLD_SHEET_SECTIONS: readonly WorldSheetSection[] = [
  * сущности мира нет, в черновике не трогается.
  *
  * @param draft - черновик листа (меняется)
- * @param world - сущность мира
+ * @param world - сущность мира того же вида, что черновик
  * @param section - раздел
  */
-export function copyWorldSection<Entity extends DnDSceneEntity>(
-  draft: Entity,
-  world: DnDSceneEntity,
-  section: WorldSheetSection,
-): void {
+export function copyWorldSection<
+  Entity extends DnDSceneEntity,
+  Section extends WorldSheetSection,
+>(draft: Entity, world: Entity, section: Section): void {
   const value = world[section];
 
   if (value !== undefined) {
-    draft[section] = JSON.parse(JSON.stringify(value));
+    draft[section] = cloneEntityData(value);
   }
 }
 
@@ -67,11 +68,11 @@ export function copyWorldSection<Entity extends DnDSceneEntity>(
  * Кладёт в черновик все разделы, которые система пишет в мир.
  *
  * @param draft - черновик листа (меняется)
- * @param world - сущность мира
+ * @param world - сущность мира того же вида, что черновик
  */
 export function copyWorldSections<Entity extends DnDSceneEntity>(
   draft: Entity,
-  world: DnDSceneEntity,
+  world: Entity,
 ): void {
   for (const section of WORLD_SHEET_SECTIONS) {
     copyWorldSection(draft, world, section);

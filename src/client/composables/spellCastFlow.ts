@@ -1231,20 +1231,19 @@ export function openSpellCastWindow(
   if (plan.window === 'confirm') {
     const confirmOpened = openDiceRollWindow(
       {
-        'title': `${ACTOR_SPELLS_TAB_LABELS.rollTitlePrefix}${sourceSpell.name}`,
-        'rollLabel': sourceSpell.name,
-        'rollButtonText': SPELL_MENU_LABELS.cast,
-        'skipRoll': true,
-        'beforeRoll': effectTargets?.validate ?? isCurrentProjectileCast,
+        title: `${ACTOR_SPELLS_TAB_LABELS.rollTitlePrefix}${sourceSpell.name}`,
+        rollLabel: sourceSpell.name,
+        rollButtonText: SPELL_MENU_LABELS.cast,
+        skipRoll: true,
+        beforeRoll: effectTargets?.validate ?? isCurrentProjectileCast,
         damageTypeChoice,
         ...slotProps,
-        'onRoll': () => {
+        onRoll: () => {
           releaseUnload();
           settleNoRollSpellCast(session);
         },
-        'onUpdate:open': handleModalClose,
       },
-      { sourceKey },
+      { sourceKey, onClose: handleModalClose },
     );
 
     settleSpellCastWindowOpen(
@@ -1287,29 +1286,29 @@ export function openSpellCastWindow(
 
   const rollOpened = openDiceRollWindow(
     {
-      'title': `${ACTOR_SPELLS_TAB_LABELS.rollTitlePrefix}${sourceSpell.name}`,
-      'rollLabel': sourceSpell.name,
-      'rollButtonText': SPELL_ROLL_BUTTON_LABELS[plan.rollKind ?? 'damage'],
-      'formula': resolvedDamageFormula,
+      title: `${ACTOR_SPELLS_TAB_LABELS.rollTitlePrefix}${sourceSpell.name}`,
+      rollLabel: sourceSpell.name,
+      rollButtonText: SPELL_ROLL_BUTTON_LABELS[plan.rollKind ?? 'damage'],
+      formula: resolvedDamageFormula,
       // Без известной цели ветки «полные / не полные хиты» показываются через
       // «или», а не суммой
-      'formulaDisplay':
+      formulaDisplay:
         targetIsFull === undefined && hasTargetToken(firstPartFormula)
           ? formatConditionalDamageDisplay(firstPartFormula, (subFormula) =>
               resolveSpellDamageFormula(sourceSpell, caster, subFormula, stats),
             )
           : undefined,
-      'attackModifier': attackType
+      attackModifier: attackType
         ? calculateSpellAttackModifier(caster, sourceSpell, stats)
         : undefined,
-      'initialRollMode': spellAttackRoll?.mode ?? 'normal',
-      'rollModeReasons': spellAttackRoll?.reasons,
+      initialRollMode: spellAttackRoll?.mode ?? 'normal',
+      rollModeReasons: spellAttackRoll?.reasons,
       // Расход одноразовых эффектов «следующей атаки» на броске атаки
-      'attackerId': caster.id,
-      'evaluateBonusRollFormulas': hasProjectiles
+      attackerId: caster.id,
+      evaluateBonusRollFormulas: hasProjectiles
         ? undefined
         : evaluateAttackBonusRollFormulas,
-      'evaluateProjectileBonusRollFormulas':
+      evaluateProjectileBonusRollFormulas:
         hasProjectiles && evaluateAttackBonusRollFormulas
           ? (context: RollContext) =>
               collectProjectileRollBonuses(
@@ -1317,13 +1316,13 @@ export function openSpellCastWindow(
                 evaluateAttackBonusRollFormulas,
               )
           : undefined,
-      'incomingAttackType': attackType,
-      'isHealing': spellIsHealing(sourceSpell),
-      'damageType': getSpellPrimaryDamageType(sourceSpell),
-      'skipDamageApplication': plan.needsTargetResolution,
-      'skipChatMessage': hasProjectiles,
+      incomingAttackType: attackType,
+      isHealing: spellIsHealing(sourceSpell),
+      damageType: getSpellPrimaryDamageType(sourceSpell),
+      skipDamageApplication: plan.needsTargetResolution,
+      skipChatMessage: hasProjectiles,
       // Атакующие снаряды: окно отдаёт контекст, серию бросков катит разбор
-      'onProjectileAttack':
+      onProjectileAttack:
         hasProjectiles && attackType
           ? (rollContext: Omit<ProjectileAttackContext, 'attackType'>) => {
               releaseUnload();
@@ -1334,26 +1333,26 @@ export function openSpellCastWindow(
       // Атакующее заклинание-эффект (без многочастного пути): попадание
       // запоминается, эффекты на цель ложатся после доведения каста.
       // Многочастные накладывают их сами
-      'onHit':
+      onHit:
         attackType && plan.hasTargetEffects && !useMultiPart
           ? () => {
               session.state.attackLanded = true;
             }
           : undefined,
-      'damageParts': useMultiPart ? resolvedParts : undefined,
-      'onRollParts': useMultiPart
+      damageParts: useMultiPart ? resolvedParts : undefined,
+      onRollParts: useMultiPart
         ? (parts: RolledSpellDamagePart[], attack?: AttackRollSnapshot) => {
             releaseUnload();
             settleSpellRollParts(session, parts, attack);
           }
         : undefined,
       // Снарядам бонус-части катает разбор, а не окно
-      'evaluateBonusDamageParts': useMultiPart
+      evaluateBonusDamageParts: useMultiPart
         ? evaluateSpellBonusParts
         : undefined,
       ...slotProps,
-      'spellScalingDice': sourceSpell.scaling?.additionalDice,
-      'onRoll': (
+      spellScalingDice: sourceSpell.scaling?.additionalDice,
+      onRoll: (
         rolledTotal: number,
         chosenDamageType?: string,
         attack?: AttackRollSnapshot,
@@ -1361,10 +1360,9 @@ export function openSpellCastWindow(
         releaseUnload();
         settleSpellRoll(session, rolledTotal, chosenDamageType, attack);
       },
-      'beforeRoll': isCurrentProjectileCast,
-      'onUpdate:open': handleModalClose,
+      beforeRoll: isCurrentProjectileCast,
     },
-    { sourceKey },
+    { sourceKey, onClose: handleModalClose },
   );
 
   settleSpellCastWindowOpen(
