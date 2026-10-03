@@ -23,6 +23,9 @@ const usagePorts = {
 /** Срок памяти посланного журнала — как в помощнике */
 const SENT_USAGE_TTL_MS = 5000;
 
+/** Срок памяти посланных изменений эффектов — как в помощнике */
+const SENT_EFFECTS_TTL_MS = 2000;
+
 /**
  * Настоящие функции памяти посланного журнала с общим состоянием.
  *
@@ -30,13 +33,21 @@ const SENT_USAGE_TTL_MS = 5000;
  * @param {object} [clock] - часы и ход боя, которыми управляет тест
  * @param {() => number} [clock.now] - текущее время, мс
  * @param {() => string} [clock.turnStamp] - метка идущего хода
- * @returns {Promise<object>} `readSentTriggerUsage` и `rememberSentTriggerUsage`
+ * @returns {Promise<object>} память посланного: журнал срабатываний
+ *   (`readSentTriggerUsage`, `rememberSentTriggerUsage`) и эффекты
+ *   (`readSentActiveEffects`, `rememberSentEffects`, `rememberSentCastEnd`)
  */
 async function loadSentTriggerUsage(findEntity, clock = {}) {
   const ports = {
     ...usagePorts,
     sentTriggerUsage: new Map(),
     SENT_USAGE_TTL_MS,
+    sentEffects: [],
+    SENT_EFFECTS_TTL_MS,
+    applyEffectChanges: engine.applyEffectChanges,
+    diffEffects: engine.diffEffects,
+    withoutCastEffects: engine.withoutCastEffects,
+    JSON,
     Date: { now: () => clock.now?.() ?? 0 },
     resolveTurnStamp: () => clock.turnStamp?.() ?? '',
     useWorldEntities: () => ({ findCurrentDndEntity: findEntity }),
@@ -49,6 +60,10 @@ async function loadSentTriggerUsage(findEntity, clock = {}) {
     'forgetStaleSentTriggerUsage',
     'readSentTriggerUsage',
     'rememberSentTriggerUsage',
+    'forgetStaleSentEffects',
+    'readSentActiveEffects',
+    'rememberSentEffects',
+    'rememberSentCastEnd',
   ]) {
     ports[name] = await loadHandler(COMBAT_WRITE_PATH, name, ports);
   }
@@ -82,6 +97,7 @@ export async function loadChangeEntityCombatState({
     useWorldEntities: () => ({ findCurrentDndEntity: findEntity }),
     recordCombatBaseline,
     rememberSentTriggerUsage: sentPorts.rememberSentTriggerUsage,
+    rememberSentEffects: sentPorts.rememberSentEffects,
     emitEntityCombatState: (_socket, entity) => emitted.push(entity),
   });
 }
@@ -138,6 +154,7 @@ export async function loadEntityWrites({
     {
       ...usagePorts,
       readSentTriggerUsage: sent.readSentTriggerUsage,
+      readSentActiveEffects: sent.readSentActiveEffects,
       keepsCombatState: await loadHandler(
         SHEET_WRITE_PATH,
         'keepsCombatState',
@@ -175,6 +192,7 @@ export async function loadEntityWrites({
     changeEntityCombatState,
     recordCombatBaseline,
     rememberSentTriggerUsage: sent.rememberSentTriggerUsage,
+    rememberSentEffects: sent.rememberSentEffects,
     useChatStore: () => ({ getSocket: () => ({}) }),
     useWorldEntities: () => ({ findCurrentDndEntity: findEntity }),
     emitEntityCombatState: (_socket, entity) => combatLog.push(entity),
@@ -197,6 +215,7 @@ export async function loadEntityWrites({
     changeEntitySheet,
     sendComputedCombatState,
     sendTriggerUsageSpend,
+    rememberSentCastEnd: sent.rememberSentCastEnd,
     emitted,
     updated,
     errors,

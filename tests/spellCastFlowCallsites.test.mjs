@@ -790,8 +790,24 @@ const CREATURE_CELLS = [
       deliveryType: 'self',
       activeEffects: [createEffect('ward', { effectTarget: 'self' })],
     },
-    // Каст без окна применяется сразу; ход тратится, когда он состоялся
-    expect: ['complete', 'turn:mage'],
+    // Каст без окна применяется сразу; ход тратится до доведения каста
+    expect: ['turn:mage', 'complete'],
+  },
+  {
+    title: 'существо без броска с зарядом и концентрацией',
+    spell: {
+      id: 'veil',
+      name: 'Невидимость',
+      level: 2,
+      saveType: 'none',
+      deliveryType: 'self',
+      concentration: true,
+      uses: { max: 1, current: 1, recovery: 'longRest' },
+      activeEffects: [createEffect('veil', { effectTarget: 'self' })],
+    },
+    // Заряд — полная запись сущности: после доведения каста она вернула бы
+    // серверу прежние эффекты вместо новой метки концентрации
+    expect: ['turn:mage', 'update:mage', 'complete'],
   },
 ];
 

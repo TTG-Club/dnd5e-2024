@@ -8,6 +8,7 @@ import {
   withoutCastEffects,
 } from '@vtt/shared/system/dnd.js';
 
+import { rememberSentCastEnd } from './entityCombatWrite';
 import { emitSystemClientEvent } from './systemClientEvents';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -140,6 +141,10 @@ export function requestEndCasts(
   }
 
   emitSystemClientEvent(buildEndCastsEvent(casterId, castIds));
+
+  // Эффекты этих кастов лежат в сторе до ответа сервера: полная запись
+  // листа, ушедшая следом, не должна их вернуть
+  rememberSentCastEnd(casterId, castIds);
 }
 
 /**

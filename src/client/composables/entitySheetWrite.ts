@@ -32,7 +32,10 @@ import {
   withTriggerUsage,
 } from '@vtt/shared/system/dnd.js';
 
-import { readSentTriggerUsage } from './entityCombatWrite';
+import {
+  readSentActiveEffects,
+  readSentTriggerUsage,
+} from './entityCombatWrite';
 import { useWorldEntities } from './useWorldEntities';
 
 /** Метка сообщений помощника в журнале браузера */
@@ -73,6 +76,10 @@ function keepsCombatState(
  * перечитывается в момент записи. Ресурсы, посчитанные заранее (оплата цены
  * прошла через вопросы человеку), переносятся на свежую сущность
  * `withSheetResources(current, spent)`.
+ *
+ * Эффекты серверу уходят не из стора, а с посланным боевым каналом
+ * (`readSentActiveEffects`): запись листа сразу после каста не возвращает
+ * прежнюю метку концентрации и не стирает новую.
  *
  * Журнал срабатываний (`system.effectUsage`) — боевое состояние, как хиты и
  * эффекты: из преобразования он не берётся и этим помощником не шлётся.
@@ -127,8 +134,20 @@ export function changeEntitySheet(
 
   // Серверу — журнал с посланным расходом; стору — его прежний журнал: журнал
   // стора меняет только ответ сервера, по нему и узнают, что посланное дошло
-  const next = withTriggerUsage(changed, readSentTriggerUsage(current));
   const stored = withTriggerUsage(changed, storeLedger);
+
+  // Эффекты серверу — с посланным боевым каналом, чего в сторе ещё нет: метка
+  // концентрации только что доведённого каста, снятое концом прежнего каста.
+  // Стор их не получает: его эффекты меняет только ответ сервера
+  const storeEffects = current.activeEffects ?? [];
+  const sentEffects = readSentActiveEffects(current);
+
+  const next = withTriggerUsage(
+    JSON.stringify(sentEffects) === JSON.stringify(storeEffects)
+      ? changed
+      : { ...changed, activeEffects: [...sentEffects] },
+    readSentTriggerUsage(current),
+  );
 
   // Изменился только журнал — полной записи нечего нести
   if (

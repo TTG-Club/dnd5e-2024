@@ -261,20 +261,25 @@ export function startCreatureSpellCast(
         const sourceKey = buildRollSourceKey(creature.id, 'spell', spell.id);
         const replaced = closeRollWindow(sourceKey);
 
+        /** Каст состоялся: ход и применение — один раз на каст */
+        const commitCastStart = (): void => {
+          if (!replaced) {
+            spendTurn();
+            spendUse();
+          }
+        };
+
         if (
-          openCreatureSpellRoll(
+          !openCreatureSpellRoll(
             spell,
             creature,
             templateId,
             placement,
             sourceKey,
+            commitCastStart,
           )
+          && templateId
         ) {
-          if (!replaced) {
-            spendTurn();
-            spendUse();
-          }
-        } else if (templateId) {
           discardSpellTemplate(templateId);
         }
       };
@@ -322,6 +327,10 @@ export function startCreatureSpellCast(
  * @param placement - группа, из которой идёт каст
  * @param sourceKey - источник действия: окно встаёт на место прежнего окна
  *   того же заклинания
+ * @param onCastStarted - каст состоялся: вызывающий тратит ход и применение.
+ *   У каста без окна зовётся ДО доведения каста: запись заряда — полная
+ *   запись сущности, и после доведения она вернула бы серверу эффекты из
+ *   стора — прежнюю метку концентрации вместо новой
  * @returns `true` — каст состоялся (окно открылось или каст применён сразу)
  */
 export function openCreatureSpellRoll(
@@ -330,6 +339,7 @@ export function openCreatureSpellRoll(
   templateId: string | undefined,
   placement: CreatureSpellPlacement | undefined,
   sourceKey?: string,
+  onCastStarted?: () => void,
 ): boolean {
   // Существо не атакует заклинанием со спасброском или областью
   const usesSaveOrArea =
@@ -395,6 +405,9 @@ export function openCreatureSpellRoll(
   // Ни урона, ни атаки — окну броска катить нечего: каст применяется сразу,
   // тип урона на выбор спросит плашка
   if (plan.window !== 'roll') {
+    // Ресурсы каста — до его доведения (правило `completeSpellCast`)
+    onCastStarted?.();
+
     runWithDamageTypeChoices(setup.pseudoSpell, (chosen) => {
       applyCreatureSpellParts(
         creature.id,
@@ -494,7 +507,13 @@ export function openCreatureSpellRoll(
     sourceKey === undefined ? {} : { sourceKey },
   );
 
-  return opened !== null;
+  if (opened === null) {
+    return false;
+  }
+
+  onCastStarted?.();
+
+  return true;
 }
 
 /**

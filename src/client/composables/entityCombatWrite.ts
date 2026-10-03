@@ -23,21 +23,32 @@
  * ({@link readSentTriggerUsage}): полная запись листа берёт его отсюда, а не
  * из стора, где расхода ещё нет, — иначе она вернула бы серверу прежний
  * журнал.
+ *
+ * С эффектами то же: разница эффектов, посланная снимком, и конец кастов,
+ * посланный серверу, помнятся, пока стор их не догнал
+ * ({@link readSentActiveEffects}). Полная запись листа, ушедшая следом за
+ * кастом, иначе вернула бы серверу эффекты стора — прежнюю метку
+ * концентрации вместо новой.
  */
 
 import type {
+  ActiveEffect,
   DnDSceneEntity,
+  EffectChanges,
   EffectTriggerUsageLedger,
 } from '@vtt/shared/system/dnd.js';
 
 import { emitEntityCombatState } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
 import {
+  applyEffectChanges,
   applyTriggerUsageChanges,
+  diffEffects,
   diffTriggerUsage,
   hasTriggerUsageChanges,
   readTriggerUsage,
   recordCombatBaseline,
+  withoutCastEffects,
   withTriggerUsage,
 } from '@vtt/shared/system/dnd.js';
 
@@ -195,6 +206,173 @@ function rememberSentTriggerUsage(
 }
 
 /**
+ * Сколько помнятся посланные изменения эффектов, если стор их так и не
+ * догнал. Короче срока журнала: сервер отвечает за десятки миллисекунд, а
+ * эффект, снятый им позже по своим правилам, память вернуть не должна
+ */
+const SENT_EFFECTS_TTL_MS = 2000;
+
+/** Изменение эффектов, посланное серверу, пока стор его не догнал */
+type SentEffectsEntry =
+  | {
+      /** Разница эффектов сущности, ушедшая боевым снимком */
+      kind: 'changes';
+      /** Чьи эффекты */
+      entityId: string;
+      /** Разница «основа → снимок» */
+      changes: EffectChanges;
+      /** Ход боя в момент отправки: конец хода снимает эффекты на сервере */
+      turnStamp: string;
+      /** Когда ушло, мс */
+      sentAt: number;
+    }
+  | {
+      /** Конец кастов: сервер снимает их эффекты со всех сущностей */
+      kind: 'castEnd';
+      /** Заклинатель */
+      casterId: string;
+      /** Закончившиеся касты */
+      castIds: ReadonlySet<string>;
+      /** Ход боя в момент отправки */
+      turnStamp: string;
+      /** Когда ушло, мс */
+      sentAt: number;
+    };
+
+/** Посланные изменения эффектов по порядку отправки */
+const sentEffects: SentEffectsEntry[] = [];
+
+/**
+ * Забывает посланные изменения эффектов, которые уже не действуют: вышел срок
+ * или сменился ход.
+ *
+ * @param now - текущее время, мс
+ */
+function forgetStaleSentEffects(now: number): void {
+  const turnStamp = resolveTurnStamp();
+
+  const live = sentEffects.filter(
+    (entry) =>
+      now - entry.sentAt <= SENT_EFFECTS_TTL_MS
+      && entry.turnStamp === turnStamp,
+  );
+
+  sentEffects.splice(0, sentEffects.length, ...live);
+}
+
+/**
+ * Запоминает разницу эффектов, ушедшую снимком.
+ *
+ * @param base - сущность, от которой считали снимок
+ * @param sent - отправленная копия
+ */
+function rememberSentEffects(base: DnDSceneEntity, sent: DnDSceneEntity): void {
+  const changes = diffEffects(
+    base.activeEffects ?? [],
+    sent.activeEffects ?? [],
+  );
+
+  if (
+    changes.add.length === 0
+    && changes.update.length === 0
+    && changes.removeIds.length === 0
+  ) {
+    return;
+  }
+
+  forgetStaleSentEffects(Date.now());
+
+  sentEffects.push({
+    kind: 'changes',
+    entityId: sent.id,
+    changes,
+    turnStamp: resolveTurnStamp(),
+    sentAt: Date.now(),
+  });
+}
+
+/**
+ * Запоминает конец кастов, посланный серверу: до его ответа эффекты этих
+ * кастов ещё лежат в сторе, и полная запись листа вернула бы их.
+ *
+ * @param casterId - заклинатель
+ * @param castIds - закончившиеся касты
+ */
+export function rememberSentCastEnd(
+  casterId: string,
+  castIds: readonly string[],
+): void {
+  if (castIds.length === 0) {
+    return;
+  }
+
+  forgetStaleSentEffects(Date.now());
+
+  sentEffects.push({
+    kind: 'castEnd',
+    casterId,
+    castIds: new Set(castIds),
+    turnStamp: resolveTurnStamp(),
+    sentAt: Date.now(),
+  });
+}
+
+/**
+ * Эффекты сущности с изменениями, которые ушли серверу (боевым снимком,
+ * концом каста), но в стор ещё не вернулись. Их берёт полная запись листа:
+ * она заменяет сущность целиком, и эффекты из стора стёрли бы только что
+ * наложенное и вернули бы только что снятое.
+ *
+ * Изменения применяются по порядку отправки тем же слиянием, что на сервере.
+ * Наложенный эффект, который в сторе уже есть, берётся из стора: он дошёл, и
+ * сервер мог его дополнить. Стор догнал посланное — список совпал, и разницы
+ * этой сущности забываются.
+ *
+ * @param storeEntity - запись стора
+ * @returns эффекты для записи; посланного нет или стор его догнал — эффекты
+ *   стора как есть
+ */
+export function readSentActiveEffects(
+  storeEntity: DnDSceneEntity,
+): readonly ActiveEffect[] {
+  forgetStaleSentEffects(Date.now());
+
+  const storeEffects = storeEntity.activeEffects ?? [];
+
+  const expected = sentEffects.reduce<readonly ActiveEffect[]>(
+    (effects, entry) => {
+      if (entry.kind === 'castEnd') {
+        return withoutCastEffects(effects, entry.casterId, entry.castIds);
+      }
+
+      if (entry.entityId !== storeEntity.id) {
+        return effects;
+      }
+
+      const landedIds = new Set(effects.map((effect) => effect.id));
+
+      return applyEffectChanges(effects, {
+        ...entry.changes,
+        add: entry.changes.add.filter((effect) => !landedIds.has(effect.id)),
+      });
+    },
+    storeEffects,
+  );
+
+  if (JSON.stringify(expected) !== JSON.stringify(storeEffects)) {
+    return expected;
+  }
+
+  const pending = sentEffects.filter(
+    (entry) => entry.kind === 'castEnd' || entry.entityId !== storeEntity.id,
+  );
+
+  sentEffects.splice(0, sentEffects.length, ...pending);
+
+  return storeEffects;
+}
+
+/**
  * Меняет боевое состояние сущности мира: хиты, эффекты, счётчики
  * срабатываний.
  *
@@ -232,6 +410,7 @@ export function changeEntityCombatState(
   recordCombatBaseline(next, current);
   emitEntityCombatState(socket, next);
   rememberSentTriggerUsage(current, current, next);
+  rememberSentEffects(current, next);
 
   return next;
 }
@@ -268,6 +447,8 @@ export function sendComputedCombatState(
   if (storeEntity) {
     rememberSentTriggerUsage(storeEntity, base, computed);
   }
+
+  rememberSentEffects(base, computed);
 
   return true;
 }
