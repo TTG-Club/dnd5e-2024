@@ -165,6 +165,7 @@
     grantedClassSpellRequests,
     classSpellListOffers,
     preparedSpellsAtLevel,
+    preparedSpellsRoom,
 
     nextStep,
     prevStep,
@@ -650,6 +651,7 @@
             :modes="wizardState.classSpellListModes"
             :picks="wizardState.classSpellListPicks"
             :prepared-value="preparedSpellsAtLevel"
+            :prepared-room="preparedSpellsRoom"
             @update:mode="handleClassSpellListModeUpdate"
             @update:picks="handleClassSpellListPicksUpdate"
           />

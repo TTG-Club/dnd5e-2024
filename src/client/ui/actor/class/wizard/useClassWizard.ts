@@ -58,6 +58,7 @@ import {
   COUNTER_FORMULA_TOKENS,
   counterAbilityModifierFormula,
   counterDefinitionRest,
+  countsTowardPreparedSpells,
   evaluateCounterMaxFormula,
   expandChoiceScaling,
   featChoicePendingCount,
@@ -433,6 +434,27 @@ function featureGrantedBy(
  */
 function asClassGrant<T extends { grantKind?: SpellGrantKind }>(grant: T): T {
   return { ...grant, grantKind: grant.grantKind ?? 'class' };
+}
+
+/**
+ * Сколько заклинаний класс готовит по своей таблице на уровне, который у него
+ * записан на листе.
+ *
+ * @param sheet - лист: настоящий либо с уже применённым уровнем
+ * @param classDef - запись класса, с которой работает мастер
+ * @returns число из таблицы; null — класса на листе нет или колонки нет
+ */
+function classPreparedValue(
+  sheet: DnDActor,
+  classDef: ClassDefinition,
+): number | null {
+  return getClassPreparedValue(
+    (sheet.system.classes ?? []).filter(
+      (entry) => entry.classKey === classDef.key,
+    ),
+    () => classDef,
+    'spells',
+  );
 }
 
 /**
@@ -2294,7 +2316,9 @@ export function useClassWizard(
    * каждому умению, класть список целиком или выбрать из него самому.
    *
    * Круг «по ячейкам» сравнивается до и после уровня: новый круг ячеек снова
-   * открывает такой список, хотя его умение получено давно.
+   * открывает такой список, хотя его умение получено давно. Так же сравнивается
+   * предел подготовки по таблице класса: вырос — открытые раньше списки
+   * предлагаются снова, чтобы добрать заклинание.
    */
   const classSpellListOffers = computed((): ClassSpellListOffer[] => {
     const classDef = classDefinition.value;
@@ -2309,6 +2333,10 @@ export function useClassWizard(
       {
         before: getMaxSpellSlotLevel(actor.value),
         after: getMaxSpellSlotLevel(pendingActor.value),
+      },
+      {
+        before: classPreparedValue(actor.value, classDef),
+        after: classPreparedValue(pendingActor.value, classDef),
       },
     );
 
@@ -2330,17 +2358,7 @@ export function useClassWizard(
   const preparedSpellsAtLevel = computed((): number | null => {
     const classDef = classDefinition.value;
 
-    if (!classDef) {
-      return null;
-    }
-
-    return getClassPreparedValue(
-      (pendingActor.value.system.classes ?? []).filter(
-        (entry) => entry.classKey === classDef.key,
-      ),
-      () => classDef,
-      'spells',
-    );
+    return classDef ? classPreparedValue(pendingActor.value, classDef) : null;
   });
 
   /**
@@ -2373,6 +2391,24 @@ export function useClassWizard(
         proficiencyBonus: getActorProficiencyBonus(pending),
       },
     ).value;
+  });
+
+  /**
+   * Сколько выбранных заклинаний ещё ляжет подготовленными: предел листа после
+   * уровня без того, что на листе уже подготовлено. null — предела нет.
+   */
+  const preparedSpellsRoom = computed((): number | null => {
+    const limit = preparedSpellsLimit.value;
+
+    if (limit === null) {
+      return null;
+    }
+
+    const prepared = (actor.value.spells ?? []).filter(
+      countsTowardPreparedSpells,
+    ).length;
+
+    return Math.max(0, limit - prepared);
   });
 
   /** Требуется ли выбор подкласса на этом уровне */
@@ -3490,6 +3526,7 @@ export function useClassWizard(
     grantedClassSpellRequests,
     classSpellListOffers,
     preparedSpellsAtLevel,
+    preparedSpellsRoom,
 
     // Навигация
     nextStep,

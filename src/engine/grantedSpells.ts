@@ -294,19 +294,34 @@ export interface ClassSpellListOffer {
  * заклинания отсеивает тот, кто показывает предложение: по названию, как и вся
  * выдача.
  *
+ * Вырос предел подготовки класса — снова открываются и все группы, открытые
+ * раньше: игроку есть куда добрать заклинание, а новой группы уровень мог и не
+ * дать (бард на 2 уровне готовит пять вместо четырёх, а второй круг приходит
+ * только на 3-м). Группа с отметкой «не готовить» в предел не входит и его
+ * ростом не открывается.
+ *
  * @param features - умения класса и активного подкласса
  * @param classLevel - получаемый уровень класса
  * @param slotLevels - наибольший круг ячеек до уровня и после него
  * @param slotLevels.before - до получения уровня
  * @param slotLevels.after - после получения уровня
+ * @param preparedLimit - предел подготовки класса по его таблице до уровня и
+ *   после него; null — таблица числа не даёт. Не задан — рост предела не
+ *   учитывается
+ * @param preparedLimit.before - до получения уровня
+ * @param preparedLimit.after - после получения уровня
  * @returns предложения по умениям; умения без открывшихся групп пропущены
  */
 export function collectClassSpellListOffers(
   features: ReadonlyArray<FeatureWithClassSpellLists>,
   classLevel: number,
   slotLevels: { before: number; after: number },
+  preparedLimit?: { before: number | null; after: number | null },
 ): ClassSpellListOffer[] {
   const offers: ClassSpellListOffer[] = [];
+
+  const preparedLimitGrew =
+    (preparedLimit?.after ?? 0) > (preparedLimit?.before ?? 0);
 
   for (const feature of features) {
     const gainedAtLevel = feature.level ?? 1;
@@ -331,7 +346,9 @@ export function collectClassSpellListOffers(
       const newSlotCircle =
         group.fromSlots && slotLevels.after > slotLevels.before;
 
-      if (opensAt !== classLevel && !newSlotCircle) {
+      const roomToPrepare = preparedLimitGrew && !group.alwaysPrepared;
+
+      if (opensAt !== classLevel && !newSlotCircle && !roomToPrepare) {
         continue;
       }
 

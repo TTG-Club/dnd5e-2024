@@ -36,6 +36,11 @@
     picks: Record<string, string[]>;
     /** Сколько готовят по таблице класса на этом уровне; null — колонки нет */
     preparedValue: number | null;
+    /**
+     * Сколько мест подготовки на листе ещё свободно: предел после уровня без
+     * уже подготовленного. null — предела нет
+     */
+    preparedRoom: number | null;
   }>();
 
   const emit = defineEmits<{
@@ -65,6 +70,18 @@
     return levelDifference || first.name.localeCompare(second.name, 'ru');
   }
 
+  /**
+   * Сколько заклинаний предлагает набрать счётчик окна: столько, сколько ляжет
+   * подготовленными, — уже подготовленное на листе в счёт идёт. Мест нет или
+   * предела нет — счётчик показывает норму таблицы: книгу пополняют и сверх
+   * неё, такие заклинания лягут неподготовленными.
+   */
+  const pickLimit = computed((): number | null =>
+    props.preparedRoom !== null && props.preparedRoom > 0
+      ? props.preparedRoom
+      : props.preparedValue,
+  );
+
   /** Предложения с пулом, вариантами и подписями — один раз, а не в шаблоне */
   const entries = computed(() =>
     props.offers.map((offer) => {
@@ -92,11 +109,10 @@
         mode,
         options,
         selected: props.picks[offer.featureKey] ?? [],
-        // Подсказка, а не запрет: книгу пополняют и сверх нормы подготовки
         max:
-          props.preparedValue === null
+          pickLimit.value === null
             ? options.length
-            : Math.min(options.length, props.preparedValue),
+            : Math.min(options.length, pickLimit.value),
         modeItems: [
           {
             value: 'chosen',
@@ -113,11 +129,22 @@
     }),
   );
 
-  /** Пояснение к выбору: как ложатся выбранные и сколько готовят по таблице */
+  /**
+   * Пояснение к выбору: как ложатся выбранные, сколько готовят по таблице и
+   * сколько мест подготовки на листе ещё свободно
+   */
   const pickerHint = computed(() =>
-    props.preparedValue === null
-      ? CLASS_SPELL_LIST_LABELS.pickerExplanation
-      : `${CLASS_SPELL_LIST_LABELS.pickerExplanation} ${CLASS_SPELL_LIST_LABELS.preparedHintPrefix}${props.preparedValue}.`,
+    [
+      CLASS_SPELL_LIST_LABELS.pickerExplanation,
+      props.preparedValue === null
+        ? null
+        : `${CLASS_SPELL_LIST_LABELS.preparedHintPrefix}${props.preparedValue}.`,
+      props.preparedRoom === null
+        ? null
+        : `${CLASS_SPELL_LIST_LABELS.preparedRoomPrefix}${props.preparedRoom}.`,
+    ]
+      .filter((part) => part !== null)
+      .join(' '),
   );
 
   /**

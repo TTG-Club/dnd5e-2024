@@ -297,6 +297,171 @@ it('class lists open on their class level and again when slots give a new circle
   );
 });
 
+it('a grown prepared limit reopens the class lists opened on earlier levels', () => {
+  // Бард: круг открывается на 1, 3, 5 уровне, а предел подготовки растёт на каждом
+  const spellcasting = {
+    key: 'spellcasting',
+    name: 'Использование заклинаний',
+    level: 1,
+    grantedClassSpells: [
+      {
+        classKeys: ['bard'],
+        requiredLevel: 1,
+        level: 1,
+        alwaysPrepared: false,
+      },
+      {
+        classKeys: ['bard'],
+        requiredLevel: 3,
+        level: 2,
+        alwaysPrepared: false,
+      },
+      {
+        classKeys: ['bard'],
+        requiredLevel: 5,
+        level: 3,
+        alwaysPrepared: false,
+      },
+    ],
+  };
+
+  /** Круги списков, которые мастер предложит на уровне. */
+  function offeredCircles(classLevel, slotLevels, preparedLimit) {
+    return engine
+      .collectClassSpellListOffers(
+        [spellcasting],
+        classLevel,
+        slotLevels,
+        preparedLimit,
+      )
+      .flatMap((offer) => offer.requests.map((request) => request.level));
+  }
+
+  // 2 уровень: нового круга нет, а готовят пять вместо четырёх — добор из 1 круга
+  assert.deepEqual(
+    offeredCircles(2, { before: 1, after: 1 }, { before: 4, after: 5 }),
+    [1],
+  );
+
+  // 3 уровень: новый круг и добор из всех открытых
+  assert.deepEqual(
+    offeredCircles(3, { before: 1, after: 2 }, { before: 5, after: 6 }),
+    [1, 2],
+  );
+
+  // Предел не вырос и круга нет — спрашивать нечего
+  assert.deepEqual(
+    offeredCircles(4, { before: 2, after: 2 }, { before: 7, after: 7 }),
+    [],
+  );
+
+  // Таблица предела не даёт — как прежде, только новая группа уровня
+  assert.deepEqual(
+    offeredCircles(3, { before: 1, after: 2 }, { before: null, after: null }),
+    [2],
+  );
+
+  // Класс берётся впервые (мультикласс): предела «до» нет вовсе
+  assert.deepEqual(
+    offeredCircles(1, { before: 0, after: 1 }, { before: null, after: 4 }),
+    [1],
+  );
+
+  // Группа «не выше доступного круга» открывается ростом предела с нынешним кругом
+  const bySlots = {
+    key: 'magic',
+    name: 'Магия',
+    level: 1,
+    grantedClassSpells: [{ classKeys: ['druid'], fromSlots: true }],
+  };
+
+  const [reopened] = engine.collectClassSpellListOffers(
+    [bySlots],
+    4,
+    { before: 2, after: 2 },
+    { before: 6, after: 7 },
+  );
+
+  assert.equal(reopened.requests[0].maxLevel, 2);
+
+  // Список с отметкой «не готовить» в предел не входит и его ростом не открывается
+  const alwaysPrepared = {
+    key: 'domain',
+    name: 'Домен',
+    level: 1,
+    grantedClassSpells: [
+      {
+        classKeys: ['cleric'],
+        requiredLevel: 1,
+        level: 1,
+        alwaysPrepared: true,
+      },
+    ],
+  };
+
+  assert.equal(
+    engine.collectClassSpellListOffers(
+      [alwaysPrepared],
+      2,
+      { before: 1, after: 1 },
+      { before: 4, after: 5 },
+    ).length,
+    0,
+  );
+});
+
+it('the wizard reopens lists by the class table and counts picks against the free prepared places', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { systemRoot } = await import('./helpers/engineBundle.mjs');
+
+  const wizard = readFileSync(
+    join(systemRoot, 'src/client/ui/actor/class/wizard/useClassWizard.ts'),
+    'utf8',
+  );
+
+  // Предел класса до уровня и после — из одной и той же таблицы записи класса
+  assert.match(
+    wizard,
+    /\{\s*before: classPreparedValue\(actor\.value, classDef\),\s*after: classPreparedValue\(pendingActor\.value, classDef\),\s*\},\s*\);/u,
+  );
+
+  // Свободные места — предел листа без уже подготовленного
+  const roomStart = wizard.indexOf('const preparedSpellsRoom = computed');
+
+  const roomBody = wizard.slice(
+    roomStart,
+    wizard.indexOf('\n  });', roomStart),
+  );
+
+  assert.ok(roomBody.includes('preparedSpellsLimit.value'));
+  assert.ok(roomBody.includes('countsTowardPreparedSpells'));
+  assert.ok(roomBody.includes('Math.max(0, limit - prepared)'));
+
+  const step = readFileSync(
+    join(
+      systemRoot,
+      'src/client/ui/actor/class/wizard/WizardStepClassSpellList.vue',
+    ),
+    'utf8',
+  );
+
+  // Счётчик окна берёт свободные места, а не всю норму таблицы
+  assert.match(
+    step,
+    /props\.preparedRoom !== null && props\.preparedRoom > 0\s*\? props\.preparedRoom\s*: props\.preparedValue/u,
+  );
+
+  assert.ok(step.includes('CLASS_SPELL_LIST_LABELS.preparedRoomPrefix'));
+
+  const setup = readFileSync(
+    join(systemRoot, 'src/client/ui/actor/class/ClassSetupWizard.vue'),
+    'utf8',
+  );
+
+  assert.ok(setup.includes(':prepared-room="preparedSpellsRoom"'));
+});
+
 it('the sync does not guess between features or references with the same name', () => {
   const spells = [
     createSpell('Благословение', 1, {
