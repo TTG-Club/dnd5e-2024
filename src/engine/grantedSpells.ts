@@ -556,6 +556,46 @@ export function isPreparationBorrowedFrom(
 }
 
 /**
+ * Собирает повторную выдачу заклинаний умения прямо с листа — для правки черты
+ * на листе, где компендиума под рукой нет: умение снимается и тут же выдаётся
+ * заново, и всё, что здесь не названо, с листа уйдёт.
+ *
+ * Запись самого умения переносится такой, какой лежала. Запись другого
+ * источника, которой умение дало отметку «не готовить», называется с этой
+ * отметкой — снятие её вернёт, а выдача даст заново.
+ *
+ * @param spells - заклинания листа до снятия умения
+ * @param oldFeatureName - название умения, под которым заклинания выданы
+ * @param newFeatureName - название умения после правки
+ * @returns выдача для {@link appendGrantedSpells}
+ */
+export function collectCarriedFeatureSpells(
+  spells: ReadonlyArray<Spell>,
+  oldFeatureName: string,
+  newFeatureName: string,
+): ResolvedGrantedSpell[] {
+  return spells.flatMap((spell): ResolvedGrantedSpell[] => {
+    if (spell.grantedByFeature === oldFeatureName) {
+      // Поля выдачи называем заново: выдача ставит их по своему входу, а не по
+      // записи, и без них заклинание «не готовить» легло бы обычным и заняло
+      // место в пределе подготовки. Характеристика едет в самой записи
+      return [
+        {
+          spell,
+          featureName: newFeatureName,
+          alwaysPrepared: spell.alwaysPrepared === true,
+          grantKind: spell.grantKind,
+        },
+      ];
+    }
+
+    return isPreparationBorrowedFrom(spell, oldFeatureName)
+      ? [{ spell, featureName: newFeatureName, alwaysPrepared: true }]
+      : [];
+  });
+}
+
+/**
  * Добавляет granted-заклинания в список заклинаний актора.
  *
  * Дубликаты отсеиваются по нормализованному названию (при добавлении в лист

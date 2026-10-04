@@ -1615,3 +1615,84 @@ it('a cantrip of the book marked by a species grant leaves the cantrips column',
   assert.equal(engine.countsTowardCantrips(returned[0]), true);
   assert.equal(engine.canTogglePrepared(returned[0]), true);
 });
+
+/** Правка черты на листе: снятие по старому названию и повторная выдача с листа. */
+function reapplyFromSheet(sheet, oldName, newName = oldName) {
+  return engine.appendGrantedSpells(
+    engine.removeGrantedSpellsByFeatureNames(sheet, [oldName]),
+    engine.collectCarriedFeatureSpells(sheet, oldName, newName),
+    'feat',
+  );
+}
+
+it('editing a feat on the sheet keeps the grant fields of its own spells', () => {
+  const book = [{ ...createSpell('Щит'), prepared: true }];
+
+  const sheet = engine.appendGrantedSpells(
+    book,
+    [
+      {
+        spell: createSpell('Туманный шаг', 2),
+        featureName: 'Тронутый феями',
+        alwaysPrepared: true,
+        castingAbility: 'wisdom',
+      },
+      {
+        spell: createSpell('Очарование личности'),
+        featureName: 'Тронутый феями',
+      },
+      {
+        spell: createSpell('Метка охотника'),
+        featureName: 'Тронутый феями',
+        alwaysPrepared: true,
+        grantKind: 'species',
+      },
+    ],
+    'feat',
+  );
+
+  assert.equal(sheet.filter(engine.countsTowardPreparedSpells).length, 1);
+
+  const edited = reapplyFromSheet(
+    sheet,
+    'Тронутый феями',
+    'Тронутый феями (правка)',
+  );
+
+  const byName = (name) => edited.find((spell) => spell.name === name);
+
+  // Отметка «не готовить» остаётся, и заклинание черты не занимает предел
+  assert.equal(byName('Туманный шаг').alwaysPrepared, true);
+  assert.equal(byName('Туманный шаг').prepared, true);
+  assert.equal(edited.filter(engine.countsTowardPreparedSpells).length, 1);
+
+  // Заклинание без отметки её не получает
+  assert.equal(byName('Очарование личности').alwaysPrepared, false);
+
+  // Характеристика и источник выдачи — прежние, название умения — новое
+  assert.equal(byName('Туманный шаг').attackAbility, 'wisdom');
+  assert.equal(byName('Туманный шаг').grantKind, 'feat');
+  assert.equal(byName('Метка охотника').grantKind, 'species');
+
+  assert.deepEqual(
+    edited.slice(1).map((spell) => spell.grantedByFeature),
+    Array.from({ length: 3 }).fill('Тронутый феями (правка)'),
+  );
+
+  // Запись игрока правка черты не трогает
+  assert.equal(edited[0], book[0]);
+});
+
+it('editing a feat on the sheet keeps the mark it lent to a record of another source', () => {
+  const sheet = engine.appendGrantedSpells(
+    [pickedBless()],
+    [domainSpell('Благословение', 'Метка исцеления')],
+    'feat',
+  );
+
+  const edited = reapplyFromSheet(sheet, 'Метка исцеления', 'Метка лекаря');
+
+  assert.equal(edited.length, 1);
+  assert.equal(edited[0].alwaysPrepared, true);
+  assert.deepEqual(edited[0].borrowedPreparation.sources, ['Метка лекаря']);
+});
