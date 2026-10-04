@@ -824,25 +824,25 @@
     });
 
     // Применение — пункт предмета с эффектами «при применении»: зелье,
-    // свиток, масло. В режиме правки лист сохраняется кнопкой, и наложенное
-    // сохранение затёрло бы
+    // свиток, масло. Режим правки пункт не гасит: погашенный пункт молчит, а
+    // щелчок доходит до общей проверки листа и объясняет отказ
     if (hasItemUseEffects(item) && !props.isReadOnly) {
       gameActions.push({
         label: EFFECT_USE_LABELS.use,
         icon: ITEM_USE_MACRO_ICON,
-        disabled: props.isEditMode || !canUseItem(item),
+        disabled: !canUseItem(item),
         onSelect: () => applyItemUse(item),
       });
     }
 
     // Переключатели предмета: «Язык пламени» зажигают и гасят командным
-    // словом. В режиме правки лист сохраняется кнопкой — как и применение
+    // словом. В режиме правки отказ объясняет вход переключателя — как и у
+    // применения
     if (!props.isReadOnly) {
       for (const toggle of listItemToggles(item)) {
         gameActions.push({
           label: `${toggle.on ? ITEM_TOGGLE_LABELS.switchOff : ITEM_TOGGLE_LABELS.switchOn}${toggle.effect.name}`,
           icon: toggle.on ? ITEM_TOGGLE_ICONS.on : ITEM_TOGGLE_ICONS.off,
-          disabled: props.isEditMode,
           onSelect: () =>
             toggleEntityItemEffect(props.entity.id, item.id, toggle.effect.id),
         });

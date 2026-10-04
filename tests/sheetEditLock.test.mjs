@@ -265,7 +265,7 @@ describe('отметка «лист в правке»', () => {
     disposers[0]();
     assert.equal(lock.isSheetEditing('hero'), false);
 
-    // Новая сущность и запись компендиума к миру не привязаны
+    // Лист без сущности (черновик ещё не собран) отметку не держит
     sheet.entityId = undefined;
     watchers[0]();
     assert.equal(lock.editingSheetCounts.size, 0);
@@ -337,12 +337,66 @@ describe('входы действий проверяют лист первым �
 
       assert.match(
         source,
-        /function handleRest\(restType: RestType\): void \{\s*\/\/[^\n]*\n\s*if \(![^)]*\|\| refuseWhileSheetEditing\(props\.\w+Id\)\) \{\s*return;/u,
+        /function handleRest\(restType: RestType\): void \{\s*\/\/[^\n]*\n\s*if \(\s*!local\w+\.value\s*\|\| refuseWhileSheetEditing\(local\w+\.value\.id\)\s*\) \{\s*return;/u,
         `${path}: отдых не проверяет режим правки`,
       );
 
-      assert.match(source, /useSheetEditLock\(\s*\(\) => props\.\w+Id,/u);
+      assert.match(
+        source,
+        /useSheetEditLock\(\s*\(\) => local\w+\.value\?\.id,/u,
+      );
     }
+  });
+
+  it('отметка правки стоит на том же id, с которым действуют вкладки листа', () => {
+    // Лист нового, ещё не сохранённого персонажа: `props.actorId` пуст, а
+    // вкладки действуют от id черновика — отметка на `props.actorId` такой
+    // лист не закрывала, и «Применить» у заклинания молча ничего не делало
+    const sheet = readSource('src/client/ui/actor/Dnd5eActorSheet.vue');
+
+    assert.match(
+      sheet,
+      /<ActorTabs\s+v-if="localActor"\s+:actor="localActor"/u,
+      'вкладки получают черновик листа',
+    );
+
+    const spellsTab = readSource('src/client/ui/actor/tabs/ActorSpellsTab.vue');
+
+    assert.match(
+      spellsTab,
+      /createSpellCasterPort\(props\.actor\.id, refuseSpellCast\)/u,
+    );
+
+    assert.match(
+      spellsTab,
+      /function castSpell\(sourceSpell: Spell\): void \{\s*startSpellCast\(sourceSpell, createSheetCasterPort\(\)\);\s*\}/u,
+      'каст с листа идёт общим входом — он и проверяет правку',
+    );
+
+    // Кнопку каста и плитку урона строки правка не гасит и не прячет
+    const row = readSource('src/client/ui/actor/ActorSpellRow.vue');
+
+    assert.doesNotMatch(row, /isEditMode/u);
+  });
+
+  it('пункты «Применить» и переключатели предмета правка не гасит: причину говорит вход действия', () => {
+    const source = readSource('src/client/ui/actor/tabs/ActorEquipmentTab.vue');
+    const start = source.indexOf('function getItemMenuItems');
+    const body = source.slice(start, source.indexOf('\n  }\n', start));
+
+    assert.ok(body.includes('onSelect: () => applyItemUse(item)'));
+    assert.ok(body.includes('toggleEntityItemEffect(props.entity.id'));
+
+    // Погашенный пункт молчит; щелчок доходит до `refuseWhileSheetEditing`
+    assert.doesNotMatch(body, /disabled:[^\n]*isEditMode/u);
+
+    const use = source.indexOf('function applyItemUse');
+
+    assert.ok(
+      source
+        .slice(use, source.indexOf('\n  }\n', use))
+        .includes('applyEntityItemUse(props.entity.id, item.id)'),
+    );
   });
 
   it('кнопки действий вкладки эффектов правка не гасит: причину говорит вход действия', () => {

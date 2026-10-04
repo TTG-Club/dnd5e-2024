@@ -493,9 +493,11 @@
     isPaused: () => isEditMode.value,
   });
 
-  // Пока лист в правке, существо не действует ни с листа, ни с панелей
+  // Пока лист в правке, существо не действует ни с листа, ни с панелей.
+  // Отметка — на id черновика, как у листа персонажа: с ним действуют блоки
+  // листа, а у нового, ещё не сохранённого существа `props.creatureId` пуст
   useSheetEditLock(
-    () => props.creatureId,
+    () => localCreature.value?.id,
     () => isEditMode.value,
   );
 
@@ -1269,7 +1271,10 @@
    */
   function handleRest(restType: RestType): void {
     // Отдых в режиме правки ждёт «Сохранить» или отмены, как и действия
-    if (!localCreature.value || refuseWhileSheetEditing(props.creatureId)) {
+    if (
+      !localCreature.value
+      || refuseWhileSheetEditing(localCreature.value.id)
+    ) {
       return;
     }
 

@@ -656,9 +656,12 @@
     isPaused: () => isEditMode.value,
   });
 
-  // Пока лист в правке, персонаж не действует ни с листа, ни с панелей
+  // Пока лист в правке, персонаж не действует ни с листа, ни с панелей.
+  // Отметка держится на том же id, с которым действуют вкладки листа, — на id
+  // черновика: у нового, ещё не сохранённого персонажа `props.actorId` пуст, и
+  // каст с такого листа шёл мимо проверки и молча ничего не делал
   useSheetEditLock(
-    () => props.actorId,
+    () => localActor.value?.id,
     () => isEditMode.value,
   );
 
@@ -753,7 +756,7 @@
    */
   function handleRest(restType: RestType): void {
     // Отдых в режиме правки ждёт «Сохранить» или отмены, как и действия
-    if (!localActor.value || refuseWhileSheetEditing(props.actorId)) {
+    if (!localActor.value || refuseWhileSheetEditing(localActor.value.id)) {
       return;
     }
 
