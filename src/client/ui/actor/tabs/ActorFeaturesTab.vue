@@ -4,6 +4,7 @@
     ActiveEffect,
     DnDActor,
     DnDGameItem,
+    ResolvedGrantedSpell,
   } from '@vtt/shared/system/dnd.js';
 
   import type { FeatureOriginKey } from '../constants';
@@ -16,7 +17,10 @@
   import { ContextMenuDangerItem } from '@/shared_ui/components';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useChatStore } from '@/stores/chatStore';
-  import { getTotalLevel } from '@vtt/shared/system/dnd.js';
+  import {
+    getTotalLevel,
+    isPreparationBorrowedFrom,
+  } from '@vtt/shared/system/dnd.js';
 
   import { toggleEntityEffect } from '../../../composables/effectToggle';
   import { useFeatModal } from '../../../composables/useFeatModal';
@@ -726,9 +730,25 @@
           // Пере-применяем дары к актору (владения/эффекты/защиты/тёмное зрение
           // пересобираются из новой версии). Уже выданные заклинания черты
           // переносим без компендиума, чтобы не потерять их на правке.
-          const carriedSpells = (props.actor.spells ?? [])
-            .filter((spell) => spell.grantedByFeature === oldFeature.name)
-            .map((spell) => ({ spell, featureName: updatedFeat.name }));
+          // Запись другого источника, которой черта дала отметку «не готовить»,
+          // называем с этой отметкой — снятие её вернёт, а выдача даст заново.
+          const carriedSpells = (props.actor.spells ?? []).flatMap(
+            (spell): ResolvedGrantedSpell[] => {
+              if (spell.grantedByFeature === oldFeature.name) {
+                return [{ spell, featureName: updatedFeat.name }];
+              }
+
+              return isPreparationBorrowedFrom(spell, oldFeature.name)
+                ? [
+                    {
+                      spell,
+                      featureName: updatedFeat.name,
+                      alwaysPrepared: true,
+                    },
+                  ]
+                : [];
+            },
+          );
 
           const result = reapplyFeatToActor(
             props.actor,

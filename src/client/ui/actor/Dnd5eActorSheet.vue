@@ -1894,15 +1894,13 @@
       return;
     }
 
-    const before = localActor.value.spells?.length ?? 0;
+    const before = localActor.value.spells ?? [];
 
-    const spells = appendGrantedSpells(
-      localActor.value.spells ?? [],
-      resolved,
-      'feat',
-    );
+    const spells = appendGrantedSpells(before, resolved, 'feat');
 
-    if (spells.length > before) {
+    // Не только новые записи: выдача без подготовки отдаёт отметку уже лежащей
+    // записи, и число заклинаний при этом не меняется
+    if (spells.some((spell, index) => spell !== before[index])) {
       localActor.value.spells = spells;
       isDirty.value = true;
       handleImmediateSave();

@@ -357,7 +357,10 @@ it('new level grants preserve existing preparation and removal preserves unrelat
 
   assert.equal(spellbook.length, 2);
   assert.deepEqual(existing, original);
-  assert.equal(spellbook[0], existing[0]);
+  // Запись игрока остаётся его, но отметку «не готовить» выдача ей отдаёт
+  assert.equal(spellbook[0].id, existing[0].id);
+  assert.equal(spellbook[0].grantedByFeature, undefined);
+  assert.equal(spellbook[0].alwaysPrepared, true);
   assert.equal(spellbook[1].prepared, false);
 
   assert.deepEqual(
@@ -1309,4 +1312,306 @@ it('the spell choice editor round-trips the always prepared mark and omits it wh
   );
 
   assert.ok(rowsEditor.template.includes('v-model="row.alwaysPrepared"'));
+});
+
+/** «Благословение», которое жрец выбрал сам на 1-м уровне: готово, в счёте. */
+function pickedBless(fields = {}) {
+  return {
+    ...createSpell('Благословение'),
+    prepared: true,
+    alwaysPrepared: false,
+    grantedByFeature: 'Использование заклинаний',
+    grantKind: 'class',
+    ...fields,
+  };
+}
+
+/** Заклинание домена: умение подкласса выдаёт его без подготовки. */
+function domainSpell(name, featureName = 'Заклинания Домена Жизни') {
+  return {
+    spell: createSpell(name),
+    featureName,
+    grantKind: 'class',
+    alwaysPrepared: true,
+  };
+}
+
+/** «Заклинания Домена Жизни» так, как их отдаёт выгрузка компендиума. */
+const lifeDomain = {
+  name: 'Заклинания Домена Жизни',
+  level: 3,
+  grantedSpells: ['aid-phb', 'bless-phb'],
+  grantedSpellsByLevel: { 5: ['revivify-phb'] },
+  featData: {
+    grantedSpellsAlwaysPrepared: true,
+    grantedSpells: [
+      { name: 'Подмога', spellId: 'aid-phb' },
+      { name: 'Благословение', spellId: 'bless-phb' },
+      { name: 'Возрождение', spellId: 'revivify-phb' },
+    ],
+  },
+};
+
+it('an always prepared grant over a spell the player picked marks that record instead of adding a second', () => {
+  const sheet = [pickedBless(), { ...createSpell('Усиление'), prepared: true }];
+  const original = structuredClone(sheet);
+
+  const spellbook = engine.appendGrantedSpells(sheet, [
+    domainSpell('Подмога'),
+    domainSpell('Благословение'),
+  ]);
+
+  assert.deepEqual(sheet, original);
+
+  assert.deepEqual(
+    spellbook.map((spell) => spell.name),
+    ['Благословение', 'Усиление', 'Подмога'],
+  );
+
+  const bless = spellbook[0];
+
+  assert.equal(bless.id, sheet[0].id);
+  assert.equal(bless.prepared, true);
+  assert.equal(bless.alwaysPrepared, true);
+  // Источник прежний: откат домена запись игрока не унесёт
+  assert.equal(bless.grantedByFeature, 'Использование заклинаний');
+
+  assert.deepEqual(bless.borrowedPreparation, {
+    sources: ['Заклинания Домена Жизни'],
+    wasPrepared: true,
+  });
+
+  assert.equal(engine.countsTowardPreparedSpells(bless), false);
+  assert.equal(engine.canTogglePrepared(bless), false);
+  assert.equal(engine.isSpellReady(bless), true);
+  // Освободившееся место никто не занял: в счёте осталось только «Усиление»
+  assert.equal(spellbook.filter(engine.countsTowardPreparedSpells).length, 1);
+  assert.equal(spellbook[1], sheet[1]);
+});
+
+it('a grant without the mark over an existing record and a pick over a domain spell change nothing', () => {
+  const sheet = [pickedBless()];
+
+  const unmarked = engine.appendGrantedSpells(sheet, [
+    { spell: createSpell('Благословение'), featureName: 'Посвящённый в магию' },
+    {
+      spell: createSpell('Благословение'),
+      featureName: 'Посвящённый в магию',
+      alwaysPrepared: false,
+    },
+  ]);
+
+  assert.equal(unmarked.length, 1);
+  assert.equal(unmarked[0], sheet[0]);
+
+  // Обратный порядок: домен уже выдал, игрок называет то же заклинание
+  const domainFirst = engine.appendGrantedSpells(
+    [],
+    [domainSpell('Благословение')],
+  );
+
+  const picked = engine.appendGrantedSpells(
+    domainFirst,
+    [chosenClassSpell('Благословение')],
+    undefined,
+    { limit: 4 },
+  );
+
+  assert.equal(picked.length, 1);
+  assert.equal(picked[0], domainFirst[0]);
+  assert.equal(picked[0].borrowedPreparation, undefined);
+
+  // Повтор выдачи самим доменом свою запись тоже не трогает
+  assert.equal(
+    engine.appendGrantedSpells(domainFirst, [domainSpell('Благословение')])[0],
+    domainFirst[0],
+  );
+});
+
+it('removing the source of the mark returns the ordinary record and keeps it while another source holds it', () => {
+  const sheet = [
+    pickedBless(),
+    pickedBless({ id: 'shield', name: 'Щит веры', prepared: false }),
+  ];
+
+  const marked = engine.appendGrantedSpells(sheet, [
+    domainSpell('Благословение'),
+    domainSpell('Щит веры'),
+    domainSpell('Подмога'),
+  ]);
+
+  // Снятие домена: его запись уходит, записи игрока — прежние, каждая со своей
+  // подготовкой
+  assert.deepEqual(
+    engine.removeGrantedSpellsByFeatureNames(marked, [
+      'Заклинания Домена Жизни',
+    ]),
+    sheet,
+  );
+
+  const twice = engine.appendGrantedSpells(marked, [
+    domainSpell('Благословение', 'Метка исцеления'),
+  ]);
+
+  assert.deepEqual(twice[0].borrowedPreparation.sources, [
+    'Заклинания Домена Жизни',
+    'Метка исцеления',
+  ]);
+
+  const withoutDomain = engine.removeGrantedSpellsByFeatureNames(twice, [
+    'Заклинания Домена Жизни',
+  ]);
+
+  assert.equal(withoutDomain[0].alwaysPrepared, true);
+
+  assert.deepEqual(withoutDomain[0].borrowedPreparation.sources, [
+    'Метка исцеления',
+  ]);
+
+  assert.deepEqual(
+    engine.removeGrantedSpellsByFeatureNames(withoutDomain, [
+      'Метка исцеления',
+    ])[0],
+    sheet[0],
+  );
+
+  // Снятие источника самой записи уносит её целиком, как и раньше
+  assert.deepEqual(
+    engine
+      .removeGrantedSpellsByFeatureNames(marked, ['Использование заклинаний'])
+      .map((spell) => spell.name),
+    ['Подмога'],
+  );
+
+  // Чужое снятие отметку не трогает
+  assert.equal(
+    engine.removeGrantedSpellsByFeatureNames(marked, ['Тёмное зрение'])[0],
+    marked[0],
+  );
+});
+
+it('a repeated grant and the class sync keep the borrowed mark', () => {
+  const marked = engine.appendGrantedSpells(
+    [pickedBless()],
+    [domainSpell('Благословение'), domainSpell('Подмога')],
+  );
+
+  const again = engine.appendGrantedSpells(marked, [
+    domainSpell('Благословение'),
+    domainSpell('Подмога'),
+  ]);
+
+  assert.equal(again.length, 2);
+  assert.equal(again[0], marked[0]);
+  assert.equal(again[1], marked[1]);
+
+  const spellcasting = { name: 'Использование заклинаний', level: 1 };
+
+  assert.equal(
+    engine.syncClassGrantedSpells(marked, [
+      { ...spellcasting, classLevel: 3 },
+      { ...lifeDomain, classLevel: 3 },
+    ]),
+    marked,
+  );
+});
+
+it('the sync gives the mark to a sheet built before the rule, once the class level opened the spell', () => {
+  const sheet = [
+    pickedBless(),
+    pickedBless({ id: 'revivify', name: 'Возрождение', level: 3 }),
+    {
+      ...createSpell('Подмога'),
+      prepared: true,
+      alwaysPrepared: true,
+      grantedByFeature: 'Заклинания Домена Жизни',
+      grantKind: 'class',
+    },
+  ];
+
+  // Уровень класса не назван — по названию одному ничего не досылается
+  assert.equal(engine.syncClassGrantedSpells(sheet, [lifeDomain]), sheet);
+
+  // Подкласс ещё не получен
+  assert.equal(
+    engine.syncClassGrantedSpells(sheet, [{ ...lifeDomain, classLevel: 2 }]),
+    sheet,
+  );
+
+  const third = engine.syncClassGrantedSpells(sheet, [
+    { ...lifeDomain, classLevel: 3 },
+  ]);
+
+  assert.equal(third[0].alwaysPrepared, true);
+  assert.equal(third[0].grantedByFeature, 'Использование заклинаний');
+  assert.equal(engine.countsTowardPreparedSpells(third[0]), false);
+  // «Возрождение» домен даёт с 5-го уровня — на 3-м оно обычное
+  assert.equal(third[1], sheet[1]);
+  assert.equal(third[2], sheet[2]);
+
+  // Второй проход ничего не меняет — лист не отправляется повторно
+  assert.equal(
+    engine.syncClassGrantedSpells(third, [{ ...lifeDomain, classLevel: 3 }]),
+    third,
+  );
+
+  const fifth = engine.syncClassGrantedSpells(third, [
+    { ...lifeDomain, classLevel: 5 },
+  ]);
+
+  assert.equal(fifth[1].alwaysPrepared, true);
+
+  assert.deepEqual(
+    engine.removeGrantedSpellsByFeatureNames(fifth, [
+      'Заклинания Домена Жизни',
+    ]),
+    sheet.slice(0, 2),
+  );
+});
+
+it('the place freed by the mark goes to a pick of the same level, never to an unpicked spell', () => {
+  const sheet = [
+    pickedBless(),
+    { ...createSpell('Усиление'), prepared: true },
+    { ...createSpell('Щит веры'), prepared: false },
+  ];
+
+  const spellbook = engine.appendGrantedSpells(
+    sheet,
+    [domainSpell('Благословение'), chosenClassSpell('Лечение ран')],
+    undefined,
+    { limit: 2 },
+  );
+
+  assert.equal(spellbook[2], sheet[2]);
+  assert.equal(spellbook[3].prepared, true);
+  assert.equal(spellbook.filter(engine.countsTowardPreparedSpells).length, 2);
+});
+
+it('a cantrip of the book marked by a species grant leaves the cantrips column', () => {
+  const sheet = [{ ...createSpell('Свет', 0), prepared: true }];
+
+  const spellbook = engine.appendGrantedSpells(
+    sheet,
+    [
+      {
+        spell: createSpell('Свет', 0),
+        featureName: 'Наследие эльфов',
+        alwaysPrepared: true,
+      },
+    ],
+    'species',
+  );
+
+  assert.equal(spellbook.length, 1);
+  assert.equal(engine.countsTowardCantrips(spellbook[0]), false);
+  assert.equal(engine.canTogglePrepared(spellbook[0]), false);
+  assert.equal(engine.isSpellReady(spellbook[0]), true);
+
+  const returned = engine.removeGrantedSpellsByFeatureNames(spellbook, [
+    'Наследие эльфов',
+  ]);
+
+  assert.equal(engine.countsTowardCantrips(returned[0]), true);
+  assert.equal(engine.canTogglePrepared(returned[0]), true);
 });

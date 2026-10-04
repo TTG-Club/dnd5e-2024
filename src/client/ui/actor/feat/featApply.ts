@@ -432,10 +432,12 @@ export function reapplyFeatToActor(
 
   // Отметку подготовки у заклинаний, оставшихся за чертой, переносим: снятие и
   // повторная выдача ставят её заново по данным черты, и пересмотр выборов на
-  // новом уровне молча снимал подготовку, сделанную игроком
+  // новом уровне молча снимал подготовку, сделанную игроком. Запись с отметкой,
+  // взятой у выдачи, не в счёт: её подготовку вернуло снятие — такой, какой она
+  // была до отметки
   const preparedNames = new Set(
     (actor.spells ?? [])
-      .filter((spell) => spell.prepared)
+      .filter((spell) => spell.prepared && !spell.borrowedPreparation)
       .map((spell) => normalizeSpellName(spell.name)),
   );
 

@@ -5,12 +5,12 @@
   import type {
     ActorClassEntry,
     ClassDefinition,
-    ClassFeature,
     DnDActor,
     DnDCustomBonusContext,
     DnDPreparedLimit,
     DnDSpellSlotSettings,
     PreparedKind,
+    SheetClassFeature,
     Spell,
     SpellSaveDCSource,
   } from '@vtt/shared/system/dnd.js';
@@ -432,11 +432,12 @@
 
   /**
    * Умения классов и подклассов персонажа — по ним выдачам на листе досылаются
-   * отметки, которых не было при выдаче. undefined — какой-то класс ещё не
-   * загружен, и сверять рано.
+   * отметки, которых не было при выдаче. Уровень персонажа в классе едет с
+   * каждым умением: по нему видно, какие заклинания умение уже открыло.
+   * undefined — какой-то класс ещё не загружен, и сверять рано.
    */
   const actorClassFeatures = computed(() => {
-    const features: ClassFeature[] = [];
+    const features: SheetClassFeature[] = [];
 
     for (const entry of props.actor.system?.classes ?? []) {
       const definition = classDefinitionOf(entry);
@@ -451,7 +452,12 @@
           )
         : undefined;
 
-      features.push(...definition.features, ...(subclass?.features ?? []));
+      for (const feature of [
+        ...definition.features,
+        ...(subclass?.features ?? []),
+      ]) {
+        features.push({ ...feature, classLevel: entry.level });
+      }
     }
 
     return features;
