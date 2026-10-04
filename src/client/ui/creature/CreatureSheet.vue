@@ -75,7 +75,10 @@
     refuseWhileSheetEditing,
     useSheetEditLock,
   } from '../../composables/sheetEditLock';
-  import { useItemTransfer } from '../../composables/useItemTransfer';
+  import {
+    isItemTransferDrop,
+    useItemTransfer,
+  } from '../../composables/useItemTransfer';
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
   import { useWorldSheetSync } from '../../composables/useWorldSheetSync';
@@ -304,7 +307,7 @@
     toRef(() => localCreature.value),
   );
 
-  const { receiveTransferredItem, isItemTransferDrop } = useItemTransfer();
+  const { receiveTransferredItem } = useItemTransfer();
 
   const isDiceRollOpen = ref(false);
 

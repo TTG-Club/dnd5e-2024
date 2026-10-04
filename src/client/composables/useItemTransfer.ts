@@ -78,6 +78,18 @@ function readTransferPayload(event: DragEvent): ItemTransferPayload | null {
   }
 }
 
+/**
+ * Несёт ли событие передачу предмета с другого листа. Листу, который жест
+ * сейчас не принимает (режим правки), этого хватает, чтобы сказать причину,
+ * не трогая отправителя.
+ *
+ * @param event - событие drop
+ * @returns `true`, если нагрузка — передача предмета
+ */
+export function isItemTransferDrop(event: DragEvent): boolean {
+  return readTransferPayload(event) !== null;
+}
+
 /** Что лист получил вместе с предметом */
 export interface ReceivedTransfer {
   /** Новый инвентарь получателя — листу остаётся положить его и сохранить */
@@ -198,17 +210,5 @@ export function useItemTransfer() {
     };
   }
 
-  /**
-   * Несёт ли событие передачу предмета с другого листа. Листу, который жест
-   * сейчас не принимает (режим правки), этого хватает, чтобы сказать причину,
-   * не трогая отправителя.
-   *
-   * @param event - событие drop
-   * @returns `true`, если нагрузка — передача предмета
-   */
-  function isItemTransferDrop(event: DragEvent): boolean {
-    return readTransferPayload(event) !== null;
-  }
-
-  return { receiveTransferredItem, isItemTransferDrop };
+  return { receiveTransferredItem };
 }

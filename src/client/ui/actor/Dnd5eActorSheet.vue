@@ -81,7 +81,10 @@
   } from '../../composables/sheetEditLock';
   import { useClassCatalog } from '../../composables/useClassCatalog';
   import { useCompendiumCatalog } from '../../composables/useCompendiumCatalog';
-  import { useItemTransfer } from '../../composables/useItemTransfer';
+  import {
+    isItemTransferDrop,
+    useItemTransfer,
+  } from '../../composables/useItemTransfer';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
   import { useWorldSheetSync } from '../../composables/useWorldSheetSync';
   import { useSystemDataStore } from '../../stores/systemDataStore';
@@ -1021,7 +1024,7 @@
     isOpen.value = false;
   }
 
-  const { receiveTransferredItem, isItemTransferDrop } = useItemTransfer();
+  const { receiveTransferredItem } = useItemTransfer();
 
   const { sheetModalRef, minimizedTitle, minimizeSheet } = useSheetMinimize(
     () => localActor.value?.name,

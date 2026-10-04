@@ -165,6 +165,7 @@ const UNGUARDED_REASONS = {
     'фабрика порта: пишет только охраняемый разбор каста',
   createWeaponAttackPort: 'фабрика порта: пишет только охраняемый удар',
   hasActionSelfEffects: 'ничего не пишет',
+  isItemTransferDrop: 'ничего не пишет: только читает нагрузку события',
   listEscapeHelpOffers: 'ничего не пишет',
   readEntityCounters: 'ничего не пишет',
   runRestWithTriggers:
