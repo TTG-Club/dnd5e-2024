@@ -15,6 +15,7 @@
    */
   import type { SkillType, TypedWebSocketClient } from '@vtt/shared';
   import type {
+    ActorClassEntry,
     ClassDefinition,
     DnDAbilityScores,
     DnDActor,
@@ -34,6 +35,7 @@
     resolveActorStats,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useClassCatalog } from '../../../composables/useClassCatalog';
   import { useEntityDetailModals } from '../../../composables/useEntityDetailModals';
   import { useFeatChoiceFeats } from '../../../composables/useFeatChoiceFeats';
   import { useFeatChoiceSpells } from '../../../composables/useFeatChoiceSpells';
@@ -113,6 +115,26 @@
     }
   });
 
+  /** Классы по пакам — предел подготовки мультикласса складывается из таблиц */
+  const { resolve: resolveClassDefinition } = useClassCatalog(
+    toRef(props, 'socket'),
+  );
+
+  /**
+   * Определение класса по записи листа — парой «пак + ключ», как на вкладке
+   * заклинаний.
+   *
+   * @param entry - запись класса на листе
+   */
+  function classDefinitionOf(
+    entry: ActorClassEntry,
+  ): ClassDefinition | undefined {
+    return resolveClassDefinition({
+      key: entry.classKey,
+      packId: entry.packId,
+    });
+  }
+
   const {
     isFirstClass,
     isMulticlass,
@@ -154,6 +176,7 @@
     isOpen,
     compendiumFeats,
     toRef(props, 'packId'),
+    classDefinitionOf,
   );
 
   /** Granted-заклинания умений текущего уровня с данными из компендиума */
@@ -200,6 +223,9 @@
 
   /**
    * Что ляжет на лист из списков класса: весь пул умения либо выбранное из него.
+   * Выбранное помечается выбором игрока — оно ложится подготовленным, пока в
+   * пределе подготовки есть место; весь список ложится неподготовленным: там
+   * подготовку отмечает сам игрок.
    */
   const classSpellListGrants = computed(() =>
     classSpellListOffers.value.flatMap((offer) => {
@@ -219,7 +245,9 @@
         wizardState.classSpellListPicks[offer.featureKey] ?? [],
       );
 
-      return offered.filter((granted) => picked.has(granted.spell.id));
+      return offered
+        .filter((granted) => picked.has(granted.spell.id))
+        .map((granted) => ({ ...granted, chosenByPlayer: true }));
     }),
   );
 

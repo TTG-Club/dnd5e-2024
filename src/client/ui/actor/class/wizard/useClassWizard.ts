@@ -12,6 +12,7 @@ import type { Ref } from 'vue';
 import type { AbilityType, ProficiencyLevel, SkillType } from '@vtt/shared';
 import type {
   ActiveEffect,
+  ActorClassEntry,
   ActorCounterState,
   ClassCounterDefinition,
   ClassDefinition,
@@ -61,10 +62,13 @@ import {
   expandChoiceScaling,
   featChoicePendingCount,
   findScalingParentFeature,
+  getActorAbilityModifiers,
+  getActorProficiencyBonus,
   getAllClassFeatures,
   getClassPreparedValue,
   getMaxSpellSlotLevel,
   getMulticlassProficiencies,
+  getPreparedLimitBreakdown,
   getTotalLevel,
   getVisibleFeatChoices,
   hasAbilityImprovementAtLevel,
@@ -803,6 +807,14 @@ export function useClassWizard(
   >([]),
   /** Пак записи класса — ложится на запись актора, см. `ActorClassEntry.packId` */
   packId: Ref<string | undefined> = ref(undefined),
+  /**
+   * Определения остальных классов листа: у мультикласса предел подготовки —
+   * сумма по таблицам всех классов. Не найдено — число берётся запасным
+   * расчётом движка.
+   */
+  resolveOtherClass: (
+    entry: ActorClassEntry,
+  ) => ClassDefinition | undefined = () => undefined,
 ) {
   // ── Контекст ──────────────────────────────────────────────
 
@@ -2331,6 +2343,38 @@ export function useClassWizard(
     );
   });
 
+  /**
+   * Предел подготовки листа после уровня — тот же расчёт, что у плитки вкладки
+   * заклинаний: таблицы всех классов листа и его поправки (своё число, свои
+   * бонусы). В него ложатся подготовленными заклинания, которые игрок выбрал
+   * сам. null — предела нет.
+   */
+  const preparedSpellsLimit = computed((): number | null => {
+    const classDef = classDefinition.value;
+
+    if (!classDef) {
+      return null;
+    }
+
+    const pending = pendingActor.value;
+
+    return getPreparedLimitBreakdown(
+      getClassPreparedValue(
+        pending.system.classes ?? [],
+        // Таблица берущегося класса — из записи, с которой работает мастер, а
+        // не из одноимённой в соседнем паке
+        (entry) =>
+          entry.classKey === classDef.key ? classDef : resolveOtherClass(entry),
+        'spells',
+      ),
+      pending.system.preparedSpells,
+      {
+        abilityMods: getActorAbilityModifiers(pending),
+        proficiencyBonus: getActorProficiencyBonus(pending),
+      },
+    ).value;
+  });
+
   /** Требуется ли выбор подкласса на этом уровне */
   const hasSubclassSelection = computed(() => {
     const classDef = classDefinition.value;
@@ -3345,11 +3389,15 @@ export function useClassWizard(
 
     // Заклинания уровня — только то, что выдали сами записи: и без выбора, и
     // названное игроком в их вопросах. Свободного набора заклинаний мастер не
-    // ведёт — таблица класса числами не спрашивает, а показывает норму на листе
+    // ведёт — таблица класса числами не спрашивает, а показывает норму на листе.
+    // Выбранное игроком ложится подготовленным, пока в пределе есть место:
+    // правило одно на создание, повышение уровня и мультикласс
     if (resolvedGrantedSpells.length > 0) {
       rootUpdates.spells = appendGrantedSpells(
         actor.value.spells ?? [],
         resolvedGrantedSpells,
+        undefined,
+        { limit: preparedSpellsLimit.value },
       );
     }
 

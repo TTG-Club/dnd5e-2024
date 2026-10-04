@@ -377,6 +377,9 @@ export function collectFeatGrantedSpellSources(
     // Значения группы выдачи: они старше значений записи — ради того группа и
     // заводится, чтобы один набор заклинаний считался не так, как другой
     group?: { alwaysPrepared?: boolean; spellcastingAbility?: AbilityType },
+    // Ответ игрока на выбор, а не выдача записи: мастер класса кладёт такое
+    // заклинание подготовленным, пока есть место
+    chosenByPlayer = false,
   ): void => {
     if (!spellId || seenSpellIds.has(spellId)) {
       return;
@@ -391,6 +394,7 @@ export function collectFeatGrantedSpellSources(
       alwaysPrepared:
         group?.alwaysPrepared ?? feat.featData?.grantedSpellsAlwaysPrepared,
       castingAbility: group?.spellcastingAbility ?? castingAbility,
+      ...(chosenByPlayer ? { chosenByPlayer: true } : {}),
     });
   };
 
@@ -419,6 +423,7 @@ export function collectFeatGrantedSpellSources(
         spellId,
         undefined,
         choice.alwaysPrepared ? { alwaysPrepared: true } : undefined,
+        true,
       );
     }
   }

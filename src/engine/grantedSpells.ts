@@ -16,6 +16,8 @@ import type { GrantedSpellRef } from './speciesTypes.js';
 
 import { generateId } from '@vtt/shared';
 
+import { countsTowardPreparedSpells } from './preparedSpells.js';
+
 // ── Типы ──────────────────────────────────────────────────────
 
 /** Минимальная форма умения, способного предоставлять заклинания */
@@ -52,6 +54,12 @@ export interface GrantedSpellSource {
    * ответ игрока в мастере привязан к конкретному умению.
    */
   featureKey?: string;
+  /**
+   * Заклинание назвал сам игрок: ответом на выбор записи либо на шаге «Выбрать
+   * самому» списка класса. Такое заклинание класса мастер кладёт подготовленным,
+   * пока в пределе подготовки есть место ({@link ChosenSpellPreparation}).
+   */
+  chosenByPlayer?: boolean;
 }
 
 /**
@@ -112,6 +120,21 @@ export interface ResolvedGrantedSpell {
   grantKind?: SpellGrantKind;
   /** Ключ умения-источника (см. {@link GrantedSpellSource.featureKey}) */
   featureKey?: string;
+  /** Заклинание назвал сам игрок (см. {@link GrantedSpellSource.chosenByPlayer}) */
+  chosenByPlayer?: boolean;
+}
+
+/**
+ * Подготовка заклинаний, которые игрок выбрал сам: по правилам 2024 выбранное и
+ * есть подготовленное. Передаёт её мастер класса — там выбор и делается; выдача
+ * черты, вида и предыстории её не передаёт, и там всё ложится как прежде.
+ */
+export interface ChosenSpellPreparation {
+  /**
+   * Предел подготовки листа после выдачи: таблицы классов с поправками листа.
+   * null — предела нет, и подготовленным ложится всё выбранное.
+   */
+  limit: number | null;
 }
 
 // ── Утилиты ───────────────────────────────────────────────────
@@ -455,17 +478,29 @@ export function normalizeSpellName(name: string): string {
  * она задана, проставляется заклинанию и потому меняет его атаку и сложность
  * спасброска.
  *
+ * Заклинание, которое игрок выбрал сам, ложится подготовленным, пока в пределе
+ * подготовки есть место, — если вызывающий передал предел и заклинание идёт в
+ * счёт подготовки класса. Что не поместилось, остаётся неподготовленным: его
+ * отметит игрок. Весь список класса, выданный целиком, выбором не считается —
+ * там подготовка и есть выбор игрока.
+ *
  * @param existingSpells - текущий список заклинаний актора
  * @param grantedSpells - granted-заклинания с умениями-источниками
  * @param defaultGrantKind - чем выдано, если источник этого не назвал сам
+ * @param chosenPreparation - предел подготовки для выбранного игроком; не
+ *   задан — выбранное ложится как остальная выдача
  * @returns новый список заклинаний (исходный не мутируется)
  */
 export function appendGrantedSpells(
   existingSpells: Spell[],
   grantedSpells: ResolvedGrantedSpell[],
   defaultGrantKind?: SpellGrantKind,
+  chosenPreparation?: ChosenSpellPreparation,
 ): Spell[] {
   const result = [...existingSpells];
+
+  // Место считается от уже подготовленного на листе: прежние отметки остаются
+  let preparedCount = existingSpells.filter(countsTowardPreparedSpells).length;
 
   const existingNames = new Set(
     result.map((spell) => normalizeSpellName(spell.name)),
@@ -487,7 +522,7 @@ export function appendGrantedSpells(
     const alwaysPrepared = granted.alwaysPrepared ?? false;
     const grantKind = granted.grantKind ?? defaultGrantKind;
 
-    result.push({
+    const spell: Spell = {
       ...granted.spell,
       id: generateId('spell'),
       prepared: alwaysPrepared,
@@ -497,7 +532,24 @@ export function appendGrantedSpells(
         : {}),
       grantedByFeature: granted.featureName,
       ...(grantKind ? { grantKind } : {}),
-    });
+    };
+
+    const preparedByChoice: Spell = { ...spell, prepared: true };
+
+    // В счёт подготовки идёт только заклинание класса 1+ круга без отметки
+    // «не готовить» — то же правило, что у счётчика листа
+    const hasPlace =
+      chosenPreparation !== undefined
+      && granted.chosenByPlayer === true
+      && countsTowardPreparedSpells(preparedByChoice)
+      && (chosenPreparation.limit === null
+        || preparedCount < chosenPreparation.limit);
+
+    if (hasPlace) {
+      preparedCount += 1;
+    }
+
+    result.push(hasPlace ? preparedByChoice : spell);
   }
 
   return result;
