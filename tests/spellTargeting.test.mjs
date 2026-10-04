@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { beforeEach, it } from 'vitest';
 
+import { loadPerformRoll } from './helpers/diceRollWindow.mjs';
 import { hostSharedEntry } from './helpers/engineBundle.mjs';
 import { loadHandler } from './helpers/sourceHandler.mjs';
 
@@ -696,34 +697,29 @@ for (const invalidate of [false, true]) {
       actor.system.spellSlotsUsed = [2];
     }
 
-    const performRoll = await loadHandler(
-      'src/client/ui/actor/DiceRollModal.vue',
-      'performRoll',
-      {
-        console,
-        hasRolled: false,
-        props: {
-          beforeRoll: selection.selected.targets.validate,
-          skipRoll: true,
-          onSpellSlotConsume: () => {
-            consumed += 1;
-            actor.system.spellSlotsUsed = [2];
-          },
-          onRoll: () => selection.selected.targets.apply(),
+    const performRoll = await loadPerformRoll({
+      console,
+      props: {
+        beforeRoll: selection.selected.targets.validate,
+        skipRoll: true,
+        onSpellSlotConsume: () => {
+          consumed += 1;
+          actor.system.spellSlotsUsed = [2];
         },
-        isOpen,
-        selectedSpellLevel: { value: 1 },
-        consumeSpellSlot: { value: true },
-        usePactSlot: { value: false },
-        hasSpellCast: { value: true },
-        rollType: { value: 'public' },
-        resolvedDamageType: { value: undefined },
-        settleRollDamageTypeChoices: () => new Map(),
-        activeDamageVariant: { value: undefined },
-        chatStore: { isPrivateRoll: false, isGmOnlyRoll: false },
-        DICE_ROLL_LOG_PREFIX: 'test-cast',
+        onRoll: () => selection.selected.targets.apply(),
       },
-    );
+      isOpen,
+      selectedSpellLevel: { value: 1 },
+      consumeSpellSlot: { value: true },
+      usePactSlot: { value: false },
+      hasSpellCast: { value: true },
+      rollType: { value: 'public' },
+      resolvedDamageType: { value: undefined },
+      settleRollDamageTypeChoices: () => new Map(),
+      activeDamageVariant: { value: undefined },
+      chatStore: { isPrivateRoll: false, isGmOnlyRoll: false },
+      DICE_ROLL_LOG_PREFIX: 'test-cast',
+    });
 
     performRoll();
     assert.equal(consumed, invalidate ? 0 : 1);
@@ -778,22 +774,17 @@ it('obsolete projectile DiceRoll of the shared cast window cannot consume a slot
   assert.equal(isCurrentProjectileCast(), false);
   let consumed = 0;
 
-  const performRoll = await loadHandler(
-    'src/client/ui/actor/DiceRollModal.vue',
-    'performRoll',
-    {
-      hasRolled: false,
-      props: {
-        beforeRoll: isCurrentProjectileCast,
-        onSpellSlotConsume: () => {
-          consumed += 1;
-        },
+  const performRoll = await loadPerformRoll({
+    props: {
+      beforeRoll: isCurrentProjectileCast,
+      onSpellSlotConsume: () => {
+        consumed += 1;
       },
-      selectedSpellLevel: { value: 1 },
-      consumeSpellSlot: { value: true },
-      usePactSlot: { value: false },
     },
-  );
+    selectedSpellLevel: { value: 1 },
+    consumeSpellSlot: { value: true },
+    usePactSlot: { value: false },
+  });
 
   performRoll();
   assert.equal(consumed, 0);

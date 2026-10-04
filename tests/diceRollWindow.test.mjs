@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'vitest';
 
 import { listClientSources, toSystemPath } from './helpers/clientSources.mjs';
+import { loadPerformRoll } from './helpers/diceRollWindow.mjs';
 import { loadHandler } from './helpers/sourceHandler.mjs';
 import { engine } from './scenarios/_fixtures.mjs';
 
@@ -15,6 +16,7 @@ import { engine } from './scenarios/_fixtures.mjs';
  */
 
 const WINDOW_PATH = 'src/client/composables/diceRollWindow.ts';
+const MODAL_PATH = 'src/client/ui/actor/DiceRollModal.vue';
 const CREATURE_ACTION_PATH = 'src/client/composables/creatureActionRoll.ts';
 const CREATURE_SPELL_PATH = 'src/client/composables/creatureSpellCast.ts';
 
@@ -700,5 +702,199 @@ describe('галочка «Тратить ячейку заклинаний»', 
 
   it('окно каста существа списание ячейки не передаёт: ячеек у существа нет', () => {
     assert.doesNotMatch(readCode(CREATURE_SPELL_PATH), /onSpellSlotConsume/u);
+  });
+});
+
+/**
+ * Окно закрывается не мгновенно, и кнопка броска успевала принять второй
+ * щелчок: два броска в чате, у действия существа по отмеченной цели — двойной
+ * урон (допроверка 04.10, пункт 3). Защита одна — в самом окне, на все кнопки
+ * и все виды броска: бросок одного открытия достаётся первому нажатию.
+ */
+describe('повторное нажатие кнопки броска', () => {
+  /**
+   * Окружение окна броска: настоящие бросок и защита, остальное — заглушки.
+   *
+   * @param {object} props - свойства окна
+   * @param {object} [ports] - свои порты поверх общих
+   * @returns {Promise<object>} бросок, согласие цели и состояние окна
+   */
+  async function mountRollWindow(props, ports = {}) {
+    const state = {
+      console: { error: () => {} },
+      props,
+      hasRolled: { value: false },
+      isOpen: { value: true },
+      sent: [],
+      selectedSpellLevel: { value: 1 },
+      consumeSpellSlot: { value: true },
+      usePactSlot: { value: false },
+      hasSpellCast: { value: false },
+      rollType: { value: 'public' },
+      attackRollMode: { value: 'normal' },
+      bonusValue: { value: 0 },
+      resolvedDamageType: { value: undefined },
+      activeDamageVariant: { value: undefined },
+      rollDamageParts: { value: undefined },
+      rollEvaluateBonusDamageParts: { value: undefined },
+      hasAttackRoll: { value: false },
+      targetAc: { value: null },
+      currentConditionalBonuses: { value: { attackBonus: 0, damageBonus: 0 } },
+      currentBonusRollFormulas: { value: [] },
+      settleRollDamageTypeChoices: () => new Map(),
+      settleDamageTypeChoices: engine.settleDamageTypeChoices,
+      DICE_ROLL_LOG_PREFIX: 'test-roll',
+      DICE_ROLL_LABELS: { outcomeWilling: ' — согласие' },
+      WILLING_SAVE_TOTAL: 1,
+      ...ports,
+    };
+
+    state.chatStore = {
+      isPrivateRoll: false,
+      isGmOnlyRoll: false,
+      sendMessage: (text) => state.sent.push(text),
+    };
+
+    const performRoll = await loadPerformRoll(state);
+
+    const acceptWillingly = await loadHandler(
+      MODAL_PATH,
+      'acceptWillingly',
+      state,
+    );
+
+    return { performRoll, acceptWillingly, state };
+  }
+
+  it('два нажатия подряд — один бросок и один расход', async () => {
+    const log = [];
+
+    const beforeRoll = await loadHandler(WINDOW_PATH, 'buildBeforeRoll', {});
+
+    const { performRoll, state } = await mountRollWindow({
+      skipRoll: true,
+      beforeRoll: beforeRoll(undefined, () => {
+        log.push('commit');
+
+        return true;
+      }),
+      onRoll: () => log.push('roll'),
+    });
+
+    performRoll();
+    performRoll();
+
+    assert.deepEqual(log, ['commit', 'roll']);
+    assert.equal(state.hasRolled.value, true);
+    assert.equal(state.isOpen.value, false);
+  });
+
+  it('урон частями: второе нажатие части не бросает', async () => {
+    const rolled = [];
+
+    const { performRoll } = await mountRollWindow(
+      {},
+      {
+        rollDamageParts: {
+          value: [{ formula: '10к8', type: 'cold', isHealing: false }],
+        },
+        // Части уходят в `onRollParts` — по вызову на бросок
+        performPartsRoll: (parts) => rolled.push(parts.length),
+      },
+    );
+
+    performRoll();
+    performRoll();
+
+    assert.deepEqual(rolled, [1]);
+  });
+
+  it('отказ проверки бросок не занимает: следующее нажатие проходит', async () => {
+    const log = [];
+
+    let allowed = false;
+
+    const { performRoll, state } = await mountRollWindow({
+      skipRoll: true,
+      beforeRoll: () => {
+        log.push('check');
+
+        return allowed;
+      },
+      onRoll: () => log.push('roll'),
+    });
+
+    performRoll();
+
+    assert.deepEqual(log, ['check']);
+    assert.equal(state.hasRolled.value, false, 'кнопка осталась доступной');
+    assert.equal(state.isOpen.value, true, 'окно осталось');
+
+    allowed = true;
+    performRoll();
+    performRoll();
+
+    assert.deepEqual(log, ['check', 'check', 'roll']);
+  });
+
+  it('сорванный бросок отметку снимает: закрытие дойдёт до ждущего отменой', async () => {
+    const { performRoll, state } = await mountRollWindow({
+      skipRoll: true,
+      onRoll: () => {
+        throw new Error('сорвалось');
+      },
+    });
+
+    performRoll();
+
+    assert.equal(state.hasRolled.value, false);
+    assert.equal(state.isOpen.value, false);
+  });
+
+  it('согласие цели — тот же единственный бросок окна', async () => {
+    const checks = [];
+
+    const { performRoll, acceptWillingly, state } = await mountRollWindow({
+      rollLabel: 'Спасбросок',
+      onCheckRoll: (result) => checks.push(result.willing === true),
+      onRoll: () => assert.fail('после согласия бросать нечего'),
+      skipRoll: true,
+    });
+
+    acceptWillingly();
+    acceptWillingly();
+    performRoll();
+
+    assert.deepEqual(checks, [true]);
+    assert.deepEqual(state.sent, ['Спасбросок — согласие']);
+  });
+
+  it('защита одна: отметку ставит только она, обе кнопки гаснут', () => {
+    const modal = readFileSync(MODAL_PATH, 'utf8');
+
+    assert.equal(
+      (modal.match(/hasRolled\.value = true/gu) ?? []).length,
+      1,
+      'отметку «бросок пошёл» ставит одно место',
+    );
+
+    assert.match(modal, /if \(!claimRoll\(isRollAllowed\)\) \{\s+return;/u);
+    assert.match(modal, /if \(!claimRoll\(\)\) \{\s+return;/u);
+
+    // Кнопок, запускающих бросок, две — и обе недоступны после нажатия
+    const rollButtons = [
+      ...modal.matchAll(
+        /<UButton\b[^>]*@click\.left\.exact\.prevent="(performRoll|acceptWillingly)"/gu,
+      ),
+    ];
+
+    assert.deepEqual(
+      rollButtons.map((match) => match[1]),
+      ['performRoll', 'acceptWillingly'],
+    );
+
+    for (const [button] of rollButtons) {
+      assert.match(button, /:disabled="hasRolled"/u);
+    }
   });
 });

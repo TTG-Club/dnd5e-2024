@@ -703,8 +703,12 @@
     );
   });
 
-  /** В окне уже бросили — закрытие после этого отменой не считается */
-  let hasRolled = false;
+  /**
+   * Бросок этого открытия окна уже пошёл: закрытие после него отменой не
+   * считается, а кнопки броска гаснут. Сбрасывается новым открытием и
+   * сорванным броском
+   */
+  const hasRolled = ref(false);
 
   /** `onCancel` уже отдан — закрытие и размонтирование не должны дублировать его */
   let cancelNotified = false;
@@ -715,7 +719,7 @@
    * и повторить это второй раз нельзя.
    */
   function notifyCancel(): void {
-    if (hasRolled || cancelNotified) {
+    if (hasRolled.value || cancelNotified) {
       return;
     }
 
@@ -728,7 +732,7 @@
     () => props.open,
     (opened, wasOpened) => {
       if (opened) {
-        hasRolled = false;
+        hasRolled.value = false;
         cancelNotified = false;
         bonusValue.value = 0;
         rollType.value = 'public';
@@ -812,23 +816,52 @@
   }
 
   /**
-   * Выполняет бросок и отправляет результат в чат.
-   * Если задан attackModifier и есть цель — выполняет двухэтапную атаку D&D 5e.
+   * Занимает единственный бросок этого открытия окна — одна защита на все
+   * кнопки и все виды броска (урон, атака, лечение, спасбросок, каст без
+   * броска, согласие цели). Окно закрывается не мгновенно, и кнопка успевала
+   * принять второй щелчок: в чате было два броска, а у действия существа по
+   * отмеченной цели — двойной урон.
+   *
+   * Отказ проверки бросок не занимает: после него можно нажать снова.
+   *
+   * @param isAllowed - проверка перед броском; нет — бросок разрешён
+   * @returns `true`, если бросок достался этому вызову
    */
-  function performRoll() {
-    if (
-      props.beforeRoll
-      && !props.beforeRoll(
+  function claimRoll(isAllowed?: () => boolean): boolean {
+    if (hasRolled.value || (isAllowed && !isAllowed())) {
+      return false;
+    }
+
+    // Бросок пошёл — закрытие окна отменой уже не будет
+    hasRolled.value = true;
+
+    return true;
+  }
+
+  /**
+   * Проверка и расход вызывающего перед броском (`beforeRoll`).
+   *
+   * @returns `false`, если бросать уже нельзя
+   */
+  function isRollAllowed(): boolean {
+    return (
+      !props.beforeRoll
+      || props.beforeRoll(
         selectedSpellLevel.value,
         consumeSpellSlot.value,
         usePactSlot.value && consumeSpellSlot.value,
       )
-    ) {
+    );
+  }
+
+  /**
+   * Выполняет бросок и отправляет результат в чат.
+   * Если задан attackModifier и есть цель — выполняет двухэтапную атаку D&D 5e.
+   */
+  function performRoll() {
+    if (!claimRoll(isRollAllowed)) {
       return;
     }
-
-    // Бросок пошёл — закрытие окна в `finally` отменой уже не будет
-    hasRolled = true;
 
     // Набор урона «или» и тип урона на выбор решаются первыми: чат и
     // источник узнают их раньше, чем ляжет урон и эффекты
@@ -999,7 +1032,7 @@
       // Бросок сорвался — закрытие ниже должно дойти до ждущего как отмена, а
       // не оставить его висеть. Если результат он всё же получил (упало уже
       // ПОСЛЕ коллбэка), лишняя отмена безвредна: промис решается один раз.
-      hasRolled = false;
+      hasRolled.value = false;
     } finally {
       isOpen.value = false;
 
@@ -1017,7 +1050,9 @@
    * отдаётся как провал с натуральной единицей.
    */
   function acceptWillingly(): void {
-    hasRolled = true;
+    if (!claimRoll()) {
+      return;
+    }
 
     if (!props.skipChatMessage) {
       chatStore.sendMessage(
@@ -1742,6 +1777,7 @@
           color="primary"
           size="lg"
           block
+          :disabled="hasRolled"
           @click.left.exact.prevent="performRoll"
         >
           <UIcon
@@ -1758,6 +1794,7 @@
           variant="soft"
           size="md"
           block
+          :disabled="hasRolled"
           :title="DICE_ROLL_LABELS.willingHint"
           @click.left.exact.prevent="acceptWillingly"
         >

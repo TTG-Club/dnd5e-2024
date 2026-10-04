@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 import { describe, it } from 'vitest';
 
+import { loadPerformRoll } from './helpers/diceRollWindow.mjs';
 import { loadHandler } from './helpers/sourceHandler.mjs';
 import { engine } from './scenarios/_fixtures.mjs';
 
@@ -136,9 +137,8 @@ describe('окно броска решает тип урона на выбор',
   it('источник узнаёт тип раньше, чем окно отдаёт урон, и части идут выбранным типом', async () => {
     const events = [];
 
-    const performRoll = await loadHandler(modalPath, 'performRoll', {
+    const performRoll = await loadPerformRoll({
       console,
-      hasRolled: false,
       props: {},
       activeDamageVariant: {
         value: { onSelect: () => events.push('variant') },

@@ -3,6 +3,9 @@ import { loadHandler } from './sourceHandler.mjs';
 /** Единственное место, откуда система открывает окно броска */
 const DICE_ROLL_WINDOW_PATH = 'src/client/composables/diceRollWindow.ts';
 
+/** Окно броска */
+const DICE_ROLL_MODAL_PATH = 'src/client/ui/actor/DiceRollModal.vue';
+
 /** Счётчик ключей окон в тестах: у каждого открытия свой */
 let keyCounter = 0;
 
@@ -56,4 +59,22 @@ export function bindOpenDiceRollWindow(useModalManager) {
 
     return openDiceRollWindow(props, options);
   };
+}
+
+/**
+ * Настоящий `performRoll` окна броска вместе с настоящей защитой от повторного
+ * броска (`claimRoll`, `isRollAllowed`). Порты — окружение окна; отметку
+ * «бросок пошёл» (`hasRolled`) помощник заводит сам, если тест её не дал.
+ *
+ * @param {object} ports - окружение окна: свойства, состояние, заглушки
+ * @returns {Promise<() => void>} бросок окна
+ */
+export async function loadPerformRoll(ports) {
+  ports.hasRolled ??= { value: false };
+
+  for (const name of ['claimRoll', 'isRollAllowed']) {
+    ports[name] = await loadHandler(DICE_ROLL_MODAL_PATH, name, ports);
+  }
+
+  return loadHandler(DICE_ROLL_MODAL_PATH, 'performRoll', ports);
 }
