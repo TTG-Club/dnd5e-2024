@@ -93,11 +93,13 @@ export function runEntityEffectAction(
       toUseAreaOfEffect(template),
       entityId,
       null,
-      // Правило выбора несёт сам эффект с кнопкой
+      // Правило выбора несёт сам эффект с кнопкой. Источник — эффект без
+      // дальности: область исходит от носителя и его самого не задевает
       {
         id: boundEffect.id,
         name: boundEffect.name,
         level: 0,
+        rollSource: 'effect',
         activeEffects: [boundEffect],
       },
       (targetIds) => {

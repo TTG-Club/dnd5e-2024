@@ -9,6 +9,10 @@
  * выбору», «кроме вас и союзников») задеты только те, кого отбор допускает и
  * кого отметил применивший.
  *
+ * Область, исходящая от применившего («Волна грома», «Дрожь», дыхание
+ * существа), самого применившего не задевает — пока запись не включила его
+ * явно (`areaOriginatesFromCaster`).
+ *
  * Словарь отбора — тот же, что у срабатываний «всем в радиусе» и «по выбору»
  * (`EffectTriggerAreaTarget`): третий словарь «свои / чужие» не заводится.
  *
@@ -18,7 +22,7 @@
 import type { MeasurementTemplate, SceneEntity, Token } from '@vtt/shared';
 
 import type { ActiveEffect } from './activeEffectTypes.js';
-import type { DnDSceneEntity } from './dndEntities.js';
+import type { DnDSceneEntity, Spell } from './dndEntities.js';
 import type { AreaChoiceMode, EffectAreaChoice } from './effectTriggerTypes.js';
 import type { FormulaContext } from './formulaParser.js';
 
@@ -99,6 +103,60 @@ export function listAreaCandidates(
   }
 
   return [...found.values()];
+}
+
+/**
+ * Что применяют с областью: заклинание либо псевдо-заклинание действия
+ * существа, применения умения или предмета, кнопки «При действии». Поля
+ * дальности нужны только правилу «область от применившего».
+ */
+export type AreaSource = Pick<Spell, 'id' | 'name' | 'level' | 'activeEffects'>
+  & Partial<Pick<Spell, 'range' | 'rangeUnit' | 'deliveryType' | 'rollSource'>>;
+
+/**
+ * Единица дальности «на себя» в выгрузке заклинаний. В единицах расстояния
+ * ядра её нет — запись приходит из компендиума как есть
+ */
+const SELF_RANGE_UNIT: string = 'self';
+
+/**
+ * Исходит ли область от применившего — а не ставится в точку на расстоянии.
+ *
+ * Источники описывают дальность по-разному, поэтому признак считается в одном
+ * месте:
+ * - заклинание — дальность «на себя»: единица дальности либо способ
+ *   применения («Волна грома», «Огненные ладони», «Дрожь»);
+ * - действие существа с областью — всегда: шаблон ставится от фишки существа,
+ *   дальности точки у действия нет;
+ * - применение умения или предмета и кнопка «При действии» — когда дальность
+ *   не записана: записанная дальность значит «точка в пределах N футов».
+ *
+ * @param source - что применяют
+ * @returns `true`, если область исходит от применившего
+ */
+export function areaOriginatesFromCaster(source: AreaSource): boolean {
+  if (source.rollSource === undefined) {
+    return (
+      source.rangeUnit === SELF_RANGE_UNIT || source.deliveryType === 'self'
+    );
+  }
+
+  if (source.rollSource === 'creatureAction') {
+    return true;
+  }
+
+  return source.range === undefined || source.range <= 0;
+}
+
+/**
+ * Включила ли запись применившего явно («включая вас»): отбор правила назван
+ * и он с носителем. Умолчание отбора явным включением не считается.
+ *
+ * @param choice - правило выбора
+ * @returns `true`, если применивший назван целью
+ */
+function choiceNamesCaster(choice: EffectAreaChoice | undefined): boolean {
+  return choice?.target !== undefined && areaTargetIncludesSelf(choice.target);
 }
 
 /**
@@ -251,6 +309,17 @@ export interface AreaChoiceRequest {
   min: number;
 }
 
+/** Чем уточняется разбор целей области */
+export interface AreaTargetsPlanOptions {
+  /** Числа применившего для предела формулой */
+  context?: FormulaContext;
+  /**
+   * Область исходит от применившего (`areaOriginatesFromCaster`): сам он не
+   * цель, пока правило не включило его явно
+   */
+  originatesFromCaster?: boolean;
+}
+
 /** Итог разбора целей области до вопроса применившему */
 export type AreaTargetsPlan =
   | {
@@ -274,23 +343,32 @@ export type AreaTargetsPlan =
  * @param candidates - накрытые шаблоном (`listAreaCandidates`)
  * @param choice - правило выбора; нет — задеты все накрытые
  * @param caster - применивший и его фишка (`resolveAreaCaster`)
- * @param context - числа применившего для предела формулой
+ * @param options - числа применившего и признак «область от применившего»
  * @returns цели либо вопрос применившему
  */
 export function planAreaTargets(
   candidates: readonly AreaCandidate[],
   choice: EffectAreaChoice | undefined,
   caster: AreaCaster | undefined,
-  context?: FormulaContext,
+  options: AreaTargetsPlanOptions = {},
 ): AreaTargetsPlan {
+  // Область от применившего его самого не задевает: ни целью, ни строкой в
+  // списке выбора. Обратное говорит только запись — отбором «с носителем»
+  const covered =
+    options.originatesFromCaster && caster && !choiceNamesCaster(choice)
+      ? candidates.filter(
+          (candidate) => candidate.entity.id !== caster.entity.id,
+        )
+      : candidates;
+
   if (!choice) {
     return {
       kind: 'settled',
-      targets: candidates.map((candidate) => candidate.entity),
+      targets: covered.map((candidate) => candidate.entity),
     };
   }
 
-  const allowed = filterAreaCandidates(candidates, choice, caster);
+  const allowed = filterAreaCandidates(covered, choice, caster);
   const allowedEntities = allowed.map((candidate) => candidate.entity);
   const mode = resolveAreaChoiceMode(choice);
 
@@ -300,7 +378,7 @@ export function planAreaTargets(
   }
 
   const max = Math.min(
-    resolveAreaChoiceCount(choice, context) ?? allowed.length,
+    resolveAreaChoiceCount(choice, options.context) ?? allowed.length,
     allowed.length,
   );
 

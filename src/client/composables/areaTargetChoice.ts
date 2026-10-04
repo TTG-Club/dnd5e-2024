@@ -6,20 +6,22 @@
  * Кого накрыл шаблон и кого из них задеть, решает движок (`areaChoice.ts`):
  * мёртвых область не задевает, а правило эффекта `areaChoice` отсеивает и
  * просит применившего отметить цели («Замедление»: до шести существ на выбор
- * в кубе). Здесь — только вопрос: плашка выбора цели, та же, что у
- * срабатываний «по выбору».
+ * в кубе), а область, исходящая от применившего, его самого не задевает.
+ * Здесь — только вопрос: плашка выбора цели, та же, что у срабатываний «по
+ * выбору».
  */
 
 import type { MeasurementTemplate, SceneEntity, Token } from '@vtt/shared';
 import type {
+  AreaSource,
   DnDSceneEntity,
   EffectAreaChoice,
   FormulaContext,
-  Spell,
 } from '@vtt/shared/system/dnd.js';
 
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import {
+  areaOriginatesFromCaster,
   findAreaChoice,
   isDndSceneEntity,
   listAreaCandidates,
@@ -35,8 +37,11 @@ import { buildEntityFormulaContext } from './useResolvedStats';
 
 /** Что нужно, чтобы решить, кого задела область */
 export interface AreaTargetsInput {
-  /** Что применяют: название — в заголовок плашки, эффекты несут правило */
-  source: Pick<Spell, 'id' | 'name' | 'level' | 'activeEffects'>;
+  /**
+   * Что применяют: название — в заголовок плашки, эффекты несут правило, а
+   * по дальности видно, исходит ли область от применившего
+   */
+  source: AreaSource;
   /** Кто применяет */
   casterId: string | undefined;
   /** Размещённый шаблон */
@@ -107,7 +112,10 @@ export function resolveAreaTargets(
     candidates,
     choice,
     resolveAreaCaster(caster, input.tokens),
-    buildChoiceContext(choice, caster, input.source),
+    {
+      context: buildChoiceContext(choice, caster, input.source),
+      originatesFromCaster: areaOriginatesFromCaster(input.source),
+    },
   );
 
   if (plan.kind === 'settled') {

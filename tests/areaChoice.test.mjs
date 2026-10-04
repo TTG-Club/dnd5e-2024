@@ -23,9 +23,36 @@ import {
  * Правило выбора — поле эффекта `areaChoice`, один разбор на заклинание,
  * действие существа, применение с областью и кнопку «При действии» с
  * шаблоном. Без правила задеты все в шаблоне, кроме мёртвых (А/З7).
+ *
+ * Область, исходящая от применившего, его самого не задевает: «Волна грома»
+ * с краем куба по клетке заклинателя и «Дрожь» били по самому заклинателю
+ * (допроверка 04.10, пункт 1). Признак считает движок по дальности источника,
+ * обратное говорит только запись — отбором «с носителем».
  */
 
 const CHOICE_PATH = 'src/client/composables/areaTargetChoice.ts';
+
+const ACTIVE_ACTION_PATH = 'src/client/composables/effectActiveAction.ts';
+
+/** Заклинание «на себя» из компендиума: «Волна грома» */
+const SELF_SPELL = {
+  id: 'thunderwave',
+  name: 'Волна грома',
+  level: 1,
+  range: 0,
+  rangeUnit: 'self',
+  deliveryType: 'self',
+};
+
+/** Заклинание с дальностью в футах: «Огненный шар» */
+const RANGED_SPELL = {
+  id: 'fireball',
+  name: 'Огненный шар',
+  level: 3,
+  range: 150,
+  rangeUnit: 'ft',
+  deliveryType: 'none',
+};
 
 /** Центр шаблона, пикс.: середина клетки (5, 5) */
 const TEMPLATE_CENTER = 5.5 * CELL_SIZE;
@@ -118,16 +145,26 @@ function names(entities) {
  * План целей области по правилу.
  *
  * @param {object | undefined} choice - правило выбора
- * @param {object} [context] - числа применившего
+ * @param {object} [options] - числа применившего и признак «от применившего»
  * @returns {object} план
  */
-function plan(choice, context) {
+function plan(choice, options) {
   return engine.planAreaTargets(
     candidates(),
     choice,
     engine.resolveAreaCaster(CASTER, TOKENS),
-    context,
+    options,
   );
+}
+
+/**
+ * План целей области, исходящей от применившего.
+ *
+ * @param {object | undefined} choice - правило выбора
+ * @returns {object} план
+ */
+function planFromCaster(choice) {
+  return plan(choice, { originatesFromCaster: true });
 }
 
 describe('кого накрыл шаблон', () => {
@@ -238,7 +275,7 @@ describe('правило «на выбор из тех, кто в области
       2,
     );
 
-    assert.equal(plan({ count: '@castLevel - 1' }, context).request.max, 2);
+    assert.equal(plan({ count: '@castLevel - 1' }, { context }).request.max, 2);
 
     // Формула не посчиталась — предела нет, отметить можно всех допущенных
     assert.equal(
@@ -279,14 +316,183 @@ describe('правило «на выбор из тех, кто в области
   });
 });
 
+describe('область исходит от применившего', () => {
+  /**
+   * Признак «область от применившего» у источника с такими полями.
+   *
+   * @param {object} source - поля дальности и вид источника
+   * @returns {boolean} исходит ли область от применившего
+   */
+  function fromCaster(source) {
+    return engine.areaOriginatesFromCaster({
+      id: 'source',
+      name: 'source',
+      level: 0,
+      ...source,
+    });
+  }
+
+  it('заклинание: дальность «на себя» — единицей либо способом применения', () => {
+    assert.equal(fromCaster(SELF_SPELL), true);
+    assert.equal(fromCaster({ rangeUnit: 'self', deliveryType: 'none' }), true);
+    assert.equal(fromCaster({ rangeUnit: 'ft', deliveryType: 'self' }), true);
+    assert.equal(fromCaster(RANGED_SPELL), false);
+
+    // Касание и незаполненная дальность заклинания — не «на себя»
+    assert.equal(
+      fromCaster({ range: 0, rangeUnit: 'ft', deliveryType: 'touch' }),
+      false,
+    );
+
+    assert.equal(
+      fromCaster({ range: 0, rangeUnit: 'ft', deliveryType: 'none' }),
+      false,
+    );
+  });
+
+  it('действие существа с областью — всегда от существа; кнопка эффекта — от носителя', () => {
+    assert.equal(
+      fromCaster({ rollSource: 'creatureAction', deliveryType: 'melee' }),
+      true,
+    );
+
+    assert.equal(
+      fromCaster({ rollSource: 'creatureAction', deliveryType: 'ranged' }),
+      true,
+    );
+
+    // Кнопка «При действии»: источник — эффект без дальности
+    assert.equal(fromCaster({ rollSource: 'effect' }), true);
+  });
+
+  it('применение умения и предмета: без дальности — от себя, с дальностью — нет', () => {
+    const area = { shape: 'cone', size: 30 };
+
+    const breath = engine.buildUseSpell({
+      id: 'breath',
+      name: 'Выдох',
+      effects: [],
+      rollSource: 'effect',
+      area,
+    });
+
+    const flask = engine.buildUseSpell({
+      id: 'flask',
+      name: 'Алхимический огонь',
+      effects: [],
+      rollSource: 'item',
+      range: 20,
+      area,
+    });
+
+    assert.equal(engine.areaOriginatesFromCaster(breath), true);
+    assert.equal(engine.areaOriginatesFromCaster(flask), false);
+  });
+
+  it('применивший внутри своей области — не цель', () => {
+    const wave = planFromCaster(undefined);
+
+    assert.equal(wave.kind, 'settled');
+    assert.deepEqual(names(wave.targets), ['ally', 'goblin', 'ogre']);
+  });
+
+  it('запись включила применившего явно — он цель', () => {
+    assert.deepEqual(names(planFromCaster({ target: 'allWithSelf' }).targets), [
+      'ally',
+      'caster',
+      'goblin',
+      'ogre',
+    ]);
+
+    assert.deepEqual(
+      names(planFromCaster({ target: 'alliesWithSelf' }).targets),
+      ['ally', 'caster'],
+    );
+  });
+
+  it('правило без отбора применившего не включает: умолчание — не «явно»', () => {
+    assert.deepEqual(names(planFromCaster({ mode: 'all' }).targets), [
+      'ally',
+      'goblin',
+      'ogre',
+    ]);
+
+    assert.deepEqual(names(planFromCaster({ target: 'enemies' }).targets), [
+      'goblin',
+      'ogre',
+    ]);
+  });
+
+  it('«до N» у области от себя применившего не предлагает', () => {
+    const upTo = planFromCaster({ count: 6 });
+
+    assert.equal(upTo.kind, 'choose');
+    assert.equal(upTo.request.max, 3);
+
+    assert.deepEqual(
+      names(upTo.request.candidates.map((candidate) => candidate.entity)),
+      ['ally', 'goblin', 'ogre'],
+    );
+
+    // Отметка «себя» отбрасывается: его не предлагали
+    assert.deepEqual(engine.settleAreaChoice(upTo.request, ['caster']), []);
+
+    // С явным «включая вас» он в списке
+    assert.equal(
+      planFromCaster({ count: 6, target: 'allWithSelf' }).request.max,
+      4,
+    );
+  });
+
+  it('умолчание «все» закрытой плашки применившего не возвращает', () => {
+    const fallback = planFromCaster({ count: 1, fallback: 'all' });
+
+    assert.deepEqual(names(fallback.fallbackTargets), [
+      'ally',
+      'goblin',
+      'ogre',
+    ]);
+  });
+
+  it('область на расстоянии и область без применившего — как раньше', () => {
+    assert.deepEqual(
+      names(plan(undefined, { originatesFromCaster: false }).targets),
+      ['ally', 'caster', 'goblin', 'ogre'],
+    );
+
+    // Применившего нет среди сущностей разбора — убирать некого
+    const noCaster = engine.planAreaTargets(
+      candidates(),
+      undefined,
+      undefined,
+      { originatesFromCaster: true },
+    );
+
+    assert.deepEqual(names(noCaster.targets), [
+      'ally',
+      'caster',
+      'goblin',
+      'ogre',
+    ]);
+  });
+
+  it('мёртвые не цели и у области от себя', () => {
+    assert.equal(
+      planFromCaster(undefined).targets.some((entity) => entity.id === DEAD.id),
+      false,
+    );
+  });
+});
+
 describe('общий разбор целей области', () => {
   /**
    * Настоящий разбор целей с плашкой-заглушкой.
    *
    * @param {object[]} effects - эффекты источника
+   * @param {object} [source] - поля источника: дальность, вид источника
    * @returns {Promise<object>} итог разбора и свойства плашки
    */
-  async function resolveTargets(effects) {
+  async function resolveTargets(effects, source = {}) {
     const prompts = [];
     const settled = [];
 
@@ -294,6 +500,7 @@ describe('общий разбор целей области', () => {
       CHOICE_PATH,
       'resolveAreaTargets',
       {
+        areaOriginatesFromCaster: engine.areaOriginatesFromCaster,
         findAreaChoice: engine.findAreaChoice,
         listAreaCandidates: engine.listAreaCandidates,
         planAreaTargets: engine.planAreaTargets,
@@ -318,6 +525,7 @@ describe('общий разбор целей области', () => {
           id: 'slow',
           name: 'Замедление',
           level: 3,
+          ...source,
           activeEffects: effects,
         },
         casterId: CASTER.id,
@@ -370,6 +578,88 @@ describe('общий разбор целей области', () => {
 
     prompts[0].props.onCancel();
     assert.deepEqual(settled, [[]]);
+  });
+
+  it('заклинание «на себя»: заклинатель в шаблоне — не цель', async () => {
+    const { prompts, settled } = await resolveTargets(
+      [createEffect('push', { effectTarget: 'target' })],
+      SELF_SPELL,
+    );
+
+    assert.equal(prompts.length, 0);
+    assert.deepEqual(settled, [['ally', 'goblin', 'ogre']]);
+  });
+
+  it('заклинание «на себя» с явным «включая вас» задевает заклинателя', async () => {
+    const { settled } = await resolveTargets(
+      [createEffect('feast', { areaChoice: { target: 'allWithSelf' } })],
+      SELF_SPELL,
+    );
+
+    assert.deepEqual(settled, [['ally', 'caster', 'goblin', 'ogre']]);
+  });
+
+  it('заклинание с дальностью в футах, поставленное на себя, задевает заклинателя', async () => {
+    const { settled } = await resolveTargets(
+      [createEffect('plain')],
+      RANGED_SPELL,
+    );
+
+    assert.deepEqual(settled, [['ally', 'caster', 'goblin', 'ogre']]);
+  });
+
+  it('действие существа с областью само существо не задевает', async () => {
+    const breath = engine.buildPseudoSpell({
+      id: 'creature-action-caster-breath',
+      name: 'Морозное дыхание',
+      rollSource: 'creatureAction',
+      targetType: 'area',
+      deliveryType: 'melee',
+      areaOfEffect: { shape: 'cone', size: 30, unit: 'ft' },
+    });
+
+    const { settled } = await resolveTargets([], breath);
+
+    assert.deepEqual(settled, [['ally', 'goblin', 'ogre']]);
+  });
+
+  it('«до N» у заклинания «на себя»: заклинателя в плашке нет', async () => {
+    const { prompts } = await resolveTargets(
+      [createEffect('slowed', { areaChoice: { count: 6 } })],
+      SELF_SPELL,
+    );
+
+    assert.equal(prompts[0].props.count, 3);
+
+    assert.deepEqual(
+      prompts[0].props.candidates.map((candidate) => candidate.name).sort(),
+      ['ally', 'goblin', 'ogre'],
+    );
+  });
+
+  it('признак «от применившего» считает только общий разбор, по источнику', () => {
+    const originUsers = listClientSources()
+      .filter((path) =>
+        /\bareaOriginatesFromCaster\(/u.test(readFileSync(path, 'utf8')),
+      )
+      .map(toSystemPath);
+
+    // Все точки входа (заклинание персонажа и существа, действие существа,
+    // применение с областью, «При действии») отдают источник общему разбору —
+    // своего условия ни у одной нет
+    assert.deepEqual(originUsers, [CHOICE_PATH]);
+
+    assert.match(
+      readFileSync(CHOICE_PATH, 'utf8'),
+      /originatesFromCaster: areaOriginatesFromCaster\(input\.source\)/u,
+    );
+
+    // Кнопка «При действии» собирает источник сама: вид источника обязан
+    // быть назван, иначе он читался бы как заклинание с дальностью
+    assert.match(
+      readFileSync(ACTIVE_ACTION_PATH, 'utf8'),
+      /placeAreaTemplate\([\s\S]*?rollSource: 'effect',[\s\S]*?activeEffects: \[boundEffect\]/u,
+    );
   });
 
   it('шаблон в цели превращает только общий разбор', () => {
