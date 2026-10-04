@@ -42,6 +42,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
+  import { refuseWhileSheetEditing } from '../../composables/sheetEditLock';
   import { useProficiencyBonus } from '../../composables/useProficiencyBonus';
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import { useToolVocabulary } from '../../composables/useToolVocabulary';
@@ -698,8 +699,17 @@
     );
   }
 
-  /** Открывает бросок спасброска от смерти */
+  /**
+   * Открывает бросок спасброска от смерти. В правке листа не бросается: итог
+   * говорится в чат сразу, а в мир попал бы только с «Сохранить» — «Отмена»
+   * оставила бы в чате бросок, которого на листе нет. Счётчики серии в правке
+   * правятся руками.
+   */
   function rollDeathSave(): void {
+    if (refuseWhileSheetEditing(props.actor.id)) {
+      return;
+    }
+
     openDiceRoll({
       modifier: resolvedStats.value?.deathSaveBonus ?? 0,
       evaluateBonusRollFormulas: buildRollBonusEvaluator(

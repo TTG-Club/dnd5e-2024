@@ -1,4 +1,4 @@
-import type { Spell } from '@vtt/shared/system/dnd.js';
+import type { ActiveEffect, Spell } from '@vtt/shared/system/dnd.js';
 
 import { watch } from 'vue';
 
@@ -9,6 +9,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { rememberSentCastEnd } from './entityCombatWrite';
+import { refuseWhileSheetEditing } from './sheetEditLock';
 import { emitSystemClientEvent } from './systemClientEvents';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -222,4 +223,32 @@ export function waitForCastsEnded(
       },
     );
   });
+}
+
+/**
+ * Кнопка «Прервать концентрацию» листа: сервер закончит каст метки у всех
+ * существ и снимет его зону; сама метка уходит тем же исходом.
+ *
+ * Лист в режиме правки каст не прерывает: черновик мира не видит и продолжал
+ * бы показывать снятые эффекты, а его «Сохранить» могло бы вернуть те из них,
+ * что владелец успел поправить.
+ *
+ * @param entityId - чей лист; нет — эффект показан без сущности мира
+ * @param effect - метка концентрации
+ */
+export function endEntityConcentration(
+  entityId: string | null | undefined,
+  effect: Pick<ActiveEffect, 'concentration' | 'castId' | 'sourceActorId'>,
+): void {
+  // Лист носителя метки или самого заклинателя в режиме правки
+  if (
+    refuseWhileSheetEditing(entityId)
+    || refuseWhileSheetEditing(effect.sourceActorId)
+  ) {
+    return;
+  }
+
+  if (effect.concentration && effect.castId && effect.sourceActorId) {
+    requestEndCasts(effect.sourceActorId, [effect.castId]);
+  }
 }

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { join } from 'node:path';
 
 import { describe, it } from 'vitest';
@@ -23,20 +24,34 @@ import {
  * Каст и удар с листа пишут в мир, а черновик правки мир не подтягивает:
  * «Сохранить» слало черновик целиком и возвращало ячейку и стрелу. Правило
  * одно на все входы: пока лист сущности в правке, её действия не выполняются
- * (`refuseWhileSheetEditing` — первым делом в общем входе действия), а
- * сохранение сливает черновик с миром (`mergeEntityDraft`).
+ * (`refuseWhileSheetEditing` — первой инструкцией входа действия, до чтения
+ * сущности из мира), а сохранение сливает черновик с миром
+ * (`mergeEntityDraft`).
  */
+
+const require = createRequire(join(systemRoot, 'package.json'));
+const { parse: parseVue } = require('@vue/compiler-sfc');
+const typescript = require('typescript');
 
 const COMPOSABLES_DIR = 'src/client/composables';
 const LOCK_PATH = `${COMPOSABLES_DIR}/sheetEditLock.ts`;
+const ACTOR_SHEET_PATH = 'src/client/ui/actor/Dnd5eActorSheet.vue';
+const CREATURE_SHEET_PATH = 'src/client/ui/creature/CreatureSheet.vue';
+const LEFT_PANEL_PATH = 'src/client/ui/actor/ActorLeftPanel.vue';
+
+/** Имя проверки правки: с неё начинается каждый вход действия */
+const LOCK_CHECK = 'refuseWhileSheetEditing';
+
+/** Заголовок уведомления об отказе */
+const LOCK_TOAST_TITLE = 'Лист в режиме правки';
 
 /** Помощники записи в мир: кто их зовёт, тот пишет */
 const WRITE_MODULES = ['entitySheetWrite', 'entityCombatWrite'];
 
 /**
- * Входы действий сущности и чем их позвать так, чтобы до проверки листа
- * дошло только чтение своих аргументов. Любой другой вызов упал бы на
- * неизвестном имени: в окружении нет ничего, кроме проверки.
+ * Полный перечень входов действий в общих модулях и чем их позвать так, чтобы
+ * до проверки листа дошло только чтение своих аргументов. Любой другой вызов
+ * упал бы на неизвестном имени: в окружении нет ничего, кроме проверки.
  */
 const GUARDED_ENTRIES = [
   {
@@ -57,13 +72,22 @@ const GUARDED_ENTRIES = [
   {
     path: `${COMPOSABLES_DIR}/weaponAttackRoll.ts`,
     name: 'startWeaponAttack',
-    call: (entry) =>
-      entry({ name: 'Лук' }, { readAttacker: () => ({ id: 'hero' }) }),
+    call: (entry) => entry({ name: 'Лук' }, { attackerId: 'hero' }),
   },
   {
     path: `${COMPOSABLES_DIR}/effectActivationUse.ts`,
     name: 'applyEffectSource',
     call: (entry) => entry({ name: 'Зелье' }, { id: 'hero' }, 0, () => {}),
+  },
+  {
+    path: `${COMPOSABLES_DIR}/effectActivationUse.ts`,
+    name: 'applyEntityEffectUse',
+    call: (entry) => entry('hero', 'effect'),
+  },
+  {
+    path: `${COMPOSABLES_DIR}/effectActivationUse.ts`,
+    name: 'applyEntityItemUse',
+    call: (entry) => entry('hero', 'item'),
   },
   {
     path: `${COMPOSABLES_DIR}/effectToggle.ts`,
@@ -88,7 +112,6 @@ const GUARDED_ENTRIES = [
   {
     path: `${COMPOSABLES_DIR}/effectEscapeAction.ts`,
     name: 'runEscapeAs',
-    ports: { escapeAllowsRole: () => true },
     call: (entry) =>
       entry(
         { id: 'hero' },
@@ -96,7 +119,41 @@ const GUARDED_ENTRIES = [
         { role: 'carrier', entity: { id: 'hero' } },
       ),
   },
+  {
+    path: `${COMPOSABLES_DIR}/spellCasts.ts`,
+    name: 'endEntityConcentration',
+    call: (entry) =>
+      entry('hero', {
+        concentration: true,
+        castId: 'cast',
+        sourceActorId: 'hero',
+      }),
+  },
 ];
+
+/**
+ * Входы действий, которые живут в самих листах: отдых, спасбросок от смерти.
+ * Их проверяет разбор исходника — компонент целиком здесь не поднять.
+ */
+const SHEET_ENTRIES = [
+  { path: ACTOR_SHEET_PATH, name: 'handleRest' },
+  { path: ACTOR_SHEET_PATH, name: 'handleLongRestApply' },
+  { path: ACTOR_SHEET_PATH, name: 'handleShortRestApply' },
+  { path: CREATURE_SHEET_PATH, name: 'handleRest' },
+  { path: LEFT_PANEL_PATH, name: 'rollDeathSave' },
+];
+
+/**
+ * Функции листов, которые зовут проверку правки не первой инструкцией, — с
+ * причиной. Новая функция интерфейса с проверкой обязана быть либо входом
+ * ({@link SHEET_ENTRIES}), либо строкой здесь.
+ */
+const SHEET_LATE_CHECKS = {
+  [`${ACTOR_SHEET_PATH}:handleItemTransferDrop`]:
+    'сначала узнаёт, что бросили именно передачу предмета: иная нагрузка идёт дальше по цепочке',
+  [`${CREATURE_SHEET_PATH}:handleItemTransferDrop`]:
+    'сначала узнаёт, что бросили именно передачу предмета: иная нагрузка идёт дальше по цепочке',
+};
 
 /**
  * Функции пишущих модулей, которые зовёт интерфейс, но проверки листа в них
@@ -110,20 +167,49 @@ const UNGUARDED_REASONS = {
   hasActionSelfEffects: 'ничего не пишет',
   listEscapeHelpOffers: 'ничего не пишет',
   readEntityCounters: 'ничего не пишет',
-  applyEntityEffectUse: 'идёт через applyEffectSource',
-  applyEntityItemUse: 'идёт через applyEffectSource',
   runRestWithTriggers:
-    'отдых останавливает лист (handleRest) — до окна отдыха; тест ниже',
+    'отдых останавливают входы листа (handleRest и «Применить» окна отдыха); тест ниже',
   dispatchAttackRollTriggers:
     'бросок окна, открытого охраняемым входом; цель в правке не действует',
   reportAttackRoll:
     'бросок окна, открытого охраняемым входом; цель в правке не действует',
-  removeEntityCondition: 'правка состояния владельцем, не действие',
-  requestEndCasts:
-    'запрос серверу, сущность не пишет: «Прервать концентрацию» — правка эффектов владельцем',
-  useEntityActiveEffects: 'правка эффектов владельцем, не действие',
-  useItemTransfer: 'лист в режиме правки жест передачи не принимает',
+  removeEntityCondition:
+    'плитка состояния: в мир пишет только лист в просмотре, в правке меняется черновик (тест ниже)',
+  useEntityActiveEffects:
+    'правка эффектов владельцем: пишет в черновик листа, в мир уходит с «Сохранить»',
+  useItemTransfer:
+    'лист в режиме правки жест передачи не принимает и говорит почему (тест ниже)',
 };
+
+/**
+ * Прямые записи в мир из интерфейса мимо общих модулей: где они есть и почему
+ * это не действие листа. Новая запись из компонента без строки здесь роняет
+ * тест — действие обязано идти через вход с проверкой правки.
+ */
+const DIRECT_WORLD_WRITES = {
+  [ACTOR_SHEET_PATH]: 'сам лист: «Сохранить» и запись вне режима правки',
+  [CREATURE_SHEET_PATH]: 'сам лист: «Сохранить» и запись вне режима правки',
+  'src/client/ui/actor/ActorSettingsModal.vue':
+    'окно настроек: своя запись поверх сущности мира, не черновика',
+  'src/client/ui/creature/CreatureSettingsModal.vue':
+    'окно настроек: своя запись поверх сущности мира, не черновика',
+  'src/client/ui/actor/ActorDeleteConfirmModal.vue':
+    'удаление персонажа с подтверждением',
+  'src/client/ui/creature/CreatureDeleteConfirmModal.vue':
+    'удаление существа с подтверждением',
+  'src/client/ui/actor/QuickEquipmentModal.vue':
+    'быстрая панель: правка полей сущности мира, действия — общими входами',
+  'src/client/ui/actor/QuickSpellsModal.vue':
+    'быстрая панель: правка полей сущности мира, действия — общими входами',
+  'src/client/ui/creature/QuickCreatureActionsModal.vue':
+    'быстрая панель: правка полей сущности мира, действия — общими входами',
+  'src/client/ui/compendium/CompendiumDataModal.vue':
+    'создание существа мира из записи компендиума',
+};
+
+/** Чем интерфейс мог бы писать в мир сам, мимо входа действия */
+const DIRECT_WORLD_WRITE_PATTERN =
+  /\b(?:changeEntitySheet|changeEntityCombatState|sendComputedCombatState|sendTriggerUsageSpend|requestEndCasts|emitSystemClientEvent|emitEntityUpdate)\(|'(?:actor|creature):(?:updated|created|deleted)'/u;
 
 /**
  * Исходник от корня системы.
@@ -172,36 +258,142 @@ function listWritingModules() {
   return [...writing].filter((name) => !WRITE_MODULES.includes(name));
 }
 
-describe('отметка «лист в правке»', () => {
-  /**
-   * Настоящие функции отметки с общим состоянием и поддельным уведомлением.
-   *
-   * @returns {Promise<object>} функции отметки и журнал уведомлений
-   */
-  async function loadLock() {
-    const toasts = [];
+/**
+ * Объявления функций исходника по именам: у компонента — из `script setup`.
+ *
+ * @param {string} path - путь от корня системы
+ * @returns {Map<string, object>} узлы объявлений функций верхнего уровня
+ */
+function readFunctionDeclarations(path) {
+  const content = readSource(path);
 
-    const ports = {
-      editingSheetCounts: new Map(),
-      useSystemToastStore: () => ({ add: (toast) => toasts.push(toast) }),
-      SHEET_EDIT_LOCK_LABELS: {
-        title: 'Лист в режиме правки',
-        description: '…',
-      },
-    };
+  const script = path.endsWith('.vue')
+    ? parseVue(content).descriptor.scriptSetup.content
+    : content;
 
-    for (const name of [
-      'holdSheetEdit',
-      'releaseSheetEdit',
-      'isSheetEditing',
-      'refuseWhileSheetEditing',
-    ]) {
-      ports[name] = await loadHandler(LOCK_PATH, name, ports);
-    }
+  const sourceFile = typescript.createSourceFile(
+    path,
+    script,
+    typescript.ScriptTarget.Latest,
+    true,
+  );
 
-    return { ...ports, toasts };
+  return new Map(
+    sourceFile.statements
+      .filter(
+        (statement) =>
+          typescript.isFunctionDeclaration(statement) && statement.name,
+      )
+      .map((statement) => [statement.name.text, statement]),
+  );
+}
+
+/**
+ * Есть ли в узле вызов функции — сам узел или вложенный.
+ *
+ * @param {object} node - узел разбора
+ * @param {(call: object) => boolean} matches - какой вызов искать
+ * @returns {boolean} `true`, если такой вызов есть
+ */
+function hasCall(node, matches) {
+  if (typescript.isCallExpression(node) && matches(node)) {
+    return true;
   }
 
+  return Boolean(
+    typescript.forEachChild(node, (child) => hasCall(child, matches)),
+  );
+}
+
+/**
+ * Вызов ли это проверки правки.
+ *
+ * @param {object} node - узел разбора
+ * @returns {boolean} `true` у вызова `refuseWhileSheetEditing(…)`
+ */
+function isLockCall(node) {
+  return (
+    typescript.isCallExpression(node)
+    && typescript.isIdentifier(node.expression)
+    && node.expression.text === LOCK_CHECK
+  );
+}
+
+/**
+ * Начинается ли функция с проверки правки: первая инструкция — `if` из одних
+ * вызовов проверки (через «или» — когда действуют двое), а её аргументы
+ * ничего не вызывают. Вызов в аргументе — это чтение мира до проверки: так
+ * удар с несохранённого листа и выходил молча.
+ *
+ * @param {object | undefined} declaration - объявление функции
+ * @returns {boolean} `true`, если проверка стоит первой
+ */
+function startsWithLockCheck(declaration) {
+  const first = declaration?.body?.statements[0];
+
+  if (!first || !typescript.isIfStatement(first)) {
+    return false;
+  }
+
+  /**
+   * Вызовы условия, разобранного по «или».
+   *
+   * @param {object} expression - условие или его часть
+   * @returns {object[]} операнды
+   */
+  const operandsOf = (expression) =>
+    typescript.isBinaryExpression(expression)
+    && expression.operatorToken.kind === typescript.SyntaxKind.BarBarToken
+      ? [...operandsOf(expression.left), ...operandsOf(expression.right)]
+      : [expression];
+
+  return operandsOf(first.expression).every(
+    (operand) =>
+      isLockCall(operand)
+      && operand.arguments.every((argument) => !hasCall(argument, () => true)),
+  );
+}
+
+/**
+ * Зовёт ли функция проверку правки где-либо в теле.
+ *
+ * @param {object} declaration - объявление функции
+ * @returns {boolean} `true`, если проверка в теле есть
+ */
+function callsLockCheck(declaration) {
+  return Boolean(declaration.body && hasCall(declaration.body, isLockCall));
+}
+
+/**
+ * Настоящие функции отметки с общим состоянием и поддельным уведомлением.
+ *
+ * @returns {Promise<object>} функции отметки и журнал уведомлений
+ */
+async function loadLock() {
+  const toasts = [];
+
+  const ports = {
+    editingSheetCounts: new Map(),
+    useSystemToastStore: () => ({ add: (toast) => toasts.push(toast) }),
+    SHEET_EDIT_LOCK_LABELS: {
+      title: LOCK_TOAST_TITLE,
+      description: '…',
+    },
+  };
+
+  for (const name of [
+    'holdSheetEdit',
+    'releaseSheetEdit',
+    'isSheetEditing',
+    'refuseWhileSheetEditing',
+  ]) {
+    ports[name] = await loadHandler(LOCK_PATH, name, ports);
+  }
+
+  return { ...ports, toasts };
+}
+
+describe('отметка «лист в правке»', () => {
   it('действие сущности с листом в правке отклоняется с сообщением; чужой лист не мешает', async () => {
     const lock = await loadLock();
 
@@ -215,7 +407,7 @@ describe('отметка «лист в правке»', () => {
 
     assert.deepEqual(
       lock.toasts.map((toast) => toast.title),
-      ['Лист в режиме правки'],
+      [LOCK_TOAST_TITLE],
     );
 
     // Два открытых листа одной сущности: отметку снимает последний
@@ -299,8 +491,10 @@ describe('входы действий проверяют лист первым �
       .filter((path) => !toSystemPath(path).startsWith(COMPOSABLES_DIR))
       .map((path) => readFileSync(path, 'utf8'));
 
-    const unguarded = listWritingModules().flatMap((moduleName) => {
-      const source = readSource(`${COMPOSABLES_DIR}/${moduleName}.ts`);
+    const called = listWritingModules().flatMap((moduleName) => {
+      const path = `${COMPOSABLES_DIR}/${moduleName}.ts`;
+      const source = readSource(path);
+      const declarations = readFunctionDeclarations(path);
 
       return [...source.matchAll(/^export (?:async )?function (\w+)/gmu)]
         .map((match) => match[1])
@@ -309,43 +503,139 @@ describe('входы действий проверяют лист первым �
             new RegExp(`\\b${name}\\(`, 'u').test(text),
           ),
         )
-        .filter((name) => {
-          const start = source.indexOf(`function ${name}`);
-          const body = source.slice(start, source.indexOf('\n}\n', start));
-
-          return !body.includes('refuseWhileSheetEditing(');
-        });
+        .map((name) => ({
+          path,
+          name,
+          guarded: startsWithLockCheck(declarations.get(name)),
+        }));
     });
 
-    assert.deepEqual(unguarded.sort(), Object.keys(UNGUARDED_REASONS).sort());
+    assert.deepEqual(
+      called
+        .filter((entry) => !entry.guarded)
+        .map((entry) => entry.name)
+        .sort(),
+      Object.keys(UNGUARDED_REASONS).sort(),
+    );
+
+    // Перечень входов полон: каждая функция с проверкой, которую зовёт
+    // интерфейс, проходит тест вызова выше
+    const listed = new Set(
+      GUARDED_ENTRIES.map((entry) => `${entry.path}:${entry.name}`),
+    );
 
     assert.deepEqual(
-      GUARDED_ENTRIES.filter(
-        (entry) =>
-          !readSource(entry.path).includes(`export function ${entry.name}`),
-      ),
+      called
+        .filter((entry) => entry.guarded)
+        .map((entry) => `${entry.path}:${entry.name}`)
+        .filter((key) => !listed.has(key)),
       [],
     );
   });
 
-  it('отдых останавливают оба листа, и оба держат отметку правки', () => {
-    for (const path of [
-      'src/client/ui/actor/Dnd5eActorSheet.vue',
-      'src/client/ui/creature/CreatureSheet.vue',
-    ]) {
-      const source = readSource(path);
-
-      assert.match(
-        source,
-        /function handleRest\(restType: RestType\): void \{\s*\/\/[^\n]*\n\s*if \(\s*!local\w+\.value\s*\|\| refuseWhileSheetEditing\(local\w+\.value\.id\)\s*\) \{\s*return;/u,
-        `${path}: отдых не проверяет режим правки`,
+  it('проверка стоит первой инструкцией каждого входа, и её аргументы не читают мир', () => {
+    // Общие модули: проверка где-то в теле — мало. Удар оружием проверял лист
+    // по сущности, прочитанной из мира, и на несохранённом листе до проверки
+    // не доходил
+    const late = readdirSync(join(systemRoot, COMPOSABLES_DIR))
+      .filter((file) => file.endsWith('.ts'))
+      .map((file) => `${COMPOSABLES_DIR}/${file}`)
+      .filter((path) => path !== LOCK_PATH)
+      .flatMap((path) =>
+        [...readFunctionDeclarations(path)]
+          .filter(
+            ([, declaration]) =>
+              callsLockCheck(declaration) && !startsWithLockCheck(declaration),
+          )
+          .map(([name]) => `${path}:${name}`),
       );
 
+    assert.deepEqual(late, []);
+
+    for (const entry of [...GUARDED_ENTRIES, ...SHEET_ENTRIES]) {
+      assert.ok(
+        startsWithLockCheck(
+          readFunctionDeclarations(entry.path).get(entry.name),
+        ),
+        `${entry.path}: ${entry.name} не начинается с проверки правки`,
+      );
+    }
+  });
+
+  it('в интерфейсе проверку зовут только входы листа из перечня', () => {
+    const sheetEntries = new Set(
+      SHEET_ENTRIES.map((entry) => `${entry.path}:${entry.name}`),
+    );
+
+    const checking = listClientSources()
+      .map(toSystemPath)
+      .filter((path) => !path.startsWith(COMPOSABLES_DIR))
+      .filter((path) => readSource(path).includes(`${LOCK_CHECK}(`))
+      .flatMap((path) =>
+        [...readFunctionDeclarations(path)]
+          .filter(([, declaration]) => callsLockCheck(declaration))
+          .map(([name]) => `${path}:${name}`),
+      );
+
+    assert.deepEqual(
+      checking.filter((key) => !sheetEntries.has(key)).sort(),
+      Object.keys(SHEET_LATE_CHECKS).sort(),
+    );
+
+    assert.deepEqual(
+      [...sheetEntries].filter((key) => !checking.includes(key)),
+      [],
+    );
+  });
+
+  it('интерфейс не пишет в мир сам: запись из компонента — только из названных мест', () => {
+    const writing = listClientSources()
+      .map(toSystemPath)
+      .filter((path) => !path.startsWith(COMPOSABLES_DIR))
+      .filter((path) => DIRECT_WORLD_WRITE_PATTERN.test(readSource(path)));
+
+    assert.deepEqual(writing.sort(), Object.keys(DIRECT_WORLD_WRITES).sort());
+  });
+
+  it('оба листа держат отметку правки на id черновика', () => {
+    for (const path of [ACTOR_SHEET_PATH, CREATURE_SHEET_PATH]) {
       assert.match(
-        source,
+        readSource(path),
         /useSheetEditLock\(\s*\(\) => local\w+\.value\?\.id,/u,
       );
     }
+  });
+
+  it('передачу предмета лист в правке не принимает и говорит почему', () => {
+    for (const path of [ACTOR_SHEET_PATH, CREATURE_SHEET_PATH]) {
+      const source = readSource(path);
+      const start = source.indexOf('function handleItemTransferDrop');
+      const body = source.slice(start, source.indexOf('\n  }\n', start));
+
+      // Отказ — до приёма: приём сразу вынимает предмет у отправителя
+      assert.match(
+        body,
+        /if \(isEditMode\.value\) \{\s*return \(\s*isItemTransferDrop\(event\)\s*&& refuseWhileSheetEditing\(local\w+\.value\??\.id\)\s*\);\s*\}[\s\S]*receiveTransferredItem\(/u,
+        `${path}: передача в режиме правки`,
+      );
+    }
+  });
+
+  it('плитка состояния пишет в мир только в просмотре; в правке меняет черновик', () => {
+    const source = readSource('src/client/ui/actor/ActiveEffectsPanel.vue');
+    const start = source.indexOf('function handleConditionTile');
+    const body = source.slice(start, source.indexOf('\n  }\n', start));
+
+    assert.match(
+      body,
+      /owner\s*&& !props\.isEditMode\s*&& isConditionActive\(key\)\s*&& removeEntityCondition\(owner\.id, key\)/u,
+    );
+
+    // «Прервать концентрацию» идёт общим входом — он и проверяет правку
+    assert.match(
+      source,
+      /function endConcentration\(effect: ActiveEffect\): void \{\s*endEntityConcentration\(props\.owner\?\.id, effect\);\s*\}/u,
+    );
   });
 
   it('отметка правки стоит на том же id, с которым действуют вкладки листа', () => {
@@ -424,6 +714,173 @@ describe('входы действий проверяют лист первым �
     const body = source.slice(start, source.indexOf('\n  }\n', start));
 
     assert.doesNotMatch(body, /isEditMode/u);
+  });
+});
+
+describe('несохранённый лист и концентрация: отказ с уведомлением', () => {
+  /** Id черновика нового листа: в мире такой сущности ещё нет */
+  const DRAFT_ID = 'actor_draft';
+
+  /** Мир без сущности нового листа */
+  const emptyWorld = () => ({ findCurrentDndEntity: () => undefined });
+
+  /**
+   * Заголовки уведомлений отметки.
+   *
+   * @param {object} lock - функции отметки
+   * @returns {string[]} заголовки
+   */
+  const titlesOf = (lock) => lock.toasts.map((toast) => toast.title);
+
+  it('удар оружием с несохранённого листа просит сохранить лист; вне правки идёт как раньше', async () => {
+    const lock = await loadLock();
+    const costs = [];
+
+    const ports = {
+      refuseWhileSheetEditing: lock.refuseWhileSheetEditing,
+      useWorldEntities: emptyWorld,
+      spendShotAmmunition: () => assert.fail('боеприпас не тратится'),
+      runWithWeaponAttackCost: (attacker, name) =>
+        costs.push([attacker.id, name]),
+    };
+
+    const createWeaponAttackPort = await loadHandler(
+      `${COMPOSABLES_DIR}/weaponAttackRoll.ts`,
+      'createWeaponAttackPort',
+      ports,
+    );
+
+    const startWeaponAttack = await loadHandler(
+      `${COMPOSABLES_DIR}/weaponAttackRoll.ts`,
+      'startWeaponAttack',
+      ports,
+    );
+
+    const dagger = { id: 'item_dagger', name: 'Кинжал' };
+
+    /** Удар с листа: порт собирает та же фабрика, что у вкладки снаряжения */
+    const strike = () =>
+      startWeaponAttack(
+        dagger,
+        createWeaponAttackPort(DRAFT_ID, () => assert.fail('отказа входа нет')),
+      );
+
+    // Новый лист в правке: сущности в мире нет, а ответ есть
+    lock.holdSheetEdit(DRAFT_ID);
+    strike();
+
+    assert.deepEqual(titlesOf(lock), [LOCK_TOAST_TITLE]);
+    assert.deepEqual(costs, []);
+
+    // Вне правки: сущности нет — тихий выход, как раньше
+    lock.releaseSheetEdit(DRAFT_ID);
+    strike();
+
+    assert.deepEqual(titlesOf(lock), [LOCK_TOAST_TITLE]);
+    assert.deepEqual(costs, []);
+
+    // Вне правки с сущностью мира удар идёт дальше
+    ports.useWorldEntities = () => ({
+      findCurrentDndEntity: (id) => ({ id }),
+    });
+
+    strike();
+
+    assert.deepEqual(costs, [[DRAFT_ID, 'Кинжал']]);
+    assert.deepEqual(titlesOf(lock), [LOCK_TOAST_TITLE]);
+  });
+
+  it('«Использовать» у предмета и «Применить» у умения с несохранённого листа просят сохранить лист', async () => {
+    const lock = await loadLock();
+    const applied = [];
+
+    const potion = { id: 'item_potion', name: 'Зелье лечения' };
+
+    const ports = {
+      refuseWhileSheetEditing: lock.refuseWhileSheetEditing,
+      useWorldEntities: emptyWorld,
+      canUseItem: () => true,
+      buildItemUseSpell: (item) => ({ name: item.name }),
+      resolveEntityStats: () => ({ spellSaveDC: 10 }),
+      resolveEffectUseCost: () => undefined,
+      buildItemUseSpend: () => ({}),
+      applyEffectSource: (spell, user) => applied.push([user.id, spell.name]),
+    };
+
+    const applyEntityItemUse = await loadHandler(
+      `${COMPOSABLES_DIR}/effectActivationUse.ts`,
+      'applyEntityItemUse',
+      ports,
+    );
+
+    const applyEntityEffectUse = await loadHandler(
+      `${COMPOSABLES_DIR}/effectActivationUse.ts`,
+      'applyEntityEffectUse',
+      ports,
+    );
+
+    lock.holdSheetEdit(DRAFT_ID);
+    applyEntityItemUse(DRAFT_ID, potion.id);
+    applyEntityEffectUse(DRAFT_ID, 'effect_use');
+
+    assert.deepEqual(titlesOf(lock), [LOCK_TOAST_TITLE, LOCK_TOAST_TITLE]);
+    assert.deepEqual(applied, []);
+
+    // Вне правки: сущности нет — тихий выход, как раньше
+    lock.releaseSheetEdit(DRAFT_ID);
+    applyEntityItemUse(DRAFT_ID, potion.id);
+
+    assert.equal(lock.toasts.length, 2);
+    assert.deepEqual(applied, []);
+
+    // Вне правки с сущностью мира применение идёт дальше
+    ports.useWorldEntities = () => ({
+      findCurrentDndEntity: (id) => ({ id, equipment: [potion] }),
+    });
+
+    applyEntityItemUse(DRAFT_ID, potion.id);
+
+    assert.deepEqual(applied, [[DRAFT_ID, 'Зелье лечения']]);
+    assert.equal(lock.toasts.length, 2);
+  });
+
+  it('«Прервать концентрацию» в правке — уведомление, каст цел; вне правки каст заканчивается', async () => {
+    const lock = await loadLock();
+    const ended = [];
+
+    const endEntityConcentration = await loadHandler(
+      `${COMPOSABLES_DIR}/spellCasts.ts`,
+      'endEntityConcentration',
+      {
+        refuseWhileSheetEditing: lock.refuseWhileSheetEditing,
+        requestEndCasts: (casterId, castIds) =>
+          ended.push([casterId, [...castIds]]),
+      },
+    );
+
+    const mark = {
+      concentration: true,
+      castId: 'cast_heroism',
+      sourceActorId: 'actor_bard',
+    };
+
+    lock.holdSheetEdit('actor_bard');
+    endEntityConcentration('actor_bard', mark);
+
+    // Один отказ — одно уведомление: носитель метки и заклинатель совпали
+    assert.deepEqual(titlesOf(lock), [LOCK_TOAST_TITLE]);
+    assert.deepEqual(ended, []);
+
+    lock.releaseSheetEdit('actor_bard');
+    endEntityConcentration('actor_bard', mark);
+
+    assert.deepEqual(ended, [['actor_bard', ['cast_heroism']]]);
+    assert.equal(lock.toasts.length, 1);
+
+    // Не метка концентрации — заканчивать нечего
+    endEntityConcentration('actor_bard', { ...mark, castId: undefined });
+
+    assert.equal(ended.length, 1);
   });
 });
 
@@ -542,6 +999,67 @@ describe('«Сохранить» сливает черновик с миром',
     // Слитое не делит объекты ни с миром, ни с черновиком
     assert.notEqual(saved.system, world.get('actor_hero').system);
     assert.notEqual(saved.spells[1], draft.spells[1]);
+  });
+
+  it('эффекты, снятые миром за время правки: нетронутые не возвращаются, правленный владельцем остаётся', async () => {
+    // Каст закончился в мире, пока лист был в правке (конец хода, другой
+    // игрок, срабатывание сервера): метка концентрации и эффект каста сняты
+    const base = hero();
+
+    base.activeEffects = [
+      createEffect('effect_mark', { concentration: true, castId: 'cast_a' }),
+      createEffect('effect_heroism', { castId: 'cast_a' }),
+      createEffect('effect_own'),
+    ];
+
+    const world = structuredClone(base);
+
+    world.activeEffects = [structuredClone(base.activeEffects[2])];
+
+    /**
+     * Что уйдёт по «Сохранить» из черновика с такой правкой.
+     *
+     * @param {(draft: object) => void} edit - правка владельца
+     * @returns {Promise<string[]>} id эффектов записи
+     */
+    async function savedEffectIds(edit) {
+      const draft = structuredClone(base);
+
+      edit(draft);
+
+      const resolveActorToSave = await loadHandler(
+        ACTOR_SHEET_PATH,
+        'resolveActorToSave',
+        {
+          storeActor: { value: world },
+          isEditMode: { value: true },
+          savedSnapshot: { value: base },
+          mergeEntityDraft: engine.mergeEntityDraft,
+          isDndActorRecord: engine.isDndActorRecord,
+        },
+      );
+
+      return resolveActorToSave(draft).activeEffects.map((effect) => effect.id);
+    }
+
+    // Черновик с изменениями в другом месте листа: снятое не возвращается
+    assert.deepEqual(
+      await savedEffectIds((draft) => {
+        draft.name = 'Гримли Старший';
+        draft.activeEffects[2].name = 'Своё';
+      }),
+      ['effect_own'],
+    );
+
+    // Известное ограничение слияния: эффект, который владелец в правке
+    // изменил сам (выключил, переименовал), остаётся его — даже снятый миром.
+    // Возвращается он уже без метки концентрации: каста у него нет
+    assert.deepEqual(
+      await savedEffectIds((draft) => {
+        draft.activeEffects[1].disabled = true;
+      }),
+      ['effect_heroism', 'effect_own'],
+    );
   });
 
   it('вне режима правки и без сущности мира уходит сам черновик', async () => {

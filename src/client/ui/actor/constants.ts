@@ -2859,8 +2859,8 @@ export const FEAT_CHOICES_LABELS = {
  * ошибки) берутся из `REST_LABELS` и `TOAST_TITLES`.
  */
 /**
- * Отказ действия, пока лист сущности в режиме правки: каст, удар, применение,
- * переключатель, отдых (`sheetEditLock.ts`)
+ * Отказ действия, пока лист сущности в режиме правки; перечень действий — в
+ * шапке `sheetEditLock.ts`
  */
 /** Подписи отказа действия (`actionRefusal.ts`) */
 export const ACTION_REFUSAL_LABELS = {

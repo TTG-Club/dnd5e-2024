@@ -341,18 +341,18 @@ export function runEscapeAs(
   effect: ActiveEffect,
   actor: EscapeActor,
 ): boolean {
-  const { escape } = effect;
-
-  if (!escape || !escapeAllowsRole(escape, actor.role)) {
-    return false;
-  }
-
   // Лист носителя или действующего в режиме правки — действие ждёт
   // «Сохранить» или отмены
   if (
     refuseWhileSheetEditing(carrier.id)
     || refuseWhileSheetEditing(actor.entity.id)
   ) {
+    return false;
+  }
+
+  const { escape } = effect;
+
+  if (!escape || !escapeAllowsRole(escape, actor.role)) {
     return false;
   }
 

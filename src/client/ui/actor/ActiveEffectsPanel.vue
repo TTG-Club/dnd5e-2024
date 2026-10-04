@@ -70,7 +70,7 @@
     runEscapeAs,
   } from '../../composables/effectEscapeAction';
   import { toggleEntityEffect } from '../../composables/effectToggle';
-  import { requestEndCasts } from '../../composables/spellCasts';
+  import { endEntityConcentration } from '../../composables/spellCasts';
   import { useActiveEffectModal } from '../../composables/useActiveEffectModal';
   import {
     removeEntityCondition,
@@ -141,14 +141,13 @@
 
   /**
    * Прерывает концентрацию: сервер закончит каст метки у всех существ и снимет
-   * его зону. Сама метка уходит тем же исходом.
+   * его зону. Правку листа проверяет общий вход, как у остальных кнопок
+   * действий вкладки: кнопка не гаснет, а объясняет отказ.
    *
    * @param effect - метка концентрации
    */
   function endConcentration(effect: ActiveEffect): void {
-    if (effect.concentration && effect.castId && effect.sourceActorId) {
-      requestEndCasts(effect.sourceActorId, [effect.castId]);
-    }
+    endEntityConcentration(props.owner?.id, effect);
   }
 
   const {

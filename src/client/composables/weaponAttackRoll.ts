@@ -78,6 +78,12 @@ import { useWorldEntities } from './useWorldEntities';
  * только отказом.
  */
 export interface WeaponAttackPort {
+  /**
+   * Чей это удар. По id, а не по сущности мира: лист нового, ещё не
+   * сохранённого персонажа в мире не найти, а проверка правки листа стоит до
+   * чтения мира
+   */
+  attackerId: string;
   /** Атакующий сейчас */
   readAttacker: () => DnDSceneEntity | undefined;
   /** Тратит боеприпас выстрела, когда бросок пошёл */
@@ -104,6 +110,7 @@ export function createWeaponAttackPort(
   refuse: WeaponAttackPort['refuse'],
 ): WeaponAttackPort {
   return {
+    attackerId,
     readAttacker: () => useWorldEntities().findCurrentDndEntity(attackerId),
     spendAmmunition: (ammunitionId) =>
       spendShotAmmunition(attackerId, ammunitionId),
@@ -156,10 +163,16 @@ export function startWeaponAttack(
   sourceWeapon: DnDGameItem,
   port: WeaponAttackPort,
 ): void {
+  // Лист атакующего в режиме правки — удар ждёт «Сохранить» или отмены. До
+  // чтения мира: нового, ещё не сохранённого персонажа там нет, и удар с его
+  // листа молчал, вместо того чтобы попросить сохранить лист
+  if (refuseWhileSheetEditing(port.attackerId)) {
+    return;
+  }
+
   const attacker = port.readAttacker();
 
-  // Лист атакующего в режиме правки — удар ждёт «Сохранить» или отмены
-  if (!attacker || refuseWhileSheetEditing(attacker.id)) {
+  if (!attacker) {
     return;
   }
 

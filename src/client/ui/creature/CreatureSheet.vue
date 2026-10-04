@@ -304,7 +304,7 @@
     toRef(() => localCreature.value),
   );
 
-  const { receiveTransferredItem } = useItemTransfer();
+  const { receiveTransferredItem, isItemTransferDrop } = useItemTransfer();
 
   const isDiceRollOpen = ref(false);
 
@@ -1271,10 +1271,11 @@
    */
   function handleRest(restType: RestType): void {
     // Отдых в режиме правки ждёт «Сохранить» или отмены, как и действия
-    if (
-      !localCreature.value
-      || refuseWhileSheetEditing(localCreature.value.id)
-    ) {
+    if (refuseWhileSheetEditing(localCreature.value?.id)) {
+      return;
+    }
+
+    if (!localCreature.value) {
       return;
     }
 
@@ -1353,8 +1354,16 @@
     // предмет уже после того, как его отдали, и он пропал бы у обоих
     // Черновик своего компендиума предмет не принимает: у отправителя он ушёл бы
     // из мира насовсем — в запись компендиума, а не к существу на столе
-    if (isEditMode.value || !localCreature.value || props.draftSave) {
+    if (!localCreature.value || props.draftSave) {
       return false;
+    }
+
+    // Причину говорим: молчаливый отказ выглядел поломкой жеста
+    if (isEditMode.value) {
+      return (
+        isItemTransferDrop(event)
+        && refuseWhileSheetEditing(localCreature.value.id)
+      );
     }
 
     const received = receiveTransferredItem(

@@ -756,7 +756,7 @@
    */
   function handleRest(restType: RestType): void {
     // Отдых в режиме правки ждёт «Сохранить» или отмены, как и действия
-    if (!localActor.value || refuseWhileSheetEditing(localActor.value.id)) {
+    if (refuseWhileSheetEditing(localActor.value?.id)) {
       return;
     }
 
@@ -805,6 +805,11 @@
    * @param options - параметры долгого отдыха из модалки
    */
   function handleLongRestApply(options: LongRestOptions): void {
+    // В правку вошли при открытом окне отдыха — отдых её тоже ждёт
+    if (refuseWhileSheetEditing(localActor.value?.id)) {
+      return;
+    }
+
     if (!localActor.value) {
       return;
     }
@@ -851,6 +856,11 @@
    * @param result - результат броска костей хитов из модалки
    */
   function handleShortRestApply(result: ShortRestHitDiceResult): void {
+    // В правку вошли при открытом окне отдыха — отдых её тоже ждёт
+    if (refuseWhileSheetEditing(localActor.value?.id)) {
+      return;
+    }
+
     if (!localActor.value) {
       return;
     }
@@ -1011,7 +1021,7 @@
     isOpen.value = false;
   }
 
-  const { receiveTransferredItem } = useItemTransfer();
+  const { receiveTransferredItem, isItemTransferDrop } = useItemTransfer();
 
   const { sheetModalRef, minimizedTitle, minimizeSheet } = useSheetMinimize(
     () => localActor.value?.name,
@@ -1384,8 +1394,16 @@
   function handleItemTransferDrop(event: DragEvent): boolean {
     // В режиме правки жест не принимается: у отправителя предмет уходит сразу и
     // на сервер, а здесь правки копятся до «Сохранить» — «Отмена» стёрла бы
-    // предмет уже после того, как его отдали, и он пропал бы у обоих
-    if (isEditMode.value || !localActor.value) {
+    // предмет уже после того, как его отдали, и он пропал бы у обоих. Причину
+    // говорим: молчаливый отказ выглядел поломкой жеста
+    if (isEditMode.value) {
+      return (
+        isItemTransferDrop(event)
+        && refuseWhileSheetEditing(localActor.value?.id)
+      );
+    }
+
+    if (!localActor.value) {
       return false;
     }
 

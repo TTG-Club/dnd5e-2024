@@ -191,10 +191,14 @@ export function applyEffectSource(
   withPay: EffectSourceSpend = {},
 ): void {
   // Лист применившего в режиме правки — применение ждёт «Сохранить» или
-  // отмены. Запрет траты хода («нет бонусных действий») — до всякого выбора
+  // отмены
+  if (refuseWhileSheetEditing(user.id)) {
+    return;
+  }
+
+  // Запрет траты хода («нет бонусных действий») — до всякого выбора
   if (
-    refuseWhileSheetEditing(user.id)
-    || warnActionCostBlocked(
+    warnActionCostBlocked(
       user,
       withPay.cost,
       `${EFFECT_USE_LABELS.blockedTitle}: ${spell.name}`,
@@ -522,6 +526,12 @@ export function spendShotAmmunition(
  * @param effectId - эффект «при применении»
  */
 export function applyEntityEffectUse(entityId: string, effectId: string): void {
+  // Лист владельца в режиме правки — до чтения мира: эффекта нового, ещё не
+  // сохранённого листа там нет, и кнопка молчала бы
+  if (refuseWhileSheetEditing(entityId)) {
+    return;
+  }
+
   const worldEntities = useWorldEntities();
   const entity = worldEntities.findCurrentDndEntity(entityId);
   const effects = entity?.activeEffects ?? [];
@@ -569,6 +579,12 @@ export function applyEntityEffectUse(entityId: string, effectId: string): void {
  * @param itemId - предмет
  */
 export function applyEntityItemUse(entityId: string, itemId: string): void {
+  // Лист владельца в режиме правки — до чтения мира: предмета нового, ещё не
+  // сохранённого листа там нет, и «Использовать» молчало
+  if (refuseWhileSheetEditing(entityId)) {
+    return;
+  }
+
   const entity = useWorldEntities().findCurrentDndEntity(entityId);
   const item = entity?.equipment?.find((candidate) => candidate.id === itemId);
 
