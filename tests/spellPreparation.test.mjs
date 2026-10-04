@@ -695,13 +695,12 @@ const preparationHarnessBundle = await build({
   stdin: {
     contents: `
       export function createTabHarness(context) {
-        const { props, computed, engine, resolveClassDefinition, emit,
+        const { props, computed, engine, classDefinitionOf, emit,
           triggerSaveIfNotEdit, toast, ACTOR_SPELLS_TAB_LABELS,
           resolvedStats } = context;
         const { CANTRIP_SPELL_LEVEL, getClassPreparedValue, getPreparedLimitBreakdown,
           countsTowardCantrips, countsTowardPreparedSpells, isSpellReady } = engine;
         ${[
-          'classDefinitionOf',
           'spellcastingBonusContext',
           'preparedSpellsLimit',
           'cantripsLimit',
@@ -797,7 +796,7 @@ function createPreparationFixture() {
     props,
     computed,
     engine,
-    resolveClassDefinition: () => ({
+    classDefinitionOf: () => ({
       tableColumns: [{ key: 'preparedSpells', label: 'Подг. Закл.' }],
       levelTable: [{ level: 1, preparedSpells: '4' }],
     }),
@@ -1144,7 +1143,7 @@ function createClericCantripsTab(thaumaturgeAlwaysPrepared) {
     props,
     computed,
     engine,
-    resolveClassDefinition: () => ({}),
+    classDefinitionOf: () => ({}),
     emit: () => {},
     triggerSaveIfNotEdit: () => {},
     toast: { add: () => {} },

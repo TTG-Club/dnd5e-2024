@@ -3,8 +3,6 @@
   import type { DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue';
 
   import type {
-    ActorClassEntry,
-    ClassDefinition,
     DnDActor,
     DnDCustomBonusContext,
     DnDPreparedLimit,
@@ -273,22 +271,7 @@
   }
 
   /** Классы по пакам — таблица уровней читается из записи, которую выбрали */
-  const { resolve: resolveClassDefinition } = useClassCatalog();
-
-  /**
-   * Определение класса по записи листа: адресуется парой «пак + ключ», иначе
-   * таблица читалась бы из одноимённой записи соседнего компендиума.
-   *
-   * @param entry - запись класса на листе
-   */
-  function classDefinitionOf(
-    entry: ActorClassEntry,
-  ): ClassDefinition | undefined {
-    return resolveClassDefinition({
-      key: entry.classKey,
-      packId: entry.packId,
-    });
-  }
+  const { resolveEntry: classDefinitionOf } = useClassCatalog();
 
   /**
    * Предел подготовленных заклинаний: число из таблицы класса компендиума с

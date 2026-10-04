@@ -15,7 +15,6 @@
    */
   import type { SkillType, TypedWebSocketClient } from '@vtt/shared';
   import type {
-    ActorClassEntry,
     ClassDefinition,
     DnDAbilityScores,
     DnDActor,
@@ -116,24 +115,9 @@
   });
 
   /** Классы по пакам — предел подготовки мультикласса складывается из таблиц */
-  const { resolve: resolveClassDefinition } = useClassCatalog(
+  const { resolveEntry: classDefinitionOf } = useClassCatalog(
     toRef(props, 'socket'),
   );
-
-  /**
-   * Определение класса по записи листа — парой «пак + ключ», как на вкладке
-   * заклинаний.
-   *
-   * @param entry - запись класса на листе
-   */
-  function classDefinitionOf(
-    entry: ActorClassEntry,
-  ): ClassDefinition | undefined {
-    return resolveClassDefinition({
-      key: entry.classKey,
-      packId: entry.packId,
-    });
-  }
 
   const {
     isFirstClass,

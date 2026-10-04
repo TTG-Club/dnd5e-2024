@@ -897,7 +897,7 @@ function returnBorrowedPreparation(
   spell: Spell,
   removedNames: ReadonlySet<string>,
 ): Spell {
-  const borrowed = spell.borrowedPreparation;
+  const { borrowedPreparation: borrowed, ...ordinary } = spell;
 
   if (!borrowed) {
     return spell;
@@ -913,11 +913,9 @@ function returnBorrowedPreparation(
     return { ...spell, borrowedPreparation: { ...borrowed, sources } };
   }
 
-  const { borrowedPreparation: returned, ...ordinary } = spell;
-
   return {
     ...ordinary,
-    prepared: returned?.wasPrepared ?? false,
+    prepared: borrowed.wasPrepared,
     alwaysPrepared: false,
   };
 }

@@ -16,6 +16,7 @@ import type { Ref } from 'vue';
 
 import type { TypedWebSocketClient } from '@vtt/shared';
 import type {
+  ActorClassEntry,
   ClassDefinition,
   CompendiumRecordRef,
 } from '@vtt/shared/system/dnd.js';
@@ -126,6 +127,16 @@ export function useClassCatalog(socket?: Ref<TypedWebSocketClient | null>) {
   }
 
   /**
+   * Определение класса по записи листа: адресуется парой «пак + ключ», иначе
+   * таблица читалась бы из одноимённой записи соседнего компендиума.
+   *
+   * @param entry - запись класса на листе
+   */
+  function resolveEntry(entry: ActorClassEntry): ClassDefinition | undefined {
+    return resolve({ key: entry.classKey, packId: entry.packId });
+  }
+
+  /**
    * Определение вместе с паком, в котором оно нашлось: у ссылки без пака пак
    * становится известен здесь и дальше ложится на запись актора.
    *
@@ -160,6 +171,7 @@ export function useClassCatalog(socket?: Ref<TypedWebSocketClient | null>) {
     isLoaded: catalog.isLoaded,
     load: catalog.load,
     resolve,
+    resolveEntry,
     resolveWithPack,
     flatPreferring,
     recordsFor,
