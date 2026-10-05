@@ -119,6 +119,7 @@ import {
 } from './damageHits.js';
 import { getSpellDamageParts } from './damageParts.js';
 import {
+  closeDeathSavesAboveZeroHp,
   formatDeathSaveSummary,
   settleDeathSaveDamage,
   syncDeathSavesWithHp,
@@ -1609,7 +1610,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.244';
+  readonly version = '0.8.245';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -2600,6 +2601,8 @@ export class Dnd5eVttSystem implements VttSystem {
    * Здесь же пересчитываются состояния с правилом «вешать автоматически»
    * (`autoConditions.ts`): Ядро прогоняет персонажа через этот метод на каждой
    * записи, и значки сверяются с сущностью, каким бы путём она ни поменялась.
+   * По той же причине здесь закрывается серия спасбросков от смерти у
+   * персонажа с хитами выше нуля: окно хитов и отдых пишут мимо боевого снимка.
    */
   // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   normalizeActor(actor: BaseActor): void {
@@ -2607,6 +2610,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
     if (isDndSceneEntity(actor)) {
       syncAutoAppliedConditions(actor);
+      closeDeathSavesAboveZeroHp(actor);
     }
   }
 

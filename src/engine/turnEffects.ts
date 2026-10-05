@@ -50,7 +50,7 @@ import {
   resolveSavingThrowRollMode,
 } from './attackUtils.js';
 import { ABILITY_LABELS } from './consts.js';
-import { DAMAGE_TYPE_LABELS } from './damageConstants.js';
+import { resolveDamageTypeLabel } from './damageConstants.js';
 import { damageReachesTarget } from './damageTargetGate.js';
 import { settleDamageTypeChoices } from './damageTypeChoice.js';
 import { applyHpChange, applyMultiTypeDamageDefenses } from './damageUtils.js';
@@ -1676,13 +1676,10 @@ export function formatEffectsSummary(
   healingOutcomes: TurnHealingOutcome[] = [],
 ): string | null {
   const lines = [formatEffectsSummaryHeader(entityName, whenLabel)];
-  const damageLabels: Record<string, string> = DAMAGE_TYPE_LABELS;
 
   // Урон и лечение с костями показаны карточками бросков (`buildEffectDiceRolls`)
   for (const damage of damageOutcomes.filter(isSummaryOnlyOutcome)) {
-    const typeLabel =
-      damage.types.map((type) => damageLabels[type] ?? type).join('/')
-      || 'урон';
+    const typeLabel = formatDamageTypeLabels(damage.types) || 'урон';
 
     const breakdown = formatRollBreakdown(damage);
 
@@ -1734,17 +1731,24 @@ function isSummaryOnlyOutcome(
 }
 
 /**
+ * Названия типов урона исхода через «/». Тип без названия (служебный `choice`)
+ * пропускается.
+ *
+ * @param types - ключи типов урона
+ * @returns названия; пустая строка — назвать нечего
+ */
+function formatDamageTypeLabels(types: readonly string[]): string {
+  return types.flatMap((type) => resolveDamageTypeLabel(type) ?? []).join('/');
+}
+
+/**
  * Итог урона для подписи броска: «−5 HP (Огненный урон)».
  *
  * @param outcome - исход урона
  * @returns итог
  */
 function formatDamageResult(outcome: TurnDamageOutcome): string {
-  const damageLabels: Record<string, string> = DAMAGE_TYPE_LABELS;
-
-  const typeLabel = outcome.types
-    .map((type) => damageLabels[type] ?? type)
-    .join('/');
+  const typeLabel = formatDamageTypeLabels(outcome.types);
 
   return typeLabel
     ? `−${outcome.total} HP (${typeLabel})`

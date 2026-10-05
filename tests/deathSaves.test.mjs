@@ -227,6 +227,25 @@ describe('урон и хиты', () => {
     );
   });
 
+  it('запись персонажа мимо боевого снимка закрывает серию выше нуля хитов', () => {
+    const system = new engine.Dnd5eVttSystem();
+
+    // Окно хитов и отдых пишут персонажа целиком: хиты уже подняты
+    const rested = withHp(createActor, 12, {}, 20);
+
+    rested.system.deathSaves = { successes: 2, failures: 1 };
+    system.normalizeActor(rested);
+
+    assert.deepEqual(rested.system.deathSaves, EMPTY_DEATH_SAVES);
+
+    // На нуле хитов серия идёт — запись её не трогает
+    const downed = downedHero({ successes: 2, failures: 1 });
+
+    system.normalizeActor(downed);
+
+    assert.deepEqual(downed.system.deathSaves, { successes: 2, failures: 1 });
+  });
+
   it('строка чата называет итог и счёт', () => {
     assert.equal(
       engine.formatDeathSaveSummary(

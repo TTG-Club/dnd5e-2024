@@ -358,6 +358,30 @@ export function applyDeathSaveResult(
 }
 
 /**
+ * Закрывает серию у персонажа с хитами выше нуля. МУТИРУЕТ персонажа.
+ *
+ * Хиты поднимают не только боем: окно хитов листа, отдых, правка листа пишут
+ * персонажа целиком, мимо боевого снимка. Без этого серия оставалась в записи
+ * и всплывала прежним счётом, когда хиты снова ставили в ноль тем же путём.
+ *
+ * @param entity - сущность
+ * @returns `true`, если серия была и сброшена
+ */
+export function closeDeathSavesAboveZeroHp(entity: DnDSceneEntity): boolean {
+  if (
+    !isDndActor(entity)
+    || resolveEntityCurrentHp(entity) <= 0
+    || !hasDeathSaveProgress(entity.system.deathSaves)
+  ) {
+    return false;
+  }
+
+  entity.system.deathSaves = { ...EMPTY_DEATH_SAVES };
+
+  return true;
+}
+
+/**
  * Приводит серию к хитам после их изменения. МУТИРУЕТ персонажа.
  *
  * - хиты выше нуля — серии нет, метка смерти снимается (персонажа подняли);
@@ -378,12 +402,8 @@ export function syncDeathSavesWithHp(
   const hp = resolveEntityCurrentHp(entity);
 
   if (hp > 0) {
-    const hadSeries = hasDeathSaveProgress(entity.system.deathSaves);
+    const hadSeries = closeDeathSavesAboveZeroHp(entity);
     const wasDead = isActorDead(entity);
-
-    if (hadSeries) {
-      entity.system.deathSaves = { ...EMPTY_DEATH_SAVES };
-    }
 
     if (wasDead) {
       entity.activeEffects = withActorDeathMark(

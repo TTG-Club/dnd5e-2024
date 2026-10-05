@@ -26,7 +26,6 @@ import { generateId } from '@vtt/shared';
 import {
   CREATURE_TYPE_LABELS,
   DAMAGE_STATUS_PHRASE_PREFIXES,
-  DAMAGE_TYPE_LABELS,
   damageReachesTarget,
   isDndSceneEntity,
   isMagicRoll,
@@ -35,6 +34,7 @@ import {
   readDamageStatusName,
   removesItselfOnApply,
   resolveActorStats,
+  resolveDamageTypeLabel,
   SAVE_TYPE_LABELS,
   stampAppliedEffect,
   withInitializedDuration,
@@ -509,18 +509,13 @@ export function instantiateSpellEffects(
  * Возвращает локализованное название типа урона или исходную строку.
  *
  * @param type - тип урона
- * @returns русское название или исходная строка
+ * @returns русское название или исходная строка; `undefined` — типа нет либо
+ * у него нет названия (служебный `choice`)
  */
 export function getDamageTypeLabel(
   type: string | undefined,
 ): string | undefined {
-  if (!type) {
-    return undefined;
-  }
-
-  const labels: Record<string, string> = DAMAGE_TYPE_LABELS;
-
-  return labels[type] ?? type;
+  return type ? resolveDamageTypeLabel(type) : undefined;
 }
 
 /**
@@ -545,9 +540,7 @@ export function getPartKindLabel(part: {
 
   // Несколько типов (напр. рубящий+огонь) — показываем через « и »
   if (part.types && part.types.length > 1) {
-    const labels = part.types
-      .map((type) => getDamageTypeLabel(type) ?? type)
-      .filter(Boolean);
+    const labels = part.types.flatMap((type) => getDamageTypeLabel(type) ?? []);
 
     if (labels.length > 0) {
       return labels.join(' и ');

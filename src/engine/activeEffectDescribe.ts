@@ -408,7 +408,9 @@ function describePartTypeLabel(part: DamagePart, formula: string): string {
 
   const typeKey = part.type ?? detectFormulaDamageType(formula);
 
-  return typeKey ? ` ${getShortDamageTypeLabel(typeKey)}` : '';
+  const typeLabel = typeKey ? getShortDamageTypeLabel(typeKey) : '';
+
+  return typeLabel ? ` ${typeLabel}` : '';
 }
 
 /** Подписи лечения в описании части: `@heal` и `@heal.temp` */
