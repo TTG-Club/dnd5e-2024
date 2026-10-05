@@ -10,7 +10,9 @@
 
 import type { DnDSceneEntity } from './dndEntities.js';
 
+import { TEMP_HP_GAIN_KEY } from './activeEffectTypes.js';
 import { resolveActorStats } from './effectPipeline.js';
+import { sumOffSheetChange } from './offSheetChanges.js';
 
 /** Флаг «не может восстанавливать хиты» */
 export const HEALING_BLOCKED_FLAG = 'healing.blocked';
@@ -58,7 +60,32 @@ export function limitEntityHealing(
     return amounts;
   }
 
-  return limitHealingByFlags(resolveActorStats(entity).activeFlags, amounts);
+  return limitHealingByFlags(resolveActorStats(entity).activeFlags, {
+    hitPoints: amounts.hitPoints,
+    temporary: withTempHpGainBonus(entity, amounts.temporary),
+  });
+}
+
+/**
+ * Временные хиты с прибавкой получателя: «+5 к получаемым временным хитам»
+ * (строка `tempHp.gain` его эффектов). Прибавка идёт только к настоящей
+ * выдаче — к нулю она ничего не добавляет.
+ *
+ * @param entity - получатель
+ * @param temporary - выданные временные хиты
+ * @returns временные хиты с прибавкой
+ */
+export function withTempHpGainBonus(
+  entity: DnDSceneEntity,
+  temporary: number,
+): number {
+  if (temporary <= 0) {
+    return temporary;
+  }
+
+  const bonus = sumOffSheetChange(entity, TEMP_HP_GAIN_KEY);
+
+  return Math.max(0, temporary + bonus);
 }
 
 /**

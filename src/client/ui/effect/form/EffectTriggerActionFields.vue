@@ -8,6 +8,8 @@
   import type {
     ConditionRef,
     EffectCastOwner,
+    EffectEscape,
+    EffectFlagKey,
     EffectFormLayout,
     EffectNotifyTarget,
     EffectRestoreKind,
@@ -30,7 +32,9 @@
     ABILITY_OPTIONS,
     CANTRIP_SPELL_LEVEL,
     createDefaultEffectSave,
+    createDefaultEscape,
     createEffectTriggerId,
+    CREATURE_CATEGORY_OPTIONS,
     DEFAULT_CAST_OWNER,
     DEFAULT_NESTED_TRIGGER_EVENT,
     DEFAULT_NOTIFY_TARGET,
@@ -41,6 +45,7 @@
     DEFAULT_TRIGGER_MOVE_KIND,
     DEFAULT_TRIGGER_MOVE_ORIGIN,
     DEFAULT_TRIGGER_REST_TYPE,
+    isCreatureCategory,
     isEffectTag,
     layoutAcceptsSourceSaveDc,
     listNestedTriggerActionTypes,
@@ -76,6 +81,8 @@
     EFFECT_TRIGGER_EVENT_LABELS,
     EFFECT_TRIGGER_ROW_LABELS,
   } from '../triggerLabels';
+  import EffectEscapeFields from './EffectEscapeFields.vue';
+  import EffectFlagRows from './EffectFlagRows.vue';
   import SaveDcField from './SaveDcField.vue';
 
   const props = defineProps<{
@@ -197,6 +204,7 @@
   function updateRecurringSave(patch: {
     ability?: AbilityType;
     dc?: number;
+    dcFormula?: string;
     timing?: EffectSaveTiming;
   }): void {
     const current = action.value;
@@ -413,6 +421,32 @@
     },
   });
 
+  // Расстояние «до N»: сколько футов, выбирает применивший
+  const moveUpTo = computed({
+    get: () => action.value.type === 'move' && action.value.upTo === true,
+    set: (enabled: boolean) => {
+      if (action.value.type === 'move') {
+        action.value = { ...action.value, upTo: enabled ? true : undefined };
+      }
+    },
+  });
+
+  // Круг рассеивания формулой: пустая строка — круг числом
+  const dispelFormula = computed({
+    get: () =>
+      action.value.type === 'dispel'
+        ? (action.value.maxLevelFormula ?? '')
+        : '',
+    set: (formula: string | number) => {
+      if (action.value.type === 'dispel') {
+        action.value = {
+          ...action.value,
+          maxLevelFormula: String(formula).trim() || undefined,
+        };
+      }
+    },
+  });
+
   /**
    * Меняет расстояние перемещения.
    *
@@ -472,6 +506,24 @@
         action.value = {
           ...action.value,
           conditionKey: next === ANY_CONDITION_KEY ? undefined : next,
+        };
+      }
+    },
+  });
+
+  // Пустой список значит «кем бы ни было наложено»
+  const removedFromTypes = computed({
+    get: () =>
+      action.value.type === 'removeCondition'
+        ? (action.value.fromCreatureTypes ?? [])
+        : [],
+    set: (types: string[]) => {
+      if (action.value.type === 'removeCondition') {
+        const known = types.filter(isCreatureCategory);
+
+        action.value = {
+          ...action.value,
+          fromCreatureTypes: known.length > 0 ? known : undefined,
         };
       }
     },
@@ -550,6 +602,62 @@
   }
 
   /**
+   * Меняет «сколько вернуть»: число или формула; пусто — одна единица.
+   *
+   * @param value - введённая формула
+   */
+  function updateRestoreAmount(value: string | number): void {
+    const amount = String(value).trim();
+
+    if (action.value.type === 'restore') {
+      action.value = { ...action.value, amount: amount || undefined };
+    }
+  }
+
+  const restoreSet = computed({
+    get: () => action.value.type === 'restore' && action.value.set === true,
+    set: (enabled: boolean) => {
+      if (action.value.type === 'restore') {
+        action.value = { ...action.value, set: enabled ? true : undefined };
+      }
+    },
+  });
+
+  /**
+   * Меняет хиты формулой у «Хиты становятся»; пусто — число действия.
+   *
+   * @param value - введённая формула
+   */
+  function updateSetHpFormula(value: string | number): void {
+    const formula = String(value).trim();
+
+    if (action.value.type === 'setHp') {
+      action.value = { ...action.value, formula: formula || undefined };
+    }
+  }
+
+  /** Срок состояния или отметки формулой; пусто — срок числом */
+  const durationFormula = computed(() =>
+    action.value.type === 'applyCondition' || action.value.type === 'applyTag'
+      ? (action.value.durationFormula ?? '')
+      : '',
+  );
+
+  /**
+   * Меняет срок состояния или отметки формулой; пусто — срок числом.
+   *
+   * @param value - введённая формула
+   */
+  function updateDurationFormula(value: string | number): void {
+    const formula = String(value).trim();
+    const current = action.value;
+
+    if (current.type === 'applyCondition' || current.type === 'applyTag') {
+      action.value = { ...current, durationFormula: formula || undefined };
+    }
+  }
+
+  /**
    * Меняет ключ ресурса листа. Пустой ключ не пишется: без него возвращать
    * нечего.
    *
@@ -621,6 +729,55 @@
           endsOnExit: enabled ? true : undefined,
         };
       }
+    },
+  });
+
+  /** Блок «вырваться» наложенного состояния; нет — кнопки у состояния нет */
+  const conditionEscape = computed(() =>
+    action.value.type === 'applyCondition' ? action.value.escape : undefined,
+  );
+
+  const hasConditionEscape = computed({
+    get: () => conditionEscape.value !== undefined,
+    set: (enabled: boolean) => {
+      if (action.value.type !== 'applyCondition') {
+        return;
+      }
+
+      const { escape: _escape, ...rest } = action.value;
+
+      action.value = enabled
+        ? {
+            ...rest,
+            escape: createDefaultEscape(acceptsSourceSaveDc.value),
+          }
+        : rest;
+    },
+  });
+
+  /**
+   * Записывает блок «вырваться» наложенного состояния.
+   *
+   * @param escape - блок действия
+   */
+  function updateConditionEscape(escape: EffectEscape): void {
+    if (action.value.type === 'applyCondition') {
+      action.value = { ...action.value, escape };
+    }
+  }
+
+  /** Флаги сверх самого состояния: действуют, пока оно лежит */
+  const conditionFlags = computed({
+    get: () =>
+      action.value.type === 'applyCondition' ? (action.value.flags ?? []) : [],
+    set: (flags: EffectFlagKey[]) => {
+      if (action.value.type !== 'applyCondition') {
+        return;
+      }
+
+      const { flags: _flags, ...rest } = action.value;
+
+      action.value = flags.length > 0 ? { ...rest, flags } : rest;
     },
   });
 
@@ -777,6 +934,23 @@
           @update:model-value="updateRounds"
         />
       </UFormField>
+
+      <UFormField class="w-48">
+        <template #label>
+          <span class="flex items-center gap-1">
+            {{ EFFECT_TRIGGER_ROW_LABELS.durationFormula }}
+
+            <FieldHint :text="EFFECT_TRIGGER_ROW_LABELS.durationFormulaHint" />
+          </span>
+        </template>
+
+        <UInput
+          :model-value="durationFormula"
+          size="sm"
+          class="w-full"
+          @update:model-value="updateDurationFormula"
+        />
+      </UFormField>
     </div>
 
     <USwitch
@@ -784,6 +958,31 @@
       :label="EFFECT_TRIGGER_ROW_LABELS.conditionLocked"
       :description="EFFECT_TRIGGER_ROW_LABELS.conditionLockedHint"
     />
+
+    <USwitch
+      v-model="hasConditionEscape"
+      :label="EFFECT_TRIGGER_ROW_LABELS.conditionEscapeToggle"
+      :description="EFFECT_TRIGGER_ROW_LABELS.conditionEscapeHint"
+    />
+
+    <EffectEscapeFields
+      v-if="conditionEscape"
+      :model-value="conditionEscape"
+      :auto-dc-allowed="acceptsSourceSaveDc"
+      :auto-label="EFFECT_SOURCE_DC_LABELS[layout.context]"
+      :source-save-dc="sourceSaveDc"
+      @update:model-value="updateConditionEscape"
+    />
+
+    <div class="flex flex-col gap-1">
+      <div class="flex items-center gap-1 text-xs font-medium text-toned">
+        {{ EFFECT_TRIGGER_ROW_LABELS.conditionFlags }}
+
+        <FieldHint :text="EFFECT_TRIGGER_ROW_LABELS.conditionFlagsHint" />
+      </div>
+
+      <EffectFlagRows v-model:flags="conditionFlags" />
+    </div>
 
     <USwitch
       v-if="canEndOnZoneExit"
@@ -822,7 +1021,10 @@
         :auto-allowed="acceptsSourceSaveDc"
         :auto-label="EFFECT_SOURCE_DC_LABELS[layout.context]"
         :auto-value="sourceSaveDc"
+        :formula="action.recurringSave.dcFormula"
+        formula-allowed
         @update:model-value="updateRecurringSave({ dc: $event })"
+        @update:formula="updateRecurringSave({ dcFormula: $event })"
       />
 
       <UFormField
@@ -912,6 +1114,26 @@
       />
     </UFormField>
 
+    <UFormField
+      v-if="!action.toMax"
+      class="w-56"
+    >
+      <template #label>
+        <span class="flex items-center gap-1">
+          {{ EFFECT_TRIGGER_ROW_LABELS.setHpFormula }}
+
+          <FieldHint :text="EFFECT_TRIGGER_ROW_LABELS.setHpFormulaHint" />
+        </span>
+      </template>
+
+      <UInput
+        :model-value="action.formula ?? ''"
+        size="sm"
+        class="w-full"
+        @update:model-value="updateSetHpFormula"
+      />
+    </UFormField>
+
     <USwitch
       v-model="setHpToMax"
       :label="EFFECT_TRIGGER_ROW_LABELS.setHpToMax"
@@ -959,6 +1181,23 @@
         size="sm"
         class="w-full"
         @update:model-value="updateRounds"
+      />
+    </UFormField>
+
+    <UFormField class="w-48">
+      <template #label>
+        <span class="flex items-center gap-1">
+          {{ EFFECT_TRIGGER_ROW_LABELS.durationFormula }}
+
+          <FieldHint :text="EFFECT_TRIGGER_ROW_LABELS.durationFormulaHint" />
+        </span>
+      </template>
+
+      <UInput
+        :model-value="durationFormula"
+        size="sm"
+        class="w-full"
+        @update:model-value="updateDurationFormula"
       />
     </UFormField>
 
@@ -1055,6 +1294,7 @@
     </UFormField>
 
     <UFormField
+      v-if="action.kind !== 'bring'"
       :label="EFFECT_TRIGGER_ROW_LABELS.moveDistance"
       class="w-28"
     >
@@ -1066,6 +1306,17 @@
         @update:model-value="updateMoveDistance"
       />
     </UFormField>
+
+    <UTooltip
+      v-if="action.kind !== 'bring'"
+      :text="EFFECT_TRIGGER_ROW_LABELS.moveUpToHint"
+    >
+      <USwitch
+        v-model="moveUpTo"
+        class="mt-7"
+        :label="EFFECT_TRIGGER_ROW_LABELS.moveUpTo"
+      />
+    </UTooltip>
 
     <UFormField
       :label="EFFECT_TRIGGER_ROW_LABELS.moveFrom"
@@ -1083,21 +1334,48 @@
     </UFormField>
   </div>
 
-  <UFormField
+  <div
     v-else-if="action.type === 'removeCondition'"
-    :label="EFFECT_TRIGGER_ROW_LABELS.condition"
-    class="w-64"
+    class="flex flex-wrap items-end gap-3"
   >
-    <USelectMenu
-      v-model="removedCondition"
-      :items="removableConditionItems"
-      value-key="value"
-      label-key="label"
-      size="sm"
-      class="w-full"
-      :portal="false"
-    />
-  </UFormField>
+    <UFormField
+      :label="EFFECT_TRIGGER_ROW_LABELS.condition"
+      class="w-64"
+    >
+      <USelectMenu
+        v-model="removedCondition"
+        :items="removableConditionItems"
+        value-key="value"
+        label-key="label"
+        size="sm"
+        class="w-full"
+        :portal="false"
+      />
+    </UFormField>
+
+    <UFormField class="w-72">
+      <template #label>
+        <span class="flex items-center gap-1">
+          {{ EFFECT_TRIGGER_ROW_LABELS.removeConditionFromTypes }}
+
+          <FieldHint
+            :text="EFFECT_TRIGGER_ROW_LABELS.removeConditionFromTypesHint"
+          />
+        </span>
+      </template>
+
+      <USelectMenu
+        v-model="removedFromTypes"
+        :items="CREATURE_CATEGORY_OPTIONS"
+        value-key="value"
+        label-key="label"
+        multiple
+        size="sm"
+        class="w-full"
+        :portal="false"
+      />
+    </UFormField>
+  </div>
 
   <div
     v-else-if="action.type === 'revive'"
@@ -1168,6 +1446,32 @@
         @update:model-value="updateRestoreCounter"
       />
     </UFormField>
+
+    <UFormField class="w-44">
+      <template #label>
+        <span class="flex items-center gap-1">
+          {{ EFFECT_TRIGGER_ROW_LABELS.restoreAmount }}
+
+          <FieldHint :text="EFFECT_TRIGGER_ROW_LABELS.restoreAmountHint" />
+        </span>
+      </template>
+
+      <UInput
+        :model-value="action.amount ?? ''"
+        :placeholder="EFFECT_TRIGGER_ROW_LABELS.restoreAmountPlaceholder"
+        size="sm"
+        class="w-full"
+        @update:model-value="updateRestoreAmount"
+      />
+    </UFormField>
+
+    <USwitch
+      v-if="action.what === 'counter'"
+      v-model="restoreSet"
+      class="self-end"
+      :label="EFFECT_TRIGGER_ROW_LABELS.restoreSet"
+      :description="EFFECT_TRIGGER_ROW_LABELS.restoreSetHint"
+    />
   </div>
 
   <div
@@ -1185,6 +1489,21 @@
         size="sm"
         class="w-full"
         @update:model-value="updateDispelLevel"
+      />
+    </UFormField>
+
+    <UFormField
+      :label="EFFECT_TRIGGER_ROW_LABELS.dispelMaxLevelFormula"
+      :help="EFFECT_TRIGGER_ROW_LABELS.dispelMaxLevelFormulaHint"
+      class="w-56"
+    >
+      <UInput
+        v-model="dispelFormula"
+        :placeholder="
+          EFFECT_TRIGGER_ROW_LABELS.dispelMaxLevelFormulaPlaceholder
+        "
+        size="sm"
+        class="w-full"
       />
     </UFormField>
 

@@ -33,7 +33,7 @@ export const EFFECT_PROMPT_REQUEST_KIND = 'effectPrompt';
 const MAX_PROMPT_TEXT_LENGTH = 300;
 
 /** Больше вариантов ответа в одном вопросе не предлагают */
-const MAX_PROMPT_OPTIONS = 12;
+export const MAX_PROMPT_OPTIONS = 12;
 
 /** Вариант ответа: что показывает окно и что вернётся инициатору */
 const effectPromptOptionSchema = z.object({
@@ -165,6 +165,66 @@ export function readPromptAnswer(
     ? answer.optionId
     : null;
 }
+
+/** Ответ человека на один вопрос — каким бы путём его ни задали */
+export interface EffectPromptReply {
+  /** Ключ выбранного варианта; `null` — ответа нет: отказ, закрытая плашка */
+  optionId: string | null;
+  /** Ответа не дождались: молчание, а не отказ */
+  timedOut?: boolean;
+}
+
+/**
+ * Кто задаёт вопрос человеку: канал ядра у срабатываний сервера, плашка на
+ * столе у срабатываний, которые выполняет клиент («после отдыха»).
+ */
+export type EffectPromptAsker = (
+  payload: EffectPromptRequestPayload,
+) => Promise<EffectPromptReply>;
+
+/**
+ * Ответ человека из исхода запроса ядра.
+ *
+ * @param outcome - исход запроса от ядра
+ * @param options - варианты, которые отправляли в запросе
+ * @returns ответ: вариант из числа предложенных либо его отсутствие
+ */
+export function toEffectPromptReply(
+  outcome: RollRequestOutcome,
+  options: readonly EffectPromptOption[],
+): EffectPromptReply {
+  return {
+    optionId: readPromptAnswer(outcome, options),
+    timedOut: outcome.status === 'timeout',
+  };
+}
+
+/**
+ * Ключ варианта из ответа человека. Вариант обязан быть из числа
+ * предложенных — та же проверка, что у {@link readPromptAnswer}: плашка стола
+ * отдаёт ответ без канала ядра, и сверить его больше некому.
+ *
+ * @param reply - ответ человека
+ * @param options - варианты, которые предлагали
+ * @returns ключ варианта; `null` — ответа нет
+ */
+export function readPromptReply(
+  reply: EffectPromptReply,
+  options: readonly EffectPromptOption[],
+): string | null {
+  return options.some((option) => option.id === reply.optionId)
+    ? reply.optionId
+    : null;
+}
+
+/** Заметки в сводку чата о том, чем кончился вопрос человеку */
+export const TRIGGER_ASK_CHAT_NOTES = {
+  declined: 'срабатывание отменено — согласия нет',
+  timeout: 'нет ответа — срабатывание отменено',
+  payGone: 'платить уже нечем — срабатывание отменено',
+  limitGone: 'уже использовано — срабатывание отменено',
+  unaffordable: 'цена не по карману — срабатывание отменено',
+} as const;
 
 /**
  * Согласился ли человек: ответ «да» на вопрос из

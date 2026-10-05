@@ -23,6 +23,7 @@ import {
   listReachableWeaponAttackKinds,
   listWeaponAttackKinds,
   withCreatureActionAttackKind,
+  withMeleeReachBonus,
   withWeaponAttackKind,
 } from '@vtt/shared/system/dnd.js';
 
@@ -41,6 +42,7 @@ import {
 } from '../ui/effect/constants';
 import { runWithEffectVariants } from './effectVariantChoice';
 import { measureTokenDistanceOnScene } from './useSceneRangeCheck';
+import { useWorldEntities } from './useWorldEntities';
 
 /** Как спросить и применить вид атаки у конкретного источника */
 interface AttackKindSetup<Source> {
@@ -161,18 +163,39 @@ function runWithAttackKind<Source extends { name: string }>(
 }
 
 /**
+ * Оружие или действие с досягаемостью атакующего («досягаемость +10 футов»):
+ * дальше её читают и выбор вида атаки, и проверка расстояния.
+ *
+ * @param source - оружие или действие существа
+ * @param attackerId - кто атакует
+ * @returns источник с досягаемостью атакующего
+ */
+function withAttackerReach<Source extends { reach?: number }>(
+  source: Source,
+  attackerId: string | undefined,
+): Source {
+  const attacker = attackerId
+    ? useWorldEntities().findCurrentDndEntity(attackerId)
+    : undefined;
+
+  return attacker ? withMeleeReachBonus(source, attacker) : source;
+}
+
+/**
  * Готовит атаку оружием: метательное рукопашное спрашивает «Удар / Бросок»,
  * затем выбираются варианты эффектов (`runWithEffectVariants`).
  *
- * @param weapon - оружие (после подготовки выстрела)
+ * @param sourceWeapon - оружие (после подготовки выстрела)
  * @param attackerId - id владельца оружия
  * @param proceed - продолжение с оружием выбранного вида и вариантами
  */
 export function runWeaponAttackChoices(
-  weapon: DnDGameItem,
+  sourceWeapon: DnDGameItem,
   attackerId: string | undefined,
   proceed: (chosen: DnDGameItem) => void,
 ): void {
+  const weapon = withAttackerReach(sourceWeapon, attackerId);
+
   runWithAttackKind(
     weapon,
     {
@@ -192,15 +215,17 @@ export function runWeaponAttackChoices(
  * Готовит действие существа: «рукопашная или дальнобойная» спрашивает вид
  * атаки, затем выбираются варианты эффектов (`runWithEffectVariants`).
  *
- * @param action - действие существа
+ * @param sourceAction - действие существа
  * @param creatureId - id существа
  * @param proceed - продолжение с действием выбранного вида и вариантами
  */
 export function runCreatureActionChoices(
-  action: CreatureAction,
+  sourceAction: CreatureAction,
   creatureId: string | undefined,
   proceed: (chosen: CreatureAction) => void,
 ): void {
+  const action = withAttackerReach(sourceAction, creatureId);
+
   runWithAttackKind(
     action,
     {

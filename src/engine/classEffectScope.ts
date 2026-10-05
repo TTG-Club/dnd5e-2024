@@ -21,20 +21,15 @@
  * @module system/dnd/classEffectScope
  */
 
-import type { DamagePart } from '@vtt/shared';
-
-import type { ActiveEffect, EffectChange } from './activeEffectTypes.js';
+import type { ActiveEffect } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 
 import { isCreatureEntity } from '@vtt/shared';
 
 import { getClassLevels } from './classTypes.js';
-import { resolveDiceCountExpressions } from './diceCountExpressions.js';
+import { bindOwnerChoices } from './effectChoiceBinding.js';
+import { bindEffectToken, effectUsesToken } from './effectTokenBinding.js';
 import { COUNTER_FORMULA_TOKENS } from './formulaParser.js';
-import {
-  mapTriggerDamageParts,
-  someTriggerDamagePart,
-} from './triggerDamageParts.js';
 
 /**
  * Префикс id эффекта, поставленного классом.
@@ -54,12 +49,6 @@ export const CLASS_EFFECT_PREFIX = 'class-effect:';
  * первым при первой же правке.
  */
 const CLASS_LEVEL_TOKEN = COUNTER_FORMULA_TOKENS.classLevel;
-
-/**
- * Совпадение токена целиком: `@classLevels` или `@classLevelX` — не он, и
- * подменять в них начало нельзя.
- */
-const CLASS_LEVEL_PATTERN = new RegExp(`${CLASS_LEVEL_TOKEN}\\b`, 'g');
 
 /**
  * Собирает id эффекта, поставленного классом.
@@ -114,115 +103,6 @@ function classLevelsOf(entity: DnDSceneEntity): ReadonlyMap<string, number> {
     : getClassLevels(entity.system.classes);
 }
 
-/** Есть ли в строке токен уровня своего класса */
-function hasToken(value: string | undefined): boolean {
-  return value !== undefined && value.includes(CLASS_LEVEL_TOKEN);
-}
-
-/**
- * Подставляет уровень класса в одну формулу. Число костей выражением от
- * уровня (`(1 + steps(@classLevel, 7, 13, 18))к8`) тут же становится числом.
- */
-function bindFormula(value: string, classLevel: number): string {
-  return resolveDiceCountExpressions(
-    value.replace(CLASS_LEVEL_PATTERN, String(classLevel)),
-  );
-}
-
-/** Подставляет уровень класса в строку изменения */
-function bindChange(change: EffectChange, classLevel: number): EffectChange {
-  if (!hasToken(change.value) && !hasToken(change.condition)) {
-    return change;
-  }
-
-  return {
-    ...change,
-    value: bindFormula(change.value, classLevel),
-    ...(change.condition === undefined
-      ? {}
-      : { condition: bindFormula(change.condition, classLevel) }),
-  };
-}
-
-/** Подставляет уровень класса в часть урона эффекта */
-function bindDamagePart(part: DamagePart, classLevel: number): DamagePart {
-  if (!hasToken(part.formula) && !hasToken(part.versatileFormula)) {
-    return part;
-  }
-
-  return {
-    ...part,
-    formula: bindFormula(part.formula, classLevel),
-    ...(part.versatileFormula === undefined
-      ? {}
-      : { versatileFormula: bindFormula(part.versatileFormula, classLevel) }),
-  };
-}
-
-/** Есть ли токен в части урона */
-function partUsesClassLevel(part: DamagePart): boolean {
-  return hasToken(part.formula) || hasToken(part.versatileFormula);
-}
-
-/** Все места эффекта, где может стоять формула с токеном */
-function effectUsesClassLevel(effect: ActiveEffect): boolean {
-  return (
-    effect.changes.some(
-      (change) => hasToken(change.value) || hasToken(change.condition),
-    )
-    || (effect.damageParts ?? []).some(
-      (part) => hasToken(part.formula) || hasToken(part.versatileFormula),
-    )
-    || (effect.recurringDamage?.damageParts ?? []).some(
-      (part) => hasToken(part.formula) || hasToken(part.versatileFormula),
-    )
-    || hasToken(effect.aura?.radiusFormula)
-    || someTriggerDamagePart(effect.triggers, partUsesClassLevel)
-  );
-}
-
-/** Собирает копию эффекта с подставленным уровнем класса */
-function bindEffect(effect: ActiveEffect, classLevel: number): ActiveEffect {
-  return {
-    ...effect,
-    changes: effect.changes.map((change) => bindChange(change, classLevel)),
-    ...(effect.damageParts === undefined
-      ? {}
-      : {
-          damageParts: effect.damageParts.map((part) =>
-            bindDamagePart(part, classLevel),
-          ),
-        }),
-    ...(effect.recurringDamage === undefined
-      ? {}
-      : {
-          recurringDamage: {
-            ...effect.recurringDamage,
-            damageParts: effect.recurringDamage.damageParts.map((part) =>
-              bindDamagePart(part, classLevel),
-            ),
-          },
-        }),
-    ...(effect.aura?.radiusFormula === undefined
-      ? {}
-      : {
-          aura: {
-            ...effect.aura,
-            radiusFormula: bindFormula(effect.aura.radiusFormula, classLevel),
-          },
-        }),
-    ...(effect.triggers === undefined
-      ? {}
-      : {
-          triggers: effect.triggers.map((trigger) =>
-            mapTriggerDamageParts(trigger, (part) =>
-              bindDamagePart(part, classLevel),
-            ),
-          ),
-        }),
-  };
-}
-
 /**
  * Подставляет в формулы эффектов уровень их собственного класса (`@classLevel`).
  *
@@ -242,7 +122,7 @@ export function bindClassLevels(
   effects: readonly ActiveEffect[],
   entity: DnDSceneEntity,
 ): readonly ActiveEffect[] {
-  if (!effects.some((effect) => effectUsesClassLevel(effect))) {
+  if (!effects.some((effect) => effectUsesToken(effect, CLASS_LEVEL_TOKEN))) {
     return effects;
   }
 
@@ -258,10 +138,27 @@ export function bindClassLevels(
     const classLevel =
       classKey === undefined ? undefined : classLevels.get(classKey);
 
-    if (classLevel === undefined || !effectUsesClassLevel(effect)) {
-      return effect;
-    }
-
-    return bindEffect(effect, classLevel);
+    return classLevel === undefined
+      ? effect
+      : bindEffectToken(effect, CLASS_LEVEL_TOKEN, classLevel);
   });
+}
+
+/**
+ * Подставляет в эффекты всё, что знает только их владелец: уровень своего
+ * класса (`@classLevel`) и сделанные на листе выборы (`@choice.<ключ>`,
+ * `@mod.feat` — `effectChoiceBinding.ts`). Одна точка на все места, где эффекты
+ * владельца собираются: свои эффекты, ауры, эффекты «на цель».
+ *
+ * @param effects - собранные эффекты владельца
+ * @param entity - владелец
+ * @returns эффекты с подставленными числами и выборами
+ */
+export function bindOwnerTokens(
+  effects: readonly ActiveEffect[],
+  entity: DnDSceneEntity,
+): readonly ActiveEffect[] {
+  // Выборы — первыми: подстановка уровня класса делает копии эффектов, а
+  // выборы ищутся и запоминаются по самим записям листа
+  return bindClassLevels(bindOwnerChoices(effects, entity), entity);
 }

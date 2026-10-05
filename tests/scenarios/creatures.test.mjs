@@ -747,7 +747,7 @@ describe('каталог: существа', () => {
 
     const scenario = authoredScenario(fortitude, 'creatureTrait');
 
-    assert.match(scenario, /Сл = 5 \+ урон/);
+    assert.match(scenario, /Сл 5 \+ урон события/);
 
     const system = new engine.Dnd5eVttSystem();
 
@@ -1313,5 +1313,41 @@ describe('каталог: всем в радиусе', () => {
     );
 
     assert.deepEqual(attack(1), [['2к8 + 2', 'necrotic']]);
+  });
+
+  it('[C24] Легендарное сопротивление: провал в успех три раза в день', () => {
+    const aboleth = createCreature({ id: 'creature_aboleth', name: 'Аболет' });
+
+    aboleth.system.traits = [
+      {
+        name: 'Легендарное сопротивление',
+        description: ['Если аболет провалит спасбросок, он может преуспеть.'],
+        saveSuccessPerDay: 3,
+      },
+    ];
+
+    let current = aboleth;
+
+    for (const remaining of [3, 2, 1]) {
+      const available = engine.findSaveOverride(current);
+
+      assert.equal(available.remaining, remaining);
+
+      current = {
+        ...current,
+        system: {
+          ...current.system,
+          ...engine.spendSaveOverride(current, available.source),
+        },
+      };
+    }
+
+    assert.equal(engine.findSaveOverride(current), null, 'на сегодня всё');
+
+    // Новый день — долгий отдых
+    assert.equal(
+      engine.pruneTriggerUsage(current, engine.restLimitPeriodsOf('long')),
+      undefined,
+    );
   });
 });

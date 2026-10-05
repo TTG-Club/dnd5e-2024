@@ -38,6 +38,11 @@
      * все его заговоры доступны, пока их не разобрали по колонке «Заговоры».
      */
     cantripsTracked?: boolean;
+    /**
+     * Почему заклинание сейчас не наложить («Реакция недоступна: Электрошок»);
+     * нет — каст доступен. Кнопка тогда гаснет с причиной в подсказке
+     */
+    castBlockedReason?: string | null;
   }
 
   const props = withDefaults(defineProps<Props>(), {
@@ -45,7 +50,20 @@
     stats: () => [],
     menuItems: () => [],
     cantripsTracked: true,
+    castBlockedReason: null,
   });
+
+  const castTooltip = computed(
+    () => props.castBlockedReason ?? SPELL_MENU_LABELS.cast,
+  );
+
+  /** Погасшая кнопка каста — нейтральным цветом */
+  const castButtonColor = computed(() =>
+    props.castBlockedReason ? 'neutral' : 'primary',
+  );
+
+  /** Кнопка каста под запретом: для читалок экрана */
+  const isCastBlocked = computed(() => Boolean(props.castBlockedReason));
 
   const emit = defineEmits<{
     /** Открыть описание заклинания */
@@ -247,13 +265,14 @@
           названия. Кнопка каста нужна в строке отдельно от плитки урона:
           у заклинания без урона плитки нет, а применяют и его -->
         <div class="relative z-10 ml-auto flex shrink-0 items-center gap-1">
-          <UTooltip :text="SPELL_MENU_LABELS.cast">
+          <UTooltip :text="castTooltip">
             <UButton
               icon="tabler:sparkles"
-              color="primary"
+              :color="castButtonColor"
               variant="ghost"
               size="xs"
               square
+              :aria-disabled="isCastBlocked"
               :aria-label="`${SPELL_MENU_LABELS.cast}: ${spell.name}`"
               @click.left.exact.prevent.stop="handleCast"
             />

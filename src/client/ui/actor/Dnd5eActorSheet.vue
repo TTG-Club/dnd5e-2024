@@ -13,6 +13,7 @@
     DnDGameItem,
     FeatAwaitingChoices,
     LongRestOptions,
+    RestTriggerOptions,
     RestType,
     ShortRestHitDiceResult,
     SpeciesDefinition,
@@ -56,10 +57,12 @@
     getTotalLevel,
     isClassDefinition,
     isDndActor,
+    isDndActorRecord,
     isDnDGameItem,
     isSameCounterList,
     isSkillType,
     isSpell,
+    mergeEntityDraft,
     normalizeActor,
     refreshFeatCounters,
     refreshSpeciesCounters,
@@ -67,12 +70,23 @@
     resolveActorStats,
     resolveEntityMaxHp,
     resolveFeatChoicesToAsk,
+    resolveHitDiceSpendRules,
+    spendShortRestHitDice,
   } from '@vtt/shared/system/dnd.js';
 
+  import { runRestWithTriggers } from '../../composables/restTriggerPrompt';
+  import {
+    refuseWhileSheetEditing,
+    useSheetEditLock,
+  } from '../../composables/sheetEditLock';
   import { useClassCatalog } from '../../composables/useClassCatalog';
   import { useCompendiumCatalog } from '../../composables/useCompendiumCatalog';
-  import { useItemTransfer } from '../../composables/useItemTransfer';
+  import {
+    isItemTransferDrop,
+    useItemTransfer,
+  } from '../../composables/useItemTransfer';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
+  import { useWorldSheetSync } from '../../composables/useWorldSheetSync';
   import { useSystemDataStore } from '../../stores/systemDataStore';
   import { withoutEntityOwnership } from '../entity-ownership/utils';
   import ActorCenterPanel from './ActorCenterPanel.vue';
@@ -627,9 +641,8 @@
   );
 
   /**
-   * Синхронизация изменяемых извне разделов актёра из store в localActor:
-   * equipment (передача предметов между токенами), system (HP, слоты, размер)
-   * и spells (редактирование заклинаний, в т.ч. из других окон).
+   * Разделы, которые система пишет в мир во время игры (ресурсы листа,
+   * предметы, заклинания, эффекты, хиты), подтягиваются из стора в localActor.
    *
    * Зачем: localActor — глубокая копия на момент открытия листа, а все
    * сохранения отправляют актёра ЦЕЛИКОМ (`actor:updated`). Без обратной
@@ -638,46 +651,39 @@
    * формулы заклинаний).
    *
    * В режиме редактирования синхронизация выключена: локальные правки имеют
-   * приоритет до «Сохранить»/«Отменить». Цикл store → localActor → store
-   * не возникает: присваивание в localActor ничего не отправляет на сервер —
-   * emit происходит только в явных обработчиках сохранения.
+   * приоритет до «Сохранить»/«Отменить».
    */
-  watch(
-    [
-      () => storeActor.value?.equipment,
-      () => storeActor.value?.system,
-      () => storeActor.value?.spells,
-      () => storeActor.value?.activeEffects,
-    ],
-    ([newEquipment, newSystem, newSpells, newActiveEffects]) => {
-      if (!localActor.value || isEditMode.value) {
-        return;
-      }
+  const { pullFromWorld } = useWorldSheetSync({
+    readWorld: () => storeActor.value,
+    draft: localActor,
+    isPaused: () => isEditMode.value,
+  });
 
-      if (newEquipment) {
-        localActor.value.equipment = JSON.parse(JSON.stringify(newEquipment));
-      }
-
-      if (newSystem) {
-        localActor.value.system = JSON.parse(JSON.stringify(newSystem));
-      }
-
-      if (newSpells) {
-        localActor.value.spells = JSON.parse(JSON.stringify(newSpells));
-      }
-
-      // Активные эффекты тоже меняются извне (каст самобаффа из хотбара/другого
-      // окна добавляет эффект через worldStore) — без синхронизации открытый
-      // лист показывал бы устаревшие КД/эффекты, а сохранение листа затёрло бы
-      // их на сервере.
-      if (newActiveEffects) {
-        localActor.value.activeEffects = JSON.parse(
-          JSON.stringify(newActiveEffects),
-        );
-      }
-    },
-    { deep: true },
+  // Пока лист в правке, персонаж не действует ни с листа, ни с панелей.
+  // Отметка держится на том же id, с которым действуют вкладки листа, — на id
+  // черновика: у нового, ещё не сохранённого персонажа `props.actorId` пуст, и
+  // каст с такого листа шёл мимо проверки и молча ничего не делал
+  useSheetEditLock(
+    () => localActor.value?.id,
+    () => isEditMode.value,
   );
+
+  /**
+   * Что уходит на сервер по «Сохранить». Черновик правки сливается с миром:
+   * правки владельца — из черновика, всё, что он не трогал, — из мира. Иначе
+   * сохранение вернуло бы то, что мир изменил за время правки (урон от
+   * другого клиента, срабатывание сервера, списанный ресурс).
+   *
+   * @param draft - черновик листа
+   * @returns персонаж для записи
+   */
+  function resolveActorToSave(draft: DnDActor): DnDActor {
+    const world = storeActor.value;
+
+    return isEditMode.value && savedSnapshot.value && world
+      ? mergeEntityDraft(savedSnapshot.value, draft, world, isDndActorRecord)
+      : draft;
+  }
 
   function handleActorUpdate(updates: Partial<DnDActor>) {
     if (localActor.value) {
@@ -735,6 +741,11 @@
    * эффектами: прибавки предыстории и повышения характеристик лежат ими, и по
    * числу листа кость хитов лечила бы меньше положенного
    */
+  /** Как черты меняют трату костей хитов на коротком отдыхе */
+  const hitDiceSpendRules = computed(() =>
+    localActor.value ? resolveHitDiceSpendRules(localActor.value) : undefined,
+  );
+
   const constitutionModifier = computed(() =>
     localActor.value
       ? resolveActorStats(localActor.value).abilityMods.constitution
@@ -747,7 +758,8 @@
    * @param restType - тип отдыха
    */
   function handleRest(restType: RestType): void {
-    if (!localActor.value) {
+    // Отдых в режиме правки ждёт «Сохранить» или отмены, как и действия
+    if (refuseWhileSheetEditing(localActor.value?.id)) {
       return;
     }
 
@@ -761,11 +773,13 @@
   }
 
   /**
-   * Завершает продолжительный отдых: восстанавливает хиты, ячейки, заряды и
-   * кости хитов (половину по правилам или все — по выбору в модалке).
-   * @param options - параметры долгого отдыха из модалки
+   * Применяет продолжительный отдых: восстанавливает хиты, ячейки, заряды и
+   * кости хитов (половину по правилам или все — по выбору в модалке), затем
+   * выполняет срабатывания «после отдыха» по ответам владельца.
+   * @param options - параметры долгого отдыха из модалки и ответы владельца
    */
-  function handleLongRestApply(options: LongRestOptions): void {
+  function finishLongRest(options: LongRestOptions): void {
+    // Лист перечитывается: пока владелец отвечал на вопросы, он мог измениться
     if (!localActor.value) {
       return;
     }
@@ -789,22 +803,77 @@
   }
 
   /**
-   * Завершает короткий отдых: накладывает результат броска костей хитов
-   * (лечение + потраченные кости) на восстановление коротких ресурсов.
-   * @param result - результат броска костей хитов из модалки
+   * Завершает продолжительный отдых: сперва владельца спрашивают о
+   * срабатываниях «после отдыха» с ценой или согласием, затем идёт сам отдых.
+   * @param options - параметры долгого отдыха из модалки
    */
-  function handleShortRestApply(result: ShortRestHitDiceResult): void {
+  function handleLongRestApply(options: LongRestOptions): void {
+    // В правку вошли при открытом окне отдыха — отдых её тоже ждёт
+    if (refuseWhileSheetEditing(localActor.value?.id)) {
+      return;
+    }
+
     if (!localActor.value) {
       return;
     }
 
-    handleActorUpdate(applyShortRestWithHitDice(localActor.value, result));
+    void runRestWithTriggers(
+      localActor.value,
+      'long',
+      options,
+      (triggerOptions) => finishLongRest({ ...options, ...triggerOptions }),
+    );
+  }
+
+  /**
+   * Применяет короткий отдых: накладывает результат броска костей хитов
+   * (лечение + потраченные кости) на восстановление коротких ресурсов, затем
+   * выполняет срабатывания «после отдыха» по ответам владельца.
+   * @param result - результат броска костей хитов из модалки
+   * @param triggerOptions - ответы владельца и сбор сводки срабатываний
+   */
+  function finishShortRest(
+    result: ShortRestHitDiceResult,
+    triggerOptions: RestTriggerOptions,
+  ): void {
+    // Лист перечитывается: пока владелец отвечал на вопросы, он мог измениться
+    if (!localActor.value) {
+      return;
+    }
+
+    handleActorUpdate(
+      applyShortRestWithHitDice(localActor.value, result, triggerOptions),
+    );
 
     toast.add({
       title: REST_LABELS.short,
       description: ACTOR_SHEET_LABELS.shortRestDone,
       color: 'success',
     });
+  }
+
+  /**
+   * Завершает короткий отдых: сперва владельца спрашивают о срабатываниях
+   * «после отдыха» — по листу с уже потраченными костями хитов, — затем идёт
+   * сам отдых.
+   * @param result - результат броска костей хитов из модалки
+   */
+  function handleShortRestApply(result: ShortRestHitDiceResult): void {
+    // В правку вошли при открытом окне отдыха — отдых её тоже ждёт
+    if (refuseWhileSheetEditing(localActor.value?.id)) {
+      return;
+    }
+
+    if (!localActor.value) {
+      return;
+    }
+
+    void runRestWithTriggers(
+      spendShortRestHitDice(localActor.value, result),
+      'short',
+      {},
+      (triggerOptions) => finishShortRest(result, triggerOptions),
+    );
   }
 
   function toggleEditMode() {
@@ -827,6 +896,9 @@
 
       isEditMode.value = false;
       savedSnapshot.value = null;
+
+      // Правок нет — черновик догоняет мир: за время правки он мог измениться
+      pullFromWorld();
     }
   }
 
@@ -891,10 +963,10 @@
       requireSocket(props.socket);
 
       if (props.actorId) {
-        props.socket.emit(
-          'actor:updated',
-          withoutEntityOwnership(localActor.value),
-        );
+        const saved = resolveActorToSave(localActor.value);
+
+        localActor.value = saved;
+        props.socket.emit('actor:updated', withoutEntityOwnership(saved));
       } else {
         const rawLocalActor = JSON.parse(JSON.stringify(localActor.value));
 
@@ -1325,8 +1397,16 @@
   function handleItemTransferDrop(event: DragEvent): boolean {
     // В режиме правки жест не принимается: у отправителя предмет уходит сразу и
     // на сервер, а здесь правки копятся до «Сохранить» — «Отмена» стёрла бы
-    // предмет уже после того, как его отдали, и он пропал бы у обоих
-    if (isEditMode.value || !localActor.value) {
+    // предмет уже после того, как его отдали, и он пропал бы у обоих. Причину
+    // говорим: молчаливый отказ выглядел поломкой жеста
+    if (isEditMode.value) {
+      return (
+        isItemTransferDrop(event)
+        && refuseWhileSheetEditing(localActor.value?.id)
+      );
+    }
+
+    if (!localActor.value) {
       return false;
     }
 
@@ -1835,15 +1915,13 @@
       return;
     }
 
-    const before = localActor.value.spells?.length ?? 0;
+    const before = localActor.value.spells ?? [];
 
-    const spells = appendGrantedSpells(
-      localActor.value.spells ?? [],
-      resolved,
-      'feat',
-    );
+    const spells = appendGrantedSpells(before, resolved, 'feat');
 
-    if (spells.length > before) {
+    // Не только новые записи: выдача без подготовки отдаёт отметку уже лежащей
+    // записи, и число заклинаний при этом не меняется
+    if (spells.some((spell, index) => spell !== before[index])) {
       localActor.value.spells = spells;
       isDirty.value = true;
       handleImmediateSave();
@@ -2736,6 +2814,7 @@
     :current-hit-points="localActor.system.hitPoints.current"
     :max-hit-points="resolveEntityMaxHp(localActor)"
     :con-mod="constitutionModifier"
+    :hit-dice-rules="hitDiceSpendRules"
     @apply="handleShortRestApply"
   />
 

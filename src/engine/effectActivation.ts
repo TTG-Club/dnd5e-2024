@@ -10,30 +10,51 @@
  * переключателем, который тратит счётчик и будит срабатывания «при включении».
  */
 
-import type { ActiveEffect, EffectActivation } from './activeEffectTypes.js';
+import type { EffectDurationType } from '@vtt/shared';
+
+import type {
+  ActiveEffect,
+  EffectActivation,
+  EffectActivationCost,
+  EffectUseArea,
+} from './activeEffectTypes.js';
 import type {
   DnDGameItem,
   DnDSceneEntity,
   Spell,
   SpellRollSource,
 } from './dndEntities.js';
+import type { EffectPaid } from './effectPayTypes.js';
+import type {
+  SelfTriggerOptions,
+  SelfTriggerReport,
+} from './effectTriggerRunner.js';
 import type { EffectTrigger } from './effectTriggerTypes.js';
 import type { ActorCounterState } from './types.js';
 
 import {
   DEFAULT_ACTIVATION_AMOUNT,
+  isDnDEffect,
   isToggleActivatedEffect,
   isUseActivatedEffect,
 } from './activeEffectTypes.js';
+import { POTION_EQUIPMENT_CATEGORY } from './consts.js';
 import { cloneEntityData } from './dataClone.js';
+import { hasItemUsesPrice } from './effectPayTypes.js';
 import {
   buildTriggerSources,
   EFFECT_TRIGGER_SOURCE_KINDS,
   settleSelfTriggerSources,
 } from './effectTriggerRunner.js';
 import { listEffectEventTriggers } from './effectTriggers.js';
+import { isServerActiveAction } from './effectTriggerTypes.js';
 import { canSpendItemUses, isItemDepleted, spendItemUses } from './itemUses.js';
 import { buildPseudoSpell } from './spellUtils.js';
+import {
+  appendEffectsSummaryNotes,
+  formatEffectsSummary,
+  formatEntrySaveStatus,
+} from './turnEffects.js';
 
 /** Свойство оружия, стреляющего боеприпасами */
 export const AMMUNITION_PROPERTY = 'ammunition';
@@ -77,7 +98,23 @@ export function canUseItem(item: DnDGameItem): boolean {
     return false;
   }
 
-  return canSpendItemUses(item) && !isItemDepleted(item);
+  return (
+    (canSpendItemUses(item) || hasPricedItemUse(item)) && !isItemDepleted(item)
+  );
+}
+
+/**
+ * Есть ли у предмета свойство со своей ценой в зарядах («первое слово —
+ * бесплатно»): хватит ли зарядов, решает цена выбранного свойства, а не
+ * обычный расход применения.
+ *
+ * @param item - предмет
+ * @returns `true`, если хоть одно свойство платит зарядами само
+ */
+export function hasPricedItemUse(item: DnDGameItem): boolean {
+  return listUseEffects(item.activeEffects).some((effect) =>
+    hasItemUsesPrice(effect.pay),
+  );
 }
 
 /**
@@ -141,7 +178,7 @@ export function describeItemUseAvailability(
   }
 
   if (item.uses) {
-    return canSpendItemUses(item)
+    return canSpendItemUses(item) || hasPricedItemUse(item)
       ? { remaining: item.uses.current }
       : { blocked: 'noUses', remaining: item.uses.current };
   }
@@ -161,6 +198,132 @@ export interface EffectUseSource {
   rollSource: SpellRollSource;
   /** Дальность применения «на цель» в футах; нет — касание */
   range?: number;
+  /** Область применения: шаблон на карте вместо выбора одной цели */
+  area?: EffectUseArea;
+  /** Области эффектов по id: шаблон — по выбранному варианту */
+  effectAreas?: Record<string, EffectUseArea>;
+  /** Применение требует концентрации */
+  concentration?: boolean;
+}
+
+/**
+ * Область применения группы эффектов: первая заданная. У вариантов одного
+ * применения область общая — шаблон ставят один раз.
+ *
+ * @param effects - эффекты применения с признаком применения
+ * @returns область либо `undefined`
+ */
+export function resolveEffectUseArea(
+  effects: readonly ActiveEffect[] | undefined,
+): EffectUseArea | undefined {
+  return (effects ?? []).find(
+    (effect) => isUseActivatedEffect(effect) && effect.activation?.area,
+  )?.activation?.area;
+}
+
+/**
+ * Области эффектов применения по id эффекта: у вариантов одного применения
+ * область своя («луч» — одна цель, «вспышка» — конус), и шаблон ставят по
+ * выбранному варианту.
+ *
+ * @param effects - эффекты применения с признаком применения
+ * @returns области по id либо `undefined`, если областей нет
+ */
+function collectEffectUseAreas(
+  effects: readonly ActiveEffect[] | undefined,
+): Record<string, EffectUseArea> | undefined {
+  const areas = Object.fromEntries(
+    (effects ?? []).flatMap((effect) =>
+      isUseActivatedEffect(effect) && effect.activation?.area
+        ? [[effect.id, effect.activation.area]]
+        : [],
+    ),
+  );
+
+  return Object.keys(areas).length > 0 ? areas : undefined;
+}
+
+/**
+ * Трата хода на применение группы эффектов: первая заданная.
+ *
+ * @param effects - эффекты применения с признаком применения
+ * @returns трата либо `undefined`, если применение хода не тратит
+ */
+export function resolveEffectUseCost(
+  effects: readonly ActiveEffect[] | undefined,
+): EffectActivationCost | undefined {
+  return (effects ?? []).find(
+    (effect) => isUseActivatedEffect(effect) && effect.activation?.cost,
+  )?.activation?.cost;
+}
+
+/**
+ * Требует ли применение группы эффектов концентрации: хватает одного эффекта
+ * с такой отметкой.
+ *
+ * @param effects - эффекты применения с признаком применения
+ * @returns `true`, если применение держится концентрацией
+ */
+export function resolveEffectUseConcentration(
+  effects: readonly ActiveEffect[] | undefined,
+): boolean {
+  return (effects ?? []).some(
+    (effect) =>
+      isUseActivatedEffect(effect) && effect.activation?.concentration === true,
+  );
+}
+
+/**
+ * Область применения шаблоном заклинания: размер в футах задаёт запись,
+ * растягивать его при размещении нельзя.
+ *
+ * @param area - область применения или шаблон срабатывания
+ * @returns область в форме заклинания
+ */
+export function toUseAreaOfEffect(
+  area: EffectUseArea,
+): NonNullable<Spell['areaOfEffect']> {
+  return {
+    shape: area.shape,
+    size: area.size,
+    ...(area.width === undefined ? {} : { width: area.width }),
+    unit: 'ft',
+    resizable: false,
+  };
+}
+
+/** Единицы срока заклинания по сроку эффекта зоны */
+const ZONE_DURATION_UNITS: Partial<
+  Record<EffectDurationType, Spell['durationUnit']>
+> = {
+  rounds: 'round',
+  minutes: 'minute',
+  hours: 'hour',
+};
+
+/**
+ * Срок псевдо-заклинания по сроку его эффекта «в зону»: зона на месте шаблона
+ * живёт столько, сколько записано у эффекта («горит 2 раунда»). Без такого
+ * эффекта применение мгновенное.
+ *
+ * @param effects - эффекты применения
+ * @returns поля срока псевдо-заклинания
+ */
+function resolveUseZoneDuration(
+  effects: readonly ActiveEffect[],
+): Partial<Pick<Spell, 'durationUnit' | 'durationValue'>> {
+  const zone = effects.find((effect) => effect.effectTarget === 'zone');
+
+  if (!zone) {
+    return {};
+  }
+
+  const unit = ZONE_DURATION_UNITS[zone.duration.type];
+
+  // Срок без счёта раундов (особый, до отдыха) — зона до снятия вручную
+  return unit
+    ? { durationUnit: unit, durationValue: zone.duration.value ?? 1 }
+    : { durationUnit: 'special', durationValue: 0 };
 }
 
 /**
@@ -179,11 +342,17 @@ const USE_SPELL_ID_PREFIX = 'use-';
  * @returns псевдо-заклинание
  */
 export function buildItemUseSpell(item: DnDGameItem): Spell {
+  const area = resolveEffectUseArea(item.activeEffects);
+  const effectAreas = collectEffectUseAreas(item.activeEffects);
+
   return buildUseSpell({
     id: item.id,
     name: item.name,
     effects: listUseEffects(item.activeEffects),
     rollSource: 'item',
+    ...(area ? { area } : {}),
+    ...(effectAreas ? { effectAreas } : {}),
+    concentration: resolveEffectUseConcentration(item.activeEffects),
   });
 }
 
@@ -468,6 +637,9 @@ export function buildEffectGroupUseSpell(
     effect.activation?.range === undefined ? [] : [effect.activation.range],
   );
 
+  const area = resolveEffectUseArea(group);
+  const effectAreas = collectEffectUseAreas(group);
+
   return buildUseSpell({
     id: first?.id ?? '',
     name: effectVariantGroupName(group),
@@ -476,6 +648,9 @@ export function buildEffectGroupUseSpell(
     ),
     rollSource: 'effect',
     ...(ranges.length > 0 ? { range: Math.max(...ranges) } : {}),
+    ...(area ? { area } : {}),
+    ...(effectAreas ? { effectAreas } : {}),
+    concentration: resolveEffectUseConcentration(group),
   });
 }
 
@@ -502,11 +677,119 @@ export function buildUseSpell(source: EffectUseSource): Spell {
     name: source.name,
     rollSource: source.rollSource,
     activeEffects: source.effects,
+    // Концентрация применения — как у заклинания: метка у применившего
+    ...(source.concentration ? { concentration: true } : {}),
     // Дальность без атаки: так её читает проверка дистанции цели
     ...(source.range === undefined
       ? {}
       : { range: source.range, rangeUnit: 'ft', deliveryType: 'none' }),
+    // Область — шаблон на карте, как у заклинания; размер задаёт запись
+    ...(source.area
+      ? {
+          areaOfEffect: toUseAreaOfEffect(source.area),
+          ...resolveUseZoneDuration(source.effects),
+        }
+      : {}),
+    ...(source.effectAreas ? { useEffectAreas: source.effectAreas } : {}),
   });
+}
+
+/**
+ * Псевдо-заклинание применения после выбора варианта: область — у выбранного
+ * варианта, а не первая из заданных в группе. Иначе «луч» камня сияния
+ * требовал поставить конус «вспышки». Выбранный вариант без своей области —
+ * применение без шаблона, с выбором цели.
+ *
+ * @param chosen - псевдо-заклинание с эффектами выбранных вариантов
+ * @returns псевдо-заклинание с областью выбранного варианта
+ */
+export function settleUseSpellArea<Source extends Spell>(
+  chosen: Source,
+): Source {
+  const areas = chosen.useEffectAreas;
+
+  if (!areas) {
+    return chosen;
+  }
+
+  const effects = chosen.activeEffects?.filter(isDnDEffect) ?? [];
+  const areaEffect = effects.find((effect) => areas[effect.id] !== undefined);
+  const area = areaEffect ? areas[areaEffect.id] : undefined;
+
+  if (!area) {
+    return { ...chosen, areaOfEffect: undefined };
+  }
+
+  return {
+    ...chosen,
+    areaOfEffect: toUseAreaOfEffect(area),
+    ...resolveUseZoneDuration(effects),
+  };
+}
+
+/** Переключатели предмета: эффекты, которые включают и выключают */
+export interface ItemToggleEntry {
+  /** Эффект-переключатель */
+  effect: ActiveEffect;
+  /** Включён ли он сейчас */
+  on: boolean;
+}
+
+/**
+ * Переключатели предмета — пункты его меню («Язык пламени»: зажечь и
+ * погасить).
+ *
+ * @param item - предмет
+ * @returns переключатели по порядку записи
+ */
+export function listItemToggles(
+  item: Pick<DnDGameItem, 'activeEffects'>,
+): ItemToggleEntry[] {
+  return (item.activeEffects ?? []).flatMap((effect) =>
+    isDnDEffect(effect) && isToggleActivatedEffect(effect)
+      ? [{ effect, on: effect.disabled !== true }]
+      : [],
+  );
+}
+
+/**
+ * Инвентарь с включённым или выключенным переключателем предмета. Выключенный
+ * забывает потраченное при включении — следующее включение заплатит заново.
+ *
+ * @param equipment - инвентарь
+ * @param itemId - предмет
+ * @param effectId - переключатель
+ * @param on - включить или выключить
+ * @param paid - потраченное ценой при включении
+ * @returns новый инвентарь; предмета или эффекта нет — прежний
+ */
+export function switchItemToggle(
+  equipment: readonly DnDGameItem[],
+  itemId: string,
+  effectId: string,
+  on: boolean,
+  paid?: EffectPaid,
+): DnDGameItem[] {
+  return equipment.map((item) =>
+    item.id === itemId
+      ? {
+          ...item,
+          activeEffects: (item.activeEffects ?? []).map((effect) => {
+            if (effect.id !== effectId || !isDnDEffect(effect)) {
+              return effect;
+            }
+
+            const { paid: _paid, ...rest } = effect;
+
+            return {
+              ...rest,
+              disabled: !on,
+              ...(on && paid ? { paid } : {}),
+            };
+          }),
+        }
+      : item,
+  );
 }
 
 /**
@@ -520,8 +803,35 @@ export function weaponUsesAmmunition(weapon: DnDGameItem): boolean {
 }
 
 /**
- * Можно ли зарядить предмет в оружие: любой расходуемый предмет, кроме самого
- * оружия и того, что стреляет само.
+ * Годится ли расходуемый предмет в боеприпасы по своему виду. Боеприпас с
+ * типом (`ammunitionType`) — только оружию того же типа: болты в лук не
+ * заряжают. Предмет без типа — любой, кроме применяемого: зелье и масло
+ * (эффект «при применении», категория «Зелья») пьют и наносят, а не
+ * выстреливают. Так у стрел из компендиума, которым тип ещё не записан, и у
+ * самодельных камней для пращи остаётся ручной выбор.
+ *
+ * @param item - расходуемый предмет инвентаря
+ * @param weapon - оружие
+ * @returns `true`, если предмет предлагается в боеприпасы
+ */
+function fitsWeaponAmmunition(item: DnDGameItem, weapon: DnDGameItem): boolean {
+  if (item.ammunitionType !== undefined) {
+    return (
+      weapon.ammunitionType === undefined
+      || item.ammunitionType === weapon.ammunitionType
+    );
+  }
+
+  return (
+    !hasItemUseEffects(item)
+    && item.equipmentCategory !== POTION_EQUIPMENT_CATEGORY
+  );
+}
+
+/**
+ * Можно ли зарядить предмет в оружие: расходуемый предмет, годный в
+ * боеприпасы ({@link fitsWeaponAmmunition}), кроме самого оружия и того, что
+ * стреляет само.
  *
  * @param item - предмет инвентаря
  * @param weapon - оружие
@@ -532,12 +842,13 @@ function isLoadableAmmunition(item: DnDGameItem, weapon: DnDGameItem): boolean {
     item.id !== weapon.id
     && Boolean(item.consumable)
     && !weaponUsesAmmunition(item)
+    && fitsWeaponAmmunition(item, weapon)
   );
 }
 
 /**
- * Чем можно зарядить оружие: расходуемые предметы инвентаря. У оружия без
- * свойства «Боеприпасы» — ничем.
+ * Чем можно зарядить оружие: расходуемые предметы инвентаря, годные в
+ * боеприпасы. У оружия без свойства «Боеприпасы» — ничем.
  *
  * @param equipment - инвентарь
  * @param weapon - оружие
@@ -866,13 +1177,13 @@ export function payActivation(
  * @param copy - копия сущности (меняется)
  * @param effectId - эффект
  * @param listTriggers - какие срабатывания эффекта выполнять
- * @param combatRound - номер идущего раунда: расписание «на раунде N»
+ * @param options - раунд боя, выбор цены и сбор сводки
  */
 function settleOwnEffectTriggers(
   copy: DnDSceneEntity,
   effectId: string,
   listTriggers: (effect: ActiveEffect) => EffectTrigger[],
-  combatRound: number | undefined,
+  options: SelfTriggerOptions,
 ): void {
   const effect = (copy.activeEffects ?? []).find(
     (entry) => entry.id === effectId,
@@ -888,8 +1199,9 @@ function settleOwnEffectTriggers(
       [effect],
       EFFECT_TRIGGER_SOURCE_KINDS.instance,
       listTriggers,
+      copy,
     ),
-    combatRound,
+    options,
   );
 }
 
@@ -904,6 +1216,7 @@ function settleOwnEffectTriggers(
  * @param effectId - включаемый эффект
  * @param prepare - подготовка включённого эффекта
  * @param combatRound - номер идущего раунда: расписание «на раунде N»
+ * @param options - выбор цены срабатываний и сбор сводки для чата
  * @returns копия сущности для боевого канала
  */
 export function activateEffectOnEntity(
@@ -911,6 +1224,7 @@ export function activateEffectOnEntity(
   effectId: string,
   prepare: (effect: ActiveEffect) => ActiveEffect = (switched) => switched,
   combatRound?: number,
+  options: Omit<SelfTriggerOptions, 'combatRound'> = {},
 ): DnDSceneEntity {
   const activated = cloneEntityData(entity);
   const effects = activated.activeEffects ?? [];
@@ -932,7 +1246,7 @@ export function activateEffectOnEntity(
     activated,
     effectId,
     (effect) => listEffectEventTriggers(effect, 'activate'),
-    combatRound,
+    { ...options, combatRound },
   );
 
   return activated;
@@ -981,21 +1295,116 @@ export function hasEffectActiveAction(effect: ActiveEffect): boolean {
  * @param entity - сущность из стора (не мутируется)
  * @param effectId - эффект, чьё действие запускают
  * @param combatRound - номер идущего раунда: расписание «на раунде N»
+ * @param options - выбор цены срабатываний и сбор сводки для чата
  * @returns копия сущности для боевого канала
  */
 export function runEffectActiveAction(
   entity: DnDSceneEntity,
   effectId: string,
   combatRound?: number,
+  options: Omit<SelfTriggerOptions, 'combatRound'> = {},
 ): DnDSceneEntity {
   const acted = cloneEntityData(entity);
 
-  settleOwnEffectTriggers(
-    acted,
-    effectId,
-    listEffectActiveActions,
+  // Действия другим (всем в радиусе, наложившему) выполняет сервер
+  settleOwnEffectTriggers(acted, effectId, listEffectSelfActions, {
+    ...options,
     combatRound,
-  );
+  });
 
   return acted;
+}
+
+/**
+ * Срабатывания «При действии», которые клиент выполняет на самом носителе.
+ *
+ * @param effect - эффект носителя
+ * @returns срабатывания; пусто — на носителе выполнять нечего
+ */
+export function listEffectSelfActions(effect: ActiveEffect): EffectTrigger[] {
+  return listEffectActiveActions(effect).filter(
+    (trigger) => !isServerActiveAction(trigger),
+  );
+}
+
+/**
+ * Срабатывания «При действии», чьи действия достаются другим: их выполняет
+ * сервер по событию правил от клиента.
+ *
+ * @param effect - эффект носителя
+ * @returns срабатывания; пусто — серверу выполнять нечего
+ */
+export function listEffectServerActions(effect: ActiveEffect): EffectTrigger[] {
+  return listEffectActiveActions(effect).filter(isServerActiveAction);
+}
+
+/**
+ * Шаблон, который кнопка «При действии» ставит на карту: первый заданный у её
+ * срабатываний.
+ *
+ * @param effect - эффект носителя
+ * @returns шаблон либо `undefined`, если получатели — по радиусу
+ */
+export function resolveEffectActionTemplate(
+  effect: ActiveEffect,
+): EffectUseArea | undefined {
+  return listEffectServerActions(effect).find(
+    (trigger) => trigger.area?.template,
+  )?.area?.template;
+}
+
+/** Подпись момента в сводке срабатываний кнопки и переключателя */
+export const SELF_TRIGGER_SUMMARY_LABEL = 'действие';
+
+/** Подпись момента в сводке срабатываний «после отдыха» */
+export const REST_TRIGGER_SUMMARY_LABEL = 'после отдыха';
+
+/**
+ * Сводка срабатываний, выполненных на самой сущности, — для чата: урон,
+ * лечение, спасброски и строки «Сообщить». Сервер такую сводку собирает сам, а
+ * кнопку «При действии», переключатель и отдых выполняет клиент — без этой
+ * строки сообщение срабатывания до чата не доходило.
+ *
+ * @param entityName - имя сущности
+ * @param report - что собрали срабатывания
+ * @param whenLabel - подпись момента: «действие», «после отдыха»
+ * @returns строка для чата либо `null`, если сообщать нечего
+ */
+export function formatSelfTriggerReport(
+  entityName: string,
+  report: SelfTriggerReport,
+  whenLabel: string = SELF_TRIGGER_SUMMARY_LABEL,
+): string | null {
+  const damageOutcomes = report.results.flatMap((result) =>
+    result.damageOutcome ? [result.damageOutcome] : [],
+  );
+
+  const healingOutcomes = report.results.flatMap((result) =>
+    result.healingOutcome ? [result.healingOutcome] : [],
+  );
+
+  const saveOutcomes = report.results.flatMap((result) =>
+    result.saveOutcome ? [result.saveOutcome] : [],
+  );
+
+  const hasOutcomes =
+    damageOutcomes.length > 0
+    || healingOutcomes.length > 0
+    || saveOutcomes.length > 0;
+
+  return appendEffectsSummaryNotes(
+    hasOutcomes
+      ? formatEffectsSummary(
+          entityName,
+          whenLabel,
+          damageOutcomes,
+          saveOutcomes,
+          formatEntrySaveStatus,
+          healingOutcomes,
+        )
+      : null,
+    entityName,
+    whenLabel,
+    report.notes,
+  );
 }

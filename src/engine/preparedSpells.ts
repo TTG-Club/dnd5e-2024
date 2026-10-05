@@ -20,8 +20,26 @@ import { CANTRIP_SPELL_LEVEL } from './spellTypes.js';
 /** Поля заклинания, от которых зависит его подготовка */
 type SpellPreparationFields = Pick<
   Spell,
-  'level' | 'prepared' | 'alwaysPrepared' | 'grantedByFeature' | 'grantKind'
+  | 'level'
+  | 'prepared'
+  | 'alwaysPrepared'
+  | 'grantedByFeature'
+  | 'grantKind'
+  | 'borrowedPreparation'
 >;
+
+/**
+ * Держит ли запись отметку «Подготавливать не нужно» от чужой выдачи: вид выдал
+ * заговор, уже отмеченный в книге. У заклинаний 1+ круга хватает самой отметки,
+ * а заговор книги без этой проверки считался бы обычным — отметку заговорам
+ * раньше давал только их собственный источник.
+ *
+ * @param spell - заклинание листа
+ * @returns true — запись подготовлена всегда и места не занимает
+ */
+function hasBorrowedPreparation(spell: SpellPreparationFields): boolean {
+  return Boolean(spell.alwaysPrepared && spell.borrowedPreparation);
+}
 
 /**
  * Выдано ли заклинание записью — умением, видом, предысторией, чертой, — а не
@@ -61,7 +79,7 @@ function isClassGrant(spell: SpellPreparationFields): boolean {
  */
 export function canTogglePrepared(spell: SpellPreparationFields): boolean {
   if (spell.level === CANTRIP_SPELL_LEVEL) {
-    return !isGrantedSpell(spell);
+    return !isGrantedSpell(spell) && !hasBorrowedPreparation(spell);
   }
 
   return !spell.alwaysPrepared;
@@ -105,7 +123,7 @@ export function countsTowardCantrips(
   spell: SpellPreparationFields,
   cantripsTracked = true,
 ): boolean {
-  if (spell.level !== CANTRIP_SPELL_LEVEL) {
+  if (spell.level !== CANTRIP_SPELL_LEVEL || hasBorrowedPreparation(spell)) {
     return false;
   }
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 
 import {
+  authoredScenario,
   change,
   createActor,
   createCreature,
@@ -314,12 +315,95 @@ describe('каталог: ключи и флаги', () => {
     );
   });
 
+  it('[K09] Свет от носителя эффекта: сильнейший, поверх света фишки', () => {
+    const crown = createEffect('Корона света', {
+      light: { bright: 30, dim: 30, color: '#ffeeaa' },
+    });
+
+    const candle = createEffect('Свеча', { light: { bright: 5, dim: 5 } });
+
+    authoredScenario(crown, 'spell');
+
+    const hero = createActor({ activeEffects: [candle, crown] });
+
+    assert.deepEqual(engine.resolveEntityLight(hero), {
+      enabled: true,
+      brightRadius: 30,
+      dimRadius: 60,
+      intensity: 0.8,
+      color: '#ffeeaa',
+      angle: 360,
+      rotation: 0,
+    });
+
+    assert.equal(
+      engine.resolveEntityLight(createActor({ activeEffects: [candle] }))
+        .dimRadius,
+      10,
+    );
+
+    // Фишка светит факелом 40 фт — свечи от эффекта не видно
+    const torchBearer = createActor({
+      activeEffects: [candle],
+      token: {
+        ...createActor().token,
+        light: { enabled: true, brightRadius: 20, dimRadius: 40 },
+      },
+    });
+
+    assert.equal(engine.resolveEntityLight(torchBearer), undefined);
+
+    const dark = createActor({
+      activeEffects: [{ ...crown, disabled: true }],
+    });
+
+    assert.equal(
+      engine.resolveEntityLight(dark),
+      undefined,
+      'выключен — не светит',
+    );
+
+    assert.equal(
+      engine.describeEffectLight(crown.light),
+      'излучает яркий свет 30 фт и тусклый ещё 30 фт',
+    );
+  });
+
+  it('[K11] Запрет колдовать и концентрироваться: Ярость, Тишина', () => {
+    const rage = createEffect('Ярость', {
+      flags: ['spellcasting.blocked', 'concentration.blocked'],
+      activation: { mode: 'toggle', counter: 'rage', exclusive: 'Ярость' },
+    });
+
+    authoredScenario(rage, 'feature');
+
+    const barbarian = createActor({ activeEffects: [rage] });
+
+    assert.equal(
+      engine.resolveSpellCastBlock(barbarian, {
+        castingTimeUnit: 'action',
+        components: { verbal: false },
+      }),
+      'Заклинания недоступны: Ярость',
+    );
+
+    const silence = createEffect('Тишина', {
+      flags: ['spellcasting.noVerbal'],
+    });
+
+    assert.equal(
+      engine.resolveSpellCastBlock(createActor({ activeEffects: [silence] }), {
+        components: { verbal: false },
+      }),
+      null,
+      'без вербального компонента колдовать можно',
+    );
+  });
+
   // Пробелы каталога: этим ключам нужны либо чувства и свет в расчёте сцены,
   // либо размер фишки — это хозяйство ядра, системе их не посчитать
   it.todo('[K08] Смена размера меняет фишку и грузоподъёмность');
-  it.todo('[K09] Свет от носителя эффекта');
   it.todo('[K10] Выданные чувства участвуют в расчёте видимости');
-  it.todo('[K11] Запрет колдовать');
   it.todo('[K12] Выданная атака в списке действий');
   it.todo('[K13] Временное владение навыком');
 });

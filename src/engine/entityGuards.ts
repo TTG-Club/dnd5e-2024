@@ -106,6 +106,22 @@ export function isDndActorRecord(value: unknown): value is DnDActor {
 }
 
 /**
+ * Проверяет, что СЫРАЯ запись — существо D&D 5e: дверь для черновиков, как
+ * {@link isDndActorRecord} у персонажа.
+ *
+ * @param value - сырая запись (черновик листа либо сущность сцены)
+ * @returns `true`, если это существо с данными D&D
+ */
+export function isDndCreatureRecord(value: unknown): value is DnDCreature {
+  return (
+    isRecord(value)
+    && value.entityType === 'creature'
+    && isRecord(value.system)
+    && hasAbilityScores(value.system)
+  );
+}
+
+/**
  * Проверяет, что сущность сцены — существо D&D 5e.
  *
  * @param entity - сущность сцены в нейтральной форме ядра

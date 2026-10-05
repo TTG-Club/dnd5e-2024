@@ -68,6 +68,10 @@ export const EFFECT_TRIGGER_ROW_LABELS = {
   turnOf: 'Чей ход',
   saveToggle: 'Спасбросок',
   saveAbility: 'Характеристика',
+  saveAltAbilities: 'Или характеристика (на выбор бросающего)',
+  removeConditionFromTypes: 'Наложено существом типа',
+  removeConditionFromTypesHint:
+    'Снимаются только состояния, наложенные существами этих типов («Рассеивание добра и зла»). Пусто — кем бы ни было наложено',
   saveDc: 'Сл',
   actionsTitle: 'Что сделать',
   actionsEmpty:
@@ -87,9 +91,6 @@ export const EFFECT_TRIGGER_ROW_LABELS = {
     'Ключ — буквы, цифры, «_», «.» и «-»; без годного ключа отметка не сохранится.',
   recipient: 'Кому',
   setHpValue: 'Хитов',
-  dcFormula: 'Сл формулой',
-  dcFormulaPlaceholder: 'max(10, floor(@damage / 2))',
-  dcFormulaHint: '@damage — урон события. Пусто — число Сл.',
   limitToggle: 'Не чаще',
   limitTimes: 'раз за',
   chanceToggle: 'С броском на шанс',
@@ -108,6 +109,9 @@ export const EFFECT_TRIGGER_ROW_LABELS = {
   autoOutcomeEmpty: 'Без условия — спасбросок бросается как обычно.',
   moveKind: 'Как двигать',
   moveDistance: 'Футов',
+  moveUpTo: 'До стольких футов — выбирает применивший',
+  moveUpToHint:
+    '«Переместить на расстояние до 10 футов»: применившего спросят, на сколько, с шагом в клетку и вариантом «не двигать». Где спросить некого — на все футы.',
   moveFrom: 'От кого',
   moveHint: 'Ядро ставит фишку; препятствия не учитываются',
   areaShiftKind: 'Куда',
@@ -121,8 +125,30 @@ export const EFFECT_TRIGGER_ROW_LABELS = {
   restoreWhat: 'Что вернуть',
   restoreLevel: 'Круг',
   restoreCounter: 'Ключ ресурса',
+  conditionEscapeToggle: 'Из состояния можно вырваться',
+  conditionEscapeHint:
+    'У наложенного состояния на листе появится кнопка действия: «опутан… может действием совершить проверку Силы (Атлетика)».',
+  conditionFlags: 'Правила, пока состояние лежит',
+  conditionFlagsHint:
+    'Особые правила сверх самого состояния: «пока цель отравлена, она не может совершать реакции». Снимаются вместе с состоянием.',
   restoreAmount: 'Сколько',
+  restoreAmountPlaceholder: '1',
+  restoreAmountHint:
+    'Число или формула: 2, @paid.slotLevel, max(1, @mod.wis). Пусто — одна единица.',
+  restoreSet: 'Установить в это число',
+  restoreSetHint:
+    'Счётчик не прибавляется, а становится этим числом: новая трата заменяет прежний запас.',
+  setHpFormula: 'Хиты формулой',
+  setHpFormulaHint:
+    'Вместо числа: 5 * @paid.slotLevel, 2 * @classLevel. Пусто — число слева.',
+  durationFormula: 'Срок формулой',
+  durationFormulaHint:
+    'Число раундов формулой: @paid.hitDice, 1к4, @mod.con. Бросается один раз, при наложении. Пусто — срок слева.',
   dispelMaxLevel: 'До какого круга',
+  dispelMaxLevelFormula: 'Круг формулой',
+  dispelMaxLevelFormulaHint:
+    '«Не выше круга ячейки, которую вы используете» — @castLevel. Пусто — круг числом.',
+  dispelMaxLevelFormulaPlaceholder: '@castLevel',
   dispelWithoutLevel: 'И то, у чего круг неизвестен',
   endCastWhose: 'Чей каст',
   conditionEndsOnExit: 'Спадает при выходе из зоны',
@@ -234,6 +260,11 @@ export const EFFECT_TRIGGER_RECIPIENT_LABELS: Record<
 /** Подписи полей «всем в радиусе» */
 export const EFFECT_TRIGGER_AREA_LABELS = {
   radius: 'Радиус, фт',
+  template: 'Область',
+  templateHint:
+    'Шаблон, который ставит на карту нажавший кнопку: «выдохнуть 15-футовый '
+    + 'конус». Действия достаются тем, кого он накрыл. Без шаблона — всем в '
+    + 'радиусе от фишки носителя.',
   target: 'Кого',
   alliesWithSelf: 'Союзников и носителя',
   allWithSelf: 'Всех и носителя',
@@ -413,14 +444,17 @@ export const EFFECT_TRIGGER_CONDITION_KIND_LABELS: Record<
   selfBloodied: 'Носитель окровавлен (хитов не больше половины)',
   selfWounded: 'Носитель ранен',
   selfCreatureType: 'Носитель — существо типа',
+  selfCreatureTypeNot: 'Носитель — не существо типа',
   selfTag: 'На носителе отметка',
   selfTagNot: 'На носителе нет отметки',
   rollAdvantage: 'Атака с преимуществом',
   rollDisadvantage: 'Атака с помехой',
   otherCreatureType: 'Другая сторона — существо типа',
+  otherCreatureTypeNot: 'Другая сторона — не существо типа',
   otherMarkedBySelf: 'Другая сторона помечена носителем',
   selfHpAtMost: 'У носителя хитов не больше',
   selfHpAtLeast: 'У носителя хитов не меньше',
+  selfHpMaxAtMost: 'Максимум хитов носителя не больше',
   selfSizeAtMost: 'Носитель размером не больше',
   selfSizeAtLeast: 'Носитель размером не меньше',
   selfCondition: 'Носитель в состоянии',
@@ -431,10 +465,17 @@ export const EFFECT_TRIGGER_CONDITION_KIND_LABELS: Record<
   sourceWeaponMastery: 'Атакующий владеет приёмом этого оружия',
   selfTempHpZero: 'У носителя нет временных хитов',
   selfGrounded: 'Носитель не летит',
-  selfSpecies: 'Вид носителя',
+  selfSpecies: 'Вид носителя (или подтип; список через запятую)',
+  selfSpeciesNot: 'Вид носителя — не из списка',
+  otherSpecies: 'Вид другой стороны (или подтип; список через запятую)',
+  otherSpeciesNot: 'Вид другой стороны — не из списка',
+  damageTypeChosen: 'Урон типа из выбора владельца (ключ выбора)',
+  otherCreatureTypeChosen:
+    'Другая сторона — тип из выбора владельца (ключ выбора)',
   selfAbilityAtMost: 'У носителя характеристика не больше',
   selfAbilityAtLeast: 'У носителя характеристика не меньше',
   otherIsSource: 'Другая сторона — тот, кто наложил эффект',
+  otherIsSourceSide: 'Другая сторона — наложивший эффект или его союзник',
   otherBloodied: 'Другая сторона окровавлена (хитов не больше половины)',
   otherHpAtMost: 'У другой стороны хитов не больше',
   damageAtLeast: 'Урон не меньше',
@@ -514,6 +555,8 @@ export const EFFECT_TRIGGER_MOVE_KIND_LABELS: Record<
   push: 'Оттолкнуть',
   pull: 'Притянуть',
   teleport: 'Перенести',
+  bring: 'Перенести вплотную к опоре',
+  choose: 'Оттолкнуть или притянуть — на выбор применившего',
 };
 
 /** Подписи того, как сдвигается зона действием «Сдвинуть зону» */

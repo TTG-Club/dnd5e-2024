@@ -47,6 +47,7 @@ import {
   CREATURE_SIZE_TO_TOKEN_SCALE,
   CURRENCY_AMOUNT_MAX,
   CURRENCY_AMOUNT_MIN,
+  DEFAULT_ACTOR_TOKEN_DISPOSITION,
   DEFAULT_CREATURE_SIZE,
   EXPERIENCE_TABLE,
   isAbilityType,
@@ -1447,6 +1448,17 @@ export function normalizeActor(actor: BaseActor): void {
 
   if (!Array.isArray(actor.activeEffects)) {
     actor.activeEffects = [];
+  }
+
+  // Отношение фишки персонажа без настройки — «дружественный»: персонажи
+  // друг другу союзники. Ядро фишку без отношения считает враждебной, и аура
+  // «союзникам» накрывала бы чудовищ, а не отряд. Заданное отношение не
+  // трогается
+  if (!actor.token?.disposition) {
+    actor.token = {
+      ...actor.token,
+      disposition: DEFAULT_ACTOR_TOKEN_DISPOSITION,
+    };
   }
 
   const existingSystem = isRecord(actor.system) ? actor.system : undefined;

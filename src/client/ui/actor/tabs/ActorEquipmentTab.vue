@@ -3,8 +3,6 @@
   import type { DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue';
 
   import type {
-    AttackRollMode,
-    AttackRollModeReasons,
     DnDCarryingCapacity,
     DnDCurrency,
     DnDGameItem,
@@ -12,13 +10,7 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
-  import type { DamageTypeChoiceRequest } from '../../../composables/damageTypeChoice';
-  import type { RollBonusEvaluator } from '../../../composables/rollBonusEvaluator';
   import type { ItemTransferPayload } from '../../../composables/useItemTransfer';
-  import type {
-    RolledSpellDamagePart,
-    SpellDamagePartInput,
-  } from '../../../composables/useSpellResolution';
   import type { ItemSection } from '../compendiumFilters';
   import type { PickedCompendiumEntry } from '../CompendiumRefPickerModal.vue';
   import type {
@@ -33,11 +25,8 @@
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useChatStore } from '@/stores/chatStore';
   import { useHotbarStore } from '@/stores/hotbarStore';
-  import { useWorldStore } from '@/stores/worldStore';
   import { DISTANCE_UNIT_SHORT, formatItemCost } from '@vtt/shared';
   import {
-    buildFormulaContext,
-    buildItemUseSpell,
     calculateWeaponAttackModifier,
     calculateWeaponDamageModifier,
     canSpendItemUses,
@@ -49,27 +38,19 @@
     describeDamagePart,
     describeWeaponAttack,
     describeWeaponDamage,
-    evaluateConditionalBonuses,
+    describeWeaponDamageDisplay,
     findLoadedAmmunition,
-    formatWeaponDamageFormula,
-    getAttackBonusKey,
-    getAttackFlagCategory,
-    getDamageBonusKey,
     getWeaponDamageParts,
-    getWeaponPrimaryDamageType,
     hasItemUseEffects,
     isDnDGameItem,
     isItemDepleted,
-    isSaveAbility,
     isThrowableMeleeWeapon,
+    listItemToggles,
     listLoadableAmmunition,
     listSourceDamageTypeChoices,
     loadWeaponAmmunition,
     normalizeItemQuantity,
-    resolveWeaponSaveDc,
     setItemUsesCurrent,
-    spendAmmunition,
-    spendItemUse,
     spendItemUses,
     STARTING_EQUIPMENT_ITEM_KINDS,
     TOOL_CATEGORIES,
@@ -77,30 +58,33 @@
     withLoadedAmmunition,
   } from '@vtt/shared/system/dnd.js';
 
-  import { runWeaponAttackChoices } from '../../../composables/attackKindChoice';
-  import { resolveTargetedAttackRoll } from '../../../composables/attackRollMode';
+  import { refuseWeaponAttack } from '../../../composables/actionRefusal';
   import {
+    formatDamageBonusLines,
+    formatDamageTileFormula,
     formatDamageTypeChoiceLabel,
-    requestDamageTypeChoiceFor,
+    resolveDamageStatIcon,
   } from '../../../composables/damageTypeChoice';
-  import {
-    applyEffectSource,
-    prepareAmmunitionShot,
-  } from '../../../composables/effectActivationUse';
-  import { buildRollBonusEvaluator } from '../../../composables/rollBonusEvaluator';
-  import { useBonusDamageParts } from '../../../composables/useBonusDamageParts';
+  import { applyEntityItemUse } from '../../../composables/effectActivationUse';
+  import { toggleEntityItemEffect } from '../../../composables/itemEffectToggle';
   import { useCarryingCapacity } from '../../../composables/useCarryingCapacity';
   import { useCompendiumWarmup } from '../../../composables/useCompendiumWarmup';
   import { useResolvedStats } from '../../../composables/useResolvedStats';
-  import { useSpellResolution } from '../../../composables/useSpellResolution';
   import { useWeaponIcon } from '../../../composables/useWeaponIcon';
-  import { useWorldEntities } from '../../../composables/useWorldEntities';
+  import {
+    createWeaponAttackPort,
+    startWeaponAttack,
+  } from '../../../composables/weaponAttackRoll';
   import {
     DND_MACRO_TYPES,
     ITEM_USE_MACRO_ICON,
   } from '../../../macros/constants';
   import { useSystemDataStore } from '../../../stores/systemDataStore';
-  import { EFFECT_USE_LABELS } from '../../effect/constants';
+  import {
+    EFFECT_USE_LABELS,
+    ITEM_TOGGLE_ICONS,
+    ITEM_TOGGLE_LABELS,
+  } from '../../effect/constants';
   import ActorEquipmentRow from '../ActorEquipmentRow.vue';
   import CarryingCapacityModal from '../CarryingCapacityModal.vue';
   import {
@@ -111,7 +95,6 @@
   import CompendiumRefPickerModal from '../CompendiumRefPickerModal.vue';
   import {
     ACTOR_EQUIPMENT_TAB_LABELS,
-    DAMAGE_VARIANTS_STAT_ICON,
     EQUIPMENT_AMMUNITION_BADGE,
     EQUIPMENT_EQUIP_ACTION_LABELS,
     EQUIPMENT_MENU_LABELS,
@@ -120,12 +103,12 @@
     FILTER_ROW_CONTROL_SIZE,
     GAME_ITEM_TRANSFER_MIME,
     SHEET_ROW_MENU_LABELS,
+    SHEET_ROW_TOOLTIP_LINE_BREAK,
     WEAPON_RANGE_TYPE_LABELS,
     WEAPON_THROWN_RANGE_LABEL,
     WEIGHT_UNIT_LABEL,
   } from '../constants';
   import CurrencyModal from '../CurrencyModal.vue';
-  import DiceRollModal from '../DiceRollModal.vue';
   import SheetStatTile from '../SheetStatTile.vue';
   import { extractSpellFromGameItem } from '../utils/extractSpellFromGameItem';
   import { formatMeleeOrRangedDistances } from '../utils/formatAttackDistances';
@@ -135,9 +118,7 @@
 
   const props = defineProps<Props>();
 
-  const { resolvedStats, combinedEffects } = useResolvedStats(
-    toRef(() => props.entity),
-  );
+  const { resolvedStats } = useResolvedStats(toRef(() => props.entity));
 
   /** Переносимый вес: сумма веса инвентаря и грузоподъёмность листа */
   const { weightLabel, isOverweight, capacitySettings, strength } =
@@ -242,14 +223,6 @@
     STARTING_EQUIPMENT_ITEM_KINDS,
     () => canAddItems.value,
   );
-
-  const worldStore = useWorldStore();
-
-  const { resolveSpellDamageWithParts } = useSpellResolution();
-
-  const { buildWeaponRollSetup, buildTargetHpContext } = useBonusDamageParts();
-
-  const { getCurrentWorldEntities } = useWorldEntities();
 
   /**
    * Карта key → name для локализации типов урона
@@ -396,219 +369,19 @@
     return equippedArmorId.value !== null;
   }
 
-  // --- Бросок урона (через DiceRollModal) ---
-  const isRollModalOpen = ref(false);
-
-  /** Контекст броска, известный на момент подстановки бонусов */
-  interface RollBonusContext {
-    hasAdvantage: boolean;
-    hasDisadvantage: boolean;
-  }
-
-  /** Настройки окна броска: заполняются перед каждым открытием */
-  interface RollConfig {
-    name: string;
-    formula: string;
-    attackModifier?: number;
-    evaluateBonusRollFormulas?: RollBonusEvaluator;
-    evaluateBonuses?: (context: RollBonusContext) => {
-      attackBonus: number;
-      damageBonus: number;
-    };
-    initialRollMode: AttackRollMode;
-    /** Откуда стартовый режим атаки — показывается в окне броска */
-    rollModeReasons?: AttackRollModeReasons;
-    /** С какой натуральной кости крит у этого оружия */
-    critThreshold?: number;
-    incomingAttackType?: 'melee' | 'ranged' | 'spell';
-    damageType?: string;
-    /** Многочастный путь (бонус-части урона от Active Effects) */
-    damageParts?: SpellDamagePartInput[];
-    evaluateBonusDamageParts?: (
-      context: RollBonusContext,
-    ) => SpellDamagePartInput[];
-    onRollParts?: (parts: RolledSpellDamagePart[]) => void;
-    onHit?: () => void;
-    /** Перед броском: тратит боеприпас выстрела */
-    beforeRoll?: () => boolean;
-    /** Тип урона на выбор оружия — окно спрашивает его */
-    damageTypeChoice?: DamageTypeChoiceRequest;
-  }
-
-  const rollConfig = ref<RollConfig>({
-    name: '',
-    formula: '',
-    initialRollMode: 'normal',
-  });
+  // --- Удар оружием ---
 
   /**
-   * Открывает модалку броска урона для оружия. Оружие с боеприпасами, которые
-   * лист ведёт, стреляет боеприпасом: без него атаки нет, его бонус и эффекты
-   * идут в бросок, сам он тратится, когда бросок пошёл.
+   * Наносит удар оружием — общим путём удара, тем же, что у горячей панели:
+   * атакующий и боеприпас — из мира (окно переживает вкладку), отказ —
+   * уведомлением.
    *
    * @param sourceWeapon - оружие с формулой урона; эффекты — до выбора варианта
    */
   function openRollModal(sourceWeapon: DnDGameItem): void {
-    const shot = prepareAmmunitionShot(props.entity, sourceWeapon);
-
-    if (!shot) {
-      return;
-    }
-
-    const ammunitionId = shot.ammunition?.id;
-
-    runWeaponAttackChoices(shot.weapon, props.entity.id, (weapon) => {
-      if (!weapon.damageParts?.length) {
-        return;
-      }
-
-      // Оружие со спасброском: цель кидает спас, броска попадания нет.
-      const hasSave = isSaveAbility(weapon.saveType);
-
-      const baseMod = calculateWeaponAttackModifier(
-        props.entity,
-        weapon,
-        resolvedStats.value,
-      );
-
-      const weaponSaveDC = resolveWeaponSaveDc(baseMod);
-
-      const attackKey = getAttackBonusKey(weapon.rangeType);
-      const damageKey = getDamageBonusKey(weapon.rangeType);
-
-      const evaluateBonuses = (context: {
-        hasAdvantage: boolean;
-        hasDisadvantage: boolean;
-      }) => {
-        // HP цели читается в момент броска — для условий target.hp.* («Убийца»)
-        const rollContext = {
-          ...context,
-          target: buildTargetHpContext(undefined, props.entity.id),
-          // Предмет броска: по нему работает «только этим предметом»
-          itemId: weapon.id,
-        };
-
-        // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — без
-        // контекста @-переменных она дала бы ноль
-        const formulaContext = buildFormulaContext(props.entity);
-
-        return {
-          attackBonus: evaluateConditionalBonuses(
-            combinedEffects.value,
-            attackKey,
-            rollContext,
-            formulaContext,
-          ),
-          damageBonus: evaluateConditionalBonuses(
-            combinedEffects.value,
-            damageKey,
-            rollContext,
-            formulaContext,
-          ),
-        };
-      };
-
-      const weaponAttackRoll = resolveTargetedAttackRoll(
-        props.entity,
-        getAttackFlagCategory(weapon.rangeType),
-      );
-
-      // Единая со заклинаниями система урона: бросок ВСЕГДА идёт многочастным
-      // путём (части урона оружия + бонус-части эффектов). Состояние HP цели —
-      // для условных веток @target.full/@target.notFull.
-      const targetHp = buildTargetHpContext();
-
-      const targetIsFull = targetHp
-        ? targetHp.currentHp >= targetHp.maxHp
-        : undefined;
-
-      const weaponPartsSetup = buildWeaponRollSetup({
-        weapon,
-        actor: props.entity,
-        effects: combinedEffects.value,
-        resolvedStats: resolvedStats.value,
-        targetIsFull,
-        targetType: targetHp?.creatureType,
-      });
-
-      // Тип урона на выбор спрашивает окно броска: части урона решает оно
-      // само, а эффекты оружия на цель получают тот же тип здесь
-      let weaponSpell = weaponPartsSetup.pseudoSpell;
-
-      const damageTypeChoice = requestDamageTypeChoiceFor(
-        weapon,
-        weaponPartsSetup.pseudoSpell,
-        (chosen) => {
-          weaponSpell = chosen;
-        },
-      );
-
-      rollConfig.value = {
-        name: weapon.name,
-        formula: weaponPartsSetup.baseParts[0]?.formula ?? '',
-        attackModifier: hasSave ? undefined : baseMod,
-        evaluateBonusRollFormulas: hasSave
-          ? undefined
-          : buildRollBonusEvaluator(() => props.entity, attackKey),
-        evaluateBonuses,
-        initialRollMode: weaponAttackRoll.mode,
-        rollModeReasons: weaponAttackRoll.reasons,
-        critThreshold: resolvedStats.value?.critThreshold,
-        incomingAttackType: getAttackFlagCategory(weapon.rangeType),
-        damageType: getWeaponPrimaryDamageType(weapon, resolvedStats.value),
-        damageParts: weaponPartsSetup.baseParts,
-        evaluateBonusDamageParts: weaponPartsSetup.evaluateBonusDamageParts,
-        onRollParts: (parts: RolledSpellDamagePart[]) =>
-          handleWeaponRollParts(weaponSpell, parts, weaponSaveDC),
-        damageTypeChoice,
-        // Сбрасываем явно: `rollConfig` переиспользуется между бросками, и без
-        // этого обработчик от ПРЕДЫДУЩЕГО броска остался бы висеть на текущем.
-        onHit: undefined,
-        beforeRoll: ammunitionId
-          ? () => {
-              commitEquipment(spendAmmunition(inventory.value, ammunitionId));
-
-              return true;
-            }
-          : undefined,
-      };
-
-      isRollModalOpen.value = true;
-    });
-  }
-
-  /**
-   * Применяет брошенные части урона оружия через многочастный оркестратор:
-   * защиты по типу на каждую часть, per-target гейты @target.*, единый
-   * HP-апдейт и одно сообщение в чат.
-   *
-   * @param pseudoSpell - псевдо-заклинание оружия (со спасбросском оружия, если есть)
-   * @param parts - брошенные части урона
-   * @param spellSaveDC - DC спасброска оружия (для оружия со спасброском)
-   */
-  function handleWeaponRollParts(
-    pseudoSpell: Spell,
-    parts: RolledSpellDamagePart[],
-    spellSaveDC: number,
-  ): void {
-    const actors = getCurrentWorldEntities();
-    const socket = chatStore.getSocket();
-
-    if (actors.length === 0 || !socket) {
-      return;
-    }
-
-    void resolveSpellDamageWithParts(
-      {
-        spell: pseudoSpell,
-        damageTotal: 0,
-        spellSaveDC,
-        actors,
-        socket,
-        casterId: props.entity.id,
-      },
-      parts,
-      { scene: worldStore.currentScene },
+    startWeaponAttack(
+      sourceWeapon,
+      createWeaponAttackPort(props.entity.id, refuseWeaponAttack),
     );
   }
 
@@ -988,6 +761,10 @@
    * Применяет предмет: эффекты применения ложатся на персонажа или цель,
    * предмет теряет заряд или единицу количества.
    *
+   * Тем же путём мира, что кнопка горячей панели (`applyEntityItemUse`):
+   * заряд списывается после выбора цели и вопроса о цене, а вкладка к этому
+   * времени может быть размонтирована — её `emit` ничего бы не списал.
+   *
    * @param item - предмет
    */
   function applyItemUse(item: DnDGameItem): void {
@@ -995,12 +772,7 @@
       return;
     }
 
-    applyEffectSource(
-      buildItemUseSpell(item),
-      props.entity,
-      resolvedStats.value?.spellSaveDC ?? 0,
-      () => commitEquipment(spendItemUse(inventory.value, item.id)),
-    );
+    applyEntityItemUse(props.entity.id, item.id);
   }
 
   /**
@@ -1052,15 +824,29 @@
     });
 
     // Применение — пункт предмета с эффектами «при применении»: зелье,
-    // свиток, масло. В режиме правки лист сохраняется кнопкой, и наложенное
-    // сохранение затёрло бы
+    // свиток, масло. Режим правки пункт не гасит: погашенный пункт молчит, а
+    // щелчок доходит до общей проверки листа и объясняет отказ
     if (hasItemUseEffects(item) && !props.isReadOnly) {
       gameActions.push({
         label: EFFECT_USE_LABELS.use,
         icon: ITEM_USE_MACRO_ICON,
-        disabled: props.isEditMode || !canUseItem(item),
+        disabled: !canUseItem(item),
         onSelect: () => applyItemUse(item),
       });
+    }
+
+    // Переключатели предмета: «Язык пламени» зажигают и гасят командным
+    // словом. В режиме правки отказ объясняет вход переключателя — как и у
+    // применения
+    if (!props.isReadOnly) {
+      for (const toggle of listItemToggles(item)) {
+        gameActions.push({
+          label: `${toggle.on ? ITEM_TOGGLE_LABELS.switchOff : ITEM_TOGGLE_LABELS.switchOn}${toggle.effect.name}`,
+          icon: toggle.on ? ITEM_TOGGLE_ICONS.on : ITEM_TOGGLE_ICONS.off,
+          onSelect: () =>
+            toggleEntityItemEffect(props.entity.id, item.id, toggle.effect.id),
+        });
+      }
     }
 
     if (item.type === 'weapon' && item.damageParts?.length) {
@@ -1206,6 +992,34 @@
   }
 
   /**
+   * Подсказка и значок плитки урона оружия. Добавки по условию («+1к8, если
+   * атакующий окровавлен») идут строками после основной подсказки; значок
+   * говорит, что у урона есть ещё что-то — тип на выбор либо такая добавка.
+   *
+   * @param weapon - оружие
+   * @returns подсказка и значок плитки урона
+   */
+  function weaponDamageStatExtras(
+    weapon: DnDGameItem,
+  ): Pick<SheetRowStat, 'tooltip' | 'icon'> {
+    const bonusLines = formatDamageBonusLines(
+      describeWeaponDamageDisplay(weapon, resolvedStats.value)
+        .conditionalFormulas,
+    );
+
+    return {
+      tooltip: [weaponDamageHint(weapon), ...bonusLines].join(
+        SHEET_ROW_TOOLTIP_LINE_BREAK,
+      ),
+      // Тип на выбор назван в подсказке, в плитке — только значок
+      icon: resolveDamageStatIcon(
+        listSourceDamageTypeChoices(weapon).length > 0,
+        bonusLines.length > 0,
+      ),
+    };
+  }
+
+  /**
    * Формула урона оружия для бейджа — симметрично заклинаниям: кости без
    * инлайн-токенов + вложенный модификатор характеристики/магии (как «4к6+4»).
    *
@@ -1213,7 +1027,11 @@
    * @returns строка вида «4к6+4» / «1к8 + 1к6»
    */
   function weaponDamageFormulaLabel(weapon: DnDGameItem): string {
-    const base = formatWeaponDamageFormula(weapon, resolvedStats.value);
+    // Добавки по условию в плитку не идут — они в подсказке
+    const base = describeWeaponDamageDisplay(
+      weapon,
+      resolvedStats.value,
+    ).baseFormula;
 
     // Магический бонус входит в расчёт прибавки — отдельно его не добавляем
     const mod = calculateWeaponDamageModifier(
@@ -1222,11 +1040,7 @@
       resolvedStats.value,
     );
 
-    if (mod === 0) {
-      return base;
-    }
-
-    return `${base}${mod > 0 ? '+' : ''}${mod}`;
+    return formatDamageTileFormula(base, mod);
   }
 
   /**
@@ -1348,14 +1162,9 @@
           key: 'damage',
           label: EQUIPMENT_STAT_LABELS.damage,
           value: weaponDamageFormulaLabel(weapon),
-          tooltip: weaponDamageHint(weapon),
           accent: true,
           rollable: true,
-          // Тип на выбор назван в подсказке, в плитке — только значок
-          icon:
-            listSourceDamageTypeChoices(weapon).length > 0
-              ? DAMAGE_VARIANTS_STAT_ICON
-              : undefined,
+          ...weaponDamageStatExtras(weapon),
         },
       );
     } else if (item.type === 'equipment' && item.baseArmorAC) {
@@ -1746,28 +1555,5 @@
     v-model:open="isCurrencyModalOpen"
     :currency="currency"
     @apply="applyCurrency"
-  />
-
-  <DiceRollModal
-    v-model:open="isRollModalOpen"
-    :formula="rollConfig.formula"
-    :title="`${ACTOR_EQUIPMENT_TAB_LABELS.attackRollPrefix}${rollConfig.name}`"
-    :roll-label="rollConfig.name"
-    :attack-modifier="rollConfig.attackModifier"
-    :evaluate-bonus-roll-formulas="rollConfig.evaluateBonusRollFormulas"
-    :evaluate-conditional-bonuses="rollConfig.evaluateBonuses"
-    :initial-roll-mode="rollConfig.initialRollMode"
-    :roll-mode-reasons="rollConfig.rollModeReasons"
-    :crit-threshold="rollConfig.critThreshold"
-    :incoming-attack-type="rollConfig.incomingAttackType"
-    :damage-type="rollConfig.damageType"
-    :damage-parts="rollConfig.damageParts"
-    :evaluate-bonus-damage-parts="rollConfig.evaluateBonusDamageParts"
-    :on-roll-parts="rollConfig.onRollParts"
-    :on-hit="rollConfig.onHit"
-    :before-roll="rollConfig.beforeRoll"
-    :damage-type-choice="rollConfig.damageTypeChoice"
-    :attacker-id="entity.id"
-    :roll-button-text="ACTOR_EQUIPMENT_TAB_LABELS.attack"
   />
 </template>

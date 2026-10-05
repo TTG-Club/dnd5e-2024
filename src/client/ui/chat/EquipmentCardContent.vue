@@ -7,7 +7,7 @@
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import { formatItemCost } from '@vtt/shared';
   import {
-    formatWeaponDamageFormula,
+    describeWeaponDamageDisplay,
     getEquipmentCategoryIcon,
     isDnDGameItem,
     RARITY_COLORS,
@@ -127,7 +127,7 @@
           }}</span>
 
           <span class="font-mono font-semibold text-danger/80">
-            {{ formatWeaponDamageFormula(item) }}
+            {{ describeWeaponDamageDisplay(item).formula }}
           </span>
         </div>
 

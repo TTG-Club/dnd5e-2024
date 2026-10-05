@@ -1,3 +1,4 @@
+import type { AttackRollSnapshot } from '../../composables/attackRollSnapshot';
 import type { DamageTypeChoiceRequest } from '../../composables/damageTypeChoice';
 import type {
   RolledSpellDamagePart,
@@ -47,8 +48,14 @@ export interface RollDamageVariant {
   }) => SpellDamagePartInput[];
   /** Тип урона на выбор в наборе */
   damageTypeChoice?: DamageTypeChoiceRequest;
-  /** Применение брошенных частей */
-  onRollParts: (parts: RolledSpellDamagePart[]) => void;
+  /**
+   * Применение брошенных частей; снимок броска атаки — если бросок
+   * попадания был: по нему разбор считает удар
+   */
+  onRollParts: (
+    parts: RolledSpellDamagePart[],
+    attack?: AttackRollSnapshot,
+  ) => void;
   /** Набор выбран — зовётся в начале броска (строка чата) */
   onSelect: () => void;
 }

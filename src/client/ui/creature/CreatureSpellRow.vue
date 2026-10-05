@@ -30,6 +30,12 @@
     menuItems?: DropdownMenuItem[][];
     /** Заклинание применяется: значок слева и кнопка справа нажимаются */
     canCast?: boolean;
+    /**
+     * Общий счётчик группы пуст («3/день на весь список»). Строка гаснет, как
+     * при пустых зарядах самого заклинания, но щелчок доходит до каста — тот
+     * отказывает с причиной, а не молчит
+     */
+    groupExhausted?: boolean;
   }
 
   const props = withDefaults(defineProps<Props>(), {
@@ -37,6 +43,7 @@
     stats: () => [],
     menuItems: () => [],
     canCast: false,
+    groupExhausted: false,
   });
 
   const emit = defineEmits<{
@@ -48,11 +55,14 @@
     dragstart: [event: DragEvent];
   }>();
 
-  /** Заряды кончились — заклинание ждёт отдыха */
+  /** Заряды кончились (свои или общие у группы) — заклинание ждёт отдыха */
   const isExhausted = computed(() => {
     const uses = props.spell.uses;
 
-    return !!uses && uses.recovery !== 'atWill' && uses.current <= 0;
+    return (
+      props.groupExhausted
+      || (!!uses && uses.recovery !== 'atWill' && uses.current <= 0)
+    );
   });
 
   /** Подсказка значка: способ отката либо пустые заряды */

@@ -15,6 +15,7 @@ import type { EffectDuration } from '@vtt/shared';
 
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type { Spell } from './dndEntities.js';
+import type { RestType } from './restEngine.js';
 
 import { generateId } from '@vtt/shared';
 
@@ -145,6 +146,39 @@ export function listConcentrationCastIds(
   return listConcentrationEffects(effects).flatMap((effect) =>
     effect.castId ? [effect.castId] : [],
   );
+}
+
+/**
+ * Сколько раундов длится короткий отдых — час. Остаток срока метки хранится
+ * в раундах (`withInitializedDuration`: минута — 10, час — 600)
+ */
+const SHORT_REST_ROUNDS = 600;
+
+/**
+ * Касты, которые заканчивает отдых. Вне боя срок метки не отсчитывается —
+ * часов у стола нет, — и метка «на 1 минуту» пережила бы любой отдых.
+ *
+ * Продолжительный отдых заканчивает любую концентрацию: во сне у отдыхающего
+ * состояние «Без сознания» (PHB 2024), а оно прерывает концентрацию. Короткий
+ * отдых — час: заканчиваются касты, которым осталось не больше часа; каст на
+ * восемь часов («Метка охотника» ячейкой 3-го круга) и бессрочный остаются.
+ *
+ * @param effects - эффекты отдыхающего
+ * @param restType - тип отдыха
+ * @returns id кастов, которые отдых заканчивает
+ */
+export function listRestEndedCastIds(
+  effects: readonly ActiveEffect[] | undefined,
+  restType: RestType,
+): string[] {
+  return listConcentrationEffects(effects)
+    .filter(
+      (effect) =>
+        restType === 'long'
+        || (typeof effect.duration.remaining === 'number'
+          && effect.duration.remaining <= SHORT_REST_ROUNDS),
+    )
+    .flatMap((effect) => (effect.castId ? [effect.castId] : []));
 }
 
 /**

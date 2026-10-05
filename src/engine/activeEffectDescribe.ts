@@ -20,12 +20,18 @@ import type {
   ActiveEffect,
   EffectChange,
   EffectDuration,
+  EffectEscape,
+  EffectLight,
   EffectSave,
+  EffectSaveOverride,
+  SaveOverridePeriod,
 } from './activeEffectTypes.js';
+import type { SaveDcSource } from './effectSaveDc.js';
 import type { DamageTypeChoiceMode, HealKind } from './formulaTokens.js';
 
 import {
   AREA_TRIGGER_LABELS,
+  DEFAULT_ESCAPE_ACTOR,
   EFFECT_ATTACK_TRIGGER_LABELS,
   EFFECT_CHANGE_MODE_LABELS,
   EFFECT_CONDITION_SUGGESTIONS,
@@ -36,8 +42,29 @@ import {
   splitConditionParts,
 } from './activeEffectTypes.js';
 import { getConditionEntry } from './conditionTemplates.js';
-import { ABILITY_LABELS, FORMULA_VARIABLE_LABELS } from './consts.js';
+import {
+  ABILITY_LABELS,
+  labelFormulaVariable,
+  labelFormulaVariables,
+} from './consts.js';
+import {
+  describeCreatureTypeCondition,
+  parseAnyCreatureTypeCondition,
+} from './creatureTypeCondition.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
+import { describeCastRule } from './effectCastRule.js';
+import {
+  describeEscapeChecks,
+  EFFECT_ESCAPE_ACTOR_LABELS,
+  EFFECT_ESCAPE_ROLL_MODE_LABELS,
+  formatEffectActionCost,
+  listEscapeChecks,
+} from './effectEscape.js';
+import {
+  describeEffectPaid,
+  describeEffectPay,
+  EFFECT_PRICE_LABELS,
+} from './effectPayTypes.js';
 import { isDiceFormulaValue } from './effectPipeline.js';
 import { renderReadableFormula } from './formulaParser.js';
 import {
@@ -50,7 +77,10 @@ import {
   stripDamageTypeTokens,
   stripHealTokens,
 } from './formulaTokens.js';
-import { describeWeaponOverrideValue } from './weaponOverrides.js';
+import { describeSaveAbilities } from './saveAbilityChoice.js';
+import { describeSaveSourceCondition } from './saveSourceTraits.js';
+import { AREA_SHAPE_LABELS, SPELL_SCHOOL_OPTIONS } from './spellTypes.js';
+import { describeChangeOptionValue } from './weaponOverrides.js';
 
 /** Подпись ключа модификатора (`armorClass` → «Класс доспеха (AC)»). */
 const TARGET_LABELS = new Map(
@@ -142,14 +172,18 @@ function isNumeric(value: string): boolean {
 }
 
 /**
- * Подпись Сл спасброска: `0` у эффектов заклинаний и действий — «Сл
- * заклинателя».
+ * Подпись Сл спасброска: формула словами («Сл 8 + бонус мастерства + мод.
+ * Силы»), `0` у эффектов заклинаний и действий — «Сл заклинателя».
  *
- * @param dc - сложность из эффекта
+ * @param save - Сл из эффекта
  * @returns подпись сложности
  */
-export function formatEffectSaveDc(dc: number): string {
-  return dc === 0 ? 'Сл заклинателя' : `Сл ${dc}`;
+export function formatEffectSaveDc(save: SaveDcSource): string {
+  if (save.dcFormula) {
+    return `Сл ${prettifyFormula(save.dcFormula)}`;
+  }
+
+  return save.dc === 0 ? 'Сл заклинателя' : `Сл ${save.dc}`;
 }
 
 /** Что даёт успешный спасбросок против урона каждый ход */
@@ -169,17 +203,7 @@ const RECURRING_DAMAGE_SAVE_SUCCESS_LABELS: Record<
  * @returns подпись
  */
 export function describeRecurringDamageSave(save: EffectSave): string {
-  return `спасбросок (${ABILITY_LABELS[save.ability]}, ${formatEffectSaveDc(save.dc)}), ${RECURRING_DAMAGE_SAVE_SUCCESS_LABELS[save.onSuccess]}`;
-}
-
-/**
- * Подпись переменной формулы (`@prof` → «бонус мастерства»).
- *
- * @param token - переменная с `@`
- * @returns подпись; незнакомая переменная отдаётся как есть
- */
-function labelFormulaVariable(token: string): string {
-  return FORMULA_VARIABLE_LABELS[token] ?? token;
+  return `спасбросок (${ABILITY_LABELS[save.ability]}, ${formatEffectSaveDc(save)}), ${RECURRING_DAMAGE_SAVE_SUCCESS_LABELS[save.onSuccess]}`;
 }
 
 /**
@@ -205,7 +229,7 @@ function prettifyFormula(value: string): string {
     return describeEffectDamageParts([{ formula: value }]);
   }
 
-  return value.replace(/@[a-z.]+/gi, labelFormulaVariable);
+  return labelFormulaVariables(value);
 }
 
 /**
@@ -223,7 +247,7 @@ export function describeChangeValue(change: EffectChange): string {
   const unit = change.key.startsWith('movement.') ? ' фт' : '';
 
   // Характеристика и тип урона оружия — слова из списка, а не формула
-  const optionLabel = describeWeaponOverrideValue(change.key, change.value);
+  const optionLabel = describeChangeOptionValue(change.key, change.value);
 
   if (optionLabel) {
     return `${EFFECT_CHANGE_MODE_LABELS[change.mode].toLowerCase()}: ${optionLabel}`;
@@ -298,6 +322,18 @@ export function describeEffectChange(change: EffectChange): string {
 }
 
 /**
+ * Название школы заклинаний по ключу; незнакомый ключ отдаётся как есть.
+ *
+ * @param key - ключ школы (`divination`)
+ * @returns название в нижнем регистре
+ */
+function describeSpellSchoolKey(key: string): string {
+  const found = SPELL_SCHOOL_OPTIONS.find((option) => option.value === key);
+
+  return found ? found.label.toLowerCase() : key;
+}
+
+/**
  * Подпись условия, в том числе составного: части, соединённые `&&`, читаются
  * как «… и …». Незнакомая часть отдаётся кодом — лучше показать автору
  * непонятную строку, чем скрыть от него условие целиком.
@@ -307,7 +343,35 @@ export function describeEffectChange(change: EffectChange): string {
  */
 export function describeEffectChangeCondition(condition: string): string {
   return splitConditionParts(condition)
-    .map((part) => CONDITION_LABELS.get(part) ?? part)
+    .map((part) => {
+      // Школа и типы урона источника спасброска — свои значения автора:
+      // раньше словаря, иначе образец из подсказок отдал бы свою подпись
+      const sourceLabel = describeSaveSourceCondition(
+        part,
+        describeSpellSchoolKey,
+        getShortDamageTypeLabel,
+      );
+
+      if (sourceLabel) {
+        return sourceLabel;
+      }
+
+      const label = CONDITION_LABELS.get(part);
+
+      if (label) {
+        return label;
+      }
+
+      // Список типов и «не из списка» в словаре подсказок поимённо не лежат
+      const typeCondition = parseAnyCreatureTypeCondition(part);
+
+      return typeCondition
+        ? describeCreatureTypeCondition(
+            typeCondition.subject,
+            typeCondition.condition,
+          )
+        : part;
+    })
     .join(' и ');
 }
 
@@ -344,7 +408,9 @@ function describePartTypeLabel(part: DamagePart, formula: string): string {
 
   const typeKey = part.type ?? detectFormulaDamageType(formula);
 
-  return typeKey ? ` ${getShortDamageTypeLabel(typeKey)}` : '';
+  const typeLabel = typeKey ? getShortDamageTypeLabel(typeKey) : '';
+
+  return typeLabel ? ` ${typeLabel}` : '';
 }
 
 /** Подписи лечения в описании части: `@heal` и `@heal.temp` */
@@ -395,10 +461,12 @@ export function describeEffectDamageParts(parts: DamagePart[]): string {
  * Описывает длительность: «на 1 раунд», «постоянно».
  *
  * @param duration - длительность эффекта
+ * @param turnCurrent - срок по ходу кончается с концом ТЕКУЩЕГО хода якоря
  * @returns подпись либо `null`, если сказать нечего («особое», пустое число)
  */
 export function describeEffectDuration(
   duration: EffectDuration,
+  turnCurrent = false,
 ): string | null {
   switch (duration.type) {
     case 'permanent':
@@ -431,7 +499,10 @@ export function describeEffectDuration(
           ? 'источника'
           : 'носителя';
 
-      return `до ${when} следующего хода ${whose}`;
+      // «До конца текущего хода»: наложенный в ход якоря кончается с ним
+      const which = turnCurrent && when === 'конца' ? 'текущего' : 'следующего';
+
+      return `до ${when} ${which} хода ${whose}`;
     }
     case 'special':
     default:
@@ -471,7 +542,7 @@ export function describeActiveEffect(effect: ActiveEffect): string {
 
   // 4. Спасбросок при наложении
   if (effect.applySave) {
-    const ability = ABILITY_LABELS[effect.applySave.ability];
+    const ability = describeSaveAbilities(effect.applySave);
 
     const onSuccess =
       effect.applySave.onSuccess === 'half'
@@ -479,7 +550,7 @@ export function describeActiveEffect(effect: ActiveEffect): string {
         : 'при успехе эффект отменяется';
 
     clauses.push(
-      `спасбросок (${ability}, ${formatEffectSaveDc(effect.applySave.dc)}), ${onSuccess}`,
+      `спасбросок (${ability}, ${formatEffectSaveDc(effect.applySave)}), ${onSuccess}`,
     );
   }
 
@@ -522,7 +593,7 @@ export function describeActiveEffect(effect: ActiveEffect): string {
         : 'в конце хода';
 
     clauses.push(
-      `повторный спасбросок (${ability}, ${formatEffectSaveDc(effect.recurringSave.dc)}) ${timing} снимает эффект`,
+      `повторный спасбросок (${ability}, ${formatEffectSaveDc(effect.recurringSave)}) ${timing} снимает эффект`,
     );
   }
 
@@ -547,6 +618,16 @@ export function describeActiveEffect(effect: ActiveEffect): string {
     clauses.push(`иммунитет к состояниям: ${names}`);
   }
 
+  // 10a. Провал спасброска — вместо этого успех
+  if (effect.saveOverride) {
+    clauses.push(describeSaveOverride(effect.saveOverride));
+  }
+
+  // 10b. Свет носителя
+  if (effect.light) {
+    clauses.push(describeEffectLight(effect.light));
+  }
+
   // 11. Только при успешном спасброске уровня действия
   if (effect.applyOnSuccessOnly) {
     clauses.push('только при успешном спасброске');
@@ -558,7 +639,10 @@ export function describeActiveEffect(effect: ActiveEffect): string {
   }
 
   // 13. Длительность (добавляем в конце, если есть что описывать)
-  const duration = describeEffectDuration(effect.duration);
+  const duration = describeEffectDuration(
+    effect.duration,
+    effect.turnCurrent === true,
+  );
 
   if (duration && clauses.length > 0) {
     clauses.push(duration);
@@ -573,6 +657,52 @@ export function describeActiveEffect(effect: ActiveEffect): string {
   const capitalized = capitalize(text);
 
   return capitalized.endsWith('.') ? capitalized : `${capitalized}.`;
+}
+
+/**
+ * Свет эффекта словами: «излучает яркий свет 20 фт и тусклый ещё 20 фт».
+ *
+ * @param light - свет эффекта
+ * @returns фраза со строчной буквы
+ */
+export function describeEffectLight(light: EffectLight): string {
+  const parts = [
+    ...(light.bright > 0 ? [`яркий свет ${light.bright} фт`] : []),
+    ...(light.dim > 0
+      ? [`тусклый ${light.bright > 0 ? 'ещё ' : ''}${light.dim} фт`]
+      : []),
+  ];
+
+  return `излучает ${parts.join(' и ')}`;
+}
+
+/** Период своего счётчика «провал в успех» — родительным падежом */
+const SAVE_OVERRIDE_PERIOD_TEXT: Record<SaveOverridePeriod, string> = {
+  shortRest: 'короткого',
+  longRest: 'долгого',
+};
+
+/**
+ * «Провал в успех» словами: «провал спасброска — вместо этого успех, 3 раза
+ * до долгого отдыха» или «… за ресурс «luck»».
+ *
+ * @param override - блок эффекта
+ * @returns фраза со строчной буквы
+ */
+export function describeSaveOverride(override: EffectSaveOverride): string {
+  const head = 'провал спасброска — вместо этого успех';
+
+  if (override.counter) {
+    return `${head} за ресурс «${override.counter}»`;
+  }
+
+  if (!override.limit) {
+    return head;
+  }
+
+  const { max, per } = override.limit;
+
+  return `${head}, ${max} ${pluralize(max, ['раз', 'раза', 'раз'])} до ${SAVE_OVERRIDE_PERIOD_TEXT[per]} отдыха`;
 }
 
 // ── Разбор эффекта разделами (карточка просмотра) ─────────────
@@ -641,15 +771,87 @@ const EFFECT_ACTIVATION_DETAIL_LABELS = {
   toggle: 'Включается переключателем',
 } as const;
 
+/** Трата хода и область применения */
+const EFFECT_ACTIVATION_EXTRA_DETAIL_LABELS = {
+  cost: 'трата хода: ',
+  area: 'область: ',
+  feet: ' фт',
+  concentration: 'требует концентрации',
+} as const;
+
+/** Строка карточки эффекта, который складывается с одноимёнными */
+const EFFECT_STACKABLE_DETAIL_LABEL = 'складывается с одноимёнными';
+
+/** Цена ресурсом и потраченное — в разделе «Применение» карточки */
+const EFFECT_PAY_DETAIL_LABELS = {
+  pay: EFFECT_PRICE_LABELS.payTitle,
+  paid: 'потрачено: ',
+} as const;
+
+/** Части фразы о действии «вырваться» */
+const ESCAPE_DETAIL_LABELS = {
+  prefix: 'можно вырваться: ',
+  noCheck: 'без проверки',
+  unknownDc: 'проверка против Сл источника',
+  aftermathPrefix: '; после освобождения — «',
+  aftermathSuffix: '»',
+  failDamagePrefix: '; при провале — ',
+  partJoiner: ', ',
+} as const;
+
+/**
+ * Действие «вырваться» словами: кто действует, чем платит, какой проверкой и
+ * что бывает после.
+ *
+ * @param escape - блок действия
+ * @returns фраза для карточки эффекта
+ */
+export function describeEffectEscape(escape: EffectEscape): string {
+  const checks = listEscapeChecks(escape);
+
+  let check: string = ESCAPE_DETAIL_LABELS.noCheck;
+
+  if (escape.check) {
+    check =
+      checks.length > 0
+        ? describeEscapeChecks(checks)
+        : ESCAPE_DETAIL_LABELS.unknownDc;
+  }
+
+  const mode = escape.check?.mode
+    ? EFFECT_ESCAPE_ROLL_MODE_LABELS[escape.check.mode].toLowerCase()
+    : '';
+
+  const parts = [
+    EFFECT_ESCAPE_ACTOR_LABELS[escape.by ?? DEFAULT_ESCAPE_ACTOR].toLowerCase(),
+    formatEffectActionCost(escape.cost, escape.moveCostFeet).toLowerCase(),
+    mode ? `${check} (${mode})` : check,
+  ];
+
+  const aftermath = escape.onSuccessApply
+    ? `${ESCAPE_DETAIL_LABELS.aftermathPrefix}${describeConditionName(escape.onSuccessApply)}${ESCAPE_DETAIL_LABELS.aftermathSuffix}`
+    : '';
+
+  const failDamage = escape.onFailDamage?.length
+    ? `${ESCAPE_DETAIL_LABELS.failDamagePrefix}${describeEffectDamageParts(escape.onFailDamage)}`
+    : '';
+
+  return `${ESCAPE_DETAIL_LABELS.prefix}${parts.join(ESCAPE_DETAIL_LABELS.partJoiner)}${aftermath}${failDamage}`;
+}
+
 /**
  * Строки длительности для карточки: в отличие от однострочного описания,
  * здесь длительность есть всегда — «постоянно» тоже ответ. Остаток раундов
  * показывается отдельно: он живёт на конкретном наложении эффекта, а не в его
  * настройке.
  */
-function durationLines(duration: EffectDuration): string[] {
+function durationLines(
+  duration: EffectDuration,
+  turnCurrent: boolean,
+): string[] {
   const lines = [
-    describeEffectDuration(duration) ?? EFFECT_DURATION_LABELS[duration.type],
+    describeEffectDuration(duration, turnCurrent)
+      ?? EFFECT_DURATION_LABELS[duration.type],
   ];
 
   // Остаток минут и часов тоже в раундах: в бою они тикают раундами
@@ -676,7 +878,7 @@ function applySaveLines(effect: ActiveEffect): string[] {
   const lines: string[] = [];
 
   if (effect.applySave) {
-    const ability = ABILITY_LABELS[effect.applySave.ability];
+    const ability = describeSaveAbilities(effect.applySave);
 
     const onSuccess =
       effect.applySave.onSuccess === 'half'
@@ -684,7 +886,7 @@ function applySaveLines(effect: ActiveEffect): string[] {
         : 'при успехе эффект отменяется';
 
     lines.push(
-      `${ability}, ${formatEffectSaveDc(effect.applySave.dc)} — ${onSuccess}`,
+      `${ability}, ${formatEffectSaveDc(effect.applySave)} — ${onSuccess}`,
     );
   }
 
@@ -721,6 +923,9 @@ function auraLines(effect: ActiveEffect): string[] {
   return lines;
 }
 
+/** Начало строки правила каста в карточке эффекта */
+const CAST_RULE_DETAIL_PREFIX = 'Колдовство носителя — ';
+
 /**
  * Строки раздела «Применение»: на кого ложится, переносится ли, когда спадает.
  *
@@ -733,6 +938,48 @@ function applicationLines(effect: ActiveEffect): string[] {
 
   if (effect.activation) {
     lines.push(EFFECT_ACTIVATION_DETAIL_LABELS[effect.activation.mode]);
+
+    const { cost, area, concentration } = effect.activation;
+
+    if (concentration) {
+      lines.push(EFFECT_ACTIVATION_EXTRA_DETAIL_LABELS.concentration);
+    }
+
+    if (cost) {
+      lines.push(
+        `${EFFECT_ACTIVATION_EXTRA_DETAIL_LABELS.cost}${formatEffectActionCost(cost).toLowerCase()}`,
+      );
+    }
+
+    if (area) {
+      lines.push(
+        `${EFFECT_ACTIVATION_EXTRA_DETAIL_LABELS.area}${AREA_SHAPE_LABELS[area.shape].toLowerCase()} ${area.size}${EFFECT_ACTIVATION_EXTRA_DETAIL_LABELS.feet}`,
+      );
+    }
+  }
+
+  if (effect.pay) {
+    lines.push(
+      `${EFFECT_PAY_DETAIL_LABELS.pay}${describeEffectPay(effect.pay)}`,
+    );
+  }
+
+  const paid = describeEffectPaid(effect.paid);
+
+  if (paid) {
+    lines.push(`${EFFECT_PAY_DETAIL_LABELS.paid}${paid}`);
+  }
+
+  if (effect.escape) {
+    lines.push(describeEffectEscape(effect.escape));
+  }
+
+  if (effect.castRule) {
+    lines.push(
+      ...describeCastRule(effect.castRule).map(
+        (line) => `${CAST_RULE_DETAIL_PREFIX}${line}`,
+      ),
+    );
   }
 
   if (effect.effectTarget === 'target') {
@@ -824,7 +1071,7 @@ export function buildActiveEffectDetails(
       lines: effect.recurringSave
         ? [
             `${ABILITY_LABELS[effect.recurringSave.ability]}, ${formatEffectSaveDc(
-              effect.recurringSave.dc,
+              effect.recurringSave,
             )} ${
               effect.recurringSave.timing === 'startOfTurn'
                 ? 'в начале хода'
@@ -841,7 +1088,13 @@ export function buildActiveEffectDetails(
         : [],
     },
     { key: 'application', lines: applicationLines(effect) },
-    { key: 'duration', lines: durationLines(effect.duration) },
+    {
+      key: 'duration',
+      lines: [
+        ...durationLines(effect.duration, effect.turnCurrent === true),
+        ...(effect.stackable ? [EFFECT_STACKABLE_DETAIL_LABEL] : []),
+      ],
+    },
   ];
 
   return sections

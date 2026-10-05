@@ -5,14 +5,18 @@
 
   Варианты ответа приходят закрытым списком от того, кто спрашивает: ответить
   тем, чего не предлагали, нельзя (движок сверяет ответ с тем же списком).
-  Закрытие плашки — отказ.
+  Закрытие плашки — отказ; где отказ уже есть среди вариантов, крестика нет
+  (`hideCancel`).
 -->
 <script setup lang="ts">
   import type { EffectPromptOption } from '@vtt/shared/system/dnd.js';
 
   import { computed } from 'vue';
 
-  import { HUD_PROMPTS_TELEPORT_TARGET } from '../actor/constants';
+  import {
+    HUD_PROMPT_PANEL_CLASS,
+    HUD_PROMPTS_TELEPORT_TARGET,
+  } from '../actor/constants';
   import { EFFECT_QUESTION_PROMPT_LABELS } from './constants';
   import { formatPromptTitle } from './utils/promptTitle';
 
@@ -31,6 +35,11 @@
     sourceName?: string;
     /** Что случится по согласию */
     effectSummary?: string;
+    /**
+     * Без крестика: среди вариантов уже есть отказ («Оставить провал»), и
+     * закрытие без ответа значило бы то же самое
+     */
+    hideCancel?: boolean;
     /** Ответили: ключ выбранного варианта */
     onAnswer: (optionId: string) => void;
     /** Плашку закрыли, не ответив */
@@ -75,7 +84,7 @@
     <Transition name="slide-up">
       <div
         v-if="open"
-        class="pointer-events-auto flex w-95 max-w-full flex-col gap-3 rounded-xl border border-default/50 bg-default/90 px-4 py-3 text-highlighted shadow-xl ring-accented backdrop-blur-sm"
+        :class="HUD_PROMPT_PANEL_CLASS"
       >
         <div class="flex items-center gap-2 border-b border-muted/50 pb-2">
           <UIcon
@@ -112,6 +121,7 @@
           />
 
           <UButton
+            v-if="!hideCancel"
             icon="tabler:x"
             color="neutral"
             variant="ghost"

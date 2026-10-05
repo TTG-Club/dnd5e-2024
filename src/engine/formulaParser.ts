@@ -26,7 +26,12 @@ import { isActorEntity } from '@vtt/shared';
 
 import { calculateProficiencyBonus } from './calculations.js';
 import { getClassLevels, getTotalLevel } from './classTypes.js';
-import { isCreatureCategory, isMovementType, MOVEMENT_KEYS } from './consts.js';
+import {
+  ABILITY_KEYS,
+  isCreatureCategory,
+  isMovementType,
+  MOVEMENT_KEYS,
+} from './consts.js';
 import {
   DEFAULT_PROFICIENCY_BONUS,
   getProficiencyBonusBreakdown,
@@ -101,10 +106,54 @@ export interface FormulaContext {
    * срабатывания. Вне события токен — ошибка формулы.
    */
   event?: { damage: number };
+  /**
+   * Сл заклинаний владельца формулы — токен `@spellDc`. Им пишется Сл умения
+   * «равна Сл ваших заклинаний» (аура, умение подкласса). Заполняется только
+   * там, где формула Сл считается по владельцу: вне этого токен — ошибка.
+   */
+  spellSaveDc?: number;
+  /**
+   * Круг ячейки каста — токен `@castLevel`: «Лунный луч» `(@castLevel)к10`,
+   * «Подмога» `5 * (@castLevel - 1)`. Подставляется числом при касте
+   * (`sourceFormulaBinding`) и дальше живёт в эффекте; вне каста токен —
+   * ошибка формулы.
+   */
+  castLevel?: number;
+  /**
+   * Непотраченные кости хитов листа — токен `@hitDice.left`: «отдать половину
+   * оставшихся Костей хитов» — `ceil(@hitDice.left / 2)`. У существа — ноль.
+   */
+  hitDiceLeft?: number;
+  /**
+   * Текущие временные хиты — токен `@hp.temp`: «теряет оставшиеся временные
+   * хиты и получает столько же урона».
+   */
+  tempHp?: number;
+  /**
+   * Сколько отметок каждого ключа лежит на сущности — токен `@tag.<ключ>`:
+   * «1к8 за каждую Точку давления» — `(@tag.pressure)к8`. Ключ в токене —
+   * латиницей, цифрами и `_`.
+   */
+  tags?: Readonly<Record<string, number>>;
 }
+
+/** Переменная непотраченных костей хитов листа */
+export const HIT_DICE_LEFT_VARIABLE = 'hitDice.left';
+
+/** Переменная текущих временных хитов */
+export const TEMP_HP_VARIABLE = 'hp.temp';
+
+/** Начало переменной числа отметок: дальше — ключ отметки */
+export const TAG_COUNT_VARIABLE = 'tag';
 
 /** Переменная урона события в Сл срабатывания */
 export const EVENT_DAMAGE_VARIABLE = 'damage';
+
+/** Переменная Сл заклинаний владельца в формуле Сл */
+export const SPELL_SAVE_DC_VARIABLE = 'spellDc';
+
+/** Переменная круга ячейки каста */
+export const CAST_LEVEL_VARIABLE = 'castLevel';
 
 /**
  * Токены формул листа. Тот же диалект понимают активные эффекты и количество
@@ -137,6 +186,15 @@ export const ABILITY_ABBREVIATIONS: Readonly<Record<string, string>> = {
   wis: 'wisdom',
   cha: 'charisma',
 };
+
+/** Сокращение характеристики для формулы по её ключу (`charisma` → `cha`) */
+export const ABILITY_ABBREVIATION_BY_KEY: Readonly<Record<string, string>> =
+  Object.fromEntries(
+    Object.entries(ABILITY_ABBREVIATIONS).map(([abbreviation, ability]) => [
+      ability,
+      abbreviation,
+    ]),
+  );
 
 /** Результат валидации формулы */
 export interface FormulaValidationResult {
@@ -204,6 +262,12 @@ export class FormulaError extends Error {
 /** Функция ступеней: `steps(значение, порог1, порог2, …)` */
 const STEPS_FUNCTION = 'steps';
 
+/** Функция чётности: `even(число)` — 1 у чётного, 0 у нечётного */
+const EVEN_FUNCTION = 'even';
+
+/** Функция нечётности: `odd(число)` — 1 у нечётного, 0 у чётного */
+const ODD_FUNCTION = 'odd';
+
 /** Поддерживаемые функции */
 const SUPPORTED_FUNCTIONS = new Set([
   'min',
@@ -212,6 +276,8 @@ const SUPPORTED_FUNCTIONS = new Set([
   'ceil',
   'abs',
   STEPS_FUNCTION,
+  EVEN_FUNCTION,
+  ODD_FUNCTION,
 ]);
 
 /** Приоритет операторов */
@@ -558,6 +624,8 @@ function evaluateNode(node: AstNode, context: FormulaContext): number {
  * - prof → context.prof
  * - level → context.level
  * - classLevel → context.classLevel, иначе context.level
+ * - spellDc → context.spellSaveDc (Сл заклинаний владельца)
+ * - castLevel → context.castLevel (круг ячейки каста)
  * - target.full / target.notFull → 1/0 по состоянию цели
  *
  * @param variablePath - путь переменной (без @)
@@ -593,6 +661,26 @@ function resolveVariable(
       }
 
       return context.event.damage;
+    }
+
+    if (simpleKey === CAST_LEVEL_VARIABLE) {
+      if (context.castLevel === undefined) {
+        throw new FormulaError(
+          `@${simpleKey} есть только у эффекта заклинания: круг ставит каст`,
+        );
+      }
+
+      return context.castLevel;
+    }
+
+    if (simpleKey === SPELL_SAVE_DC_VARIABLE) {
+      if (context.spellSaveDc === undefined) {
+        throw new FormulaError(
+          `@${simpleKey} есть только в Сл, которую считают по владельцу`,
+        );
+      }
+
+      return context.spellSaveDc;
     }
 
     // Короткий код характеристики @int → значение (16), парно к @mod.int (мод)
@@ -642,6 +730,21 @@ function resolveVariable(
     throw new FormulaError(
       `Неизвестный код характеристики: @mod.${target}. Допустимо: str, dex, con, int, wis, cha, spell`,
     );
+  }
+
+  // Непотраченные кости хитов листа
+  if (variablePath === HIT_DICE_LEFT_VARIABLE) {
+    return context.hitDiceLeft ?? 0;
+  }
+
+  // Текущие временные хиты
+  if (variablePath === TEMP_HP_VARIABLE) {
+    return context.tempHp ?? 0;
+  }
+
+  // Число отметок на сущности: отметки нет — ноль, а не ошибка
+  if (parts[0] === TAG_COUNT_VARIABLE && parts.length === 2) {
+    return context.tags?.[parts[1]] ?? 0;
   }
 
   // Скорости листа: @speed.walk, @speed.fly, @speed.climb, @speed.swim,
@@ -781,6 +884,18 @@ function evaluateFunction(funcName: string, args: number[]): number {
       return Math.abs(args[0]);
     case STEPS_FUNCTION:
       return countReachedSteps(args);
+    // Развилка по выпавшему числу: «чётное — временные хиты, нечётное — урон»
+    // пишется множителем `@paid.hitDiceRoll * even(@paid.hitDiceRoll)`
+    case EVEN_FUNCTION:
+    case ODD_FUNCTION: {
+      if (args.length !== 1) {
+        throw new FormulaError(`${funcName}() требует ровно 1 аргумент`);
+      }
+
+      const isEven = Math.abs(Math.trunc(args[0])) % 2 === 0;
+
+      return isEven === (funcName === EVEN_FUNCTION) ? 1 : 0;
+    }
     default:
       throw new FormulaError(`Неизвестная функция: ${funcName}()`);
   }
@@ -945,7 +1060,117 @@ export function buildFormulaContext(
     level,
     classLevels,
     movement: readMovement(actor),
+    hitDiceLeft: countHitDiceLeft(actor),
+    tempHp: readTempHp(actor),
+    tags: countTags(actor),
   };
+}
+
+/**
+ * Контекст формул с итоговыми числами листа: характеристики, их модификаторы
+ * и бонус мастерства — те, что показывает лист, а не сырые значения записи.
+ *
+ * Правило порядка расчёта (README, § «Токены формул»): изменения самих
+ * характеристик считаются от сырых чисел — здесь круг размыкается; всё
+ * остальное (КД формулой, Сл, урон, цена, максимум счётчика) — от итоговых.
+ *
+ * @param context - контекст листа ({@link buildFormulaContext})
+ * @param stats - итоговые числа листа
+ * @param stats.abilities - итоговые значения характеристик
+ * @param stats.abilityMods - итоговые модификаторы
+ * @param stats.proficiencyBonus - итоговый бонус мастерства
+ * @returns контекст с итоговыми числами
+ */
+export function withResolvedSheetNumbers(
+  context: FormulaContext,
+  stats: {
+    abilities: Readonly<Record<AbilityType, number>>;
+    abilityMods: Readonly<Record<AbilityType, number>>;
+    proficiencyBonus: number;
+  },
+): FormulaContext {
+  return {
+    ...context,
+    abilities: Object.fromEntries(
+      ABILITY_KEYS.map((abilityKey) => [
+        abilityKey,
+        {
+          value: stats.abilities[abilityKey],
+          mod: stats.abilityMods[abilityKey],
+        },
+      ]),
+    ),
+    prof: stats.proficiencyBonus,
+  };
+}
+
+/**
+ * Непотраченные кости хитов листа: по каждому классу — уровень минус
+ * потраченные.
+ *
+ * @param actor - персонаж или существо
+ * @returns число костей; у существа — ноль
+ */
+function countHitDiceLeft(
+  actor:
+    | import('./dndEntities.js').DnDActor
+    | import('./dndEntities.js').DnDCreature,
+): number {
+  if (!isActorEntity(actor)) {
+    return 0;
+  }
+
+  return (actor.system.classes ?? []).reduce(
+    (total, entry) =>
+      total + Math.max(0, entry.level - (entry.hitDiceUsed ?? 0)),
+    0,
+  );
+}
+
+/**
+ * Текущие временные хиты сущности.
+ *
+ * @param actor - персонаж или существо
+ * @returns временные хиты; поля нет — ноль
+ */
+function readTempHp(
+  actor:
+    | import('./dndEntities.js').DnDActor
+    | import('./dndEntities.js').DnDCreature,
+): number {
+  const temp = actor.system.hitPoints?.temp;
+
+  return typeof temp === 'number' ? Math.max(0, temp) : 0;
+}
+
+/**
+ * Сколько отметок каждого ключа лежит на сущности: у отметки-счётчика — число
+ * ступеней. Выключенные отметки не считаются.
+ *
+ * @param actor - персонаж или существо
+ * @returns ключ отметки → число
+ */
+function countTags(
+  actor:
+    | import('./dndEntities.js').DnDActor
+    | import('./dndEntities.js').DnDCreature,
+): Record<string, number> {
+  const counts: Record<string, number> = {};
+
+  for (const effect of actor.activeEffects ?? []) {
+    const { tag } = effect;
+
+    if (typeof tag === 'string' && effect.disabled !== true) {
+      const stacks =
+        'tagStacks' in effect && typeof effect.tagStacks === 'number'
+          ? effect.tagStacks
+          : 1;
+
+      counts[tag] = (counts[tag] ?? 0) + stacks;
+    }
+  }
+
+  return counts;
 }
 
 /**
@@ -1141,6 +1366,8 @@ const READABLE_FUNCTION_TEMPLATES: Readonly<Record<string, string>> = {
   min: 'меньшее из ({0}; {1})',
   max: 'большее из ({0}; {1})',
   abs: '|{0}|',
+  even: '(1, если {0} чётное, иначе 0)',
+  odd: '(1, если {0} нечётное, иначе 0)',
 };
 
 /** Знаки операторов в читаемой записи: минус и умножение — типографские */

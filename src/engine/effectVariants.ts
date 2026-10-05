@@ -11,9 +11,18 @@
 import type { ActiveEffect, EffectVariant } from './activeEffectTypes.js';
 
 /** Как выбирается вариант группы */
-export const EFFECT_VARIANT_PICKS = ['choose', 'random'] as const;
+export const EFFECT_VARIANT_PICKS = ['choose', 'random', 'multi'] as const;
 
-/** Выбор варианта: тем, кто бросает, или случаем */
+/**
+ * Разделитель подписей в выборе нескольких вариантов одной группы: перевода
+ * строки в подписи варианта не бывает
+ */
+export const EFFECT_VARIANT_MULTI_SEPARATOR = '\n';
+
+/**
+ * Выбор варианта: тем, кто бросает (`choose` — один, `multi` — один или
+ * несколько: «выберите 1 или несколько типов существ»), или случаем
+ */
 export type EffectVariantPick = (typeof EFFECT_VARIANT_PICKS)[number];
 
 /** Выбор без поля `pick`: вариант называет тот, кто бросает */
@@ -86,8 +95,34 @@ export function pickEffectVariants(
 ): ActiveEffect[] {
   return effects.filter(
     (effect) =>
-      !effect.variant || choices[effect.variant.group] === effect.variant.label,
+      !effect.variant
+      || splitVariantChoice(choices[effect.variant.group]).includes(
+        effect.variant.label,
+      ),
   );
+}
+
+/**
+ * Подписи вариантов из выбора группы: у выбора нескольких вариантов они лежат
+ * одной строкой через {@link EFFECT_VARIANT_MULTI_SEPARATOR}.
+ *
+ * @param choice - выбор группы
+ * @returns подписи; пусто — группа без выбора
+ */
+export function splitVariantChoice(choice: string | undefined): string[] {
+  return choice === undefined
+    ? []
+    : choice.split(EFFECT_VARIANT_MULTI_SEPARATOR);
+}
+
+/**
+ * Выбор группы из нескольких подписей — одной строкой.
+ *
+ * @param labels - выбранные варианты
+ * @returns выбор группы
+ */
+export function joinVariantChoice(labels: readonly string[]): string {
+  return labels.join(EFFECT_VARIANT_MULTI_SEPARATOR);
 }
 
 /**
@@ -102,10 +137,24 @@ export function pickEffectVariants(
 export function readEffectVariantChoices(
   effects: readonly ActiveEffect[],
 ): EffectVariantChoices {
+  const byGroup = new Map<string, string[]>();
+
+  for (const effect of effects) {
+    if (!effect.variant) {
+      continue;
+    }
+
+    const labels = byGroup.get(effect.variant.group) ?? [];
+
+    if (!labels.includes(effect.variant.label)) {
+      labels.push(effect.variant.label);
+    }
+
+    byGroup.set(effect.variant.group, labels);
+  }
+
   return Object.fromEntries(
-    effects.flatMap((effect) =>
-      effect.variant ? [[effect.variant.group, effect.variant.label]] : [],
-    ),
+    [...byGroup].map(([group, labels]) => [group, joinVariantChoice(labels)]),
   );
 }
 

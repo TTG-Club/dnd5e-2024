@@ -3,8 +3,10 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 
 import {
+  authoredScenario,
   change,
   createActor,
+  createCreature,
   createEffect,
   engine,
   MAX_ROLL,
@@ -475,9 +477,179 @@ describe('каталог: значения формулой', () => {
 
   // Пробелы: этим значениям нужны либо сцена вокруг носителя в момент расчёта,
   // либо событие «удар прошёл» — их этап впереди
+  it('[V21] Кровавый пир: числа владельца в срабатывании своего постоянного умения', () => {
+    // «Когда вы попадаете броском атаки… восстановите хиты, равные броску кости
+    // + ваш модификатор Телосложения». Умение постоянное: его никто не
+    // накладывал, и числа владельца подставляются, когда событие собирает
+    // срабатывания носителя
+    const feast = createEffect('Кровавый пир', {
+      triggers: [
+        {
+          id: 'trigger_feast',
+          event: 'attackRoll',
+          role: 'attacker',
+          condition: 'attack.landed === true',
+          actions: [
+            { type: 'damage', parts: [{ formula: '1к10@heal + @mod.con' }] },
+          ],
+        },
+        {
+          id: 'trigger_mark',
+          event: 'attackRoll',
+          role: 'attacker',
+          recipient: 'other',
+          condition: 'attack.landed === true',
+          actions: [
+            {
+              type: 'damage',
+              parts: [{ formula: '@prof', type: 'necrotic' }],
+            },
+          ],
+        },
+      ],
+    });
+
+    authoredScenario(feast, 'ownEffects');
+
+    const system = structuredClone(engine.DEFAULT_ACTOR.system);
+
+    const hero = withHp(
+      createActor,
+      10,
+      {
+        system: {
+          ...system,
+          abilities: { ...system.abilities, constitution: 16 },
+          classes: [{ classKey: 'barbarian', level: 5, hitDie: 12 }],
+        },
+        activeEffects: [feast],
+      },
+      50,
+    );
+
+    const foe = withHp(createCreature, 40);
+
+    const result = withRandom([MAX_ROLL], () =>
+      engine.settleAttackRollTriggers(hero, 'attacker', {
+        other: foe,
+        roll: {},
+        landed: true,
+        inCombat: true,
+      }),
+    );
+
+    assert.equal(
+      engine.resolveEntityCurrentHp(hero),
+      10 + 13,
+      '1к10 на максимум и +3 Телосложения',
+    );
+
+    assert.equal(
+      engine.resolveEntityCurrentHp(foe),
+      40 - 3,
+      'мастерство 5-го уровня',
+    );
+
+    assert.deepEqual(result.notes, [], 'всё посчитано — сообщать не о чем');
+
+    // Запись листа остаётся формулой: числа подставлены в копию
+    assert.equal(
+      hero.activeEffects[0].triggers[0].actions[0].parts[0].formula,
+      '1к10@heal + @mod.con',
+    );
+  });
+
+  it('[V22] Слагаемое, которое не посчиталось, видно в сводке', () => {
+    // Круг ячейки ставит только каст: у постоянного эффекта его нет, и бросок
+    // такую часть пропускает — но не молча
+    const broken = createEffect('Кровавый пир', {
+      triggers: [
+        {
+          id: 'trigger_feast',
+          event: 'attackRoll',
+          role: 'attacker',
+          condition: 'attack.landed === true',
+          actions: [
+            { type: 'damage', parts: [{ formula: '6@heal + @castLevel' }] },
+          ],
+        },
+      ],
+    });
+
+    const hero = withHp(createActor, 10, { activeEffects: [broken] }, 50);
+
+    const result = engine.settleAttackRollTriggers(hero, 'attacker', {
+      other: withHp(createCreature, 40),
+      roll: {},
+      landed: true,
+      inCombat: true,
+    });
+
+    assert.equal(engine.resolveEntityCurrentHp(hero), 10);
+    assert.equal(result.notes.length, 1);
+
+    assert.match(
+      result.notes[0],
+      /^Кровавый пир: не посчитано автоматически — .*@castLevel/,
+    );
+  });
+
   it.todo('[V14] Лимит, общий на весь каст');
   it.todo('[V15] Токен «сколько существ в радиусе»');
   it.todo('[V16] Токен «нанесённый урон»');
-  it.todo('[V17] Кости хитов как стоимость каста');
+
+  it('[V17] Кости хитов как стоимость каста', () => {
+    // Цена каста живёт в эффекте заклинания (`pay`), бросок потраченных костей
+    // — токеном `@paid.hitDiceRoll` в уроне самого заклинания
+    const consumption = {
+      name: 'Истощение',
+      damageParts: [{ formula: '@paid.hitDiceRoll', type: 'necrotic' }],
+      activeEffects: [
+        createEffect('Истощение', {
+          effectTarget: 'target',
+          pay: [{ kind: 'hitDice' }],
+          duration: { type: 'hours', value: 1 },
+          recurringSave: {
+            ability: 'constitution',
+            dc: engine.SOURCE_SAVE_DC,
+            timing: 'endOfTurn',
+          },
+          triggers: [
+            {
+              id: 'trigger_drain',
+              event: 'turnEnd',
+              actions: [
+                {
+                  type: 'damage',
+                  parts: [{ formula: '@paid.hitDiceRoll', type: 'necrotic' }],
+                },
+              ],
+            },
+          ],
+        }),
+      ],
+    };
+
+    const paid = engine.bindSourcePaid(consumption, {
+      hitDice: 1,
+      hitDie: 8,
+      hitDiceRoll: 5,
+    });
+
+    assert.equal(paid.damageParts[0].formula, '5');
+
+    assert.equal(
+      paid.activeEffects[0].triggers[0].actions[0].parts[0].formula,
+      '5',
+      'тот же бросок бьёт на каждом ходу — кость заново не катается',
+    );
+
+    assert.deepEqual(paid.activeEffects[0].paid, {
+      hitDice: 1,
+      hitDie: 8,
+      hitDiceRoll: 5,
+    });
+  });
+
   it.todo('[V18] Апкаст меняет срок и концентрацию');
 });

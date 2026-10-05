@@ -21,6 +21,7 @@ import type {
   EffectEscapeOutcome,
   EffectFormContext,
   EffectFormLayout,
+  EffectLightAnimation,
   EffectNotifyTarget,
   EffectRestoreKind,
   EffectSaveTiming,
@@ -45,6 +46,7 @@ import type {
   EffectTurnAnchor,
   EffectTurnTiming,
   EffectVariantPick,
+  SaveOverridePeriod,
   TriggerAttackKind,
 } from '@vtt/shared/system/dnd.js';
 
@@ -69,6 +71,7 @@ import {
   EFFECT_ESCAPE_ACTORS,
   EFFECT_ESCAPE_OUTCOME_LABELS,
   EFFECT_ESCAPE_OUTCOMES,
+  EFFECT_LIGHT_ANIMATIONS,
   EFFECT_NOTIFY_TARGETS,
   EFFECT_RESTORE_KINDS,
   EFFECT_SAVE_TIMINGS,
@@ -91,6 +94,7 @@ import {
   MIN_REVIVE_HP,
   MIN_SPELL_SLOT_LEVEL,
   PATH_AREA_SHIFT_KINDS,
+  SAVE_OVERRIDE_PERIODS,
   SKILLS_LABELS,
   TRIGGER_ATTACK_KIND_PHRASES,
   TRIGGER_ATTACK_KINDS,
@@ -114,6 +118,7 @@ import {
   EFFECT_DELIVERY_ICONS,
   EFFECT_DELIVERY_LABELS,
   EFFECT_DURATION_STEP_LABELS,
+  EFFECT_LIGHT_ANIMATION_LABELS,
   EFFECT_PERMANENT_ACTIVATION,
   EFFECT_SPELL_ZONE_DELIVERY_HINT,
   EFFECT_SUCCESS_OUTCOME_OPTIONS,
@@ -122,6 +127,7 @@ import {
   EFFECT_USE_DELIVERY_LABELS,
   EFFECT_VARIANT_PICK_LABELS,
   SAVE_DC_FIELD_MODE_LABELS,
+  SAVE_OVERRIDE_PERIOD_LABELS,
   ZONE_TRIGGER_LABELS,
 } from './constants';
 import {
@@ -534,12 +540,13 @@ export const EFFECT_TRIGGER_AREA_TARGET_OPTIONS: ReadonlyArray<
   { value: 'allWithSelf', label: EFFECT_TRIGGER_AREA_LABELS.allWithSelf },
 ];
 
-/** Режимы поля Сл: Сл источника или своё число */
+/** Режимы поля Сл: Сл источника, своё число или формула */
 export const SAVE_DC_FIELD_MODE_OPTIONS: ReadonlyArray<
   EffectSegmentOption<SaveDcFieldMode>
 > = [
   { value: 'auto', label: SAVE_DC_FIELD_MODE_LABELS.auto },
   { value: 'manual', label: SAVE_DC_FIELD_MODE_LABELS.manual },
+  { value: 'formula', label: SAVE_DC_FIELD_MODE_LABELS.formula },
 ];
 
 /** Разделитель источника Сл и её числа в режиме «Авто» («Сл заклинателя · 15») */
@@ -863,6 +870,22 @@ export const EFFECT_TRIGGER_SAVE_MODE_OPTIONS: ReadonlyArray<
 > = SAVE_MODE_CHOICES.map((mode) => ({
   value: mode,
   label: EFFECT_TRIGGER_SAVE_MODE_LABELS[mode],
+}));
+
+/** Варианты анимации света эффекта */
+export const EFFECT_LIGHT_ANIMATION_OPTIONS: ReadonlyArray<
+  EffectSegmentOption<EffectLightAnimation>
+> = EFFECT_LIGHT_ANIMATIONS.map((animation) => ({
+  value: animation,
+  label: EFFECT_LIGHT_ANIMATION_LABELS[animation],
+}));
+
+/** Варианты периода своего счётчика «провал в успех» */
+export const SAVE_OVERRIDE_PERIOD_OPTIONS: ReadonlyArray<
+  EffectSegmentOption<SaveOverridePeriod>
+> = SAVE_OVERRIDE_PERIODS.map((period) => ({
+  value: period,
+  label: SAVE_OVERRIDE_PERIOD_LABELS[period],
 }));
 
 /** Варианты момента повторного спасброска */

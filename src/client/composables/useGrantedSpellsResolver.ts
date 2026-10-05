@@ -139,6 +139,7 @@ export function useGrantedSpellsResolver(
           castingAbility: source.castingAbility,
           grantKind: source.grantKind,
           featureKey: source.featureKey,
+          ...(source.chosenByPlayer ? { chosenByPlayer: true } : {}),
         });
       }
     }

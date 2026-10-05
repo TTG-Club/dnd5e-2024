@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { it } from 'vitest';
 
+import { loadPerformRoll } from './helpers/diceRollWindow.mjs';
 import { loadEngineBundle, systemRoot } from './helpers/engineBundle.mjs';
 import { loadHandler } from './helpers/sourceHandler.mjs';
 
@@ -297,40 +298,35 @@ it('actual cast snapshots attack dice before consumeOn and forwards them to proj
 
   let received;
 
-  const performRoll = await loadHandler(
-    'src/client/ui/actor/DiceRollModal.vue',
-    'performRoll',
-    {
-      console,
-      hasRolled: false,
-      props: {
-        attackModifier: 5,
-        attackerId: 'hero',
-        evaluateProjectileBonusRollFormulas: () =>
-          new Map([['target', bonuses.value]]),
-        onProjectileAttack: (context) => {
-          received = context;
-        },
+  const performRoll = await loadPerformRoll({
+    console,
+    props: {
+      attackModifier: 5,
+      attackerId: 'hero',
+      evaluateProjectileBonusRollFormulas: () =>
+        new Map([['target', bonuses.value]]),
+      onProjectileAttack: (context) => {
+        received = context;
       },
-      announceAttackRoll: () => {
-        bonuses.value = [];
-      },
-      selectedSpellLevel: { value: 1 },
-      consumeSpellSlot: { value: true },
-      usePactSlot: { value: false },
-      hasSpellCast: { value: false },
-      rollType: { value: 'public' },
-      attackRollMode: { value: 'normal' },
-      bonusValue: { value: 0 },
-      currentConditionalBonuses: { value: { attackBonus: 0, damageBonus: 0 } },
-      currentBonusRollFormulas: bonuses,
-      settleRollDamageTypeChoices: () => new Map(),
-      activeDamageVariant: { value: undefined },
-      isOpen: { value: true },
-      chatStore: { isPrivateRoll: false, isGmOnlyRoll: false },
-      DICE_ROLL_LOG_PREFIX: 'test-roll',
     },
-  );
+    announceAttackRoll: () => {
+      bonuses.value = [];
+    },
+    selectedSpellLevel: { value: 1 },
+    consumeSpellSlot: { value: true },
+    usePactSlot: { value: false },
+    hasSpellCast: { value: false },
+    rollType: { value: 'public' },
+    attackRollMode: { value: 'normal' },
+    bonusValue: { value: 0 },
+    currentConditionalBonuses: { value: { attackBonus: 0, damageBonus: 0 } },
+    currentBonusRollFormulas: bonuses,
+    settleRollDamageTypeChoices: () => new Map(),
+    activeDamageVariant: { value: undefined },
+    isOpen: { value: true },
+    chatStore: { isPrivateRoll: false, isGmOnlyRoll: false },
+    DICE_ROLL_LOG_PREFIX: 'test-roll',
+  });
 
   performRoll();
 

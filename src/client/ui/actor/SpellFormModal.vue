@@ -147,6 +147,7 @@
     hasScaling,
     scalingAdditionalDice,
     scalingAdditionalTargets,
+    scalingAdditionalAreaSize,
     scalingDescription,
     cantripScalingTiers,
     addCantripTier,
@@ -943,6 +944,22 @@
                     />
                   </UFormField>
                 </div>
+
+                <!-- Отдельной строкой: сетка размеров считает свои колонки,
+                  и лишнее поле в ней сжималось в узкую полосу -->
+                <UFormField
+                  v-if="level > 0"
+                  :label="SPELL_FORM_LABELS.scalingAreaSize"
+                  :help="SPELL_FORM_LABELS.scalingAreaSizeHint"
+                  class="col-span-3"
+                >
+                  <UInput
+                    v-model.number="scalingAdditionalAreaSize"
+                    type="number"
+                    :min="0"
+                    class="w-40"
+                  />
+                </UFormField>
 
                 <div class="col-span-3 mt-2">
                   <UCheckbox

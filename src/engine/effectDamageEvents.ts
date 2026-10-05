@@ -42,15 +42,20 @@ import type {
   TurnSaveOutcome,
 } from './turnEffects.js';
 
+import { withTokenDisposition } from '@vtt/shared';
+
 import { isEffectDormant, listLiveEffects } from './activeEffectTypes.js';
+import { getRelativeDisposition } from './auraMath.js';
 import {
   formatEffectNotes,
   ignoreRejectedRollRequest,
+  requestTriggerAsk,
   requestTriggerChoice,
   snapshotTriggerSource,
   toDeferredEffectOutcome,
   unchangedOutcome,
 } from './deferredEffectSaves.js';
+import { settleUnaskedTriggerPay } from './effectPay.js';
 import { listEquippedItemEffects, listTraitEffects } from './effectPipeline.js';
 import {
   buildEffectSaveRollRequest,
@@ -58,12 +63,14 @@ import {
   settleEffectSaveOutcome,
   shouldRequestEffectSave,
 } from './effectSaveAcquisition.js';
+import { bindTriggerSourceSaveDcs } from './effectSaveDcOwner.js';
 import {
   admitTrigger,
   buildTriggerSaveSpec,
   buildTriggerSources,
   EFFECT_TRIGGER_SOURCE_KINDS,
   listAttackRollSources,
+  listCarrierEventSources,
   rollTriggerSave,
   settleTriggerOutcome,
   toTriggerSaveOutcome,
@@ -73,12 +80,20 @@ import { listEffectEventTriggers } from './effectTriggers.js';
 import {
   CHOICE_TRIGGER_RECIPIENT,
   DEFAULT_TRIGGER_RECIPIENT,
+  isServerActiveAction,
   MAX_TRIGGER_PATH_REPEATS,
   SOURCE_TRIGGER_RECIPIENT,
+  triggerAsksPermission,
 } from './effectTriggerTypes.js';
+import { findSceneToken } from './forcedMovement.js';
+import {
+  DAMAGE_TYPE_TOKEN_PREFIX,
+  EVENT_DAMAGE_TYPE_TOKEN,
+} from './formulaTokens.js';
 import { resolveEntityCurrentHp } from './hitPoints.js';
 import { listChoiceCandidates } from './triggerChoice.js';
-import { withCombatRound } from './triggerConditions.js';
+import { isTriggerConditionMet, withCombatRound } from './triggerConditions.js';
+import { mapTriggerDamageParts } from './triggerDamageParts.js';
 
 /** С чем прогоняются срабатывания событий с другой стороной */
 export interface TriggerEventOptions extends SceneMoveOptions {
@@ -194,16 +209,19 @@ function listDamageEventSources(
       own,
       EFFECT_TRIGGER_SOURCE_KINDS.instance,
       eventTriggersOf,
+      entity,
     ),
     ...buildTriggerSources(
       listEquippedItemEffects(entity),
       EFFECT_TRIGGER_SOURCE_KINDS.item,
       eventTriggersOf,
+      entity,
     ),
     ...buildTriggerSources(
       listTraitEffects(entity),
       EFFECT_TRIGGER_SOURCE_KINDS.trait,
       eventTriggersOf,
+      entity,
     ),
     ...buildTriggerSources(
       ambient,
@@ -426,12 +444,135 @@ function resolveTriggerRecipients(
 }
 
 /**
+ * Данные события с отношением другой стороны к наложившему эффект: союзник ли
+ * она ему. Считается по фишкам сцены; без сцены или без одной из фишек
+ * отношение неизвестно, и поле не ставится.
+ *
+ * @param eventData - данные события
+ * @param sourceId - кто наложил эффект
+ * @param options - с чем прогоняются события
+ * @returns данные события с отношением либо те же данные
+ */
+function withSourceRelation(
+  eventData: TriggerEventData,
+  sourceId: string | undefined,
+  options: TriggerEventOptions,
+): TriggerEventData {
+  const { other } = eventData;
+  const { surroundings } = options;
+
+  if (!other || !sourceId || !surroundings) {
+    return eventData;
+  }
+
+  const source = options.getEntity?.(sourceId);
+  const sourceToken = findSceneToken(surroundings, sourceId);
+  const otherToken = findSceneToken(surroundings, other.id);
+
+  if (!sourceToken || !otherToken) {
+    return eventData;
+  }
+
+  return {
+    ...eventData,
+    otherAlliedToSource:
+      getRelativeDisposition(
+        withTokenDisposition(sourceToken, source),
+        withTokenDisposition(otherToken, other),
+      ) === 'ally',
+  };
+}
+
+/**
+ * Тип урона события для токена `@dmg.event`. У удара двумя типами одним
+ * броском (жало: колющий и яд) это тот тип, который прошёл условие
+ * срабатывания («урон выбранного типа»), а не первый в ударе: иначе
+ * «Перенаправление энергии» отвечало колющим на яд. Без условия или когда
+ * условие проходит только сочетанием типов — первый, как раньше.
+ *
+ * @param subject - субъект срабатывания
+ * @param source - срабатывание с источником
+ * @param eventData - данные события
+ * @returns тип урона события либо `undefined`, если удара не было
+ */
+function pickEventDamageType(
+  subject: DnDSceneEntity,
+  source: EffectTriggerSource,
+  eventData: TriggerEventData,
+): string | undefined {
+  const { damage } = eventData;
+  const types = damage?.types ?? [];
+  const [firstType] = types;
+
+  if (!damage || types.length < 2 || !source.trigger.condition?.trim()) {
+    return firstType;
+  }
+
+  return (
+    types.find((type) =>
+      isTriggerConditionMet(subject, source.trigger, {
+        ...eventData,
+        damage: { ...damage, types: [type] },
+        sourceId: source.effect.sourceActorId,
+      }),
+    ) ?? firstType
+  );
+}
+
+/**
+ * Тип только что полученного урона — в части урона срабатывания: токен
+ * `@dmg.event` становится типом урона события («направить урон того же
+ * типа»). Вне события урона токен остаётся, и часть идёт без типа.
+ *
+ * Зовётся до вопроса человеку: срабатывание с ценой «реакция», галочкой
+ * «спрашивать» или ценой ресурсом уносит тип в свой снимок, и урон после
+ * согласия идёт с ним — защиты получателя его видят.
+ *
+ * @param subject - субъект срабатывания: по нему читается условие
+ * @param source - срабатывание с источником
+ * @param eventData - данные события
+ * @returns срабатывание с типом события либо то же срабатывание
+ */
+function bindEventDamageType(
+  subject: DnDSceneEntity,
+  source: EffectTriggerSource,
+  eventData: TriggerEventData,
+): EffectTriggerSource {
+  const usesEventType = source.trigger.actions.some(
+    (action) =>
+      action.type === 'damage'
+      && action.parts.some((part) =>
+        part.formula.includes(EVENT_DAMAGE_TYPE_TOKEN),
+      ),
+  );
+
+  const eventType = usesEventType
+    ? pickEventDamageType(subject, source, eventData)
+    : undefined;
+
+  if (!eventType) {
+    return source;
+  }
+
+  return {
+    ...source,
+    trigger: mapTriggerDamageParts(source.trigger, (part) => ({
+      ...part,
+      formula: part.formula.replaceAll(
+        EVENT_DAMAGE_TYPE_TOKEN,
+        `${DAMAGE_TYPE_TOKEN_PREFIX}${eventType}`,
+      ),
+    })),
+  };
+}
+
+/**
  * Одно срабатывание события с другой стороной: получатель, условие и лимит,
  * спасбросок на сервере или запросом игроку, действия. Одно на события урона
  * и бросок атаки — у них разные только данные события.
  *
  * @param subject - субъект: на нём эффект
- * @param source - срабатывание с источником
+ * @param rawSource - срабатывание с источником
  * @param rawEventData - данные события: урон, бросок, другая сторона
  * @param options - с чем прогоняются события
  * @param result - общий итог (пополняется)
@@ -440,44 +581,146 @@ function resolveTriggerRecipients(
  */
 function runTriggerEventSource(
   subject: DnDSceneEntity,
-  source: EffectTriggerSource,
+  rawSource: EffectTriggerSource,
   rawEventData: TriggerEventData,
   options: TriggerEventOptions,
   result: DamageEventsResult,
   continuation?: DamageEventsContinuation,
 ): TriggerEventRun {
-  // Раунд — общий на всю серию: его знает ядро, а не построитель события
-  const eventData = withCombatRound(rawEventData, options.combatRound);
+  // Раунд — общий на всю серию: его знает ядро, а не построитель события.
+  // Союзник ли другая сторона наложившему — знает сцена
+  const eventData = withSourceRelation(
+    withCombatRound(rawEventData, options.combatRound),
+    rawSource.effect.sourceActorId,
+    options,
+  );
+
+  // Данные события привязываются до развилки «спросить человека или нет»:
+  // после согласия срабатывание выполняется тем же, чем выполнилось бы сразу
+  const eventSource = bindEventDamageType(subject, rawSource, eventData);
 
   const recipients = resolveTriggerRecipients(
     subject,
-    source,
+    eventSource,
     eventData,
     options,
   );
 
   // Эффект, снятый раньше в этой же серии, больше не срабатывает
   const removed =
-    source.instance
+    eventSource.instance
     && !(subject.activeEffects ?? []).some(
-      (effect) => effect.id === source.effect.id,
+      (effect) => effect.id === eventSource.effect.id,
     );
 
   if (recipients.length === 0 || removed) {
     return 'skipped';
   }
 
-  if (!admitTrigger(subject, source, eventData, options.inCombat)) {
+  const { requestRoll } = options;
+  const { choice } = eventSource.trigger;
+
+  const choosesRecipients =
+    eventSource.trigger.recipient === CHOICE_TRIGGER_RECIPIENT
+    && choice !== undefined;
+
+  // Срабатывание, которое спросит человека, лимит тратит уже по согласию
+  const asks =
+    triggerAsksPermission(eventSource.trigger) && Boolean(requestRoll);
+
+  if (
+    !admitTrigger(
+      subject,
+      eventSource,
+      eventData,
+      options.inCombat,
+      asks,
+      (note) => result.notes.push(note),
+    )
+  ) {
     return 'skipped';
+  }
+
+  /** Опции наложения ответа человека: те же, что у броска сервера */
+  const answerOptions: EntryEffectOptions = {
+    ambientEffects: options.ambientEffects ?? [],
+    activeTurnActorId: options.activeTurnActorId,
+    endCast: options.endCast,
+    eventDamage: eventData.damage?.amount,
+    eventData,
+    criticalTargetId: eventData.attack?.criticalTargetId,
+    surroundings: options.surroundings,
+    moveToken: options.moveToken,
+    moveArea: options.moveArea,
+    movementOffset: eventData.movement?.offset,
+  };
+
+  // «Спрашивать разрешения», цена «Реакция» и цена ресурсом: срабатывание
+  // ждёт согласия владельца — и уже по нему выбирает цель и платит
+  if (asks && requestRoll) {
+    const requesterLabel = formatEffectRequesterLabel(eventSource.effect.name);
+
+    const asked = requestTriggerAsk(
+      subject,
+      eventSource,
+      requestRoll,
+      requesterLabel,
+      {
+        effectOptions: answerOptions,
+        inCombat: options.inCombat,
+        ...(choosesRecipients && choice
+          ? {
+              buildChoiceRequest: (prepare) =>
+                requestTriggerChoice(
+                  subject,
+                  eventSource,
+                  recipients,
+                  choice,
+                  requestRoll,
+                  requesterLabel,
+                  answerOptions,
+                  prepare,
+                ),
+            }
+          : { recipients }),
+        ...(continuation
+          ? {
+              finish: (liveSubject, outcome) =>
+                withContinuation(outcome, continuation(liveSubject)),
+            }
+          : {}),
+      },
+    );
+
+    // Цена не по карману — срабатывание молчит
+    if (!asked) {
+      return 'skipped';
+    }
+
+    result.deferred.push(asked);
+
+    return 'deferred';
+  }
+
+  // Спросить некого: цена без выбора списывается сама, иначе срабатывание не
+  // состоится
+  const prepared = settleUnaskedTriggerPay(subject, eventSource);
+
+  if (!prepared) {
+    return 'skipped';
+  }
+
+  const { source } = prepared;
+
+  if (prepared.notes.length > 0) {
+    result.changed = true;
+    result.notes.push(...prepared.notes);
   }
 
   // Получатель «по выбору»: кто именно, решает человек — всё срабатывание
   // ждёт ответа, а найденные кандидаты уходят в запрос
-  if (
-    source.trigger.recipient === CHOICE_TRIGGER_RECIPIENT
-    && source.trigger.choice
-  ) {
-    if (!options.requestRoll) {
+  if (choosesRecipients && choice) {
+    if (!requestRoll) {
       return 'skipped';
     }
 
@@ -485,15 +728,10 @@ function runTriggerEventSource(
       subject,
       source,
       recipients,
-      source.trigger.choice,
-      options.requestRoll,
+      choice,
+      requestRoll,
       formatEffectRequesterLabel(source.effect.name),
-      {
-        ambientEffects: options.ambientEffects ?? [],
-        activeTurnActorId: options.activeTurnActorId,
-        endCast: options.endCast,
-        eventDamage: eventData.damage?.amount,
-      },
+      answerOptions,
     );
 
     if (!deferred) {
@@ -533,7 +771,7 @@ function runTriggerEventSource(
  *
  * @param subject - субъект: на нём эффект
  * @param recipient - получатель
- * @param source - срабатывание с источником
+ * @param subjectSource - срабатывание с источником, как его видит субъект
  * @param eventData - данные события
  * @param options - с чем прогоняются события
  * @param result - общий итог (пополняется)
@@ -543,13 +781,16 @@ function runTriggerEventSource(
 function settleTriggerForRecipient(
   subject: DnDSceneEntity,
   recipient: DnDSceneEntity,
-  source: EffectTriggerSource,
+  subjectSource: EffectTriggerSource,
   eventData: TriggerEventData,
   options: TriggerEventOptions,
   result: DamageEventsResult,
   continuation?: DamageEventsContinuation,
 ): 'settled' | 'deferred' {
   const { requestRoll } = options;
+
+  // Сл формулой — по субъекту, на котором эффект, а не по бросающему
+  const source = bindTriggerSourceSaveDcs(subjectSource, subject);
 
   const ambientEffects =
     recipient === subject ? (options.ambientEffects ?? []) : [];
@@ -559,6 +800,7 @@ function settleTriggerForRecipient(
     activeTurnActorId: options.activeTurnActorId,
     endCast: options.endCast,
     eventDamage: eventData.damage?.amount,
+    criticalTargetId: eventData.attack?.criticalTargetId,
     surroundings: options.surroundings,
     moveToken: options.moveToken,
     moveArea: options.moveArea,
@@ -838,6 +1080,8 @@ export interface AttackRollEventOptions extends TriggerEventOptions {
    * снарядов), и части условия «попала» / «промахнулась» не выполняются обе
    */
   landed?: boolean;
+  /** Попадание критическое: урон срабатывания цели атаки удваивает кости */
+  critical?: boolean;
 }
 
 /**
@@ -856,8 +1100,9 @@ export function hasServerAttackRollTriggers(
 }
 
 /**
- * Срабатывания события на эффектах самой сущности: у событий лечения,
- * перемещения, снятия состояния и «свалил цель» других источников нет.
+ * Срабатывания события на всём, что действует вместе с сущностью: её эффекты,
+ * надетые предметы, черты существа. Так собираются события лечения,
+ * перемещения, снятия состояния и «свалил цель» — аур чужих токенов у них нет.
  *
  * @param entity - сущность
  * @param event - событие
@@ -867,10 +1112,8 @@ function listOwnEventSources(
   entity: DnDSceneEntity,
   event: EffectTriggerEvent,
 ): EffectTriggerSource[] {
-  return buildTriggerSources(
-    listLiveEffects(entity),
-    EFFECT_TRIGGER_SOURCE_KINDS.instance,
-    (effect) => listEffectEventTriggers(effect, event),
+  return listCarrierEventSources(entity, (effect) =>
+    listEffectEventTriggers(effect, event),
   );
 }
 
@@ -890,16 +1133,66 @@ export function settleAttackRollTriggers(
 ): DamageEventsResult {
   const result = createDamageEventsResult();
 
+  // Цель атаки: у атакующего это другая сторона, у цели — она сама
+  const attackTarget = role === 'attacker' ? options.other : subject;
+
+  const criticalTargetId =
+    options.landed === true && options.critical === true
+      ? attackTarget?.id
+      : undefined;
+
   const eventData: TriggerEventData = {
     other: options.other,
     roll: options.roll,
     ...(options.landed === undefined
       ? {}
-      : { attack: { kinds: [], landed: options.landed } }),
+      : {
+          attack: {
+            kinds: [],
+            landed: options.landed,
+            ...(criticalTargetId === undefined ? {} : { criticalTargetId }),
+          },
+        }),
   };
 
   for (const source of listAttackRollSources(subject, role, 'server')) {
     runTriggerEventSource(subject, source, eventData, options, result);
+  }
+
+  return result;
+}
+
+/**
+ * Кнопка «При действии»: срабатывания эффекта, чьи действия достаются другим
+ * — всем в радиусе, тем, кого накрыл шаблон нажавшего, или наложившему.
+ * Действия самому носителю выполняет клиент (`runEffectActiveAction`).
+ *
+ * @param subject - носитель эффекта (мутируется)
+ * @param effectId - эффект с кнопкой
+ * @param options - с чем прогоняются события
+ * @returns итог: субъект и другие стороны
+ */
+export function settleEffectActionEvents(
+  subject: DnDSceneEntity,
+  effectId: string,
+  options: TriggerEventOptions,
+): DamageEventsResult {
+  const result = createDamageEventsResult();
+
+  const effects = listLiveEffects(subject).filter(
+    (effect) => effect.id === effectId,
+  );
+
+  const sources = buildTriggerSources(
+    effects,
+    EFFECT_TRIGGER_SOURCE_KINDS.instance,
+    (effect) =>
+      listEffectEventTriggers(effect, 'activate').filter(isServerActiveAction),
+    subject,
+  );
+
+  for (const source of sources) {
+    runTriggerEventSource(subject, source, {}, options, result);
   }
 
   return result;

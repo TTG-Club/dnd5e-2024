@@ -27,21 +27,21 @@
     describeEffectChangeValueHint,
     EFFECT_CONDITION_SUGGESTIONS,
     EFFECT_MODIFIER_MENU,
-    EFFECT_TARGET_SUGGESTIONS,
+    EFFECT_TARGET_LIBRARY,
     EFFECT_VALUE_SUGGESTIONS,
+    getChangeValueOptions,
     getEffectChangeModeChoice,
     getEffectChangeShownValue,
-    getWeaponOverrideValueOptions,
     isDiceFormulaValue,
     isEffectModifierSubmenu,
     isEffectTargetKey,
     isNoOpEffectChange,
+    isOptionValueKey,
     isRollTimeDiceKey,
-    isWeaponOverrideKey,
     MAX_EFFECT_CHANGE_STEP,
     toStoredEffectChangeValue,
+    validateChangeOptionValue,
     validateFormula,
-    validateWeaponOverrideValue,
   } from '@vtt/shared/system/dnd.js';
 
   import {
@@ -94,9 +94,10 @@
       return undefined;
     }
 
-    // Замена свойства оружия — не формула: кость или слово из списка
-    if (isWeaponOverrideKey(change.key)) {
-      return validateWeaponOverrideValue(change.key, change.value);
+    // Замена свойства оружия и тип урона заклинаний — не формула: кость или
+    // слово из списка
+    if (isOptionValueKey(change.key)) {
+      return validateChangeOptionValue(change.key, change.value);
     }
 
     // Кость числом не считается: её катает бросок — если он у ключа вообще
@@ -186,7 +187,7 @@
           ? describeEffectChangeKey(change.key)
           : EFFECT_CHANGE_ROW_LABELS.keyPlaceholder,
         valueError: valueError(change),
-        valueOptions: getWeaponOverrideValueOptions(change.key),
+        valueOptions: getChangeValueOptions(change.key),
         // «Вычесть» — только в форме: в данных это «Добавить» с минусом
         modeChoice: getEffectChangeModeChoice(change),
         shownValue: getEffectChangeShownValue(change),
@@ -737,7 +738,7 @@
     :title="ACTIVE_EFFECT_TEMPLATES_LABELS.keyTitle"
     :search-placeholder="ACTIVE_EFFECT_TEMPLATES_LABELS.keySearchPlaceholder"
     :empty-label="ACTIVE_EFFECT_TEMPLATES_LABELS.keyEmpty"
-    :items="EFFECT_TARGET_SUGGESTIONS"
+    :items="EFFECT_TARGET_LIBRARY"
     :modal-id="EFFECT_TEMPLATES_MODAL_IDS.key"
     @select="applyLibraryValue('key', $event)"
   />

@@ -1,4 +1,5 @@
 export { default as EffectAdvancedSection } from './EffectAdvancedSection.vue';
+export { default as EffectCastRuleSection } from './EffectCastRuleSection.vue';
 export { default as EffectChangeRows } from './EffectChangeRows.vue';
 export { default as EffectDamageStep } from './EffectDamageStep.vue';
 export { default as EffectDescriptionSection } from './EffectDescriptionSection.vue';
@@ -8,7 +9,9 @@ export { default as EffectFlagRows } from './EffectFlagRows.vue';
 export { default as EffectFormStep } from './EffectFormStep.vue';
 export { default as EffectHeaderFields } from './EffectHeaderFields.vue';
 export { default as EffectInertFieldsNotice } from './EffectInertFieldsNotice.vue';
+export { default as EffectLightSection } from './EffectLightSection.vue';
 export { default as EffectModifiersStep } from './EffectModifiersStep.vue';
+export { default as EffectSaveOverrideSection } from './EffectSaveOverrideSection.vue';
 export { default as EffectSaveStep } from './EffectSaveStep.vue';
 export { default as EffectScenarioSummary } from './EffectScenarioSummary.vue';
 export { default as EffectStagesSection } from './EffectStagesSection.vue';

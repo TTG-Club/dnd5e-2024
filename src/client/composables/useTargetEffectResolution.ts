@@ -1,4 +1,4 @@
-import type { DamagePart, SceneEntity } from '@vtt/shared';
+import type { AbilityType, DamagePart, SceneEntity } from '@vtt/shared';
 import type {
   ActiveEffect,
   DamageDefenseOutcome,
@@ -10,6 +10,8 @@ import type {
 
 import { useDiceRollerStore } from '@/stores/diceRollerStore';
 import {
+  describeSpellSaveSource,
+  findUnresolvedApplySaveDc,
   getEntityConditionImmunities,
   hasLastingEffectPayload,
   isDndSceneEntity,
@@ -18,11 +20,13 @@ import {
   isMagicRoll,
   isSpellRoll,
   passesLandingCondition,
+  pickSaveAbility,
   resolveActorStats,
   resolveEffectApplication,
   resolveEffectSaveDc,
   rollEffectDamageParts,
   stampSourceTurnSaveDc,
+  UNRESOLVED_SAVE_DC_LABELS,
 } from '@vtt/shared/system/dnd.js';
 
 import { resolveCombatRound } from './encounterTurn';
@@ -33,6 +37,7 @@ import {
   stampEffectOnApply,
 } from './spellResolutionShared';
 import { bindTargetEffectsToCaster } from './targetEffectSourceBinding';
+import { warnUnresolvedSaveDc } from './unresolvedSaveDc';
 import { useSpellSavingThrows } from './useSpellSavingThrows';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -70,8 +75,12 @@ export interface TargetEffectsInput {
   entity: SceneEntity;
   /** Сл спасброска источника — ею заменяется Сл 0 в эффекте */
   spellSaveDC: number;
-  /** Кто накладывает (якорь точной длительности, право запроса броска) */
-  casterId?: string;
+  /**
+   * Кто накладывает: якорь точной длительности, каст с концентрацией и его
+   * круг, числа наложившего в формулах эффекта, источник спасброска.
+   * Обязателен — без него эффект лёг бы «ничьим»
+   */
+  casterId: string;
   /**
    * Нанёс ли сам источник урон: гейт `requiresDamage` у частей урона эффекта.
    * Без него добивающая часть («боеприпас убийства») не катается.
@@ -126,6 +135,12 @@ function buildLandingContext(input: TargetEffectsInput): EffectLandingContext {
  * гоблина), спасброска не требует: бросок ничего бы не решал, а у чужой цели
  * ещё и дёргал бы владельца запросом.
  *
+ * Числа наложившего подставлены: Сл формулой («8 + @prof + @mod.wis» у
+ * «Ошеломляющего удара») — его, а не цели.
+ *
+ * Эффект, чью Сл не из чего посчитать, тоже не спрашивают: бросок против нуля
+ * прошёл бы любой. Такой эффект не ложится вовсе (`collectTargetEffects`).
+ *
  * @param input - заклинание, цель, кастер
  * @returns эффекты, у которых нужно спросить спасбросок
  */
@@ -133,7 +148,14 @@ function listLandingEffectsWithOwnSave(
   input: TargetEffectsInput,
 ): ActiveEffect[] {
   const { entity } = input;
-  const effects = listEffectsWithOwnSave(input.spell);
+
+  const effects = bindTargetEffectsToCaster(
+    listEffectsWithOwnSave(input.spell),
+    input.spell,
+    input.casterId,
+  ).filter(
+    (effect) => findUnresolvedApplySaveDc(effect, input.spellSaveDC) === null,
+  );
 
   if (!isDndSceneEntity(entity)) {
     return effects;
@@ -143,6 +165,98 @@ function listLandingEffectsWithOwnSave(
 
   return effects.filter((effect) =>
     passesLandingCondition(effect, entity, landing),
+  );
+}
+
+/**
+ * Эффекты «на цель», которые проходят условие наложения у этой цели, с числами
+ * наложившего.
+ *
+ * @param input - заклинание, цель, кастер
+ * @returns эффекты, которым цель подходит
+ */
+function listLandingTargetEffects(input: TargetEffectsInput): ActiveEffect[] {
+  const { entity } = input;
+
+  const effects = bindTargetEffectsToCaster(
+    getTargetSpellEffects(input.spell),
+    input.spell,
+    input.casterId,
+  );
+
+  if (!isDndSceneEntity(entity)) {
+    return effects;
+  }
+
+  const landing = buildLandingContext(input);
+
+  return effects.filter((effect) =>
+    passesLandingCondition(effect, entity, landing),
+  );
+}
+
+/**
+ * Состояния, к которым цель невосприимчива. Иммунитет «только от существ этих
+ * типов» считается по наложившему.
+ *
+ * @param input - цель и кастер
+ * @returns ключи состояний
+ */
+function resolveTargetConditionImmunities(
+  input: Pick<TargetEffectsInput, 'entity' | 'casterId'>,
+): readonly string[] {
+  const { entity } = input;
+
+  return isDndSceneEntity(entity)
+    ? getEntityConditionImmunities(
+        entity,
+        [],
+        useWorldEntities().findEntityCreatureType(input.casterId),
+      )
+    : [];
+}
+
+/**
+ * Достанется ли цели хоть что-то от эффектов «на цель»: урон эффекта либо сам
+ * эффект. Эффект не ляжет, если цель не проходит его условие наложения
+ * («невосприимчив к этому источнику» у «Ужасающего облика») или невосприимчива
+ * к его состоянию.
+ *
+ * Нет — спасбросок самого действия у такой цели ничего не решает, и
+ * спрашивать его незачем: лишнее окно, а у чужой цели ещё и запрос владельцу.
+ *
+ * @param input - заклинание, цель, кастер
+ * @returns `true`, если хоть один эффект может лечь или ударить
+ */
+export function targetEffectsCanLand(input: TargetEffectsInput): boolean {
+  const immunities = resolveTargetConditionImmunities(input);
+
+  return listLandingTargetEffects(input).some(
+    (effect) =>
+      (effect.damageParts?.length ?? 0) > 0
+      || (hasLastingEffectPayload(effect)
+        && !(
+          effect.conditionKey !== undefined
+          && isImmuneToCondition(immunities, effect.conditionKey)
+        )),
+  );
+}
+
+/**
+ * Характеристика спасброска эффекта у этой цели: «Сила или Ловкость» — лучшая
+ * из названных. Сущность без данных системы бросает первой по записи.
+ *
+ * @param entity - цель
+ * @param applySave - спасбросок эффекта
+ * @returns характеристика
+ */
+function pickTargetSaveAbility(
+  entity: SceneEntity,
+  applySave: NonNullable<ActiveEffect['applySave']>,
+): AbilityType {
+  return pickSaveAbility(
+    isDndSceneEntity(entity) ? entity : undefined,
+    applySave,
   );
 }
 
@@ -243,13 +357,14 @@ export function useTargetEffectResolution() {
 
       const saveResult = await resolveSavingThrowForTarget({
         entity: input.entity,
-        ability: effect.applySave.ability,
+        ability: pickTargetSaveAbility(input.entity, effect.applySave),
         dc: resolveEffectSaveDc(effect.applySave.dc, input.spellSaveDC),
         againstCondition: effect.conditionKey,
         againstSpell: isSpellRoll(input.spell),
         allowWilling: effect.applySave.allowWilling,
         sourceEntityId: input.casterId,
         sourceName: effect.name,
+        ...describeSpellSaveSource(input.spell),
       });
 
       // Окно спасброска эффекта закрыли — вызывающий сворачивает всё действие
@@ -283,12 +398,13 @@ export function useTargetEffectResolution() {
         effect.id,
         rollSavingThrow({
           entity: input.entity,
-          ability: effect.applySave.ability,
+          ability: pickTargetSaveAbility(input.entity, effect.applySave),
           dc: resolveEffectSaveDc(effect.applySave.dc, input.spellSaveDC),
           againstCondition: effect.conditionKey,
           againstSpell: isSpellRoll(input.spell),
           sourceEntityId: input.casterId,
           sourceName: effect.name,
+          ...describeSpellSaveSource(input.spell),
         }),
       );
     }
@@ -320,9 +436,8 @@ export function useTargetEffectResolution() {
     // для спасброска заклинания «приземлилось» = цель его провалила.
     const landed = spell.saveType === 'none' || !landingSave?.passed;
 
-    const immunities = isDndSceneEntity(entity)
-      ? getEntityConditionImmunities(entity)
-      : [];
+    // Иммунитет «только от существ этих типов» считается по заклинателю
+    const immunities = resolveTargetConditionImmunities(input);
 
     // Флаги цели — для «Увёртливости» на спасброске эффекта
     const targetFlags = isDndSceneEntity(entity)
@@ -335,19 +450,21 @@ export function useTargetEffectResolution() {
     let bonusDamage = 0;
     let defenseOutcome: DamageDefenseOutcome = 'normal';
 
-    const landing = buildLandingContext(input);
+    for (const effect of listLandingTargetEffects(input)) {
+      // Сл спасброска эффекта не посчиталась: его не бросали, и «провалом»
+      // это не считается — эффект не ложится и не бьёт, а человек видит почему
+      const unresolvedDc = findUnresolvedApplySaveDc(effect, spellSaveDC);
 
-    const landingEffects = bindTargetEffectsToCaster(
-      getTargetSpellEffects(spell),
-      spell,
-      casterId,
-    ).filter(
-      (effect) =>
-        !isDndSceneEntity(entity)
-        || passesLandingCondition(effect, entity, landing),
-    );
+      if (unresolvedDc) {
+        warnUnresolvedSaveDc(
+          spell.name,
+          unresolvedDc,
+          UNRESOLVED_SAVE_DC_LABELS.effectSkippedSuffix,
+        );
 
-    for (const effect of landingEffects) {
+        continue;
+      }
+
       const application = resolveEffectApplication(effect, {
         landed,
         applySaveSucceeded: effectSaves.get(effect.id)?.passed,

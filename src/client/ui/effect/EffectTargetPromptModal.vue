@@ -1,14 +1,18 @@
 <!--
-  Плашка выбора цели: срабатывание с получателем «по выбору» спрашивает, кого
-  задеть. Отмечают столько целей, сколько просят; закрытие без выбора отменяет
-  срабатывание, а у добровольного выбора есть «Отказаться».
+  Плашка выбора цели: срабатывание с получателем «по выбору» и область «на
+  выбор из тех, кто в области» спрашивают, кого задеть. Отмечают столько
+  целей, сколько просят; закрытие без выбора отменяет срабатывание (у области
+  — умолчание её правила), а у добровольного выбора есть «Отказаться».
 -->
 <script setup lang="ts">
   import type { TargetChoiceCandidate } from '@vtt/shared/system/dnd.js';
 
   import { computed, ref } from 'vue';
 
-  import { HUD_PROMPTS_TELEPORT_TARGET } from '../actor/constants';
+  import {
+    HUD_PROMPT_PANEL_CLASS,
+    HUD_PROMPTS_TELEPORT_TARGET,
+  } from '../actor/constants';
   import {
     CHOICE_SEARCH_THRESHOLD,
     EFFECT_TARGET_PROMPT_LABELS,
@@ -27,6 +31,11 @@
     candidates: readonly TargetChoiceCandidate[];
     /** Сколько целей просят */
     count: number;
+    /**
+     * Сколько отметок нужно самое меньшее («ровно N» у выбора из области);
+     * нет — хватит одной
+     */
+    minCount?: number;
     /** Можно отказаться от выбора */
     optional?: boolean;
     /** Чей выбор — «Аура жизни» */
@@ -100,7 +109,10 @@
     return `${countPrefix}${chosen.value.length}${countJoiner}${props.count}`;
   });
 
-  const canConfirm = computed(() => chosen.value.length > 0);
+  const canConfirm = computed(
+    () =>
+      chosen.value.length > 0 && chosen.value.length >= (props.minCount ?? 1),
+  );
 
   /**
    * Подпись кандидата с хитами: по ним и выбирают, кого лечить.
@@ -159,7 +171,7 @@
     <Transition name="slide-up">
       <div
         v-if="open"
-        class="pointer-events-auto flex w-95 max-w-full flex-col gap-3 rounded-xl border border-default/50 bg-default/90 px-4 py-3 text-highlighted shadow-xl ring-accented backdrop-blur-sm"
+        :class="HUD_PROMPT_PANEL_CLASS"
       >
         <div class="flex items-center gap-2 border-b border-muted/50 pb-2">
           <UIcon

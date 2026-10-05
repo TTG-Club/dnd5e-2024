@@ -412,3 +412,419 @@ describe('каталог: вопросы человеку', () => {
     );
   });
 });
+
+describe('каталог: «вырваться» по правилам 2024', () => {
+  /**
+   * Срабатывание эффекта в форме источника.
+   *
+   * @param {object} effect - эффект
+   * @returns {object} срабатывание с источником
+   */
+  function sourceOf(effect) {
+    return {
+      effect,
+      trigger: effect.triggers[0],
+      ambient: false,
+      instance: true,
+      scope: effect.id,
+    };
+  }
+
+  /**
+   * Строки карточки эффекта одним текстом.
+   *
+   * @param {object} effect - эффект
+   * @returns {string} строки через перевод строки
+   */
+  function detailsOf(effect) {
+    return engine
+      .buildActiveEffectDetails(effect)
+      .flatMap((section) => section.lines)
+      .join('\n');
+  }
+
+  it('[Q10] Захват 2024: Атлетика или Акробатика на выбор вырывающегося', () => {
+    // «Если цель — существо с размером средний или меньше, то она схвачена
+    // (Сл. освобождения 14)» — правило захвата 2024: Атлетика или Акробатика
+    const tentacle = createEffect('Щупальце', {
+      conditionKey: 'grappled',
+      escape: {
+        cost: 'action',
+        check: {
+          skill: 'athletics',
+          dc: DC,
+          skills: [{ skill: 'athletics' }, { skill: 'acrobatics' }],
+        },
+      },
+    });
+
+    authoredScenario(tentacle, 'creatureAction');
+
+    assert.equal(
+      engine.formatEffectEscapeLabel(tentacle),
+      `Вырваться: Атлетика или Акробатика Сл ${DC}`,
+    );
+
+    assert.deepEqual(
+      engine
+        .listEscapeChecks(tentacle.escape, 'self')
+        .map((check) => check.skill),
+      ['athletics', 'acrobatics'],
+    );
+
+    // Старая запись с одним навыком читается как раньше
+    const old = createEffect('Щупальце', {
+      conditionKey: 'grappled',
+      escape: { cost: 'action', check: { skill: 'athletics', dc: DC } },
+    });
+
+    assert.equal(
+      engine.formatEffectEscapeLabel(old),
+      `Вырваться: Атлетика Сл ${DC}`,
+    );
+
+    // Список, записанный строками, разбирается так же; негодный навык
+    // выбрасывается один
+    const parsed = engine.ActiveEffectSchema.parse({
+      ...tentacle,
+      escape: {
+        ...tentacle.escape,
+        check: {
+          ...tentacle.escape.check,
+          skills: ['athletics', 'acrobatics', 'x'],
+        },
+      },
+    });
+
+    assert.deepEqual(parsed.escape.check.skills, [
+      { skill: 'athletics' },
+      { skill: 'acrobatics' },
+    ]);
+  });
+
+  it('[Q11] Кандалы: у каждого навыка своя Сл', () => {
+    // «Освобождение — Ловкость (Ловкость рук) Сл 20; разрыв — Сила (Атлетика)
+    // Сл 25; без ключа — воровские инструменты, Ловкость рук Сл 15»
+    const manacles = createEffect('Скован кандалами', {
+      escape: {
+        by: 'any',
+        cost: 'action',
+        check: {
+          skill: 'sleightOfHand',
+          dc: 20,
+          skills: [
+            { skill: 'sleightOfHand', by: 'self' },
+            { skill: 'athletics', dc: 25, by: 'self' },
+            {
+              skill: 'sleightOfHand',
+              dc: 15,
+              label: 'воровскими инструментами',
+            },
+          ],
+        },
+      },
+    });
+
+    authoredScenario(manacles, 'ownEffects');
+
+    assert.equal(
+      engine.formatEffectEscapeLabel(manacles),
+      'Вырваться: Ловкость рук Сл 20 или Атлетика Сл 25 или Ловкость рук (воровскими инструментами) Сл 15',
+    );
+
+    assert.deepEqual(
+      engine
+        .listEscapeChecks(manacles.escape, 'adjacent')
+        .map((check) => check.dc),
+      [15],
+      'сосед может только вскрыть замок',
+    );
+  });
+
+  it('[Q12] Водный элементаль: вырваться может и носитель, и сосед — разными навыками', () => {
+    // «Схвачена (Сл освобождения 14). Действием существо в пределах 5 фт от
+    // элементаля может вытащить существо: Сила (Атлетика) Сл 14»
+    const whelm = createEffect('Погружение', {
+      conditionKey: 'grappled',
+      escape: {
+        by: 'any',
+        cost: 'action',
+        check: {
+          skill: 'athletics',
+          dc: DC,
+          skills: [{ skill: 'athletics' }, { skill: 'acrobatics', by: 'self' }],
+        },
+      },
+    });
+
+    authoredScenario(whelm, 'creatureAction');
+
+    assert.equal(engine.canEscapeEffect(whelm, 'self'), true);
+    assert.equal(engine.canEscapeEffect(whelm, 'adjacent'), true);
+
+    assert.deepEqual(
+      engine
+        .listEscapeChecks(whelm.escape, 'adjacent')
+        .map((check) => check.skill),
+      ['athletics'],
+      'сосед — только Атлетикой',
+    );
+
+    // Только носитель — как раньше
+    const selfOnly = createEffect('Опутывание', {
+      escape: { check: { skill: 'athletics', dc: DC } },
+    });
+
+    assert.equal(engine.canEscapeEffect(selfOnly, 'adjacent'), false);
+
+    assert.match(
+      detailsOf(whelm),
+      /Можно вырваться: носитель или существо рядом, действие, Атлетика или Акробатика Сл 14/,
+    );
+  });
+
+  it('[Q13] Режим броска: помеха из эффекта, преимущество вырывающегося, помеха от того, кто держит', () => {
+    // Мимик: «Проверки характеристик для освобождения от этого состояния
+    // совершаются с помехой»
+    const adhesive = createEffect('Липкий', {
+      conditionKey: 'grappled',
+      effectTarget: 'target',
+      escape: {
+        cost: 'action',
+        check: {
+          skill: 'athletics',
+          dc: 13,
+          mode: 'disadvantage',
+          skills: [{ skill: 'athletics' }, { skill: 'acrobatics' }],
+        },
+      },
+    });
+
+    authoredScenario(adhesive, 'creatureAction');
+
+    /**
+     * Режим броска «вырваться» при данных флагах.
+     *
+     * @param {object} effect - эффект
+     * @param {string[]} flags - флаги бросающего
+     * @param {string[]} holderFlags - флаги того, кто держит
+     * @returns {string} режим
+     */
+    function modeOf(effect, flags = [], holderFlags = undefined) {
+      return engine.resolveEscapeRollMode({
+        checkMode: 'normal',
+        effect,
+        flags: new Set(flags),
+        ...(holderFlags ? { holderFlags: new Set(holderFlags) } : {}),
+      });
+    }
+
+    assert.equal(modeOf(adhesive), 'disadvantage');
+
+    // Голиаф: «Преимущество на проверки характеристик, чтобы избавиться от
+    // состояния схваченный» — гасит помеху мимика
+    const powerfulBuild = createEffect('Мощное телосложение', {
+      flags: ['escape.advantage.grappled'],
+    });
+
+    authoredScenario(powerfulBuild, 'feature');
+    assert.equal(modeOf(adhesive, powerfulBuild.flags), 'normal');
+
+    const grab = createEffect('Захват', {
+      conditionKey: 'grappled',
+      escape: { check: { skill: 'athletics', dc: 13 } },
+    });
+
+    assert.equal(modeOf(grab, powerfulBuild.flags), 'advantage');
+
+    // «Железная хватка»: существо совершает с помехой проверки, чтобы
+    // высвободиться из вашего захвата — флаг на том, кто держит
+    const ironGrip = createEffect('Железная хватка', {
+      flags: ['grapple.escapeDisadvantage'],
+    });
+
+    authoredScenario(ironGrip, 'feature');
+    assert.equal(modeOf(grab, [], ironGrip.flags), 'disadvantage');
+
+    const web = createEffect('Паутина', {
+      conditionKey: 'restrained',
+      escape: { check: { skill: 'athletics', dc: 13 } },
+    });
+
+    assert.equal(
+      modeOf(web, [], ironGrip.flags),
+      'normal',
+      'флаг держащего — только про захват',
+    );
+  });
+
+  it('[Q14] После освобождения — ничком; при провале — урон', () => {
+    // Пленяющий стручок: «при успехе цель извлекается и получает состояние
+    // лежащий ничком»
+    const pod = createEffect('Пленяющий стручок', {
+      conditionKey: 'paralyzed',
+      effectTarget: 'target',
+      escape: {
+        by: 'adjacent',
+        cost: 'action',
+        check: { skill: 'athletics', dc: 14 },
+        onSuccessApply: 'prone',
+      },
+    });
+
+    authoredScenario(pod, 'creatureAction');
+
+    assert.equal(engine.buildEscapeAftermath(pod)?.conditionKey, 'prone');
+
+    // Охотничий капкан: «каждая неудачная проверка наносит пойманному 1
+    // колющий урон»
+    const trap = createEffect('Охотничий капкан', {
+      flags: ['speed.zero'],
+      activation: { mode: 'use' },
+      effectTarget: 'target',
+      escape: {
+        by: 'any',
+        cost: 'action',
+        check: { skill: 'athletics', dc: 13 },
+        onFailDamage: [{ formula: '1', type: 'piercing' }],
+      },
+    });
+
+    authoredScenario(trap, 'item');
+
+    assert.deepEqual(
+      engine.ActiveEffectSchema.parse(trap).escape.onFailDamage,
+      [{ formula: '1', type: 'piercing' }],
+    );
+
+    assert.match(detailsOf(trap), /при провале — /i);
+
+    // Пустые части урона и список из одного простого навыка в данные не уходят
+    const draft = engine.normalizeEffectDraft(
+      {
+        ...trap,
+        escape: {
+          ...trap.escape,
+          check: { ...trap.escape.check, skills: [{ skill: 'athletics' }] },
+          onFailDamage: [{ formula: '  ' }],
+        },
+      },
+      engine.resolveEffectFormLayout('item', trap),
+    );
+
+    assert.equal(draft.escape.onFailDamage, undefined);
+    assert.equal(draft.escape.check.skills, undefined);
+  });
+
+  it('[Q15] Состояние из срабатывания ауры несёт «вырваться» и свои флаги', () => {
+    // Аура Бездны: «спасбросок Силы, иначе опутан… может действием совершить
+    // проверку Силы (Атлетика) со Сл. ваших заклинаний». Зловонная аура: «пока
+    // цель отравлена, она совершает либо действие, либо бонусное действие… и не
+    // может совершать реакции»
+    const web = createEffect('Аура Бездны: липкая паутина', {
+      aura: { radius: 10, target: 'enemies', applyToSelf: false },
+      triggers: [
+        {
+          id: 'trigger_web',
+          event: 'turnStart',
+          save: { ability: 'strength', dc: engine.SOURCE_SAVE_DC },
+          actions: [
+            {
+              type: 'applyCondition',
+              conditionKey: 'restrained',
+              escape: {
+                cost: 'action',
+                check: { skill: 'athletics', dc: engine.SOURCE_SAVE_DC },
+              },
+              flags: ['actions.noReaction', 'actions.oneActionOrBonus'],
+            },
+          ],
+        },
+      ],
+    });
+
+    authoredScenario(web, 'feature');
+
+    // Сл источника проставляется при наложении — и в «вырваться» состояния
+    const stamped = engine.stampSourceSaveDcs(web, 15);
+
+    assert.equal(stamped.triggers[0].actions[0].escape.check.dc, 15);
+
+    const victim = createActor();
+
+    engine.applyTriggerEffectActions(victim, sourceOf(stamped), false);
+
+    const restrained = victim.activeEffects.find(
+      (effect) => effect.conditionKey === 'restrained',
+    );
+
+    assert.equal(
+      engine.formatEffectEscapeLabel(restrained),
+      'Вырваться: Атлетика Сл 15',
+    );
+
+    assert.ok(restrained.flags.includes('actions.noReaction'));
+    assert.ok(restrained.flags.includes('actions.oneActionOrBonus'));
+
+    assert.ok(
+      engine.resolveActorStats(victim).activeFlags.has('actions.noReaction'),
+      'флаги действуют, пока состояние лежит',
+    );
+  });
+
+  it('[Q16] Состояние с «вырваться»: снятие плиткой будит «когда снимается»', () => {
+    // Иллитид, «Щупальца»: «схвачена (Сл освобождения 14) и ошеломлена до
+    // конца захвата». Плитка листа снимает «Схваченного» боевым снимком —
+    // тем же каналом, что и успех «вырваться»
+    const grapple = createEffect('Схваченный', {
+      conditionKey: 'grappled',
+      escape: {
+        cost: 'action',
+        check: {
+          skill: 'athletics',
+          dc: DC,
+          skills: [{ skill: 'athletics' }, { skill: 'acrobatics' }],
+        },
+      },
+    });
+
+    const stun = createEffect('Ошеломлённый', {
+      conditionKey: 'stunned',
+      triggers: [
+        {
+          id: 'trigger_grapple_end',
+          event: 'conditionLost',
+          conditionKey: 'grappled',
+          actions: [{ type: 'removeSelf' }],
+        },
+      ],
+    });
+
+    authoredScenario(grapple, 'creatureAction');
+    authoredScenario(stun, 'creatureAction');
+
+    assert.equal(
+      engine.formatEffectEscapeLabel(grapple),
+      `Вырваться: Атлетика или Акробатика Сл ${DC}`,
+      'подпись кнопки над сеткой состояний — та же, что в строке эффекта',
+    );
+
+    const hero = withHp(createActor, 30, { activeEffects: [grapple, stun] });
+    const snapshot = structuredClone(hero);
+
+    snapshot.activeEffects = snapshot.activeEffects.filter(
+      (effect) => effect.conditionKey !== 'grappled',
+    );
+
+    new engine.Dnd5eVttSystem().settleCombatState(
+      hero,
+      engine.pickCombatState(snapshot),
+    );
+
+    assert.deepEqual(
+      hero.activeEffects,
+      [],
+      'с захватом ушёл и «Ошеломлённый»',
+    );
+  });
+});

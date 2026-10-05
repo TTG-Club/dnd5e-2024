@@ -215,6 +215,109 @@ describe('состояния в показе формулы', () => {
     );
   });
 
+  it('добавка по состоянию отделена от урона, который бросается всегда', () => {
+    const info = engine.describeDamagePart({
+      formula: '1к8+3@dmg.slashing + 1к8@dmg.slashing@self.status.bloodied',
+    });
+
+    // Плитке строки листа — только постоянная часть, добавка уходит в подсказку
+    assert.equal(info.baseFormula, '1к8 + 3');
+
+    assert.deepEqual(info.conditionalFormulas, [
+      '1к8 (атакующий: Окровавленный)',
+    ]);
+
+    assert.equal(info.formula, '1к8 + 3 + 1к8 (атакующий: Окровавленный)');
+  });
+
+  it('часть целиком под условием постоянной части не имеет', () => {
+    const info = engine.describeDamagePart({
+      formula: '1к8@dmg.slashing@self.status.bloodied',
+    });
+
+    assert.equal(info.baseFormula, '');
+
+    assert.deepEqual(info.conditionalFormulas, [
+      '1к8 (атакующий: Окровавленный)',
+    ]);
+  });
+
+  it('плитка урона оружия: добавка по состоянию — отдельно, без служебного токена', () => {
+    const display = engine.describeWeaponDamageDisplay({
+      itemType: 'weapon',
+      damageParts: [
+        {
+          formula: '1d8@dmg.slashing + 1d8@dmg.slashing@self.status.bloodied',
+          target: 'selected',
+        },
+      ],
+    });
+
+    assert.equal(display.baseFormula, '1к8');
+
+    assert.deepEqual(display.conditionalFormulas, [
+      '1к8 (атакующий: Окровавленный)',
+    ]);
+  });
+
+  it('плитка урона оружия: добавки по типу цели — отдельно, с названием типа', () => {
+    const display = engine.describeWeaponDamageDisplay({
+      itemType: 'weapon',
+      damageParts: [
+        {
+          formula:
+            '1d6@dmg.slashing + 2d6@dmg.radiant@target.type.fiend'
+            + ' + 2d6@dmg.radiant@target.type.undead',
+          target: 'selected',
+        },
+      ],
+    });
+
+    assert.equal(display.baseFormula, '1к6');
+
+    assert.deepEqual(display.conditionalFormulas, [
+      '2к6 (цель: Исчадие)',
+      '2к6 (цель: Нежить)',
+    ]);
+  });
+
+  it('набор целиком под условием: постоянной части нет, добавки — отдельно', () => {
+    const display = engine.combineDamagePartDisplays([
+      { baseFormula: '', conditionalFormulas: ['1к8 (цель: Лежащий ничком)'] },
+    ]);
+
+    assert.equal(display.baseFormula, '');
+    assert.equal(display.formula, '1к8 (цель: Лежащий ничком)');
+
+    assert.deepEqual(display.conditionalFormulas, [
+      '1к8 (цель: Лежащий ничком)',
+    ]);
+  });
+
+  it('оружие без своей основы («Святой мститель»): в плитке нет текста добавок', () => {
+    const display = engine.describeWeaponDamageDisplay({
+      itemType: 'weapon',
+      damageParts: [
+        {
+          formula:
+            '2d10@dmg.radiant@target.type.fiend'
+            + ' + 2d10@dmg.radiant@target.type.undead',
+          target: 'selected',
+        },
+      ],
+    });
+
+    assert.equal(display.baseFormula, '');
+
+    assert.deepEqual(display.conditionalFormulas, [
+      '2к10 (цель: Исчадие)',
+      '2к10 (цель: Нежить)',
+    ]);
+
+    // Полный показ (карточка чата) добавки по-прежнему называет
+    assert.equal(display.formula, '2к10 (цель: Исчадие) + 2к10 (цель: Нежить)');
+  });
+
   it('итог под формулой выносит состояние атакующего отдельной веткой', () => {
     const preview = engine.previewDamagePart({
       formula: '1к8@dmg.piercing + 1к6@dmg.necrotic@self.status.bloodied',

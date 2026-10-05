@@ -34,6 +34,7 @@
     resolveActorStats,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useClassCatalog } from '../../../composables/useClassCatalog';
   import { useEntityDetailModals } from '../../../composables/useEntityDetailModals';
   import { useFeatChoiceFeats } from '../../../composables/useFeatChoiceFeats';
   import { useFeatChoiceSpells } from '../../../composables/useFeatChoiceSpells';
@@ -113,6 +114,11 @@
     }
   });
 
+  /** Классы по пакам — предел подготовки мультикласса складывается из таблиц */
+  const { resolveEntry: classDefinitionOf } = useClassCatalog(
+    toRef(props, 'socket'),
+  );
+
   const {
     isFirstClass,
     isMulticlass,
@@ -137,11 +143,13 @@
     canProceed,
     preparedFeatChoices,
     asiFeatChoice,
+    asiTakenFeat,
     featChoiceProficiencyBonus,
     grantedSpellSources,
     grantedClassSpellRequests,
     classSpellListOffers,
     preparedSpellsAtLevel,
+    preparedSpellsRoom,
 
     nextStep,
     prevStep,
@@ -153,6 +161,7 @@
     isOpen,
     compendiumFeats,
     toRef(props, 'packId'),
+    classDefinitionOf,
   );
 
   /** Granted-заклинания умений текущего уровня с данными из компендиума */
@@ -199,6 +208,9 @@
 
   /**
    * Что ляжет на лист из списков класса: весь пул умения либо выбранное из него.
+   * Выбранное помечается выбором игрока — оно ложится подготовленным, пока в
+   * пределе подготовки есть место; весь список ложится неподготовленным: там
+   * подготовку отмечает сам игрок.
    */
   const classSpellListGrants = computed(() =>
     classSpellListOffers.value.flatMap((offer) => {
@@ -218,7 +230,9 @@
         wizardState.classSpellListPicks[offer.featureKey] ?? [],
       );
 
-      return offered.filter((granted) => picked.has(granted.spell.id));
+      return offered
+        .filter((granted) => picked.has(granted.spell.id))
+        .map((granted) => ({ ...granted, chosenByPlayer: true }));
     }),
   );
 
@@ -266,6 +280,13 @@
     toRef(props, 'socket'),
     preparedFeatChoices,
     toRef(props, 'packId'),
+  );
+
+  /** Ответы черты, взятой вместо повышения характеристик, на её вопросы */
+  const asiFeatOwnAnswers = computed(() =>
+    asiTakenFeat.value
+      ? (wizardState.featOwnChoices[asiTakenFeat.value.answersKey] ?? {})
+      : {},
   );
 
   /** Заголовок модального окна */
@@ -357,6 +378,22 @@
    */
   function handleFeatSelectionsUpdate(selections: Record<string, string[]>) {
     wizardState.featDataChoices = selections;
+  }
+
+  /**
+   * Сохраняет ответы взятой уровнем черты на её собственные вопросы.
+   *
+   * @param answersKey - ключ ответов черты
+   * @param answers - ответы черты: ключ выбора → значения
+   */
+  function handleFeatOwnAnswersUpdate(
+    answersKey: string,
+    answers: Record<string, string[]>,
+  ) {
+    wizardState.featOwnChoices = {
+      ...wizardState.featOwnChoices,
+      [answersKey]: answers,
+    };
   }
 
   /**
@@ -569,6 +606,7 @@
             :rows="levelRows"
             :feature-choices="wizardState.featureChoices"
             :feat-selections="wizardState.featDataChoices"
+            :feat-own-answers="wizardState.featOwnChoices"
             :feature-skills="wizardState.selectedFeatureSkills"
             :has-subclass-selection="hasSubclassSelection"
             :subclasses="classDefinition.subclasses"
@@ -583,6 +621,7 @@
             @update:subclass-key="wizardState.subclassKey = $event"
             @update:feat-selection="handleFeatSelection"
             @update:feat-selections="handleFeatSelectionsUpdate"
+            @update:feat-own-answers="handleFeatOwnAnswersUpdate"
             @update:feature-skills="handleFeatureSkillsUpdate"
             @open-spell="openSpellDetail"
           />
@@ -596,6 +635,7 @@
             :modes="wizardState.classSpellListModes"
             :picks="wizardState.classSpellListPicks"
             :prepared-value="preparedSpellsAtLevel"
+            :prepared-room="preparedSpellsRoom"
             @update:mode="handleClassSpellListModeUpdate"
             @update:picks="handleClassSpellListPicksUpdate"
           />
@@ -608,7 +648,12 @@
             :feats="compendiumFeats"
             :actor="actor"
             :feat-choice="asiFeatChoice"
+            :taken-feat="asiTakenFeat"
+            :feat-own-answers="asiFeatOwnAnswers"
+            :proficiency-bonus="featChoiceProficiencyBonus"
+            :spells="featChoiceSpells"
             @update:asi-state="handleAsiUpdate"
+            @update:feat-own-answers="handleFeatOwnAnswersUpdate"
           />
         </div>
       </div>

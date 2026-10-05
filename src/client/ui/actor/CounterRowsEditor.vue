@@ -12,6 +12,8 @@
    * таблицы просится и он — таблица одна на класс, и ресурс умения показывается
    * в ней наравне с классовым (`withFeatureCounters`).
    */
+  import type { CounterRecoveryChoice } from '@vtt/shared/system/dnd.js';
+
   import type { EditableResourceCounter } from './counterEditorTypes';
 
   import { computed } from 'vue';
@@ -55,6 +57,22 @@
       ...counters.value,
       createResourceCounter(new Set(counters.value.map((entry) => entry.key))),
     ];
+  }
+
+  /**
+   * Записывает выбранный откат. Раздельные правила записи, которые форма несла
+   * как есть, новым выбором снимаются: иначе они молча действовали бы вместо
+   * только что выбранного.
+   *
+   * @param counter - ресурс строки
+   * @param choice - выбранный откат
+   */
+  function setRecovery(
+    counter: EditableResourceCounter,
+    choice: CounterRecoveryChoice,
+  ): void {
+    counter.recovery = choice;
+    counter.customRest = undefined;
   }
 
   function removeCounter(index: number): void {
@@ -157,14 +175,22 @@
           :label="FEAT_GRANTS_LABELS.counterRecovery"
           class="w-64"
         >
-          <USelect
-            v-model="counter.recovery"
-            :items="COUNTER_RECOVERY_OPTIONS"
-            value-key="value"
-            label-key="label"
-            size="sm"
-            class="w-full"
-          />
+          <div class="flex items-center gap-1.5">
+            <USelect
+              :model-value="counter.recovery"
+              :items="COUNTER_RECOVERY_OPTIONS"
+              value-key="value"
+              label-key="label"
+              size="sm"
+              class="w-full"
+              @update:model-value="setRecovery(counter, $event)"
+            />
+
+            <FieldHint
+              v-if="counter.customRest"
+              :text="FEAT_GRANTS_LABELS.counterCustomRestHint"
+            />
+          </div>
         </UFormField>
 
         <UButton
@@ -232,6 +258,17 @@
 
           <FieldHint :text="FEAT_GRANTS_LABELS.counterStepsHint" />
         </div>
+
+        <!-- Ресурс, который набирают действием, а не получают с умением -->
+        <UTooltip
+          :delay-duration="300"
+          :text="FEAT_GRANTS_LABELS.counterStartsEmptyHint"
+        >
+          <UCheckbox
+            v-model="counter.startsEmpty"
+            :label="FEAT_GRANTS_LABELS.counterStartsEmpty"
+          />
+        </UTooltip>
 
         <!-- Ряд по уровням у ресурса уже задан ступенями либо формулой: колонка
           книги собирается из него, второй раз его не набирают -->

@@ -255,6 +255,17 @@ calculateWeaponDamageModifier(actor, weapon, resolvedStats?)
 | Бонусы от эффектов | `ResolvedActorStats.attackBonuses` / `damageBonuses` | `rangeType` (melee/ranged) |
 | Свои бонусы оружия | `ResolvedActorStats.abilityBonusContext` | `attackCustomBonuses`, `damageCustomBonuses` |
 
+## Каст, запись и формулы: модули, общие для всех путей
+
+| Модуль | Что решает |
+|--------|------------|
+| `spellCastPlan.ts` | Вид каста: окно (`none` / `confirm` / `roll`), вид броска, путь применения, признаки разбора целей — `resolveSpellCastPlan`. Без частей урона и без атаки окна броска нет ни при каком спасброске. Существо передаёт свой тип атаки (`attackType`) и многочастный путь (`forceMultiPart`) |
+| `combatEffectChanges.ts` | Разница в боевом снимке: основа копии (`recordCombatBaseline` — эффекты и журнал срабатываний, WeakMap по копии, как удары в `damageHits.ts`), `diffEffects`, слияние со списком сервера `applyEffectChanges`, Zod-схема `EffectChangesSchema`. Разница журнала — `diffTriggerUsage` / `applyTriggerUsageChanges` / `TriggerUsageChangesSchema` в `effectTriggerUsage.ts`. Снимок без разницы — прежняя полная замена |
+| `resolvedFormulaContext.ts` | Контекст формул от итоговых чисел листа — `buildResolvedFormulaContext` (от `resolveActorStats`). Внутри конвейера (`effectPipeline.ts`) запрещён: там строки `ability.*` считаются от сырых чисел, остальные — вторым проходом, производные ключи Фазы 3 — от итогов (`withResolvedSheetNumbers`) |
+| `counterResource.ts` → `resizeCounterCurrent` | Текущее значение счётчика при смене максимума: рост прибавляется, падение обрезает |
+| `spellSlotTable.ts` → `withSpentSpellSlot`, `spellUtils.ts` → `withSpentSpellUse` | Списание ячейки и заряда заклинания без правки на месте — одним расчётом на лист, горячую панель и существо |
+| `damageTargetGate.ts` → `isTargetAtFullHp` | «Цель на полных хитах» для `@target.full` — с эффектами на максимум, одно правило на заклинания и оружие |
+
 ## Единицы измерения расстояния
 
 Конфигурация единиц вынесена в `packages/shared/src/utils/unitConverter.ts`.

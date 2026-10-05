@@ -1,6 +1,5 @@
 import type {
   AbilityType,
-  DamagePart,
   DamagePartTarget,
   MeasurementTemplate,
   SceneEntity,
@@ -18,6 +17,7 @@ import type {
   TargetHpGate,
 } from '@vtt/shared/system/dnd.js';
 
+import type { AttackRollSnapshot } from './attackRollSnapshot';
 import type { RollBonusEvaluator } from './rollBonusEvaluator';
 
 import { useChatStore } from '@/stores/chatStore';
@@ -26,12 +26,7 @@ import { generateId } from '@vtt/shared';
 import {
   CREATURE_TYPE_LABELS,
   DAMAGE_STATUS_PHRASE_PREFIXES,
-  DAMAGE_TYPE_LABELS,
-  damagePartNeedsOwnResolution,
   damageReachesTarget,
-  getSpellAttackType,
-  getTargetSpellEffects,
-  hasSourceTurnSaveDc,
   isDndSceneEntity,
   isMagicRoll,
   isSaveAbility,
@@ -39,13 +34,16 @@ import {
   readDamageStatusName,
   removesItselfOnApply,
   resolveActorStats,
+  resolveDamageTypeLabel,
   SAVE_TYPE_LABELS,
   stampAppliedEffect,
   withInitializedDuration,
 } from '@vtt/shared/system/dnd.js';
 
 import { SAVING_THROW_ROLL_LABELS } from '../ui/actor/constants';
+import { withAttackHeldEffects } from './attackRollSnapshot';
 import { resolveActiveTurnActorId } from './encounterTurn';
+import { resolveEntityStats } from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
 
 // Выбор эффектов заклинания по доставке живёт в движке (его проверяют тесты
@@ -101,8 +99,20 @@ export interface SpellResolutionContext {
   socket: TypedWebSocketClient;
   /** Переопределённый тип урона (выбран игроком для заклинаний с damageType: 'choice') */
   overrideDamageType?: string;
-  /** ID заклинателя (для маршрутизации частей с target: 'self') */
-  casterId?: string;
+  /**
+   * Кто накладывает. Обязателен: по нему части «на себя» находят заклинателя,
+   * а эффект на цели получает наложившего, каст с концентрацией и его круг.
+   * Без него эффект заклинания не снимался концом концентрации и не
+   * рассеивался, а срок «до хода наложившего» терял якорь
+   */
+  casterId: string;
+  /**
+   * Снимок броска атаки, если разбору предшествовал бросок попадания:
+   * стороны удара считаются с эффектами, которые этот бросок израсходовал
+   * (`attackRollSnapshot.ts`). Сущности в `actors` вызывающий собирает тем
+   * же снимком (`listAttackResolutionEntities`)
+   */
+  attack?: AttackRollSnapshot;
 }
 
 /**
@@ -329,11 +339,17 @@ export function formatTargetGateSuffix(
 /**
  * Сопротивления, которые игнорирует урон атакующего («Сила могилы»).
  *
+ * Атакующий берётся с эффектами, которые израсходовал бросок этой атаки:
+ * «следующая атака игнорирует сопротивление» действует на этот удар, даже
+ * когда ответ сервера эффект из мира уже убрал.
+ *
  * @param attackerId - атакующий; без него — ничего
+ * @param attack - снимок броска атаки; нет — удар без броска попадания
  * @returns типы урона
  */
 export function resolveAttackerIgnoredResistances(
   attackerId: string | undefined,
+  attack?: AttackRollSnapshot,
 ): string[] {
   if (!attackerId) {
     return [];
@@ -342,7 +358,9 @@ export function resolveAttackerIgnoredResistances(
   const attacker = useWorldEntities().findCurrentDndEntity(attackerId);
 
   return attacker
-    ? listIgnoredResistances(resolveActorStats(attacker).activeFlags)
+    ? listIgnoredResistances(
+        resolveEntityStats(withAttackHeldEffects(attacker, attack)).activeFlags,
+      )
     : [];
 }
 
@@ -395,10 +413,19 @@ export function stampEffectOnApply(
 ): ActiveEffect {
   const { castId, castLevel, ...stampParties } = parties;
 
-  const stamped = stampAppliedEffect(effect, {
-    ...stampParties,
-    activeTurnActorId: resolveActiveTurnActorId(),
-  });
+  // Тип наложившего едет вместе с ним: по нему спасбросок против эффекта
+  // включает «Защиту от зла и добра», даже когда бросает сервер
+  const sourceCreatureType = useWorldEntities().findEntityCreatureType(
+    parties.sourceId,
+  );
+
+  const stamped = stampAppliedEffect(
+    sourceCreatureType ? { ...effect, sourceCreatureType } : effect,
+    {
+      ...stampParties,
+      activeTurnActorId: resolveActiveTurnActorId(),
+    },
+  );
 
   if (!castId) {
     return stamped;
@@ -409,81 +436,6 @@ export function stampEffectOnApply(
     castId,
     ...(castLevel === undefined ? {} : { castLevel }),
   };
-}
-
-/**
- * Нужен ли эффектам на цель разбор оркестратором, а не прямое наложение: свой
- * спасбросок, урон эффекта или повторный спасбросок с Сл 0 («Сл заклинателя»).
- * Прямое наложение ничего из этого не умеет — эффект лёг бы без броска, без
- * урона, а повторный спасбросок против Сл 0 проходился бы всегда.
- *
- * @param spell - заклинание
- * @returns `true`, если хоть один эффект на цель требует разбора
- */
-export function targetEffectsNeedResolution(spell: Spell): boolean {
-  return getTargetSpellEffects(spell).some(
-    (effect) =>
-      effect.applySave !== undefined
-      || (effect.damageParts?.length ?? 0) > 0
-      || hasSourceTurnSaveDc(effect),
-  );
-}
-
-/**
- * Достаётся ли цели хоть что-то от каста — часть урона/лечения или эффект.
- *
- * Нет — оркестратор звать незачем: целей он не найдёт и напишет в чат «цель
- * не выбрана» к касту, который удался («Щит» ложится только на заклинателя).
- * Одна проверка на лист существа и хотбар, чтобы каст с них не разошёлся.
- *
- * @param spell - заклинание каста (псевдо-заклинание с эффектами)
- * @param partsCount - сколько частей урона/лечения брошено
- * @returns `true`, если цели есть что получить
- */
-export function castReachesTargets(spell: Spell, partsCount: number): boolean {
-  return partsCount > 0 || getTargetSpellEffects(spell).length > 0;
-}
-
-/**
- * Идёт ли каст многочастным путём — когда части урона и эффекты ложатся ОДНОЙ
- * записью, а не одной общей формулой в модалке.
- *
- * Снаряды всегда остаются на одноформульном пути. Многочастный путь нужен,
- * когда есть бонус-урон, частей больше одной, хоть одной части нужен свой
- * разбор, либо это атака с уроном, чьим эффектам на цель нужен разбор: по
- * попаданию (`onHit`) разбор ждал бы окна спасброска эффекта, а урон модалки
- * успевал бы записаться раньше и затирался бы.
- *
- * Одна функция на лист и хотбар: разойдись это решение — один и тот же каст
- * с листа и с хотбара пошёл бы разными путями.
- *
- * @param context - заклинание, его части урона и признаки каста
- * @param context.spell - заклинание каста
- * @param context.damageParts - части урона/лечения заклинания
- * @param context.hasProjectiles - каст идёт снарядами (их путь одноформульный)
- * @param context.hasBonusDamage - эффекты дают бонус-урон к этому касту
- * @returns true, если каст идёт многочастным путём
- */
-export function castNeedsMultiPart(context: {
-  spell: Spell;
-  damageParts: DamagePart[];
-  hasProjectiles: boolean;
-  hasBonusDamage: boolean;
-}): boolean {
-  const { spell, damageParts, hasProjectiles, hasBonusDamage } = context;
-
-  if (hasProjectiles) {
-    return false;
-  }
-
-  return (
-    hasBonusDamage
-    || damageParts.length > 1
-    || (damageParts.length > 0
-      && getSpellAttackType(spell) !== undefined
-      && targetEffectsNeedResolution(spell))
-    || damageParts.some(damagePartNeedsOwnResolution)
-  );
 }
 
 /**
@@ -557,18 +509,13 @@ export function instantiateSpellEffects(
  * Возвращает локализованное название типа урона или исходную строку.
  *
  * @param type - тип урона
- * @returns русское название или исходная строка
+ * @returns русское название или исходная строка; `undefined` — типа нет либо
+ * у него нет названия (служебный `choice`)
  */
 export function getDamageTypeLabel(
   type: string | undefined,
 ): string | undefined {
-  if (!type) {
-    return undefined;
-  }
-
-  const labels: Record<string, string> = DAMAGE_TYPE_LABELS;
-
-  return labels[type] ?? type;
+  return type ? resolveDamageTypeLabel(type) : undefined;
 }
 
 /**
@@ -593,9 +540,7 @@ export function getPartKindLabel(part: {
 
   // Несколько типов (напр. рубящий+огонь) — показываем через « и »
   if (part.types && part.types.length > 1) {
-    const labels = part.types
-      .map((type) => getDamageTypeLabel(type) ?? type)
-      .filter(Boolean);
+    const labels = part.types.flatMap((type) => getDamageTypeLabel(type) ?? []);
 
     if (labels.length > 0) {
       return labels.join(' и ');

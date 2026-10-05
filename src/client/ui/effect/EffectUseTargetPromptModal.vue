@@ -16,7 +16,10 @@
 
   import { checkSpellRangeOnScene } from '../../composables/useSceneRangeCheck';
   import { useWorldEntities } from '../../composables/useWorldEntities';
-  import { HUD_PROMPTS_TELEPORT_TARGET } from '../actor/constants';
+  import {
+    HUD_PROMPT_PANEL_CLASS,
+    HUD_PROMPTS_TELEPORT_TARGET,
+  } from '../actor/constants';
   import {
     EFFECT_USE_TARGET_ICONS,
     EFFECT_USE_TARGET_LABELS,
@@ -195,7 +198,7 @@
     <Transition name="slide-up">
       <div
         v-if="open && ownsTargeting"
-        class="pointer-events-auto flex w-95 max-w-full flex-col gap-3 rounded-xl border border-default/50 bg-default/90 px-4 py-3 text-highlighted shadow-xl ring-accented backdrop-blur-sm"
+        :class="HUD_PROMPT_PANEL_CLASS"
       >
         <div class="flex items-center gap-2 border-b border-muted/50 pb-2">
           <UIcon

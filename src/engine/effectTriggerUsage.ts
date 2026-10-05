@@ -110,6 +110,110 @@ export function parseTriggerUsage(raw: unknown): EffectTriggerUsageLedger {
   );
 }
 
+/** Предел длины ключа счётчика в разнице журнала */
+const MAX_USAGE_KEY_LENGTH = 512;
+
+/** Сколько ключей принимает одна разница журнала */
+const MAX_USAGE_CHANGE_KEYS = 256;
+
+/**
+ * Изменения журнала срабатываний относительно копии, от которой их считал
+ * клиент.
+ *
+ * Расход — приращением, а не итоговым числом: два расхода одного лимита из
+ * разных копий складываются, а не затирают друг друга. Сброс периода —
+ * снятием ключа.
+ */
+export interface TriggerUsageChanges {
+  /** Сколько срабатываний добавилось по ключу (`used` — приращение) */
+  spend: EffectTriggerUsageLedger;
+  /** Ключи основы, которых в итоге нет */
+  removeKeys: string[];
+}
+
+/** Zod-схема разницы журнала из боевого снимка клиента */
+export const TriggerUsageChangesSchema = z.object({
+  spend: z
+    .record(
+      z.string().min(1).max(MAX_USAGE_KEY_LENGTH),
+      TriggerUsageEntrySchema,
+    )
+    .refine(
+      (spend) => Object.keys(spend).length <= MAX_USAGE_CHANGE_KEYS,
+      'Слишком много ключей в разнице журнала',
+    ),
+  removeKeys: z
+    .array(z.string().min(1).max(MAX_USAGE_KEY_LENGTH))
+    .max(MAX_USAGE_CHANGE_KEYS),
+});
+
+/**
+ * Разница двух журналов: что израсходовано и что сброшено.
+ *
+ * Число, ставшее меньше (такого правила нет, но данные недоверенные),
+ * выражается снятием ключа и новым расходом с нуля.
+ *
+ * @param base - журнал, от которого считали
+ * @param next - посчитанный журнал
+ * @returns приращения и снятые ключи
+ */
+export function diffTriggerUsage(
+  base: EffectTriggerUsageLedger,
+  next: EffectTriggerUsageLedger,
+): TriggerUsageChanges {
+  const removeKeys = Object.keys(base).filter(
+    (key) => !(key in next) || next[key].used < base[key].used,
+  );
+
+  const spend = Object.fromEntries(
+    Object.entries(next).flatMap(([key, entry]) => {
+      const before = removeKeys.includes(key) ? 0 : (base[key]?.used ?? 0);
+      const added = entry.used - before;
+
+      return added > 0 ? [[key, { used: added, per: entry.per }]] : [];
+    }),
+  );
+
+  return { spend, removeKeys };
+}
+
+/**
+ * Есть ли в разнице журнала хоть что-то.
+ *
+ * @param changes - разница
+ * @returns `true`, если есть расход или сброс
+ */
+export function hasTriggerUsageChanges(changes: TriggerUsageChanges): boolean {
+  return changes.removeKeys.length > 0 || Object.keys(changes.spend).length > 0;
+}
+
+/**
+ * Сливает разницу с журналом сервера: снятые ключи убираются, расход
+ * прибавляется к тому, что сервер уже насчитал.
+ *
+ * @param current - журнал сущности на сервере (не мутируется)
+ * @param changes - разница от клиента
+ * @returns новый журнал
+ */
+export function applyTriggerUsageChanges(
+  current: EffectTriggerUsageLedger,
+  changes: TriggerUsageChanges,
+): EffectTriggerUsageLedger {
+  const removed = new Set(changes.removeKeys);
+
+  const kept = Object.fromEntries(
+    Object.entries(current).filter(([key]) => !removed.has(key)),
+  );
+
+  return Object.entries(changes.spend).reduce<EffectTriggerUsageLedger>(
+    (ledger, [key, entry]) => ({
+      ...ledger,
+      [key]: { used: (ledger[key]?.used ?? 0) + entry.used, per: entry.per },
+    }),
+    kept,
+  );
+}
+
 /**
  * Записывает счётчики субъекту; пустые не хранятся.
  *
@@ -122,6 +226,27 @@ export function writeTriggerUsage(
 ): void {
   entity.system.effectUsage =
     Object.keys(ledger).length > 0 ? ledger : undefined;
+}
+
+/**
+ * Сущность с другим журналом — новым объектом: запись стора хоста на месте не
+ * меняется.
+ *
+ * @param entity - сущность
+ * @param ledger - журнал
+ * @returns новая сущность; пустой журнал не хранится
+ */
+export function withTriggerUsage<Entity extends DnDSceneEntity>(
+  entity: Entity,
+  ledger: EffectTriggerUsageLedger,
+): Entity {
+  return {
+    ...entity,
+    system: {
+      ...entity.system,
+      effectUsage: Object.keys(ledger).length > 0 ? ledger : undefined,
+    },
+  };
 }
 
 /**
@@ -199,6 +324,26 @@ const COMBAT_LIMIT_PERIODS: readonly EffectTriggerLimitPeriod[] = [
 ];
 
 /**
+ * Ключ счётчика лимита срабатывания. Счётчик реакции общий у всех эффектов
+ * носителя, поэтому источник у него не эффект, а сам носитель.
+ *
+ * @param scope - источник эффекта
+ * @param trigger - срабатывание
+ * @param limit - действующий лимит срабатывания
+ * @returns ключ счётчика
+ */
+function resolveTriggerUsageKey(
+  scope: string,
+  trigger: EffectTrigger,
+  limit: EffectTriggerLimit,
+): string {
+  return buildTriggerUsageKey(trigger.limit ? scope : REACTION_USAGE_SCOPE, {
+    ...trigger,
+    limit,
+  });
+}
+
+/**
  * Проверяет лимит и, если срабатывать можно, отмечает срабатывание.
  *
  * Вне боя лимит хода и раунда не ограничивает: сбросить его некому, и зона,
@@ -229,12 +374,7 @@ export function takeTriggerUse(
     return true;
   }
 
-  // Счётчик реакции общий у всех эффектов носителя, поэтому источник у него
-  // не эффект, а сам носитель
-  const key = buildTriggerUsageKey(
-    trigger.limit ? scope : REACTION_USAGE_SCOPE,
-    { ...trigger, limit },
-  );
+  const key = resolveTriggerUsageKey(scope, trigger, limit);
 
   if (isTriggerLimitReached(entity, key, limit)) {
     return false;
@@ -243,6 +383,36 @@ export function takeTriggerUse(
   consumeTriggerUse(entity, key, limit);
 
   return true;
+}
+
+/**
+ * Пройдёт ли срабатывание по лимиту — без отметки в счётчике. Так проверяют
+ * срабатывание, которое сперва спросит человека: лимит тратит согласие, а не
+ * вопрос ({@link takeTriggerUse} — уже по ответу).
+ *
+ * @param entity - субъект
+ * @param scope - источник эффекта
+ * @param trigger - срабатывание
+ * @param inCombat - идёт ли у субъекта бой
+ * @returns `true`, если лимит не исчерпан
+ */
+export function canTakeTriggerUse(
+  entity: DnDSceneEntity,
+  scope: string,
+  trigger: EffectTrigger,
+  inCombat = true,
+): boolean {
+  const limit = resolveTriggerLimit(trigger);
+
+  if (!limit || (!inCombat && COMBAT_LIMIT_PERIODS.includes(limit.per))) {
+    return true;
+  }
+
+  return !isTriggerLimitReached(
+    entity,
+    resolveTriggerUsageKey(scope, trigger, limit),
+    limit,
+  );
 }
 
 /** Какие периоды лимита заканчивает отдых */
@@ -307,6 +477,25 @@ export function resetTriggerUsage(
   writeTriggerUsage(entity, kept ?? {});
 
   return true;
+}
+
+/**
+ * Остались ли у эффекта заряды — без траты: проверка срабатывания, которое
+ * сперва спросит человека.
+ *
+ * @param entity - субъект
+ * @param effectId - эффект, чьё срабатывание идёт
+ * @returns `true`, если зарядов нет вовсе или они ещё есть
+ */
+export function hasEffectCharge(
+  entity: DnDSceneEntity,
+  effectId: string,
+): boolean {
+  const charges = entity.activeEffects?.find(
+    (effect) => effect.id === effectId,
+  )?.charges;
+
+  return !charges || charges.current > 0;
 }
 
 /**

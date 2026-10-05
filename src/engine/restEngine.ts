@@ -6,6 +6,12 @@
  * зависимости от типа отдыха и прописанного для ресурса способа отката.
  * Используется кнопками отдыха в листах актора и существа.
  *
+ * Порядок отдыха один у персонажа и существа: отдых возвращает своё (ресурсы,
+ * кости хитов, хиты, степень Истощения) → срабатывания «после отдыха»
+ * выполняются на уже отдохнувшей сущности → хиты поднимаются ещё раз, если
+ * срабатывание сняло то, что их держало. Срабатывание отдыха с вопросом или
+ * ценой выполняется только по ответу владельца (`askRestTriggers`).
+ *
  * Трата зарядов предмета живёт отдельно — см. `itemUses.ts`.
  */
 
@@ -21,13 +27,20 @@ import type {
   SpellUsesRecovery,
 } from './dndEntities.js';
 import type {
+  EffectTriggerSource,
+  SelfTriggerAnswers,
+  SelfTriggerReport,
+} from './effectTriggerRunner.js';
+import type {
   EffectTrigger,
   EffectTriggerRestType,
 } from './effectTriggerTypes.js';
 import type { FormulaContext } from './formulaParser.js';
+import type { EffectPromptAsker } from './triggerPrompt.js';
 import type { ActorCounterState, DnDActorSystem } from './types.js';
 
-import { listLiveEffects } from './activeEffectTypes.js';
+import { isCreatureEntity } from '@vtt/shared';
+
 import {
   EXHAUSTION_LONG_REST_RECOVERY,
   getEntityExhaustionLevel,
@@ -42,10 +55,10 @@ import {
 } from './counterResource.js';
 import { restoreCreatureSpellGroupUses } from './creatureSpellcasting.js';
 import { cloneEntityData } from './dataClone.js';
+import { askSelfTriggers } from './deferredEffectSaves.js';
 import { resolveActorStats } from './effectPipeline.js';
 import {
-  buildTriggerSources,
-  EFFECT_TRIGGER_SOURCE_KINDS,
+  listCarrierEventSources,
   settleSelfTriggerSources,
 } from './effectTriggerRunner.js';
 import { listEffectEventTriggers } from './effectTriggers.js';
@@ -57,13 +70,25 @@ import {
   getHitDiceGroups,
   recoverHitDice,
 } from './hitDiceUtils.js';
-import { resolveEntityMaxHp } from './hitPoints.js';
+import { resolveEntityCurrentHp, resolveEntityMaxHp } from './hitPoints.js';
 
 /** Тип отдыха */
 export type RestType = 'short' | 'long';
 
+/** С чем выполняются срабатывания «после отдыха» */
+export interface RestTriggerOptions {
+  /**
+   * Ответы владельца на вопросы срабатываний отдыха ({@link askRestTriggers}).
+   * Срабатывание с галочкой «спрашивать» или ценой ресурсом без ответа не
+   * выполняется — в том числе когда поля нет вовсе: спросить было некому
+   */
+  triggerAnswers?: SelfTriggerAnswers;
+  /** Куда складывать сводку срабатываний отдыха для чата; нет — она не нужна */
+  triggerReport?: SelfTriggerReport;
+}
+
 /** Параметры продолжительного отдыха */
-export interface LongRestOptions {
+export interface LongRestOptions extends RestTriggerOptions {
   /** Вернуть ВСЕ потраченные кости хитов (домашнее правило вместо половины) */
   recoverAllHitDice?: boolean;
   /**
@@ -292,20 +317,21 @@ function restTriggerMatches(
   return triggerRest === 'any' || triggerRest === restType;
 }
 
+/** Ответов нет: владельца о срабатываниях отдыха никто не спрашивал */
+const NO_REST_TRIGGER_ANSWERS: SelfTriggerAnswers = new Map();
+
 /**
- * Эффекты сущности после срабатываний «после отдыха»: снятие, отметки,
- * состояния («максимум хитов возвращается после долгого отдыха»).
- *
- * Сущность приходит из стора хоста — срабатывания идут на её JSON-копии.
+ * Срабатывания «после отдыха» на всём, что действует вместе с сущностью: её
+ * эффекты, надетые предметы, черты существа.
  *
  * @param entity - персонаж или существо
  * @param restType - совершённый отдых
- * @returns эффекты после срабатываний либо `undefined`, если срабатывать нечему
+ * @returns срабатывания с источником
  */
-export function resolveRestTriggerEffects(
+function listRestTriggerSources(
   entity: DnDSceneEntity,
   restType: RestType,
-): ActiveEffect[] | undefined {
+): EffectTriggerSource[] {
   const restTriggersOf = (effect: ActiveEffect): EffectTrigger[] =>
     listEffectEventTriggers(effect, 'rest').filter((trigger) =>
       restTriggerMatches(
@@ -314,24 +340,70 @@ export function resolveRestTriggerEffects(
       ),
     );
 
-  if (
-    !listLiveEffects(entity).some((effect) => restTriggersOf(effect).length > 0)
-  ) {
-    return undefined;
+  return listCarrierEventSources(entity, restTriggersOf);
+}
+
+/**
+ * Сущность после срабатываний «после отдыха»: снятие, отметки, состояния,
+ * списанная цена, возвращённые ресурсы, урон и лечение.
+ *
+ * Сущность приходит из стора хоста — срабатывания идут на её JSON-копии.
+ * Срабатывание с вопросом или ценой выполняется только по ответу владельца;
+ * отменённое оставляет строку в сводке.
+ *
+ * @param entity - персонаж или существо, которому отдых уже вернул своё
+ * @param restType - совершённый отдых
+ * @param options - ответы владельца и сбор сводки
+ * @returns копия после срабатываний либо `null`, если срабатывать нечему
+ */
+function settleRestTriggers<Entity extends DnDSceneEntity>(
+  entity: Entity,
+  restType: RestType,
+  options: RestTriggerOptions,
+): Entity | null {
+  if (listRestTriggerSources(entity, restType).length === 0) {
+    return null;
   }
 
   const rested = cloneEntityData(entity);
 
-  settleSelfTriggerSources(
-    rested,
-    buildTriggerSources(
-      listLiveEffects(rested),
-      EFFECT_TRIGGER_SOURCE_KINDS.instance,
-      restTriggersOf,
-    ),
-  );
+  settleSelfTriggerSources(rested, listRestTriggerSources(rested, restType), {
+    answers: options.triggerAnswers ?? NO_REST_TRIGGER_ANSWERS,
+    ...(options.triggerReport ? { report: options.triggerReport } : {}),
+  });
 
-  return rested.activeEffects ?? [];
+  return rested;
+}
+
+/**
+ * Текущие хиты после срабатываний продолжительного отдыха.
+ *
+ * Отдых поднял хиты до срабатываний, поэтому срабатывание, снявшее то, что их
+ * держало (уменьшение максимума, запрет лечения), поднимает их ещё раз — до
+ * нового потолка. Хиты, которые срабатывание изменило само (урон, лечение),
+ * остаются как есть: это уже то, что случилось после отдыха.
+ *
+ * @param recovered - сущность после возврата отдыха, до срабатываний
+ * @param rested - сущность после срабатываний
+ * @returns текущие хиты
+ */
+function resolveRestedHitPoints(
+  recovered: DnDSceneEntity,
+  rested: DnDSceneEntity,
+): number {
+  const current = resolveEntityCurrentHp(rested);
+
+  if (
+    current !== resolveEntityCurrentHp(recovered)
+    || !canEntityRegainHitPoints(rested)
+  ) {
+    return current;
+  }
+
+  const restedMax = resolveEntityMaxHp(rested);
+
+  // Нуль — запаса в записи нет (текстовые хиты существа): оставляем что есть
+  return restedMax > 0 ? restedMax : current;
 }
 
 /** Флаги «отдых не приносит пользы» по виду отдыха */
@@ -352,41 +424,24 @@ function isRestBlocked(actor: DnDActor, restType: RestType): boolean {
 }
 
 /**
- * Вычисляет патч актора при отдыхе.
+ * Актор, которому отдых вернул своё, — до срабатываний «после отдыха».
  *
  * Короткий отдых: пактовые ячейки, счётчики с откатом 'short', заряды
  * заклинаний и предметов 'shortRest'. Продолжительный — дополнительно: все
- * ячейки заклинаний, счётчики 'long', заряды 'longRest' и 'dawn', хиты до
- * максимума и сброс временных хитов.
+ * ячейки заклинаний, счётчики 'long', заряды 'longRest' и 'dawn', кости хитов,
+ * хиты до максимума, сброс временных хитов и одна степень Истощения.
  *
  * @param actor - актор
  * @param restType - тип отдыха
  * @param options - параметры долгого отдыха (напр. вернуть все кости хитов)
- * @returns частичный патч актора для emit('update:actor', ...)
+ * @returns актор после возврата отдыха
  */
-export function applyActorRest(
+function recoverActor(
   actor: DnDActor,
   restType: RestType,
-  options: LongRestOptions = {},
-): Partial<DnDActor> {
+  options: LongRestOptions,
+): DnDActor {
   const system = actor.system;
-
-  // «Отдых не приносит пользы» («Проклятие бессонницы»): ни ресурсов, ни
-  // ячеек, ни хитов. Сами срабатывания «после отдыха» при этом идут — отдых
-  // состоялся, польза от него не пришла
-  if (isRestBlocked(actor, restType)) {
-    const blockedEffects = resolveRestTriggerEffects(actor, restType);
-
-    return blockedEffects ? { activeEffects: blockedEffects } : {};
-  }
-
-  // Срабатывания «после отдыха» идут первыми: снятое ими (уменьшение максимума
-  // хитов, запрет лечения) уже не держит хиты этого отдыха
-  const restedEffects = resolveRestTriggerEffects(actor, restType);
-
-  const restedActor: DnDActor = restedEffects
-    ? { ...actor, activeEffects: restedEffects }
-    : actor;
 
   // Контекст формул собирается один раз на весь список счётчиков
   const counterContext = buildCounterFormulaContext(actor);
@@ -406,6 +461,23 @@ export function applyActorRest(
     ),
   };
 
+  // Продолжительный отдых снимает одну степень Истощения (PHB 2024). Список
+  // эффектов меняется, только когда есть что снимать: пустой `activeEffects`
+  // перетёр бы эффекты, которых отдых не касается
+  const exhaustionLevel =
+    restType === 'long' ? getEntityExhaustionLevel(actor.activeEffects) : 0;
+
+  const relieved: DnDActor =
+    exhaustionLevel > 0
+      ? {
+          ...actor,
+          activeEffects: withExhaustionLevel(
+            actor.activeEffects ?? [],
+            exhaustionLevel - EXHAUSTION_LONG_REST_RECOVERY,
+          ),
+        }
+      : actor;
+
   if (restType === 'long') {
     // Долгий отдых: все ячейки «не использованы», хиты до максимума, temp сброшен
     restoredSystem.spellSlotsUsed = [];
@@ -416,8 +488,8 @@ export function applyActorRest(
     restoredSystem.hitPoints = {
       ...system.hitPoints,
       // Запрет лечения держит хиты и через отдых
-      current: canEntityRegainHitPoints(restedActor)
-        ? resolveEntityMaxHp(restedActor)
+      current: canEntityRegainHitPoints(relieved)
+        ? resolveEntityMaxHp(relieved)
         : system.hitPoints.current,
       temp: 0,
     };
@@ -439,33 +511,128 @@ export function applyActorRest(
 
   const rolls = options.itemChargeRolls ?? {};
 
-  const patch: Partial<DnDActor> = {
+  return {
+    ...relieved,
     spells: actor.spells.map((spell) => restoreSpellUses(spell, restType)),
     equipment: (actor.equipment ?? []).map((item) =>
       restoreItemUses(item, restType, rolls[item.id]),
     ),
     system: restoredSystem,
   };
+}
 
-  // Продолжительный отдых снимает одну степень Истощения (PHB 2024). Патч
-  // добавляется только когда есть что менять: пустой `activeEffects` перетёр бы
-  // эффекты, которых отдых не касается
-  if (restedEffects) {
-    patch.activeEffects = restedEffects;
+/**
+ * Сущность, которой отдых вернул своё, — до срабатываний «после отдыха». По
+ * ней считается цена срабатываний отдыха и задаются вопросы владельцу.
+ * Отдых без пользы ничего не возвращает — сущность остаётся как есть.
+ *
+ * @param entity - персонаж или существо
+ * @param restType - тип отдыха
+ * @param options - параметры долгого отдыха
+ * @returns сущность после возврата отдыха
+ */
+function recoverRestEntity(
+  entity: DnDActor | DnDCreature,
+  restType: RestType,
+  options: LongRestOptions,
+): DnDActor | DnDCreature {
+  if (isCreatureEntity(entity)) {
+    return recoverCreature(entity, restType);
   }
 
-  if (restType === 'long') {
-    const exhaustionLevel = getEntityExhaustionLevel(restedActor.activeEffects);
+  return isRestBlocked(entity, restType)
+    ? entity
+    : recoverActor(entity, restType, options);
+}
 
-    if (exhaustionLevel > 0) {
-      patch.activeEffects = withExhaustionLevel(
-        restedActor.activeEffects ?? [],
-        exhaustionLevel - EXHAUSTION_LONG_REST_RECOVERY,
-      );
-    }
+/**
+ * Спрашивает владельца о срабатываниях «после отдыха» с галочкой
+ * «спрашивать» или ценой ресурсом: согласие и чем платить. Вопрос задаётся по
+ * уже отдохнувшей сущности: «половина оставшихся Костей Хитов» считается
+ * после возврата костей. Ответы уходят в сам отдых
+ * (`RestTriggerOptions.triggerAnswers`).
+ *
+ * @param entity - персонаж или существо до отдыха
+ * @param restType - тип отдыха
+ * @param ask - кто задаёт вопрос человеку (плашка стола)
+ * @param options - параметры долгого отдыха: от них зависит, что вернётся
+ * @returns ответы владельца; пусто — спрашивать было не о чем или отказ
+ */
+export function askRestTriggers(
+  entity: DnDActor | DnDCreature,
+  restType: RestType,
+  ask: EffectPromptAsker,
+  options: LongRestOptions = {},
+): Promise<SelfTriggerAnswers> {
+  const recovered = recoverRestEntity(entity, restType, options);
+
+  return askSelfTriggers(
+    recovered,
+    listRestTriggerSources(recovered, restType),
+    ask,
+  );
+}
+
+/**
+ * Вычисляет патч актора при отдыхе: отдых возвращает своё
+ * ({@link recoverActor}), затем на отдохнувшем акторе идут срабатывания
+ * «после отдыха» — и всё, что они сделали (эффекты, списанная цена, урон и
+ * лечение), входит в патч.
+ *
+ * @param actor - актор
+ * @param restType - тип отдыха
+ * @param options - параметры долгого отдыха и ответы на вопросы срабатываний
+ * @returns частичный патч актора для emit('update:actor', ...)
+ */
+export function applyActorRest(
+  actor: DnDActor,
+  restType: RestType,
+  options: LongRestOptions = {},
+): Partial<DnDActor> {
+  // «Отдых не приносит пользы» («Проклятие бессонницы»): ни ресурсов, ни
+  // ячеек, ни хитов. Сами срабатывания «после отдыха» при этом идут — отдых
+  // состоялся, польза от него не пришла
+  if (isRestBlocked(actor, restType)) {
+    const blocked = settleRestTriggers(actor, restType, options);
+
+    return blocked
+      ? {
+          activeEffects: blocked.activeEffects ?? [],
+          equipment: blocked.equipment,
+          system: blocked.system,
+        }
+      : {};
   }
 
-  return patch;
+  const recovered = recoverActor(actor, restType, options);
+  const rested = settleRestTriggers(recovered, restType, options);
+
+  if (!rested) {
+    return {
+      spells: recovered.spells,
+      equipment: recovered.equipment,
+      system: recovered.system,
+      ...(recovered.activeEffects === actor.activeEffects
+        ? {}
+        : { activeEffects: recovered.activeEffects }),
+    };
+  }
+
+  return {
+    spells: rested.spells,
+    equipment: rested.equipment,
+    system:
+      restType === 'long'
+        ? {
+            ...rested.system,
+            hitPoints: {
+              ...rested.system.hitPoints,
+              current: resolveRestedHitPoints(recovered, rested),
+            },
+          }
+        : rested.system,
+    activeEffects: rested.activeEffects ?? [],
+  };
 }
 
 /**
@@ -556,42 +723,62 @@ export function summarizeActorLongRest(actor: DnDActor): LongRestPreview {
 }
 
 /**
- * Короткий отдых с тратой костей хитов.
- *
- * Накладывает результат броска костей хитов (новые текущие хиты и обновлённые
- * счётчики потраченных костей) поверх обычного восстановления ресурсов
- * короткого отдыха (`applyActorRest(actor, 'short')` — пактовые ячейки,
- * короткие счётчики, заряды заклинаний 'shortRest').
+ * Актор после траты костей хитов в окне короткого отдыха: новые хиты и
+ * счётчики потраченных костей. По нему считается сам отдых и вопросы его
+ * срабатываний.
  *
  * @param actor - актор
  * @param hitDice - результат броска костей хитов из модалки
- * @returns частичный патч актора для emit('update:actor', ...)
+ * @returns актор с потраченными костями
  */
-export function applyShortRestWithHitDice(
+export function spendShortRestHitDice(
   actor: DnDActor,
   hitDice: ShortRestHitDiceResult,
-): Partial<DnDActor> {
-  const base = applyActorRest(actor, 'short');
-  const baseSystem = base.system ?? actor.system;
-
+): DnDActor {
   return {
-    ...base,
+    ...actor,
     system: {
-      ...baseSystem,
+      ...actor.system,
       classes: hitDice.classes,
       manualHitDice: hitDice.manualHitDice,
       hitPoints: {
-        ...baseSystem.hitPoints,
+        ...actor.system.hitPoints,
         current: canEntityRegainHitPoints(actor)
           ? hitDice.hitPointsCurrent
-          : baseSystem.hitPoints.current,
+          : actor.system.hitPoints.current,
       },
     },
   };
 }
 
 /**
- * Вычисляет патч существа при отдыхе.
+ * Короткий отдых с тратой костей хитов.
+ *
+ * Сначала на актора ложится результат броска костей хитов (новые текущие хиты
+ * и счётчики потраченных костей), затем идёт обычный короткий отдых
+ * (`applyActorRest(actor, 'short')` — пактовые ячейки, короткие счётчики,
+ * заряды заклинаний 'shortRest') и его срабатывания: цена срабатывания
+ * костями хитов списывается с того, что осталось после окна.
+ *
+ * @param actor - актор
+ * @param hitDice - результат броска костей хитов из модалки
+ * @param options - ответы на вопросы срабатываний и сбор сводки
+ * @returns частичный патч актора для emit('update:actor', ...)
+ */
+export function applyShortRestWithHitDice(
+  actor: DnDActor,
+  hitDice: ShortRestHitDiceResult,
+  options: RestTriggerOptions = {},
+): Partial<DnDActor> {
+  const spent = spendShortRestHitDice(actor, hitDice);
+  const patch = applyActorRest(spent, 'short', options);
+
+  // Отдых без пользы патча листа не даёт, а кости и хиты окна записать надо
+  return { ...patch, system: patch.system ?? spent.system };
+}
+
+/**
+ * Существо, которому отдых вернул своё, — до срабатываний «после отдыха».
  *
  * Восстанавливает заряды заклинаний существа (`Creature.spells`) и заряды
  * предметов его инвентаря по их способу отката; продолжительный отдых
@@ -604,39 +791,29 @@ export function applyShortRestWithHitDice(
  *
  * @param creature - существо
  * @param restType - тип отдыха
- * @returns частичный патч существа для emit('update:creature', ...)
+ * @returns существо после возврата отдыха
  */
-export function applyCreatureRest(
+function recoverCreature(
   creature: DnDCreature,
   restType: RestType,
-): Partial<DnDCreature> {
-  const restedEffects = resolveRestTriggerEffects(creature, restType);
+): DnDCreature {
+  let system = creature.system;
 
-  const patch: Partial<DnDCreature> = {
-    spells: (creature.spells ?? []).map((spell) =>
-      restoreSpellUses(spell, restType),
-    ),
-    equipment: (creature.equipment ?? []).map((item) =>
-      restoreItemUses(item, restType, undefined),
-    ),
-    ...(restedEffects ? { activeEffects: restedEffects } : {}),
-  };
+  // Отдых заканчивает периоды лимитов «раз в отдых» у срабатываний эффектов
+  if (system.effectUsage !== undefined) {
+    system = {
+      ...system,
+      effectUsage: pruneTriggerUsage(creature, restLimitPeriodsOf(restType)),
+    };
+  }
 
   // Порция «на весь список» держит счётчик у себя, а не у заклинаний: без этой
   // строки отдых вернул бы заряды «каждому», а общий счётчик оставил пустым
   const blocks = creature.system.spellcastingBlocks;
 
-  // Отдых заканчивает периоды лимитов «раз в отдых» у срабатываний эффектов
-  if (creature.system.effectUsage !== undefined) {
-    patch.system = {
-      ...creature.system,
-      effectUsage: pruneTriggerUsage(creature, restLimitPeriodsOf(restType)),
-    };
-  }
-
   if (blocks?.length) {
-    patch.system = {
-      ...(patch.system ?? creature.system),
+    system = {
+      ...system,
       spellcastingBlocks: restoreCreatureSpellGroupUses(blocks, restType),
     };
   }
@@ -648,12 +825,10 @@ export function applyCreatureRest(
     // иначе `average`). Нуль означает, что запаса в записи нет вовсе — у
     // существа с текстовыми хитами («половина хитов призывателя»); такому отдых
     // оставляет то, что есть, а не обнуляет его.
-    const restoredMax = resolveEntityMaxHp(
-      restedEffects ? { ...creature, activeEffects: restedEffects } : creature,
-    );
+    const restoredMax = resolveEntityMaxHp(creature);
 
-    patch.system = {
-      ...(patch.system ?? creature.system),
+    system = {
+      ...system,
       hitPoints: {
         ...hitPoints,
         current: restoredMax > 0 ? restoredMax : hitPoints.current,
@@ -662,5 +837,59 @@ export function applyCreatureRest(
     };
   }
 
-  return patch;
+  return {
+    ...creature,
+    spells: (creature.spells ?? []).map((spell) =>
+      restoreSpellUses(spell, restType),
+    ),
+    equipment: (creature.equipment ?? []).map((item) =>
+      restoreItemUses(item, restType, undefined),
+    ),
+    system,
+  };
+}
+
+/**
+ * Вычисляет патч существа при отдыхе: отдых возвращает своё
+ * ({@link recoverCreature}), затем на отдохнувшем существе идут срабатывания
+ * «после отдыха» — и всё, что они сделали, входит в патч.
+ *
+ * @param creature - существо
+ * @param restType - тип отдыха
+ * @param options - ответы на вопросы срабатываний и сбор сводки
+ * @returns частичный патч существа для emit('update:creature', ...)
+ */
+export function applyCreatureRest(
+  creature: DnDCreature,
+  restType: RestType,
+  options: RestTriggerOptions = {},
+): Partial<DnDCreature> {
+  const recovered = recoverCreature(creature, restType);
+  const rested = settleRestTriggers(recovered, restType, options);
+
+  if (!rested) {
+    return {
+      spells: recovered.spells,
+      equipment: recovered.equipment,
+      ...(recovered.system === creature.system
+        ? {}
+        : { system: recovered.system }),
+    };
+  }
+
+  return {
+    spells: rested.spells,
+    equipment: rested.equipment,
+    system:
+      restType === 'long'
+        ? {
+            ...rested.system,
+            hitPoints: {
+              ...rested.system.hitPoints,
+              current: resolveRestedHitPoints(recovered, rested),
+            },
+          }
+        : rested.system,
+    activeEffects: rested.activeEffects ?? [],
+  };
 }

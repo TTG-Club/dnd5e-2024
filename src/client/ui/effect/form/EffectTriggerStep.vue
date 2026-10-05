@@ -9,8 +9,14 @@
     DndEffectAura,
     EffectActivation,
     EffectFormLayout,
+    EffectPay,
     EffectVariantPick,
   } from '@vtt/shared/system/dnd.js';
+
+  import type {
+    EffectActivationCostChoice,
+    EffectUseAreaChoice,
+  } from '../constants';
 
   import { computed } from 'vue';
 
@@ -18,15 +24,20 @@
     DEFAULT_ACTIVATION_AMOUNT,
     DEFAULT_EFFECT_VARIANT_PICK,
     isToggleActivatedEffect,
+    MAX_EFFECT_USE_AREA_SIZE,
     MIN_ACTIVATION_RANGE,
+    useAreaHasWidth,
     writeEffectDelivery,
     writeEffectTrigger,
   } from '@vtt/shared/system/dnd.js';
 
   import FieldHint from '../../actor/FieldHint.vue';
   import {
+    DEFAULT_USE_AREA_SIZE,
     EFFECT_ACTIVATION_CHOICE_HINTS,
+    EFFECT_ACTIVATION_COST_OPTIONS,
     EFFECT_ACTIVATION_COUNTER_LABELS,
+    EFFECT_ACTIVATION_EXTRA_LABELS,
     EFFECT_ACTIVATION_RANGE_LABELS,
     EFFECT_AURA_LABELS,
     EFFECT_AURA_RADIUS_STEP,
@@ -34,7 +45,10 @@
     EFFECT_NO_KNOWN_TAGS,
     EFFECT_PERMANENT_ACTIVATION,
     EFFECT_TRIGGER_HINTS,
+    EFFECT_USE_AREA_OPTIONS,
     EFFECT_VARIANT_LABELS,
+    NO_ACTIVATION_COST,
+    NO_USE_AREA,
   } from '../constants';
   import {
     buildActivationOptions,
@@ -45,6 +59,8 @@
     EFFECT_VARIANT_PICK_OPTIONS,
     findTrigger,
   } from '../effectFormOptions';
+  import { EFFECT_PAY_FIELD_LABELS } from '../payLabels';
+  import EffectPayFields from './EffectPayFields.vue';
   import EffectTriggerConditionPicker from './EffectTriggerConditionPicker.vue';
 
   const props = defineProps<{
@@ -129,11 +145,80 @@
     },
   });
 
-  // Пустое поле — касание: дальность снимается, а не становится нулём
+  // Трата хода на применение или включение: «нет» — ход не тратится
+  const activationCost = computed({
+    get: () => effect.value.activation?.cost ?? NO_ACTIVATION_COST,
+    set: (cost: EffectActivationCostChoice) => {
+      updateActivation({
+        cost: cost === NO_ACTIVATION_COST ? undefined : cost,
+      });
+    },
+  });
+
+  /** Ширина — только у линии */
+  const activationAreaHasWidth = computed(() =>
+    useAreaHasWidth(effect.value.activation?.area?.shape),
+  );
+
+  // Концентрация применения: снятая отметка не пишется вовсе
+  const activationConcentration = computed({
+    get: () => effect.value.activation?.concentration === true,
+    set: (concentration: boolean) => {
+      updateActivation({ concentration: concentration ? true : undefined });
+    },
+  });
+
+  // Область применения: «нет» — одна цель по выбору
+  const activationAreaShape = computed({
+    get: () => effect.value.activation?.area?.shape ?? NO_USE_AREA,
+    set: (shape: EffectUseAreaChoice) => {
+      updateActivation({
+        area:
+          shape === NO_USE_AREA
+            ? undefined
+            : {
+                ...effect.value.activation?.area,
+                shape,
+                size:
+                  effect.value.activation?.area?.size ?? DEFAULT_USE_AREA_SIZE,
+              },
+      });
+    },
+  });
+
+  const activationAreaSize = computed({
+    get: () => effect.value.activation?.area?.size ?? DEFAULT_USE_AREA_SIZE,
+    set: (size: number | null) => {
+      const area = effect.value.activation?.area;
+
+      if (area && size !== null) {
+        updateActivation({ area: { ...area, size } });
+      }
+    },
+  });
+
+  const activationAreaWidth = computed({
+    get: () => effect.value.activation?.area?.width ?? null,
+    set: (width: number | null) => {
+      const area = effect.value.activation?.area;
+
+      if (area) {
+        updateActivation({ area: { ...area, width: width ?? undefined } });
+      }
+    },
+  });
+
   const activationRange = computed({
     get: () => effect.value.activation?.range ?? null,
     set: (range: number | null) =>
       updateActivation({ range: range === null ? undefined : range }),
+  });
+
+  const pay = computed({
+    get: () => effect.value.pay,
+    set: (next: EffectPay | undefined) => {
+      effect.value = { ...effect.value, pay: next };
+    },
   });
 
   const deliveryOptions = computed(() => buildDeliveryOptions(props.layout));
@@ -367,27 +452,118 @@
       </UFormField>
     </div>
 
-    <UFormField
-      v-if="layout.showActivationRange"
-      class="w-40"
+    <div
+      v-if="effect.activation"
+      class="flex flex-wrap items-end gap-2"
     >
-      <template #label>
-        <span class="flex items-center gap-1">
-          {{ EFFECT_ACTIVATION_RANGE_LABELS.range }}
+      <UFormField class="w-48">
+        <template #label>
+          <span class="flex items-center gap-1">
+            {{ EFFECT_ACTIVATION_EXTRA_LABELS.cost }}
 
-          <FieldHint :text="EFFECT_ACTIVATION_RANGE_LABELS.hint" />
-        </span>
+            <FieldHint :text="EFFECT_ACTIVATION_EXTRA_LABELS.costHint" />
+          </span>
+        </template>
+
+        <USelect
+          v-model="activationCost"
+          :items="EFFECT_ACTIVATION_COST_OPTIONS"
+          value-key="value"
+          size="sm"
+          class="w-full"
+          :portal="false"
+        />
+      </UFormField>
+
+      <UFormField
+        v-if="layout.showActivationRange"
+        class="w-40"
+      >
+        <template #label>
+          <span class="flex items-center gap-1">
+            {{ EFFECT_ACTIVATION_RANGE_LABELS.range }}
+
+            <FieldHint :text="EFFECT_ACTIVATION_RANGE_LABELS.hint" />
+          </span>
+        </template>
+
+        <UInputNumber
+          v-model="activationRange"
+          :min="MIN_ACTIVATION_RANGE"
+          :placeholder="EFFECT_ACTIVATION_RANGE_LABELS.placeholder"
+          size="sm"
+          class="w-full"
+        />
+      </UFormField>
+
+      <template v-if="layout.showActivationRange">
+        <UFormField class="w-44">
+          <template #label>
+            <span class="flex items-center gap-1">
+              {{ EFFECT_ACTIVATION_EXTRA_LABELS.area }}
+
+              <FieldHint :text="EFFECT_ACTIVATION_EXTRA_LABELS.areaHint" />
+            </span>
+          </template>
+
+          <USelect
+            v-model="activationAreaShape"
+            :items="EFFECT_USE_AREA_OPTIONS"
+            value-key="value"
+            size="sm"
+            class="w-full"
+            :portal="false"
+          />
+        </UFormField>
+
+        <UFormField
+          v-if="effect.activation.area"
+          :label="EFFECT_ACTIVATION_EXTRA_LABELS.areaSize"
+          class="w-28"
+        >
+          <UInputNumber
+            v-model="activationAreaSize"
+            :min="1"
+            :max="MAX_EFFECT_USE_AREA_SIZE"
+            size="sm"
+            class="w-full"
+          />
+        </UFormField>
+
+        <UFormField
+          v-if="activationAreaHasWidth"
+          :label="EFFECT_ACTIVATION_EXTRA_LABELS.areaWidth"
+          class="w-28"
+        >
+          <UInputNumber
+            v-model="activationAreaWidth"
+            :min="1"
+            :max="MAX_EFFECT_USE_AREA_SIZE"
+            size="sm"
+            class="w-full"
+          />
+        </UFormField>
+
+        <div class="flex items-center gap-1 pb-1.5">
+          <USwitch
+            v-model="activationConcentration"
+            :label="EFFECT_ACTIVATION_EXTRA_LABELS.concentration"
+            size="sm"
+          />
+
+          <FieldHint :text="EFFECT_ACTIVATION_EXTRA_LABELS.concentrationHint" />
+        </div>
       </template>
-
-      <UInputNumber
-        v-model="activationRange"
-        :min="MIN_ACTIVATION_RANGE"
-        :placeholder="EFFECT_ACTIVATION_RANGE_LABELS.placeholder"
-        size="sm"
-        class="w-full"
-      />
-    </UFormField>
+    </div>
   </div>
+
+  <!-- Цена ресурсом: у заклинания это цена каста сверх ячейки, у применения и
+    переключателя — цена кнопки -->
+  <EffectPayFields
+    v-if="layout.showPay"
+    v-model="pay"
+    :hint="EFFECT_PAY_FIELD_LABELS.hintEffect"
+  />
 
   <div
     v-if="showDeliveryChoice"

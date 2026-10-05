@@ -16,7 +16,10 @@
   import { ContextMenuDangerItem } from '@/shared_ui/components';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useChatStore } from '@/stores/chatStore';
-  import { getTotalLevel } from '@vtt/shared/system/dnd.js';
+  import {
+    collectCarriedFeatureSpells,
+    getTotalLevel,
+  } from '@vtt/shared/system/dnd.js';
 
   import { toggleEntityEffect } from '../../../composables/effectToggle';
   import { useFeatModal } from '../../../composables/useFeatModal';
@@ -726,9 +729,12 @@
           // Пере-применяем дары к актору (владения/эффекты/защиты/тёмное зрение
           // пересобираются из новой версии). Уже выданные заклинания черты
           // переносим без компендиума, чтобы не потерять их на правке.
-          const carriedSpells = (props.actor.spells ?? [])
-            .filter((spell) => spell.grantedByFeature === oldFeature.name)
-            .map((spell) => ({ spell, featureName: updatedFeat.name }));
+          // Вместе с отметкой «не готовить» — своей и отданной чужой записи.
+          const carriedSpells = collectCarriedFeatureSpells(
+            props.actor.spells ?? [],
+            oldFeature.name,
+            updatedFeat.name,
+          );
 
           const result = reapplyFeatToActor(
             props.actor,

@@ -13,16 +13,24 @@ import type { RollRequestOutcome, ServerRollRequester } from '@vtt/shared';
 
 import type { ActiveEffect, EffectSaveTiming } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
+import type { PayOption, PayPlan, TriggerSourcePreparer } from './effectPay.js';
 import type {
   DeferredTurnTrigger,
   EffectTriggerSource,
+  SelfTriggerAnswers,
 } from './effectTriggerRunner.js';
 import type {
+  EffectTrigger,
   EffectTriggerAction,
   EffectTriggerChoice,
 } from './effectTriggerTypes.js';
 import type { TriggerEventData } from './triggerConditions.js';
-import type { EffectPromptRequestPayload } from './triggerPrompt.js';
+import type {
+  EffectPromptAsker,
+  EffectPromptOption,
+  EffectPromptReply,
+  EffectPromptRequestPayload,
+} from './triggerPrompt.js';
 import type {
   EffectSaveSpec,
   EntryEffectOptions,
@@ -33,6 +41,14 @@ import type {
 } from './turnEffects.js';
 
 import {
+  buildTriggerPayContext,
+  defaultPayPicks,
+  describePayPlan,
+  payTriggerPrice,
+  planEffectPay,
+} from './effectPay.js';
+import { describeEffectPay, EFFECT_PRICE_LABELS } from './effectPayTypes.js';
+import {
   resolveActorStats,
   resolveTotalMovementSpeed,
 } from './effectPipeline.js';
@@ -41,22 +57,28 @@ import {
   formatEffectRequesterLabel,
   settleEffectSaveOutcome,
 } from './effectSaveAcquisition.js';
+import { bindTriggerSourceSaveDcs } from './effectSaveDcOwner.js';
 import { describeTriggerActions } from './effectTriggerDescribe.js';
 import {
+  admitTrigger,
   applyEntryEffect,
   applyTriggerEffectActions,
   buildTriggerSaveSpec,
   removeEffectsById,
   rollTriggerDamage,
   rollTriggerSave,
+  selfTriggerKey,
   settlePresenceTrigger,
   settleTriggerOutcome,
+  takeTriggerAdmission,
   toTriggerSaveOutcome,
 } from './effectTriggerRunner.js';
 import {
   listEffectListTriggers,
   turnTriggerEventOf,
 } from './effectTriggers.js';
+import { triggerAsksPermission } from './effectTriggerTypes.js';
+import { bindOwnEffectFormulas } from './ownEffectFormulas.js';
 import {
   formatTargetChoiceRequestTitle,
   readChoiceAnswer,
@@ -66,10 +88,14 @@ import {
   toChoiceCandidatePayload,
 } from './triggerChoice.js';
 import {
+  EFFECT_PROMPT_CONFIRM,
   EFFECT_PROMPT_CONFIRM_OPTIONS,
   EFFECT_PROMPT_REQUEST_KIND,
   formatEffectPromptTitle,
-  readPromptConfirmed,
+  MAX_PROMPT_OPTIONS,
+  readPromptReply,
+  toEffectPromptReply,
+  TRIGGER_ASK_CHAT_NOTES,
 } from './triggerPrompt.js';
 import {
   appendEffectsSummaryNotes,
@@ -294,7 +320,7 @@ export function requestEntryEffect(
 
   return requestPresenceSave(
     entity,
-    buildApplySaveSpec(snapshot, effect.applySave),
+    buildApplySaveSpec(snapshot, effect.applySave, entity),
     requestRoll,
     requesterLabel,
     options,
@@ -341,9 +367,14 @@ function applyTurnTriggerAnswer(
   target: TurnTriggerAnswerTarget,
   outcome: RollRequestOutcome,
 ): DeferredEffectOutcome {
+  const found = entity.activeEffects?.find(
+    (entry) => entry.id === target.effectId,
+  );
+
+  // Живой эффект найден заново — числа владельца подставляются заново тоже;
+  // снимок черты и ауры их уже несёт
   const effect =
-    target.snapshot
-    ?? entity.activeEffects?.find((entry) => entry.id === target.effectId);
+    target.snapshot ?? (found && bindOwnEffectFormulas([found], entity)[0]);
 
   const event = turnTriggerEventOf(target.timing);
 
@@ -373,6 +404,8 @@ function applyTurnTriggerAnswer(
     scope: target.scope,
   };
 
+  const skippedNotes: string[] = [];
+
   const damage =
     target.stage === 'damage'
       ? rollTriggerDamage(
@@ -381,6 +414,7 @@ function applyTurnTriggerAnswer(
           trigger,
           save.passed,
           resolveActorStats(entity),
+          { collectNote: (note) => skippedNotes.push(note) },
         )
       : null;
 
@@ -406,7 +440,10 @@ function applyTurnTriggerAnswer(
     damageOutcomes: damage ? [damage] : [],
     healingOutcomes: [],
     saveOutcomes: [save],
-    notes: formatEffectNotes(target.spec, acquisition.note),
+    notes: [
+      ...formatEffectNotes(target.spec, acquisition.note),
+      ...skippedNotes,
+    ],
   };
 }
 
@@ -518,40 +555,272 @@ export function requestPresenceTriggerSave(
   );
 }
 
-/** Заметки в сводку чата о том, чем кончился вопрос человеку */
-export const TRIGGER_ASK_CHAT_NOTES = {
-  declined: 'срабатывание отменено — согласия нет',
-  timeout: 'нет ответа — срабатывание отменено',
-} as const;
+/**
+ * Строка чата о срабатывании, которое к моменту ответа уже не выполнить:
+ * платить стало нечем либо лимит исчерпан.
+ *
+ * @param effectName - название эффекта
+ * @param trigger - срабатывание
+ * @returns строка для сводки
+ */
+function formatAdmissionGoneNote(
+  effectName: string,
+  trigger: Pick<EffectTrigger, 'pay'>,
+): string {
+  return `${effectName}: ${trigger.pay ? TRIGGER_ASK_CHAT_NOTES.payGone : TRIGGER_ASK_CHAT_NOTES.limitGone}`;
+}
 
-/** Вопросы срабатывания: обычный и о расходе реакции */
+/** Вопросы срабатывания: обычный, о расходе реакции и о цене ресурсом */
 export const TRIGGER_ASK_QUESTIONS = {
   plain: 'Пустить срабатывание в ход?',
   reaction: 'Потратить реакцию?',
+  pay: 'Заплатить цену?',
+  /** Цена и реакция сразу: «вспышка оружия — реакцией, 1 заряд» */
+  reactionPay: 'Потратить реакцию и заплатить цену?',
+  payChoice: 'Чем заплатить?',
 } as const;
+
+/** Реакция в перечне цены: вопрос «чем заплатить» её сам не называет */
+const PAY_SUMMARY_REACTION = 'реакция';
+
+/** Подпись отказа платить в вопросе с выбором платежа */
+const PAY_DECLINE_LABEL = 'Не платить';
+
+/** Приставка цены в кратком описании вопроса */
+const PAY_SUMMARY_PREFIX = 'Цена: ';
 
 /**
  * Строит вопрос «да / нет» перед срабатыванием: подпись, варианты и краткое
  * описание того, что случится по согласию.
  *
+ * Цена называется по листу платящего: счётчик — как на листе, количество —
+ * числом (`describePayPlan`). Реакция в цене названа всегда — и рядом с ценой
+ * ресурсом.
+ *
  * @param source - срабатывание с источником
+ * @param payer - кто платит; с разбором цены даёт подписи по его листу
+ * @param plan - разбор цены платящего; `null` — цены нет
  * @returns нагрузка вопроса
  */
 function buildTriggerAskPayload(
   source: EffectTriggerSource,
+  payer: DnDSceneEntity,
+  plan: PayPlan | null,
 ): EffectPromptRequestPayload {
-  const summary = describeTriggerActions(source.trigger);
+  const actions = describeTriggerActions(source.trigger);
+  const { pay, cost } = source.trigger;
+  const spendsReaction = cost === 'reaction';
+
+  const priceText = pay
+    ? [
+        spendsReaction ? PAY_SUMMARY_REACTION : '',
+        plan ? describePayPlan(payer, plan) : describeEffectPay(pay),
+      ]
+        .filter((part) => part.length > 0)
+        .join(EFFECT_PRICE_LABELS.payJoiner)
+    : '';
+
+  const summary = [
+    priceText ? `${PAY_SUMMARY_PREFIX}${priceText}` : '',
+    actions,
+  ]
+    .filter((part) => part.length > 0)
+    .join('. ');
+
+  let question: string = TRIGGER_ASK_QUESTIONS.plain;
+
+  if (pay) {
+    question = spendsReaction
+      ? TRIGGER_ASK_QUESTIONS.reactionPay
+      : TRIGGER_ASK_QUESTIONS.pay;
+  } else if (spendsReaction) {
+    question = TRIGGER_ASK_QUESTIONS.reaction;
+  }
 
   return {
     kind: EFFECT_PROMPT_REQUEST_KIND,
-    question:
-      source.trigger.cost === 'reaction'
-        ? TRIGGER_ASK_QUESTIONS.reaction
-        : TRIGGER_ASK_QUESTIONS.plain,
+    question,
     options: [...EFFECT_PROMPT_CONFIRM_OPTIONS],
     sourceName: source.effect.name,
     ...(summary ? { effectSummary: summary } : {}),
   };
+}
+
+/** Чем кончился вопрос о срабатывании */
+type TriggerAskAnswer =
+  | { status: 'confirmed'; pickIds?: ReadonlySet<string> }
+  | { status: 'declined' | 'timeout' };
+
+/**
+ * Варианты вопроса «чем заплатить»: варианты платежа и отказ. Лишние сверх
+ * предела вопроса отсекаются — отказ остаётся всегда.
+ *
+ * @param options - варианты платежа
+ * @returns варианты ответа
+ */
+function buildPayPromptOptions(
+  options: readonly PayOption[],
+): EffectPromptOption[] {
+  return [
+    ...options
+      .slice(0, MAX_PROMPT_OPTIONS - 1)
+      .map((option) => ({ id: option.id, label: option.label })),
+    { id: EFFECT_PROMPT_CONFIRM.no, label: PAY_DECLINE_LABEL },
+  ];
+}
+
+/**
+ * Спрашивает человека о срабатывании: согласие и, у цены с выбором, чем
+ * платить — по вопросу на каждый платёж с несколькими вариантами. Первый же
+ * вопрос служит и согласием: отдельного «да / нет» перед выбором нет.
+ *
+ * @param source - снимок срабатывания с источником
+ * @param payer - кто платит: по его листу называется цена
+ * @param plan - разбор цены; `null` — цены нет
+ * @param ask - отправка одного вопроса
+ * @returns чем кончился вопрос
+ */
+async function askAboutTrigger(
+  source: EffectTriggerSource,
+  payer: DnDSceneEntity,
+  plan: PayPlan | null,
+  ask: EffectPromptAsker,
+): Promise<TriggerAskAnswer> {
+  const base = buildTriggerAskPayload(source, payer, plan);
+
+  const choices = (plan?.prices ?? []).filter(
+    (entry) => entry.options.length > 1,
+  );
+
+  /**
+   * Статус несостоявшегося ответа.
+   *
+   * @param reply - ответ человека
+   * @returns молчание или отказ
+   */
+  const refusalOf = (reply: EffectPromptReply): TriggerAskAnswer => ({
+    status: reply.timedOut ? 'timeout' : 'declined',
+  });
+
+  if (choices.length === 0) {
+    const reply = await ask(base);
+
+    if (
+      readPromptReply(reply, EFFECT_PROMPT_CONFIRM_OPTIONS)
+      !== EFFECT_PROMPT_CONFIRM.yes
+    ) {
+      return refusalOf(reply);
+    }
+
+    const picks = plan ? defaultPayPicks(plan) : null;
+
+    return {
+      status: 'confirmed',
+      ...(picks ? { pickIds: new Set(picks.map((pick) => pick.id)) } : {}),
+    };
+  }
+
+  // Платежи без выбора идут как есть — спрашивать о них нечего
+  const pickIds = new Set(
+    (plan?.prices ?? [])
+      .filter((entry) => entry.options.length === 1)
+      .flatMap((entry) => entry.options.map((option) => option.id)),
+  );
+
+  for (const entry of choices) {
+    const options = buildPayPromptOptions(entry.options);
+
+    const reply = await ask({
+      ...base,
+      question: TRIGGER_ASK_QUESTIONS.payChoice,
+      options,
+    });
+
+    const answer = readPromptReply(reply, options);
+
+    if (answer === null || answer === EFFECT_PROMPT_CONFIRM.no) {
+      return refusalOf(reply);
+    }
+
+    pickIds.add(answer);
+  }
+
+  return { status: 'confirmed', pickIds };
+}
+
+/**
+ * Спрашивает владельца о срабатываниях, которые выполняются на самой сущности
+ * без сервера («после отдыха»): согласие и, у цены с выбором, чем платить.
+ * Порядок тот же, что у срабатываний сервера: условие и лимит → разбор цены →
+ * при нехватке вопроса нет → вопрос. Списание и действия идут следом, уже по
+ * ответам (`settleSelfTriggerSources`).
+ *
+ * Срабатывание без вопроса сюда не попадает. Срабатывание, чья цена не по
+ * карману, тоже: спрашивать не о чем, а строку об отмене оно напишет само.
+ *
+ * @param entity - сущность в том состоянии, в котором срабатывания выполнятся
+ * @param sources - срабатывания с источниками
+ * @param ask - кто задаёт вопрос человеку
+ * @returns ответы: по ключу срабатывания — выбранные варианты цены
+ */
+export async function askSelfTriggers(
+  entity: DnDSceneEntity,
+  sources: readonly EffectTriggerSource[],
+  ask: EffectPromptAsker,
+): Promise<SelfTriggerAnswers> {
+  const answers = new Map<string, ReadonlySet<string>>();
+
+  for (const source of sources) {
+    if (
+      !triggerAsksPermission(source.trigger)
+      || !admitTrigger(entity, source, {}, undefined, true)
+    ) {
+      continue;
+    }
+
+    const { pay } = source.trigger;
+
+    const plan = pay
+      ? planEffectPay(entity, pay, buildTriggerPayContext(source))
+      : null;
+
+    if (plan && plan.shortfall !== null) {
+      continue;
+    }
+
+    const answer = await askAboutTrigger(source, entity, plan, ask);
+
+    if (answer.status === 'confirmed') {
+      answers.set(selfTriggerKey(source), answer.pickIds ?? new Set());
+    }
+  }
+
+  return answers;
+}
+
+/** Чем дополняется вопрос срабатывания */
+export interface TriggerAskOptions {
+  /** Опции наложения */
+  effectOptions?: EntryEffectOptions;
+  /**
+   * Чем спросить «кого задеть» после согласия. Подготовку срабатывания (оплату)
+   * вопрос о цели выполняет сам — уже по ответу на него.
+   */
+  buildChoiceRequest?: (
+    prepare: TriggerSourcePreparer,
+  ) => EngineDeferredTrigger | null;
+  /**
+   * Получатели действий, известные заранее: другая сторона события, все в
+   * радиусе. Нет — действия достаются самому субъекту.
+   */
+  recipients?: readonly DnDSceneEntity[];
+  /** Идёт ли у субъекта бой: лимит хода и раунда считается только в бою */
+  inCombat?: boolean;
+  /** Что сделать после ответа, каким бы он ни был («0 хитов» у остальных) */
+  finish?: (
+    liveSubject: DnDSceneEntity,
+    outcome: DeferredEffectOutcome,
+  ) => DeferredEffectOutcome;
 }
 
 /**
@@ -573,7 +842,12 @@ function applyAskedTrigger(
   const result = settlePresenceTrigger(
     entity,
     source,
-    rollTriggerSave(entity, source, options.ambientEffects ?? []),
+    rollTriggerSave(
+      entity,
+      source,
+      options.ambientEffects ?? [],
+      options.eventData,
+    ),
     { ...options, collectNote: (note) => notes.push(note) },
   );
 
@@ -588,6 +862,11 @@ function applyAskedTrigger(
  * молчание и «спрашивать некого» — одно и то же: срабатывание отменяется с
  * заметкой в чат, как у выбора цели.
  *
+ * У срабатывания с ценой ресурсом вопрос несёт цену, а если платить можно
+ * по-разному (круг ячейки, число костей хитов) — варианты платежа. Цена
+ * списывается с живого субъекта уже по ответу, перед действиями; не хватает
+ * ресурса — вопроса нет вовсе, срабатывание молчит.
+ *
  * Согласие пускает срабатывание дальше по его обычному пути: у срабатывания с
  * получателем «по выбору» следом идёт вопрос «кого задеть»
  * (`buildChoiceRequest`), у остальных — урон и наложения сразу.
@@ -596,20 +875,35 @@ function applyAskedTrigger(
  * @param source - срабатывание с источником
  * @param requestRoll - запрос от ядра
  * @param requesterLabel - кто просит («Эффект «Опутывание»»)
- * @param effectOptions - опции наложения
- * @param buildChoiceRequest - чем спросить «кого задеть» после согласия
- * @returns отложенное срабатывание
+ * @param options - опции наложения, вопрос о цели, получатели и продолжение
+ * @returns отложенное срабатывание; `null`, если цена не по карману
  */
 export function requestTriggerAsk(
   subject: DnDSceneEntity,
   source: EffectTriggerSource,
   requestRoll: ServerRollRequester,
   requesterLabel: string,
-  effectOptions: EntryEffectOptions = {},
-  buildChoiceRequest?: () => EngineDeferredTrigger | null,
-): EngineDeferredTrigger {
+  options: TriggerAskOptions = {},
+): EngineDeferredTrigger | null {
+  const {
+    effectOptions = {},
+    buildChoiceRequest,
+    recipients,
+    inCombat,
+    finish,
+  } = options;
+
   const snapshot = snapshotTriggerSource(source);
-  const payload = buildTriggerAskPayload(snapshot);
+  const { pay } = snapshot.trigger;
+
+  const plan = pay
+    ? planEffectPay(subject, pay, buildTriggerPayContext(snapshot))
+    : null;
+
+  // Платить нечем — и спрашивать не о чем
+  if (plan && plan.shortfall !== null) {
+    return null;
+  }
 
   const askerId = resolveChooserId(
     subject,
@@ -617,30 +911,86 @@ export function requestTriggerAsk(
     snapshot.trigger.asker,
   );
 
-  const resolution = requestRoll({
-    entityId: askerId,
-    requesterLabel,
-    title: formatEffectPromptTitle(snapshot.effect.name),
-    payload,
-  }).then(
-    (outcome): DeferredEffectApply | Promise<DeferredEffectApply | null> => {
-      if (!readPromptConfirmed(outcome)) {
-        const note =
-          outcome.status === 'timeout'
-            ? TRIGGER_ASK_CHAT_NOTES.timeout
-            : TRIGGER_ASK_CHAT_NOTES.declined;
+  /**
+   * Исход с продолжением серии.
+   *
+   * @param liveSubject - живой субъект
+   * @param outcome - исход срабатывания
+   * @returns общий исход
+   */
+  const finished = (
+    liveSubject: DnDSceneEntity,
+    outcome: DeferredEffectOutcome,
+  ): DeferredEffectOutcome => (finish ? finish(liveSubject, outcome) : outcome);
 
-        return () => unchangedOutcome([`${snapshot.effect.name}: ${note}`]);
+  const resolution = askAboutTrigger(snapshot, subject, plan, (payload) =>
+    requestRoll({
+      entityId: askerId,
+      requesterLabel,
+      title: formatEffectPromptTitle(snapshot.effect.name),
+      payload,
+    }).then((outcome) => toEffectPromptReply(outcome, payload.options)),
+  ).then(
+    (answer): DeferredEffectApply | Promise<DeferredEffectApply | null> => {
+      if (answer.status !== 'confirmed') {
+        const note = TRIGGER_ASK_CHAT_NOTES[answer.status];
+
+        return (liveSubject) =>
+          finished(
+            liveSubject,
+            unchangedOutcome([`${snapshot.effect.name}: ${note}`]),
+          );
       }
 
-      const choiceRequest = buildChoiceRequest?.();
+      /**
+       * Оплата по выбранным вариантам — на живом субъекте.
+       *
+       * @param liveSubject - живой субъект
+       * @param prepared - срабатывание, как его знает путь действий
+       * @returns срабатывание с числами либо `null`
+       */
+      const prepare: TriggerSourcePreparer = (liveSubject, prepared) =>
+        // Лимит и заряд вопрос только проверил — тратит их согласие. Пока
+        // человек отвечал, их могло потратить другое срабатывание
+        takeTriggerAdmission(liveSubject, prepared, inCombat)
+          ? payTriggerPrice(liveSubject, prepared, answer.pickIds)
+          : null;
+
+      const choiceRequest = buildChoiceRequest?.(prepare);
 
       if (choiceRequest) {
         return choiceRequest.resolution;
       }
 
-      return (liveSubject) =>
-        applyAskedTrigger(liveSubject, snapshot, effectOptions);
+      return (liveSubject) => {
+        const prepared = prepare(liveSubject, snapshot);
+
+        if (!prepared) {
+          return finished(
+            liveSubject,
+            unchangedOutcome([
+              formatAdmissionGoneNote(snapshot.effect.name, snapshot.trigger),
+            ]),
+          );
+        }
+
+        const outcome = recipients
+          ? settleTriggerRecipients(
+              liveSubject,
+              prepared.source,
+              recipients,
+              effectOptions,
+            )
+          : applyAskedTrigger(liveSubject, prepared.source, effectOptions);
+
+        return finished(liveSubject, {
+          ...outcome,
+          // Списанные цену, лимит и заряд надо сохранить, даже если действия
+          // ничего не дали
+          changed: true,
+          notes: [...prepared.notes, ...outcome.notes],
+        });
+      };
     },
     ignoreRejectedRollRequest,
   );
@@ -694,48 +1044,131 @@ interface ChoiceAnswerTarget {
   candidates: DnDSceneEntity[];
   choice: EffectTriggerChoice;
   effectOptions: EntryEffectOptions;
+  /** Подготовка срабатывания на живом субъекте: оплата цены */
+  prepare?: TriggerSourcePreparer;
 }
 
 /**
- * Применяет действия срабатывания к одному выбранному получателю.
+ * Применяет действия срабатывания к одному получателю.
  *
- * Спасбросок выбранного бросается на сервере: спрашивать бросок вдогонку к
+ * Спасбросок получателя бросается на сервере: спрашивать бросок вдогонку к
  * уже заданному вопросу значило бы два окна подряд на одно срабатывание.
  *
  * @param subject - субъект срабатывания (на нём эффект)
- * @param recipient - выбранный получатель
- * @param target - что выбирали
+ * @param recipient - получатель
+ * @param recipientSource - срабатывание с действиями получателя
+ * @param effectOptions - опции наложения
  * @returns исход для сводки
  */
-function settleChoiceRecipient(
+function settleTriggerRecipient(
   subject: DnDSceneEntity,
   recipient: DnDSceneEntity,
-  target: ChoiceAnswerTarget,
+  recipientSource: EffectTriggerSource,
+  effectOptions: EntryEffectOptions,
 ): DeferredEffectOutcome {
-  const source = narrowChoiceSource(target.source, false);
+  // Сл формулой — по субъекту, на котором эффект, а не по получателю
+  const source = bindTriggerSourceSaveDcs(recipientSource, subject);
 
   if (source.trigger.actions.length === 0) {
     return unchangedOutcome([]);
   }
+
+  const notes: string[] = [];
 
   return toDeferredEffectOutcome(
     settleTriggerOutcome(
       subject,
       recipient,
       source,
-      rollTriggerSave(recipient, source),
-      target.effectOptions,
+      // Данные события — те же, что у броска без вопроса: Сл от урона события
+      rollTriggerSave(recipient, source, [], effectOptions.eventData),
+      { ...effectOptions, collectNote: (note) => notes.push(note) },
     ),
-    [],
+    notes,
   );
 }
 
 /**
- * Применяет ответ на выбор цели: действия достаются выбранным, «Снять эффект»
- * и «Закончить каст» — эффекту субъекта, как и всегда.
+ * Раздаёт действия срабатывания получателям, известным по ответу человека:
+ * действия достаются получателям, «Снять эффект» и «Закончить каст» — эффекту
+ * субъекта, как и всегда.
  *
- * Выбранные, кроме самого субъекта, — чужие записи: их правки уходят ядру
+ * Получатели, кроме самого субъекта, — чужие записи: их правки уходят ядру
  * вложенными отложенными срабатываниями, каждое со своей живой сущностью.
+ *
+ * @param subject - живой субъект (меняется)
+ * @param source - срабатывание с источником
+ * @param recipients - получатели
+ * @param effectOptions - опции наложения
+ * @returns исход для сводки
+ */
+export function settleTriggerRecipients(
+  subject: DnDSceneEntity,
+  source: EffectTriggerSource,
+  recipients: readonly DnDSceneEntity[],
+  effectOptions: EntryEffectOptions,
+): DeferredEffectOutcome {
+  const subjectSource = narrowChoiceSource(source, true);
+  const recipientSource = narrowChoiceSource(source, false);
+
+  const removal =
+    subjectSource.trigger.actions.length > 0
+      ? applyTriggerEffectActions(subject, subjectSource, false, effectOptions)
+      : { removes: false, applied: false };
+
+  if (removal.removes) {
+    removeEffectsById(subject, new Set([source.effect.id]));
+  }
+
+  // Сам субъект среди получателей — живая сущность, а не её снимок из запроса
+  const own = recipients
+    .filter((recipient) => recipient.id === subject.id)
+    .map(() =>
+      settleTriggerRecipient(subject, subject, recipientSource, effectOptions),
+    );
+
+  // Чужие записи ядро берёт на себя: вложенному срабатыванию ждать уже нечего,
+  // ответ известен. Эффект субъекта живая запись получателя не снимет
+  const foreignSource = { ...recipientSource, instance: false };
+
+  // Ауры, накрывающие субъекта, — его защиты, а не получателя: без вопроса
+  // они другой стороне тоже не достаются
+  const foreignOptions: EntryEffectOptions = {
+    ...effectOptions,
+    ambientEffects: [],
+  };
+
+  const deferred = recipients
+    .filter((recipient) => recipient.id !== subject.id)
+    .map((recipient) => ({
+      entityId: recipient.id,
+      blocksMovement: false,
+      resolution: Promise.resolve<DeferredEffectApply>((liveRecipient) =>
+        settleTriggerRecipient(
+          liveRecipient,
+          liveRecipient,
+          foreignSource,
+          foreignOptions,
+        ),
+      ),
+    }));
+
+  return {
+    changed:
+      removal.removes
+      || removal.applied
+      || own.some((outcomePart) => outcomePart.changed),
+    damageOutcomes: own.flatMap((outcomePart) => outcomePart.damageOutcomes),
+    healingOutcomes: own.flatMap((outcomePart) => outcomePart.healingOutcomes),
+    saveOutcomes: own.flatMap((outcomePart) => outcomePart.saveOutcomes),
+    notes: own.flatMap((outcomePart) => outcomePart.notes),
+    ...(deferred.length > 0 ? { deferred } : {}),
+  };
+}
+
+/**
+ * Применяет ответ на выбор цели: действия достаются выбранным
+ * ({@link settleTriggerRecipients}).
  *
  * @param subject - живой субъект
  * @param target - что выбирали
@@ -756,48 +1189,28 @@ function applyChoiceAnswer(
     ]);
   }
 
-  const subjectSource = narrowChoiceSource(target.source, true);
+  // Цена списывается здесь: выбор сделан, срабатывание состоится
+  const prepared = target.prepare
+    ? target.prepare(subject, target.source)
+    : { source: target.source, notes: [] };
 
-  const removal =
-    subjectSource.trigger.actions.length > 0
-      ? applyTriggerEffectActions(
-          subject,
-          subjectSource,
-          false,
-          target.effectOptions,
-        )
-      : { removes: false, applied: false };
-
-  if (removal.removes) {
-    removeEffectsById(subject, new Set([target.source.effect.id]));
+  if (!prepared) {
+    return unchangedOutcome([
+      formatAdmissionGoneNote(effectName, target.source.trigger),
+    ]);
   }
 
-  const own = chosen
-    .filter((recipient) => recipient.id === subject.id)
-    .map((recipient) => settleChoiceRecipient(subject, recipient, target));
-
-  // Чужие записи ядро берёт на себя: вложенному срабатыванию ждать уже нечего,
-  // ответ известен
-  const deferred = chosen
-    .filter((recipient) => recipient.id !== subject.id)
-    .map((recipient) => ({
-      entityId: recipient.id,
-      blocksMovement: false,
-      resolution: Promise.resolve<DeferredEffectApply>((liveRecipient) =>
-        settleChoiceRecipient(liveRecipient, liveRecipient, target),
-      ),
-    }));
+  const settled = settleTriggerRecipients(
+    subject,
+    prepared.source,
+    chosen,
+    target.effectOptions,
+  );
 
   return {
-    changed:
-      removal.removes
-      || removal.applied
-      || own.some((outcomePart) => outcomePart.changed),
-    damageOutcomes: own.flatMap((outcomePart) => outcomePart.damageOutcomes),
-    healingOutcomes: own.flatMap((outcomePart) => outcomePart.healingOutcomes),
-    saveOutcomes: own.flatMap((outcomePart) => outcomePart.saveOutcomes),
-    notes: own.flatMap((outcomePart) => outcomePart.notes),
-    ...(deferred.length > 0 ? { deferred } : {}),
+    ...settled,
+    changed: settled.changed || target.prepare !== undefined,
+    notes: [...prepared.notes, ...settled.notes],
   };
 }
 
@@ -836,6 +1249,7 @@ function resolveChoiceNote(
  * @param requestRoll - запрос от ядра
  * @param requesterLabel - кто просит («Эффект «Аура жизни»»)
  * @param effectOptions - опции наложения
+ * @param prepare - подготовка срабатывания на живом субъекте (оплата цены)
  * @returns отложенное срабатывание; `null`, если выбирать не из кого
  */
 export function requestTriggerChoice(
@@ -846,6 +1260,7 @@ export function requestTriggerChoice(
   requestRoll: ServerRollRequester,
   requesterLabel: string,
   effectOptions: EntryEffectOptions = {},
+  prepare?: TriggerSourcePreparer,
 ): EngineDeferredTrigger | null {
   if (candidates.length === 0) {
     return null;
@@ -858,6 +1273,7 @@ export function requestTriggerChoice(
     candidates: candidates.map((candidate) => structuredClone(candidate)),
     choice,
     effectOptions,
+    ...(prepare ? { prepare } : {}),
   };
 
   const resolution = requestRoll({

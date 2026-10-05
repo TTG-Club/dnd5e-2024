@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { it } from 'vitest';
 
+import { listClientSources, toSystemPath } from './helpers/clientSources.mjs';
 import { loadEngineBundle, systemRoot } from './helpers/engineBundle.mjs';
 
 const require = createRequire(join(systemRoot, 'package.json'));
@@ -33,6 +34,8 @@ function resolveSources(sources, spells) {
     featureName: source.featureName,
     alwaysPrepared: source.alwaysPrepared,
     castingAbility: source.castingAbility,
+    grantKind: source.grantKind,
+    chosenByPlayer: source.chosenByPlayer,
   }));
 }
 
@@ -354,13 +357,252 @@ it('new level grants preserve existing preparation and removal preserves unrelat
 
   assert.equal(spellbook.length, 2);
   assert.deepEqual(existing, original);
-  assert.equal(spellbook[0], existing[0]);
+  // Запись игрока остаётся его, но отметку «не готовить» выдача ей отдаёт
+  assert.equal(spellbook[0].id, existing[0].id);
+  assert.equal(spellbook[0].grantedByFeature, undefined);
+  assert.equal(spellbook[0].alwaysPrepared, true);
   assert.equal(spellbook[1].prepared, false);
 
   assert.deepEqual(
     engine.removeGrantedSpellsByFeatureNames(spellbook, ['Spellcasting']),
     existing,
   );
+});
+
+/** Заклинание, которое игрок назвал сам на шаге «Выбрать самому» мастера. */
+function chosenClassSpell(name, level = 1) {
+  return {
+    spell: createSpell(name, level),
+    featureName: 'Использование заклинаний',
+    grantKind: 'class',
+    chosenByPlayer: true,
+  };
+}
+
+/** Заклинание того же умения, выданное всем списком класса. */
+function listedClassSpell(name, level = 1) {
+  return {
+    spell: createSpell(name, level),
+    featureName: 'Использование заклинаний',
+    grantKind: 'class',
+  };
+}
+
+/** Отметки подготовки книги по порядку. */
+function preparedMarks(spellbook) {
+  return spellbook.map((spell) => spell.prepared);
+}
+
+it('spells the player picked in the wizard land prepared while the limit has room', () => {
+  // Бард 1 уровня: «Подг. закл.» — 4, игрок выбрал четыре заклинания и два заговора
+  const spellbook = engine.appendGrantedSpells(
+    [],
+    [
+      chosenClassSpell('vicious-mockery', 0),
+      chosenClassSpell('mage-hand', 0),
+      chosenClassSpell('thunderwave'),
+      chosenClassSpell('heroism'),
+      chosenClassSpell('dissonant-whispers'),
+      chosenClassSpell('healing-word'),
+    ],
+    undefined,
+    { limit: 4 },
+  );
+
+  assert.deepEqual(preparedMarks(spellbook), [
+    false,
+    false,
+    true,
+    true,
+    true,
+    true,
+  ]);
+
+  assert.equal(spellbook.filter(engine.countsTowardPreparedSpells).length, 4);
+
+  // Выданные заговоры доступны и без отметки — их правило не трогает
+  assert.equal(
+    spellbook.filter((spell) => engine.isSpellReady(spell)).length,
+    6,
+  );
+
+  assert.equal(spellbook.filter((spell) => spell.alwaysPrepared).length, 0);
+});
+
+it('picks beyond the limit stay unprepared and a missing limit prepares every pick', () => {
+  const picks = ['a', 'b', 'c', 'd', 'e', 'f'].map((name) =>
+    chosenClassSpell(name),
+  );
+
+  assert.deepEqual(
+    preparedMarks(
+      engine.appendGrantedSpells([], picks, undefined, { limit: 4 }),
+    ),
+    [true, true, true, true, false, false],
+  );
+
+  assert.deepEqual(
+    preparedMarks(
+      engine.appendGrantedSpells([], picks, undefined, { limit: 0 }),
+    ),
+    [false, false, false, false, false, false],
+  );
+
+  // Таблица класса предела не даёт — выбранное готово всё
+  assert.deepEqual(
+    preparedMarks(
+      engine.appendGrantedSpells([], picks, undefined, { limit: null }),
+    ),
+    [true, true, true, true, true, true],
+  );
+
+  // Вызывающий предела не передал (черта, вид, предыстория) — как прежде
+  assert.deepEqual(preparedMarks(engine.appendGrantedSpells([], picks)), [
+    false,
+    false,
+    false,
+    false,
+    false,
+    false,
+  ]);
+});
+
+it('the whole class list lands unprepared even when the limit has room', () => {
+  const spellbook = engine.appendGrantedSpells(
+    [],
+    ['a', 'b', 'c'].map((name) => listedClassSpell(name)),
+    undefined,
+    { limit: 4 },
+  );
+
+  assert.deepEqual(preparedMarks(spellbook), [false, false, false]);
+});
+
+it('always prepared grants take no place and picks of a feat stay as they were', () => {
+  const spellbook = engine.appendGrantedSpells(
+    [],
+    [
+      {
+        spell: createSpell('domain-spell'),
+        featureName: 'Domain',
+        grantKind: 'class',
+        alwaysPrepared: true,
+      },
+      // Отметка «не готовить» у самого выбора: место не занимает и готова всегда
+      { ...chosenClassSpell('free-pick'), alwaysPrepared: true },
+      chosenClassSpell('first'),
+      chosenClassSpell('second'),
+      // Черта, взятая уровнем: в счёт подготовки класса не идёт
+      { ...chosenClassSpell('feat-spell'), grantKind: 'feat' },
+      chosenClassSpell('third'),
+    ],
+    undefined,
+    { limit: 2 },
+  );
+
+  assert.deepEqual(
+    spellbook.map((spell) => [spell.name, spell.prepared]),
+    [
+      ['domain-spell', true],
+      ['free-pick', true],
+      ['first', true],
+      ['second', true],
+      ['feat-spell', false],
+      ['third', false],
+    ],
+  );
+
+  assert.equal(spellbook.filter(engine.countsTowardPreparedSpells).length, 2);
+});
+
+it('a level up keeps earlier marks and prepares new picks into the grown limit', () => {
+  // Бард 2 → 3: предел 5 → 6, на листе четыре подготовленных и одно без отметки
+  const existing = [
+    ...['a', 'b', 'c', 'd'].map((name) => ({
+      ...createSpell(name),
+      prepared: true,
+      alwaysPrepared: false,
+      grantedByFeature: 'Использование заклинаний',
+      grantKind: 'class',
+    })),
+    {
+      ...createSpell('unmarked'),
+      prepared: false,
+      alwaysPrepared: false,
+      grantedByFeature: 'Использование заклинаний',
+      grantKind: 'class',
+    },
+  ];
+
+  const original = structuredClone(existing);
+
+  const spellbook = engine.appendGrantedSpells(
+    existing,
+    [
+      chosenClassSpell('suggestion', 2),
+      chosenClassSpell('blindness', 2),
+      chosenClassSpell('silence', 2),
+    ],
+    undefined,
+    { limit: 6 },
+  );
+
+  assert.deepEqual(existing, original);
+  assert.deepEqual(spellbook.slice(0, 5), existing);
+  assert.deepEqual(preparedMarks(spellbook.slice(5)), [true, true, false]);
+  assert.equal(spellbook.filter(engine.countsTowardPreparedSpells).length, 6);
+});
+
+it('answers to a spell choice of a record are marked as picked and cantrip picks need no mark', () => {
+  // Книга волшебника: шесть заклинаний выбором записи, готовят четыре
+  const cantrips = ['light', 'mage-hand'].map((name) => createSpell(name, 0));
+
+  const spells = ['a', 'b', 'c', 'd', 'e', 'f'].map((name) =>
+    createSpell(name),
+  );
+
+  const sources = engine
+    .collectFeatGrantedSpellSources({
+      name: 'Использование заклинаний',
+      featData: {
+        type: 'general',
+        grantedSpells: [{ spellId: 'fixed' }],
+        choices: [
+          { key: 'cantrip', type: 'cantrip', count: 2, options: [] },
+          { key: 'book', type: 'spell', count: 6, options: [] },
+        ],
+      },
+      choices: {
+        cantrip: cantrips.map((spell) => spell.id),
+        book: spells.map((spell) => spell.id),
+      },
+    })
+    .map((source) => ({ ...source, grantKind: 'class' }));
+
+  assert.deepEqual(
+    sources.map((source) => source.chosenByPlayer === true),
+    [false, true, true, true, true, true, true, true, true],
+  );
+
+  const spellbook = engine.appendGrantedSpells(
+    [],
+    resolveSources(sources, [createSpell('fixed'), ...cantrips, ...spells]),
+    undefined,
+    { limit: 4 },
+  );
+
+  // Выданное записью без выбора ложится как прежде; выбранные — в предел
+  assert.deepEqual(preparedMarks(spellbook), [
+    false,
+    false,
+    false,
+    true,
+    true,
+    true,
+    true,
+    false,
+    false,
+  ]);
 });
 
 const { readFileSync } = require('node:fs');
@@ -453,13 +695,12 @@ const preparationHarnessBundle = await build({
   stdin: {
     contents: `
       export function createTabHarness(context) {
-        const { props, computed, engine, resolveClassDefinition, emit,
+        const { props, computed, engine, classDefinitionOf, emit,
           triggerSaveIfNotEdit, toast, ACTOR_SPELLS_TAB_LABELS,
           resolvedStats } = context;
         const { CANTRIP_SPELL_LEVEL, getClassPreparedValue, getPreparedLimitBreakdown,
           countsTowardCantrips, countsTowardPreparedSpells, isSpellReady } = engine;
         ${[
-          'classDefinitionOf',
           'spellcastingBonusContext',
           'preparedSpellsLimit',
           'cantripsLimit',
@@ -555,7 +796,7 @@ function createPreparationFixture() {
     props,
     computed,
     engine,
-    resolveClassDefinition: () => ({
+    classDefinitionOf: () => ({
       tableColumns: [{ key: 'preparedSpells', label: 'Подг. Закл.' }],
       levelTable: [{ level: 1, preparedSpells: '4' }],
     }),
@@ -902,7 +1143,7 @@ function createClericCantripsTab(thaumaturgeAlwaysPrepared) {
     props,
     computed,
     engine,
-    resolveClassDefinition: () => ({}),
+    classDefinitionOf: () => ({}),
     emit: () => {},
     triggerSaveIfNotEdit: () => {},
     toast: { add: () => {} },
@@ -958,6 +1199,79 @@ it('the spell filter and row use the shared readiness rule and the template keep
   );
 });
 
+/** Исходник от корня системы. */
+function readSystemSource(relativePath) {
+  return readFileSync(join(systemRoot, relativePath), 'utf8');
+}
+
+it('creation and level up share one wizard and one preparation rule', () => {
+  const wizard = readSystemSource(
+    'src/client/ui/actor/class/wizard/useClassWizard.ts',
+  );
+
+  // Мастер кладёт заклинания одним вызовом и передаёт в него предел листа
+  assert.equal(wizard.match(/appendGrantedSpells\(/gu).length, 1);
+
+  assert.match(
+    wizard,
+    /appendGrantedSpells\(\s*actor\.value\.spells \?\? \[\],\s*resolvedGrantedSpells,\s*undefined,\s*\{ limit: preparedSpellsLimit\.value \},\s*\)/u,
+  );
+
+  // Предел — расчёт плитки вкладки заклинаний: таблицы классов и поправки листа
+  const limitStart = wizard.indexOf('const preparedSpellsLimit = computed');
+
+  const limitBody = wizard.slice(
+    limitStart,
+    wizard.indexOf('\n  });', limitStart),
+  );
+
+  assert.ok(limitBody.includes('getPreparedLimitBreakdown('));
+  assert.ok(limitBody.includes('getClassPreparedValue('));
+  assert.ok(limitBody.includes('pending.system.preparedSpells'));
+
+  const setup = readActorComponent(
+    'src/client/ui/actor/class/ClassSetupWizard.vue',
+  );
+
+  const grants = componentDeclaration(setup, 'classSpellListGrants');
+
+  // «Весь список» — как есть; «Выбрать самому» — с отметкой выбора игрока
+  assert.match(grants, /if \(mode === 'all'\) \{\s*return offered;\s*\}/u);
+
+  assert.match(
+    grants,
+    /\.filter\(\(granted\) => picked\.has\(granted\.spell\.id\)\)\s*\.map\(\(granted\) => \(\{ \.\.\.granted, chosenByPlayer: true \}\)\)/u,
+  );
+
+  assert.match(
+    componentDeclaration(setup, 'handleComplete'),
+    /buildUpdates\(\[\s*\.\.\.resolvedGrantedSpells\.value,\s*\.\.\.classSpellListGrants\.value,\s*\]\)/u,
+  );
+
+  // Создание, повышение уровня и мультикласс — один и тот же мастер: другого
+  // входа, который клал бы заклинания класса мимо правила, нет
+  const callers = listClientSources()
+    .filter((path) => /\buseClassWizard\(/u.test(readFileSync(path, 'utf8')))
+    .map(toSystemPath)
+    .sort();
+
+  assert.deepEqual(callers, [
+    'src/client/ui/actor/class/ClassSetupWizard.vue',
+    'src/client/ui/actor/class/wizard/useClassWizard.ts',
+  ]);
+
+  // Подпись шага говорит то же, что делает правило
+  const labels = readSystemSource('src/client/ui/actor/constants.ts');
+
+  assert.ok(
+    labels.includes(
+      'Выбранные ложатся на лист подготовленными, пока есть место в пределе подготовки',
+    ),
+  );
+
+  assert.ok(!labels.includes('Выбранные ложатся на лист неподготовленными'));
+});
+
 // Сборщик формы — настоящий модуль редактора: галочка должна пережить и чтение
 // записи в строки, и обратную сборку `featData`
 const featEditor = await loadEngineBundle(
@@ -997,4 +1311,387 @@ it('the spell choice editor round-trips the always prepared mark and omits it wh
   );
 
   assert.ok(rowsEditor.template.includes('v-model="row.alwaysPrepared"'));
+});
+
+/** «Благословение», которое жрец выбрал сам на 1-м уровне: готово, в счёте. */
+function pickedBless(fields = {}) {
+  return {
+    ...createSpell('Благословение'),
+    prepared: true,
+    alwaysPrepared: false,
+    grantedByFeature: 'Использование заклинаний',
+    grantKind: 'class',
+    ...fields,
+  };
+}
+
+/** Заклинание домена: умение подкласса выдаёт его без подготовки. */
+function domainSpell(name, featureName = 'Заклинания Домена Жизни') {
+  return {
+    spell: createSpell(name),
+    featureName,
+    grantKind: 'class',
+    alwaysPrepared: true,
+  };
+}
+
+/** «Заклинания Домена Жизни» так, как их отдаёт выгрузка компендиума. */
+const lifeDomain = {
+  name: 'Заклинания Домена Жизни',
+  level: 3,
+  grantedSpells: ['aid-phb', 'bless-phb'],
+  grantedSpellsByLevel: { 5: ['revivify-phb'] },
+  featData: {
+    grantedSpellsAlwaysPrepared: true,
+    grantedSpells: [
+      { name: 'Подмога', spellId: 'aid-phb' },
+      { name: 'Благословение', spellId: 'bless-phb' },
+      { name: 'Возрождение', spellId: 'revivify-phb' },
+    ],
+  },
+};
+
+it('an always prepared grant over a spell the player picked marks that record instead of adding a second', () => {
+  const sheet = [pickedBless(), { ...createSpell('Усиление'), prepared: true }];
+  const original = structuredClone(sheet);
+
+  const spellbook = engine.appendGrantedSpells(sheet, [
+    domainSpell('Подмога'),
+    domainSpell('Благословение'),
+  ]);
+
+  assert.deepEqual(sheet, original);
+
+  assert.deepEqual(
+    spellbook.map((spell) => spell.name),
+    ['Благословение', 'Усиление', 'Подмога'],
+  );
+
+  const bless = spellbook[0];
+
+  assert.equal(bless.id, sheet[0].id);
+  assert.equal(bless.prepared, true);
+  assert.equal(bless.alwaysPrepared, true);
+  // Источник прежний: откат домена запись игрока не унесёт
+  assert.equal(bless.grantedByFeature, 'Использование заклинаний');
+
+  assert.deepEqual(bless.borrowedPreparation, {
+    sources: ['Заклинания Домена Жизни'],
+    wasPrepared: true,
+  });
+
+  assert.equal(engine.countsTowardPreparedSpells(bless), false);
+  assert.equal(engine.canTogglePrepared(bless), false);
+  assert.equal(engine.isSpellReady(bless), true);
+  // Освободившееся место никто не занял: в счёте осталось только «Усиление»
+  assert.equal(spellbook.filter(engine.countsTowardPreparedSpells).length, 1);
+  assert.equal(spellbook[1], sheet[1]);
+});
+
+it('a grant without the mark over an existing record and a pick over a domain spell change nothing', () => {
+  const sheet = [pickedBless()];
+
+  const unmarked = engine.appendGrantedSpells(sheet, [
+    { spell: createSpell('Благословение'), featureName: 'Посвящённый в магию' },
+    {
+      spell: createSpell('Благословение'),
+      featureName: 'Посвящённый в магию',
+      alwaysPrepared: false,
+    },
+  ]);
+
+  assert.equal(unmarked.length, 1);
+  assert.equal(unmarked[0], sheet[0]);
+
+  // Обратный порядок: домен уже выдал, игрок называет то же заклинание
+  const domainFirst = engine.appendGrantedSpells(
+    [],
+    [domainSpell('Благословение')],
+  );
+
+  const picked = engine.appendGrantedSpells(
+    domainFirst,
+    [chosenClassSpell('Благословение')],
+    undefined,
+    { limit: 4 },
+  );
+
+  assert.equal(picked.length, 1);
+  assert.equal(picked[0], domainFirst[0]);
+  assert.equal(picked[0].borrowedPreparation, undefined);
+
+  // Повтор выдачи самим доменом свою запись тоже не трогает
+  assert.equal(
+    engine.appendGrantedSpells(domainFirst, [domainSpell('Благословение')])[0],
+    domainFirst[0],
+  );
+});
+
+it('removing the source of the mark returns the ordinary record and keeps it while another source holds it', () => {
+  const sheet = [
+    pickedBless(),
+    pickedBless({ id: 'shield', name: 'Щит веры', prepared: false }),
+  ];
+
+  const marked = engine.appendGrantedSpells(sheet, [
+    domainSpell('Благословение'),
+    domainSpell('Щит веры'),
+    domainSpell('Подмога'),
+  ]);
+
+  // Снятие домена: его запись уходит, записи игрока — прежние, каждая со своей
+  // подготовкой
+  assert.deepEqual(
+    engine.removeGrantedSpellsByFeatureNames(marked, [
+      'Заклинания Домена Жизни',
+    ]),
+    sheet,
+  );
+
+  const twice = engine.appendGrantedSpells(marked, [
+    domainSpell('Благословение', 'Метка исцеления'),
+  ]);
+
+  assert.deepEqual(twice[0].borrowedPreparation.sources, [
+    'Заклинания Домена Жизни',
+    'Метка исцеления',
+  ]);
+
+  const withoutDomain = engine.removeGrantedSpellsByFeatureNames(twice, [
+    'Заклинания Домена Жизни',
+  ]);
+
+  assert.equal(withoutDomain[0].alwaysPrepared, true);
+
+  assert.deepEqual(withoutDomain[0].borrowedPreparation.sources, [
+    'Метка исцеления',
+  ]);
+
+  assert.deepEqual(
+    engine.removeGrantedSpellsByFeatureNames(withoutDomain, [
+      'Метка исцеления',
+    ])[0],
+    sheet[0],
+  );
+
+  // Снятие источника самой записи уносит её целиком, как и раньше
+  assert.deepEqual(
+    engine
+      .removeGrantedSpellsByFeatureNames(marked, ['Использование заклинаний'])
+      .map((spell) => spell.name),
+    ['Подмога'],
+  );
+
+  // Чужое снятие отметку не трогает
+  assert.equal(
+    engine.removeGrantedSpellsByFeatureNames(marked, ['Тёмное зрение'])[0],
+    marked[0],
+  );
+});
+
+it('a repeated grant and the class sync keep the borrowed mark', () => {
+  const marked = engine.appendGrantedSpells(
+    [pickedBless()],
+    [domainSpell('Благословение'), domainSpell('Подмога')],
+  );
+
+  const again = engine.appendGrantedSpells(marked, [
+    domainSpell('Благословение'),
+    domainSpell('Подмога'),
+  ]);
+
+  assert.equal(again.length, 2);
+  assert.equal(again[0], marked[0]);
+  assert.equal(again[1], marked[1]);
+
+  const spellcasting = { name: 'Использование заклинаний', level: 1 };
+
+  assert.equal(
+    engine.syncClassGrantedSpells(marked, [
+      { ...spellcasting, classLevel: 3 },
+      { ...lifeDomain, classLevel: 3 },
+    ]),
+    marked,
+  );
+});
+
+it('the sync gives the mark to a sheet built before the rule, once the class level opened the spell', () => {
+  const sheet = [
+    pickedBless(),
+    pickedBless({ id: 'revivify', name: 'Возрождение', level: 3 }),
+    {
+      ...createSpell('Подмога'),
+      prepared: true,
+      alwaysPrepared: true,
+      grantedByFeature: 'Заклинания Домена Жизни',
+      grantKind: 'class',
+    },
+  ];
+
+  // Уровень класса не назван — по названию одному ничего не досылается
+  assert.equal(engine.syncClassGrantedSpells(sheet, [lifeDomain]), sheet);
+
+  // Подкласс ещё не получен
+  assert.equal(
+    engine.syncClassGrantedSpells(sheet, [{ ...lifeDomain, classLevel: 2 }]),
+    sheet,
+  );
+
+  const third = engine.syncClassGrantedSpells(sheet, [
+    { ...lifeDomain, classLevel: 3 },
+  ]);
+
+  assert.equal(third[0].alwaysPrepared, true);
+  assert.equal(third[0].grantedByFeature, 'Использование заклинаний');
+  assert.equal(engine.countsTowardPreparedSpells(third[0]), false);
+  // «Возрождение» домен даёт с 5-го уровня — на 3-м оно обычное
+  assert.equal(third[1], sheet[1]);
+  assert.equal(third[2], sheet[2]);
+
+  // Второй проход ничего не меняет — лист не отправляется повторно
+  assert.equal(
+    engine.syncClassGrantedSpells(third, [{ ...lifeDomain, classLevel: 3 }]),
+    third,
+  );
+
+  const fifth = engine.syncClassGrantedSpells(third, [
+    { ...lifeDomain, classLevel: 5 },
+  ]);
+
+  assert.equal(fifth[1].alwaysPrepared, true);
+
+  assert.deepEqual(
+    engine.removeGrantedSpellsByFeatureNames(fifth, [
+      'Заклинания Домена Жизни',
+    ]),
+    sheet.slice(0, 2),
+  );
+});
+
+it('the place freed by the mark goes to a pick of the same level, never to an unpicked spell', () => {
+  const sheet = [
+    pickedBless(),
+    { ...createSpell('Усиление'), prepared: true },
+    { ...createSpell('Щит веры'), prepared: false },
+  ];
+
+  const spellbook = engine.appendGrantedSpells(
+    sheet,
+    [domainSpell('Благословение'), chosenClassSpell('Лечение ран')],
+    undefined,
+    { limit: 2 },
+  );
+
+  assert.equal(spellbook[2], sheet[2]);
+  assert.equal(spellbook[3].prepared, true);
+  assert.equal(spellbook.filter(engine.countsTowardPreparedSpells).length, 2);
+});
+
+it('a cantrip of the book marked by a species grant leaves the cantrips column', () => {
+  const sheet = [{ ...createSpell('Свет', 0), prepared: true }];
+
+  const spellbook = engine.appendGrantedSpells(
+    sheet,
+    [
+      {
+        spell: createSpell('Свет', 0),
+        featureName: 'Наследие эльфов',
+        alwaysPrepared: true,
+      },
+    ],
+    'species',
+  );
+
+  assert.equal(spellbook.length, 1);
+  assert.equal(engine.countsTowardCantrips(spellbook[0]), false);
+  assert.equal(engine.canTogglePrepared(spellbook[0]), false);
+  assert.equal(engine.isSpellReady(spellbook[0]), true);
+
+  const returned = engine.removeGrantedSpellsByFeatureNames(spellbook, [
+    'Наследие эльфов',
+  ]);
+
+  assert.equal(engine.countsTowardCantrips(returned[0]), true);
+  assert.equal(engine.canTogglePrepared(returned[0]), true);
+});
+
+/** Правка черты на листе: снятие по старому названию и повторная выдача с листа. */
+function reapplyFromSheet(sheet, oldName, newName = oldName) {
+  return engine.appendGrantedSpells(
+    engine.removeGrantedSpellsByFeatureNames(sheet, [oldName]),
+    engine.collectCarriedFeatureSpells(sheet, oldName, newName),
+    'feat',
+  );
+}
+
+it('editing a feat on the sheet keeps the grant fields of its own spells', () => {
+  const book = [{ ...createSpell('Щит'), prepared: true }];
+
+  const sheet = engine.appendGrantedSpells(
+    book,
+    [
+      {
+        spell: createSpell('Туманный шаг', 2),
+        featureName: 'Тронутый феями',
+        alwaysPrepared: true,
+        castingAbility: 'wisdom',
+      },
+      {
+        spell: createSpell('Очарование личности'),
+        featureName: 'Тронутый феями',
+      },
+      {
+        spell: createSpell('Метка охотника'),
+        featureName: 'Тронутый феями',
+        alwaysPrepared: true,
+        grantKind: 'species',
+      },
+    ],
+    'feat',
+  );
+
+  assert.equal(sheet.filter(engine.countsTowardPreparedSpells).length, 1);
+
+  const edited = reapplyFromSheet(
+    sheet,
+    'Тронутый феями',
+    'Тронутый феями (правка)',
+  );
+
+  const byName = (name) => edited.find((spell) => spell.name === name);
+
+  // Отметка «не готовить» остаётся, и заклинание черты не занимает предел
+  assert.equal(byName('Туманный шаг').alwaysPrepared, true);
+  assert.equal(byName('Туманный шаг').prepared, true);
+  assert.equal(edited.filter(engine.countsTowardPreparedSpells).length, 1);
+
+  // Заклинание без отметки её не получает
+  assert.equal(byName('Очарование личности').alwaysPrepared, false);
+
+  // Характеристика и источник выдачи — прежние, название умения — новое
+  assert.equal(byName('Туманный шаг').attackAbility, 'wisdom');
+  assert.equal(byName('Туманный шаг').grantKind, 'feat');
+  assert.equal(byName('Метка охотника').grantKind, 'species');
+
+  assert.deepEqual(
+    edited.slice(1).map((spell) => spell.grantedByFeature),
+    Array.from({ length: 3 }).fill('Тронутый феями (правка)'),
+  );
+
+  // Запись игрока правка черты не трогает
+  assert.equal(edited[0], book[0]);
+});
+
+it('editing a feat on the sheet keeps the mark it lent to a record of another source', () => {
+  const sheet = engine.appendGrantedSpells(
+    [pickedBless()],
+    [domainSpell('Благословение', 'Метка исцеления')],
+    'feat',
+  );
+
+  const edited = reapplyFromSheet(sheet, 'Метка исцеления', 'Метка лекаря');
+
+  assert.equal(edited.length, 1);
+  assert.equal(edited[0].alwaysPrepared, true);
+  assert.deepEqual(edited[0].borrowedPreparation.sources, ['Метка лекаря']);
 });

@@ -9,10 +9,19 @@
  * же правке. Сборка записи лишнее просто не пишет.
  */
 
-import type { CounterRecovery } from '@vtt/shared/system/dnd.js';
+import type {
+  CounterDefinitionExtras,
+  CounterRecovery,
+  CounterRecoveryChoice,
+  CounterRecoveryForm,
+} from '@vtt/shared/system/dnd.js';
 
 import { generateId } from '@vtt/shared';
-import { COUNTER_FORMULA_TOKENS } from '@vtt/shared/system/dnd.js';
+import {
+  buildCounterRecoveryForm,
+  COUNTER_FORMULA_TOKENS,
+  readCounterRecoveryForm,
+} from '@vtt/shared/system/dnd.js';
 
 /** Ступень максимума в правке: `uid` держит строку списка при перестановках. */
 export interface EditableProgressionEntry {
@@ -38,7 +47,15 @@ export interface EditableResourceCounter {
    * вдохновение барда равно модификатору Харизмы, но не меньше одного.
    */
   min: number;
-  recovery: CounterRecovery;
+  /** Откат: слово отката либо «отдых ничего не возвращает» */
+  recovery: CounterRecoveryChoice;
+  /**
+   * Раздельные правила отдыха записи, которые выбором {@link recovery} не
+   * сказать (round-trip; форма их не правит). Новый выбор отката их снимает.
+   */
+  customRest?: CounterRecoveryForm['customRest'];
+  /** Ресурс появляется на листе пустым, а не полным */
+  startsEmpty: boolean;
   /** Ступени максимума по уровням; пусто — максимум считается формулой */
   progression: EditableProgressionEntry[];
   /** Уровень появления ресурса. Есть только у счётчика класса */
@@ -108,9 +125,53 @@ export function createResourceCounter(
     max: COUNTER_FORMULA_TOKENS.proficiencyBonus,
     min: 0,
     recovery: 'long',
+    startsEmpty: false,
     progression: [],
     startLevel: 1,
     showInTable: false,
+  };
+}
+
+/**
+ * Отдых и первое значение ресурса записи — полями редактора. Одно место на
+ * счётчик класса и ресурс записи: иначе два редактора читали бы один и тот же
+ * отдых по-разному.
+ *
+ * @param definition - определение ресурса: класса, черты, вида
+ * @returns поля редактора
+ */
+export function toEditableCounterExtras(
+  definition: CounterDefinitionExtras & { recovery?: CounterRecovery },
+): Pick<EditableResourceCounter, 'recovery' | 'customRest' | 'startsEmpty'> {
+  const form = readCounterRecoveryForm(definition);
+
+  return {
+    recovery: form.choice,
+    ...(form.customRest ? { customRest: form.customRest } : {}),
+    startsEmpty: definition.startsEmpty === true,
+  };
+}
+
+/**
+ * Отдых и первое значение ресурса из полей редактора — полями определения.
+ * «Появляется пустым» пишется только взведённым: у ресурса без него поля быть
+ * не должно, и старые записи остаются байт в байт прежними.
+ *
+ * @param counter - ресурс в правке
+ * @returns поля определения
+ */
+export function buildCounterExtras(
+  counter: Pick<
+    EditableResourceCounter,
+    'recovery' | 'customRest' | 'startsEmpty'
+  >,
+): CounterDefinitionExtras & { recovery: CounterRecovery } {
+  return {
+    ...buildCounterRecoveryForm({
+      choice: counter.recovery,
+      customRest: counter.customRest,
+    }),
+    ...(counter.startsEmpty ? { startsEmpty: true } : {}),
   };
 }
 

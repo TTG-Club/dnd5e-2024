@@ -2,11 +2,13 @@ import type { DistanceUnit, Token } from '@vtt/shared';
 import type { Spell } from '@vtt/shared/system/dnd.js';
 
 import { resolveTokenScale } from '@/core/entityUtils';
-import { useChatStore } from '@/stores/chatStore';
 import { useTargetStore } from '@/stores/targetStore';
 import { useWorldStore } from '@/stores/worldStore';
 import { DISTANCE_UNIT_SHORT, getTokenEdgeDistance } from '@vtt/shared';
 import { checkSpellRange, getSpellMaxRange } from '@vtt/shared/system/dnd.js';
+
+import { OUT_OF_RANGE_LABELS } from '../ui/actor/constants';
+import { refuseAction } from './actionRefusal';
 
 /** Результат измерения дистанции между токенами на сцене */
 export interface SceneTokenDistance {
@@ -42,6 +44,9 @@ export interface SpellRangeCheckResult {
  * знает, поэтому мерить надо от ближайшей к цели. Раньше брался первый
  * попавшийся токен — атака «дальнего» гоблина давала помеху за дистанцию или
  * «цель вне досягаемости», хотя бил тот, что стоит рядом.
+ *
+ * Цель — единственная фишка самого атакующего: расстояние 0. Применение «на
+ * цель» с дальностью допускает получателем самого применившего.
  *
  * @param attackerActorId - ID актора-атакующего (ищутся его токены)
  * @param targetTokenId - ID токена-цели
@@ -89,14 +94,19 @@ export function measureTokenDistanceOnScene(
       ),
     );
 
-  if (distances.length === 0) {
+  // Других фишек у атакующего нет, а цель — его собственная: до себя 0.
+  // Иначе выбрать себя получателем (выпить своё зелье) было бы нельзя
+  const isSelfTarget =
+    distances.length === 0 && targetToken.actorId === attackerActorId;
+
+  if (distances.length === 0 && !isSelfTarget) {
     return null;
   }
 
   const units = scene.gridSettings.units ?? 'ft';
 
   return {
-    distance: Math.round(Math.min(...distances)),
+    distance: isSelfTarget ? 0 : Math.round(Math.min(...distances)),
     units,
     unitLabel: DISTANCE_UNIT_SHORT[units] ?? units,
   };
@@ -156,7 +166,7 @@ export function getSpellMaxRangeOnScene(spell: Spell): number | null {
 
 /**
  * Гейт по дистанции для конкретного токена-цели: если цель вне дистанции
- * заклинания — отправляет ⛔-сообщение в чат и блокирует действие.
+ * заклинания — говорит об этом действовавшему и блокирует действие.
  *
  * Используется и для одиночной цели (`isSpellCastBlockedByRange`),
  * и per-target при распределении снарядов (`projectileStore`).
@@ -185,19 +195,38 @@ export function isSpellTargetBlockedByRange(
   const maxRangeSuffix =
     rangeCheck.maxRange === null
       ? ''
-      : `, дистанция заклинания — ${rangeCheck.maxRange} ${rangeCheck.unitLabel}`;
+      : `${OUT_OF_RANGE_LABELS.spellRangePrefix}${rangeCheck.maxRange} ${rangeCheck.unitLabel}`;
 
-  useChatStore().sendMessage(
-    `⛔ ${spell.name}: цель вне дистанции (до цели ${rangeCheck.distance} ${rangeCheck.unitLabel}${maxRangeSuffix})`,
-    'text',
+  refuseAction(
+    spell.name,
+    `${OUT_OF_RANGE_LABELS.outOfSpellRange}${rangeCheck.distance} ${rangeCheck.unitLabel}${maxRangeSuffix}${OUT_OF_RANGE_LABELS.close}`,
   );
 
   return true;
 }
 
 /**
+ * Удар оружием или действие существа не достаёт до цели: отказ действовавшему.
+ * Один на оба пути — вкладку снаряжения, лист существа и горячую панель.
+ *
+ * @param sourceName - чем бьют
+ * @param measurement - расстояние до цели
+ * @param measurement.distance - расстояние
+ * @param measurement.unitLabel - единица
+ */
+export function refuseOutOfReach(
+  sourceName: string,
+  measurement: { distance: number; unitLabel: string },
+): void {
+  refuseAction(
+    sourceName,
+    `${OUT_OF_RANGE_LABELS.outOfReach}${measurement.distance} ${measurement.unitLabel}${OUT_OF_RANGE_LABELS.close}`,
+  );
+}
+
+/**
  * Гейт каста по дистанции: если выбрана цель и она вне дистанции заклинания —
- * отправляет ⛔-сообщение в чат и блокирует каст.
+ * говорит об этом действовавшему и блокирует каст.
  *
  * Зеркалирует поведение оружейной атаки (`weapon-attack` в `dnd5eMacros.ts`):
  * без выбранной цели каст не блокируется. AoE-заклинания ограничиваются

@@ -17,13 +17,17 @@ import type {
   ActiveEffectDetailSectionKey,
   AttackKind,
   CarriedEffectSourceKind,
-  CounterRecovery,
+  CounterRecoveryChoice,
   CounterRestKey,
   HitDie,
   SkillInfluenceTone,
+  SpellCastRollKind,
 } from '@vtt/shared/system/dnd.js';
 
 import {
+  COMPENDIUM_CLASS_KIND,
+  COMPENDIUM_SPELL_KIND,
+  COUNTER_RECOVERY_CHOICE_NONE,
   CUSTOM_SKILLS_MAX,
   DEATH_SAVE_DC,
   DEATH_SAVE_DOUBLE_FAILURE_ROLL,
@@ -139,11 +143,9 @@ export const COMPENDIUM_PICKER_CURRENT_TITLES: Record<
  */
 export const ALL_PACKS_ID = '__all__';
 
-/** Тип записей компендиума: заклинания */
-export const COMPENDIUM_SPELL_KIND = 'spell';
-
-/** Тип записей компендиума: определения классов */
-export const COMPENDIUM_CLASS_KIND = 'class';
+// Типы записей компендиума заданы движком — здесь они только переэкспортируются
+// для окон листа, чтобы строка типа существовала в системе один раз.
+export { COMPENDIUM_CLASS_KIND, COMPENDIUM_SPELL_KIND };
 
 /**
  * Типы записей компендиума, которые вкладка заклинаний грузит заранее для окна
@@ -225,6 +227,14 @@ export const COMPENDIUM_PACK_BUTTON_CLASS =
  * из таблеток.
  */
 export const LIST_ROW_FLAT_CLASS = 'px-2 hover:bg-primary/10';
+
+/**
+ * Оформление круглой кнопки в шапке окна: настройки, свернуть, закрыть. Одно на
+ * лист персонажа, лист существа и окно раздела компендиума — кнопки шапки
+ * означают везде одно и то же и не должны выглядеть по-разному.
+ */
+export const HEADER_ROUND_BUTTON_CLASS =
+  'flex h-8 w-8 items-center justify-center rounded-full border border-default/50 bg-elevated/30 text-muted transition-colors hover:bg-accented/50 hover:text-highlighted';
 
 /**
  * Та же строка на листе персонажа: там она стоит порознь с соседями, и без
@@ -1558,14 +1568,16 @@ export const GRANTED_CANTRIPS_GROUP_LEVEL = -1;
 export const CLASS_SPELL_LIST_LABELS = {
   title: 'Заклинания списка класса',
   allLabel: 'Весь список сразу',
-  allDescriptionPrefix: 'На лист лягут все доступные заклинания списка: ',
+  allDescriptionPrefix:
+    'На лист лягут все доступные заклинания списка, подготовку отмечаете сами: ',
   chosenLabel: 'Выбрать самому',
   chosenDescription:
     'На лист лягут только выбранные. Добрать можно при повышении уровня или во вкладке заклинаний.',
   pickerTitle: 'Заклинания из списка класса',
   pickerExplanation:
-    'Выбранные ложатся на лист неподготовленными — подготовку отмечаете сами.',
+    'Выбранные ложатся на лист подготовленными, пока есть место в пределе подготовки; что не поместилось — неподготовленным.',
   preparedHintPrefix: 'По таблице класса на этом уровне подготавливают: ',
+  preparedRoomPrefix: 'Свободных мест подготовки на листе: ',
   emptyPool: 'Все заклинания списка уже есть на листе',
   loadingPool: 'Список заклинаний загружается…',
 } as const;
@@ -1646,6 +1658,10 @@ export const SPELL_FORM_LABELS = {
     + 'не влияет — за них отвечает «Способ применения».',
   targetCount: 'Кол-во целей',
   scalingTargets: 'Доп. целей за круг',
+  scalingAreaSize: 'Рост области за круг',
+  scalingAreaSizeHint:
+    'На сколько растёт размер области за каждый круг ячейки выше базового: '
+    + '«Туманное облако» — 20. Круг тогда выбирают до шаблона.',
   projectilesTitle: 'Снаряды',
   projectilesEnable: 'Использовать снаряды',
   projectilesHint:
@@ -2425,6 +2441,13 @@ export const FEAT_GRANTS_LABELS = {
     + 'написать («на 3-м два заряда, на 7-м три»). Указывайте только уровни, '
     + 'где значение МЕНЯЕТСЯ. Пока есть хоть одна ступень, поле максимума не '
     + 'считается; уберите все ступени — и максимум снова пойдёт от источника.',
+  counterStartsEmpty: 'Появляется пустым',
+  counterStartsEmptyHint:
+    'Новый ресурс на листе стоит на нуле, а не на максимуме: его набирают '
+    + 'действием (эффект «вернуть ресурс»), а не получают вместе с умением.',
+  counterCustomRestHint:
+    'Отдых этого ресурса записан раздельными правилами (короткий и '
+    + 'продолжительный отдельно) — действуют они. Новый выбор здесь их заменит.',
   counterShowInTable: 'Указать в таблице',
   counterShowInTableHint:
     'Добавляет ресурс колонкой в таблицу прогрессии класса. Ряд по уровням '
@@ -2835,6 +2858,21 @@ export const FEAT_CHOICES_LABELS = {
  * Подписи листа персонажа. Общие с листом существа (виды отдыха, заголовок
  * ошибки) берутся из `REST_LABELS` и `TOAST_TITLES`.
  */
+/**
+ * Отказ действия, пока лист сущности в режиме правки; перечень действий — в
+ * шапке `sheetEditLock.ts`
+ */
+/** Подписи отказа действия (`actionRefusal.ts`) */
+export const ACTION_REFUSAL_LABELS = {
+  /** Между названием того, чем действуют, и причиной отказа */
+  sourceSeparator: ': ',
+} as const;
+
+export const SHEET_EDIT_LOCK_LABELS = {
+  title: 'Лист в режиме правки',
+  description: 'Сохраните или отмените правку листа — и повторите действие.',
+} as const;
+
 export const ACTOR_SHEET_LABELS = {
   confirmSave: 'Сохранить изменения перед закрытием?',
   /** Итог передачи предмета с другого листа — тот же жест, что у существа */
@@ -3293,6 +3331,12 @@ export const QUICK_PANEL_LABELS = {
   actionsTitlePrefix: 'Действия — ',
 } as const;
 
+/** Строка чата о вычете из урона: «минус кость к урону атак носителя» */
+export const DAMAGE_DEDUCTION_LABELS = {
+  /** Заголовок части-вычета — как «Колющий урон» у части урона */
+  header: 'Вычет из урона',
+} as const;
+
 /**
  * Строки чата о касте, который никого не задел. Причина у пустого результата
  * бывает разная — область поставлена мимо, цель не выбрана вовсе, — а игрок
@@ -3311,11 +3355,32 @@ export const SPELL_CHOOSE_TARGET_LABELS = {
   empty: 'Нет доступных целей на сцене.',
 } as const;
 
-/** Префикс независимого окна применения заклинания. */
-export const SPELL_CAST_MODAL_KEY_PREFIX = 'spell-cast';
+/**
+ * Отказ «цель вне досягаемости»: разбор расстояния. Заголовком идёт название
+ * того, чем действуют. Одни подписи на удар оружием, действие существа и
+ * заклинание (`useSceneRangeCheck.ts`).
+ */
+export const OUT_OF_RANGE_LABELS = {
+  /** Удар и действие: дальше идёт расстояние до цели */
+  outOfReach: 'Цель вне досягаемости (',
+  /** Заклинание: дальше идёт расстояние до цели */
+  outOfSpellRange: 'Цель вне дистанции (до цели ',
+  /** Предел заклинания — показывается, чтобы расстояние не читалось требованием */
+  spellRangePrefix: ', дистанция заклинания — ',
+  close: ')',
+} as const;
+
+/** Префикс ключа окна броска: у каждого открытия своё окно (`diceRollWindow.ts`) */
+export const DICE_ROLL_MODAL_KEY_PREFIX = 'dice-roll';
 
 /** Префикс окна распределения снарядов, привязанного к сессии карты. */
 export const PROJECTILE_MODAL_KEY_PREFIX = 'projectile';
+
+/** Имя окна распределения снарядов и выбора целей в менеджере окон ядра */
+export const PROJECTILE_PROMPT_MODAL = 'ProjectilePromptModal';
+
+/** Префикс id плашки подтверждения каста: дальше идёт id заклинания */
+export const SPELL_CAST_PROMPT_ID_PREFIX = 'spell-cast-';
 
 /** Префикс окна выбора разных целей заклинания-эффекта. */
 export const SPELL_TARGETS_MODAL_KEY_PREFIX = 'spell-targets';
@@ -3333,7 +3398,20 @@ export const SPELL_EFFECT_TARGET_LABELS = {
   unavailable:
     'Нельзя выбрать цели: нужна доступная сцена и управление заклинателем.',
   changed: 'Цели или доступ изменились. Выберите цели заклинания заново.',
+  /** Отказы каста с выбранными целями — причиной, а не общей фразой */
+  spellChanged:
+    'Заклинание на листе изменилось или убрано. Выберите цели заклинания заново.',
+  notPrepared:
+    'Заклинание не подготовлено — отметьте подготовку на листе, чтобы наложить его.',
+  noUses: 'У заклинания не осталось зарядов.',
+  noSlot: 'Нет свободной ячейки выбранного круга.',
 } as const;
+
+/** Причина отказа каста с выбранными целями — ключ подписи отказа */
+export type SpellEffectTargetProblem = Extract<
+  keyof typeof SPELL_EFFECT_TARGET_LABELS,
+  'changed' | 'spellChanged' | 'notPrepared' | 'noUses' | 'noSlot'
+>;
 
 /** Подписи распределения снарядов. */
 export const PROJECTILE_PROMPT_LABELS = {
@@ -3348,6 +3426,21 @@ export const PROJECTILE_PROMPT_LABELS = {
    * галочку с нулём снарядов и не понимает, почему ничего не произошло.
    */
   targetingHint: 'Выберите цели — щёлкайте по фишкам на карте',
+} as const;
+
+/**
+ * Имя плашки выбора круга до каста в реестре модалок. Её открывает всё, чему
+ * круг нужен раньше окна броска: область, растущая от круга, и цена, которая
+ * от него считается.
+ */
+export const SPELL_CAST_LEVEL_PROMPT_MODAL = 'SpellCastLevelPromptModal';
+
+/** Подписи плашки выбора круга до каста */
+export const SPELL_CAST_LEVEL_PROMPT_LABELS = {
+  /** Между кругом и тем, что он даёт: «3-й круг — 40 фт» */
+  detailSeparator: ' — ',
+  confirm: 'Наложить этим кругом',
+  cancel: 'Отменить каст',
 } as const;
 
 /**
@@ -3670,8 +3763,20 @@ export const CLASS_WIZARD_LABELS = {
   choiceTakenTitle: 'Уже взято:',
   /** Пояснение строки, чьё умение получено раньше, а выбор открылся сейчас */
   reopenedHint: 'Умение получено раньше — на этом уровне у него новый выбор.',
+  /**
+   * Пояснение справочного списка вариантов: из него не выбирают. Список — тот,
+   * чьему умению не задана настройка выбора
+   */
+  referenceListHint: 'Список вариантов справочный — выбирать из него не нужно.',
+  /**
+   * Продолжение пояснения, когда у вариантов есть своя механика: дальше идут
+   * названия вариантов, чьи записи лягут на лист без выбора
+   */
+  referenceGrantsPrefix: ' На лист лягут записи вариантов с механикой: ',
   /** Подпись выбора навыка, который называет само умение */
   featureSkillLabel: 'Навык умения',
+  /** Подпись собственных вопросов черты, взятой уровнем: дальше её название */
+  featOwnChoicesPrefix: 'Выборы черты: ',
   /** Заголовок списка заклинаний, выданных записью */
   grantedSpellsTitle: 'Выдаёт заклинания:',
   /** Подпись плашки выданного заклинания: она открывает его карточку */
@@ -4118,6 +4223,8 @@ export const NAME_EDIT_LABELS = {
 
 /** Подписи вкладки снаряжения листа персонажа */
 export const ACTOR_EQUIPMENT_TAB_LABELS = {
+  /** Заголовок отказа: удар под запретом трат хода */
+  attackBlockedTitle: 'Сейчас не ударить',
   weaponsSimple: 'Простое оружие',
   weaponsMartial: 'Воинское оружие',
   sectionWeapons: 'Оружие',
@@ -4166,8 +4273,10 @@ export const CLASS_FEATURE_LABELS = {
   // ── Варианты ──
   choicesTitle: 'Варианты',
   choicesHint:
-    'Список, из которого выбирают по ходу игры: боевые стили, манёвры, '
-    + 'воззвания. Мастер класса спрашивает выбор на уровне умения.',
+    'Список вариантов умения: боевые стили, манёвры, воззвания, мутации. '
+    + 'Сам по себе список справочный — мастер класса ничего не спрашивает. '
+    + 'Чтобы игрок выбирал, отметьте «Из списка выбирают» и задайте, сколько '
+    + 'вариантов он берёт.',
   choiceAdd: 'Добавить вариант',
 
   // ── Механика и эффекты ──
@@ -4186,8 +4295,11 @@ export const CLASS_FEATURE_CHOICE_CONFIG_LABELS = {
   selectable: 'Из списка выбирают',
   selectableHint:
     'Игрок берёт из списка столько вариантов, сколько указано ниже, и мастер '
-    + 'уровня спрашивает его на нужном уровне. Без галочки варианты остаются '
-    + 'справкой в описании умения.',
+    + 'уровня спрашивает его на нужном уровне. Без галочки список справочный: '
+    + 'мастер уровня ничего не спрашивает, а механика и эффекты КАЖДОГО '
+    + 'варианта достаются владельцу умения (так записывают список, которым '
+    + 'пользуются по ситуации, — мутации, приспособления). Галочка сама не '
+    + 'ставится: добавили варианты, из которых выбирают, — отметьте её.',
   count: 'Сколько выбрать',
   countHint:
     'Сколько вариантов игрок берёт на уровне самого умения. Дальнейший рост '
@@ -4244,7 +4356,10 @@ export const CLASS_FEATURE_CHOICE_LABELS = {
   mechanicsHint:
     'Что вариант делает на листе, когда его выбрали: выдаёт владения и '
     + 'заклинания, даёт выбрать навык, заводит ресурс, меняет числа эффектом. '
-    + 'Дары действуют, только пока вариант выбран.',
+    + 'Дары действуют, только пока вариант выбран. У справочного списка (без '
+    + '«Из списка выбирают») выбора нет: механика каждого варианта достаётся '
+    + 'владельцу умения сразу — постоянный эффект там будет действовать '
+    + 'всегда, поэтому эффекты таких вариантов делают включаемыми.',
   /** Бейдж свёрнутой строки: сколько блоков механики заполнено */
   mechanicsBadge: 'механика: ',
 } as const;
@@ -4554,7 +4669,7 @@ export const CLASS_COUNTERS_LABELS = {
  * свои завели бы третье название одного и того же отдыха.
  */
 export const COUNTER_RECOVERY_OPTIONS: ReadonlyArray<{
-  value: CounterRecovery;
+  value: CounterRecoveryChoice;
   label: string;
 }> = [
   { value: 'short', label: REST_LABELS.short },
@@ -4563,6 +4678,9 @@ export const COUNTER_RECOVERY_OPTIONS: ReadonlyArray<{
     value: 'short-one',
     label: 'Один заряд на коротком, все на продолжительном',
   },
+  // Ресурс, который набирают действием («Очки мутации» — от потраченной
+  // ячейки): ни короткий, ни продолжительный отдых его не возвращают
+  { value: COUNTER_RECOVERY_CHOICE_NONE, label: 'Отдых не восстанавливает' },
 ];
 
 /** Наибольший уровень персонажа: дальше таблица прогрессии не идёт. */
@@ -4622,6 +4740,7 @@ export const SPELL_DETAIL_LABELS = {
   higherLevels: 'На высших кругах',
   scalingDamagePrefix: 'Урон:',
   scalingTargetsPrefix: 'Цели:',
+  scalingAreaSizePrefix: 'Область за круг:',
   classesPrefix: 'Классы:',
   /** Приставка добавки снарядов за круг ячейки */
   projectilesPerSlotPrefix: ' (+',
@@ -4649,6 +4768,8 @@ export const DICE_ROLL_LABELS = {
     'Из-за наложенных состояний (например, Парализованный) этот спасбросок '
     + 'будет автоматически провален.',
   spellLevel: 'Круг заклинания',
+  /** Под списком кругов, когда круг закреплён до окна (плашкой, выбором целей) */
+  spellLevelLocked: 'Круг выбран ранее — здесь его не изменить',
   consumeSlot: 'Тратить ячейку заклинаний',
   usePactSlot: 'Использовать ячейку Пакта (Warlock)',
   scalingPrefix: 'Усиление:',
@@ -4718,8 +4839,12 @@ export const ACTOR_SPELLS_TAB_LABELS = {
   cantripLimitTitle: 'Лимит заговоров',
   cantripLimitTextPrefix: 'Вы не можете подготовить больше заговоров (',
   noUsesTitle: 'Нет зарядов',
-  noUsesTextPrefix: 'У «',
-  noUsesTextSuffix: '» не осталось зарядов — нужен отдых.',
+  castBlockedTitle: 'Сейчас не наложить',
+  /**
+   * Причина отказа без названия заклинания: его называет помощник отказа
+   * («<заклинание>: <причина>», `refuseSpellCast`)
+   */
+  noUsesText: 'Не осталось зарядов — нужен отдых.',
   noSlotsTitle: 'Недоступно',
   noSlotsTextPrefix: 'У вас нет доступных ячеек заклинаний ',
   noSlotsTextSuffix: ' круга или выше.',
@@ -4745,6 +4870,17 @@ export const ACTOR_SPELLS_TAB_LABELS = {
   slotAvailable: 'Доступна',
   empty: 'У данного персонажа пока нет заклинаний.',
 } as const;
+
+/**
+ * Надпись кнопки окна броска заклинания по виду броска из плана каста
+ * (`resolveSpellCastPlan`). Одна таблица на лист и горячую панель: «Бросить
+ * урон» появляется только там, где у каста есть урон.
+ */
+export const SPELL_ROLL_BUTTON_LABELS = {
+  attack: ACTOR_SPELLS_TAB_LABELS.attackRoll,
+  damage: SPELL_DAMAGE_ROLL_BUTTON,
+  healing: ACTOR_SPELLS_TAB_LABELS.healing,
+} as const satisfies Record<SpellCastRollKind, string>;
 
 /**
  * Подписи левой колонки листа персонажа: хиты, кости хитов, подсказка класса
@@ -4798,6 +4934,22 @@ export const DAMAGE_TYPE_CHOICE_MIN_OPTIONS = 2;
  * видны в подсказке
  */
 export const DAMAGE_VARIANTS_STAT_ICON = 'tabler:arrows-split';
+
+/**
+ * Значок плитки урона, к которому бывает добавка по условию («+1к8, если
+ * атакующий окровавлен»): в плитке — урон, который бросается всегда, а добавки
+ * перечислены в подсказке
+ */
+export const DAMAGE_BONUS_STAT_ICON = 'tabler:circle-plus';
+
+/** Начало строки добавки по условию в подсказке: «+ 1к8 (атакующий: …)» */
+export const DAMAGE_BONUS_LINE_PREFIX = '+ ';
+
+/**
+ * Заглушка плитки урона без постоянной части: весь урон — добавки по условию,
+ * они перечислены в подсказке, а плитка остаётся короткой
+ */
+export const DAMAGE_NO_CONSTANT_LABEL = '—';
 
 export const DAMAGE_PART_LABELS = {
   /** Заголовок строки: дальше дописывается её номер */
@@ -4888,6 +5040,8 @@ export const DAMAGE_PART_LABELS = {
   previewTempHp: 'Временные ХП',
   /** Незнакомые движку токены: дальше идёт их список */
   previewUnknown: 'Не распознано: ',
+  /** Слагаемые, которые бросок движка не посчитает: дальше идёт их список */
+  previewUnrollable: 'Не посчитается автоматически: ',
 } as const;
 
 /**
@@ -5325,6 +5479,14 @@ export const DEATH_SAVE_STATUS_CLASS = {
 
 /** Слой плашек запросов хоста: сюда телепортируются плашки системы */
 export const HUD_PROMPTS_TELEPORT_TARGET = '#hud-prompts-container';
+
+/**
+ * Оформление плашки запроса над сценой — одно на все плашки системы (вопрос,
+ * выбор варианта, цели, оплата, круг, снаряды): вид у них общий, и расходиться
+ * он не должен. Появление — общая анимация `hudPromptTransition.css`.
+ */
+export const HUD_PROMPT_PANEL_CLASS =
+  'pointer-events-auto flex w-95 max-w-full flex-col gap-3 rounded-xl border border-default/50 bg-default/90 px-4 py-3 text-highlighted shadow-xl ring-accented backdrop-blur-sm';
 
 /** Итог спасброска согласной цели: провал с натуральной единицей */
 export const WILLING_SAVE_TOTAL = 1;

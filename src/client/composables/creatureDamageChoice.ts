@@ -6,11 +6,13 @@ import type {
   CreatureDamageCondition,
   CreatureDamageContext,
   CreatureDamageOption,
+  DamageSetDisplay,
   DnDCreature,
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
 import type { RollDamageVariant } from '../ui/actor/diceRollTypes';
+import type { AttackRollSnapshot } from './attackRollSnapshot';
 import type { CreatureRollSetup } from './useBonusDamageParts';
 import type { RolledSpellDamagePart } from './useSpellResolution';
 
@@ -21,6 +23,8 @@ import {
   applyCreatureDamageOption,
   applySourceDamageTypeChoices,
   chooseCreatureActionDamage,
+  combineDamagePartDisplays,
+  creatureActionHasSave,
   describeCreatureDamageCondition,
   describeDamagePart,
   entityHasDamageStatus,
@@ -36,6 +40,7 @@ import { CREATURE_DAMAGE_CHOICE_LABELS } from '../ui/creature/constants';
 import {
   formatDamageTypeChoiceLabel,
   requestDamageTypeChoice,
+  runWithDamageTypeChoices,
 } from './damageTypeChoice';
 
 /** Способ «случайно» — для пометки выпавшего основного урона в чате */
@@ -62,8 +67,7 @@ function readChoiceReason(
 }
 
 /** Сводка набора урона: формула без токенов и подпись типов */
-export interface DamagePartsText {
-  formula: string;
+export interface DamagePartsText extends DamageSetDisplay {
   typeLabel: string;
 }
 
@@ -96,7 +100,7 @@ export function summarizeDamageParts(
   ];
 
   return {
-    formula: infos.map((info) => info.formula).join(' + '),
+    ...combineDamagePartDisplays(infos),
     typeLabel: [
       ...typeKeys.map((key) => getTypeLabel(key)),
       ...choiceLabels,
@@ -281,18 +285,29 @@ export interface CreatureDamageVariant {
  * уходят в `variants` — окно показывает поле «Урон» и в начале броска
  * называет выбранный в чате ({@link announceCreatureDamageVariant}).
  *
+ * Строку чата о решённом наборе продолжение отправляет само
+ * (`announceChoice`) — когда окно броска открылось: действие, которое не
+ * состоялось, в чат не пишется.
+ *
  * @param action - действие существа (после выбора вариантов эффектов)
  * @param creature - атакующее существо
- * @param proceed - продолжение атаки: действие и наборы для окна (пусто —
- *   выбирать в окне нечего)
+ * @param proceed - продолжение атаки: действие, наборы для окна (пусто —
+ *   выбирать в окне нечего) и отправка строки чата о выбранном наборе
  */
 export function runWithCreatureDamageChoice(
   action: CreatureAction,
   creature: DnDCreature,
-  proceed: (chosen: CreatureAction, variants: CreatureDamageVariant[]) => void,
+  proceed: (
+    chosen: CreatureAction,
+    variants: CreatureDamageVariant[],
+    announceChoice: () => void,
+  ) => void,
 ): void {
+  /** Решённого набора нет — сказать в чате нечего */
+  const silent = (): void => {};
+
   if (!action.damageAlternatives?.length) {
-    proceed(action, []);
+    proceed(action, [], silent);
 
     return;
   }
@@ -315,14 +330,19 @@ export function runWithCreatureDamageChoice(
     // непохожий на прошлый бросок, выглядел бы ошибкой
     const reason = readChoiceReason(choice);
 
-    if (reason) {
-      useChatStore().sendMessage(
-        `${action.name}${CREATURE_DAMAGE_CHOICE_LABELS.chatSeparator}${formatOptionLabel(choice.option, getTypeLabel, typeOnly)}${CREATURE_DAMAGE_CHOICE_LABELS.reasonOpen}${describeCreatureDamageCondition(reason)}${CREATURE_DAMAGE_CHOICE_LABELS.reasonClose}`,
-        'text',
-      );
-    }
+    const announceChoice = reason
+      ? () =>
+          useChatStore().sendMessage(
+            `${action.name}${CREATURE_DAMAGE_CHOICE_LABELS.chatSeparator}${formatOptionLabel(choice.option, getTypeLabel, typeOnly)}${CREATURE_DAMAGE_CHOICE_LABELS.reasonOpen}${describeCreatureDamageCondition(reason)}${CREATURE_DAMAGE_CHOICE_LABELS.reasonClose}`,
+            'text',
+          )
+      : silent;
 
-    proceed(applyCreatureDamageOption(action, choice.option), []);
+    proceed(
+      applyCreatureDamageOption(action, choice.option),
+      [],
+      announceChoice,
+    );
 
     return;
   }
@@ -344,7 +364,7 @@ export function runWithCreatureDamageChoice(
     return;
   }
 
-  proceed(firstVariant.action, variants);
+  proceed(firstVariant.action, variants, silent);
 }
 
 /**
@@ -420,6 +440,7 @@ export function buildCreatureRollVariants(
     chosenAction: CreatureAction,
     actionSpell: Spell,
     parts: RolledSpellDamagePart[],
+    attack?: AttackRollSnapshot,
   ) => void,
 ): RollDamageVariant[] {
   const damageSets =
@@ -446,8 +467,8 @@ export function buildCreatureRollVariants(
       damageParts: setup.baseParts,
       evaluateBonusDamageParts: setup.evaluateBonusDamageParts,
       damageTypeChoice,
-      onRollParts: (parts) => {
-        apply(chosenAction, actionSpell, parts);
+      onRollParts: (parts, attack) => {
+        apply(chosenAction, actionSpell, parts, attack);
       },
       // Выбор человека называется в чате; без вариантов называть нечего
       onSelect: () => {
@@ -457,4 +478,45 @@ export function buildCreatureRollVariants(
       },
     };
   });
+}
+
+/**
+ * Применяет действие со спасброском или областью, у которого нет урона
+ * («Пленяющий стручок», «Господство над разумом», «Ужасающий облик» с уроном
+ * в эффекте): бросать существу нечего, поэтому окна броска нет — цели
+ * спасаются сами, эффекты ложатся по исходу. Раньше такое действие открывало
+ * окно без частей урона: в чат уходил голый к20, а применение не звалось.
+ *
+ * Тип урона «на выбор» у эффектов спрашивает плашка — окна, которое задало бы
+ * вопрос, здесь нет.
+ *
+ * @param action - действие существа с выбранным уроном
+ * @param rollVariants - наборы урона, собранные для окна броска
+ * @param buildSpell - псевдо-заклинание действия для разбора целей
+ * @param apply - применение: действие, псевдо-заклинание и брошенные части
+ * @returns `true`, если действие без урона и ушло на применение
+ */
+export function runDamagelessCreatureAction(
+  action: CreatureAction,
+  rollVariants: readonly RollDamageVariant[],
+  buildSpell: (chosenAction: CreatureAction) => Spell,
+  apply: (
+    chosenAction: CreatureAction,
+    actionSpell: Spell,
+    parts: RolledSpellDamagePart[],
+  ) => void,
+): boolean {
+  const hasDamage = rollVariants.some(
+    (variant) => (variant.damageParts ?? []).length > 0,
+  );
+
+  if (hasDamage || !(creatureActionHasSave(action) || action.areaOfEffect)) {
+    return false;
+  }
+
+  runWithDamageTypeChoices(action, (chosenAction) => {
+    apply(chosenAction, buildSpell(chosenAction), []);
+  });
+
+  return true;
 }

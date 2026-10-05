@@ -13,11 +13,15 @@
 import type { EffectDuration } from '@vtt/shared';
 
 import type { ActiveEffect, EffectSaveTiming } from './activeEffectTypes.js';
+import type { CreatureCategory } from './creatureTypes.js';
 import type {
   DnDEquipmentCategory,
   DnDGameItem,
   DnDSceneEntity,
 } from './dndEntities.js';
+import type { PreparedTriggerSource } from './effectPay.js';
+import type { CarriedEffectSourceKind } from './effectPipeline.js';
+import type { UnresolvedSaveDc } from './effectSaveDcProblem.js';
 import type {
   EffectTempHpMode,
   EffectTrigger,
@@ -42,6 +46,7 @@ import type {
   EffectSaveSpec,
   EntryEffectOptions,
   EntryEffectResult,
+  SkippedFormulaReporter,
   TurnDamageOutcome,
   TurnEffectsOptions,
   TurnEffectsResult,
@@ -51,6 +56,7 @@ import type {
 
 import { generateId } from '@vtt/shared';
 
+import { resolveActionCostBlock } from './actionRestrictions.js';
 import {
   ACTIVE_EFFECT_ID_PREFIX,
   isEffectDormant,
@@ -66,6 +72,10 @@ import {
   getEntityExhaustionLevel,
 } from './conditionTemplates.js';
 import {
+  resolveEntityCreatureType,
+  resolveEntityExtraCreatureTypes,
+} from './creatureTypeGate.js';
+import {
   findFirstDiceTerm,
   formatDiceFormula,
   rollDamageFormula,
@@ -76,11 +86,29 @@ import {
   mergeAppliedEffects,
 } from './effectAutomation.js';
 import { advanceEffectChangeSteps } from './effectChangeSteps.js';
+import { bindLivePaid } from './effectPaidTokens.js';
 import {
+  buildTriggerPayContext,
+  payTriggerPrice,
+  planEffectPay,
+  settleUnaskedTriggerPay,
+} from './effectPay.js';
+import {
+  collectActiveEffects,
+  collectRollConditionFlags,
   getEntityConditionImmunities,
+  listCarriedEffectEntries,
   listTraitEffects,
   resolveActorStats,
 } from './effectPipeline.js';
+import {
+  bindTriggerSourceSaveDcs,
+  resolveSaveDc,
+} from './effectSaveDcOwner.js';
+import {
+  findUnresolvedSaveDc,
+  formatUnresolvedSaveDcNote,
+} from './effectSaveDcProblem.js';
 import { advanceEffectStage, formatEffectStageLabel } from './effectStages.js';
 import {
   isClientAttackRollTrigger,
@@ -107,6 +135,8 @@ import {
 } from './effectTriggerTypes.js';
 import {
   buildTriggerUsageScope,
+  canTakeTriggerUse,
+  hasEffectCharge,
   takeEffectCharge,
   takeTriggerUse,
 } from './effectTriggerUsage.js';
@@ -116,27 +146,32 @@ import {
   resolveForcedMovePosition,
 } from './forcedMovement.js';
 import {
-  buildFormulaContext,
   evaluateFormula,
   substituteFormulaVariables,
 } from './formulaParser.js';
+import { withTempHpGainBonus } from './healingLimits.js';
 import {
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
   resolveEntityTempHp,
   writeEntityHitPoints,
 } from './hitPoints.js';
+import { bindOwnEffectFormulas } from './ownEffectFormulas.js';
+import { buildResolvedFormulaContext } from './resolvedFormulaContext.js';
+import { pickSaveAbility } from './saveAbilityChoice.js';
 import { MIN_SPELL_SLOT_LEVEL } from './spellSlotTable.js';
 import {
   countEffectTag,
   isTriggerConditionMet,
   withCombatRound,
 } from './triggerConditions.js';
+import { TRIGGER_ASK_CHAT_NOTES } from './triggerPrompt.js';
 import {
   applyDamageToEntity,
   applyTurnHealing,
   buildApplySaveSpec,
   buildEffectSavingThrowContext,
+  formatSkippedFormulaNote,
   resolveEffectMagicCircumstances,
   restoreEntityHitPoints,
   rollEffectDamage,
@@ -180,10 +215,21 @@ export interface DeferredTurnTrigger extends EffectTriggerSource {
  * исчерпан. Условие проверяется первым — невыполненное условие не тратит
  * «раз в ход».
  *
+ * Срабатывание, которое сперва спросит человека (`hold`), лимит и заряд только
+ * проверяет: их тратит согласие ({@link takeTriggerAdmission}), а не вопрос —
+ * иначе отказ съедал бы «раз в ход» и реакцию раунда.
+ *
+ * Срабатывание со спасброском, чью Сл не из чего посчитать, не выполняется:
+ * бросок против нуля был бы успехом у любого. Об отказе пишется строка в
+ * сводку — молча такое срабатывание не пропадает; лимит и заряд оно не тратит.
+ *
  * @param entity - субъект срабатывания
  * @param source - срабатывание с источником
  * @param eventData - данные события для условия
  * @param inCombat - идёт ли у субъекта бой (лимит хода и раунда)
+ * @param hold - только проверить лимит и заряд, не тратя их
+ * @param collectNote - куда писать, почему срабатывание пропущено; нет —
+ *   сообщать некому
  * @returns `true`, если срабатывание выполняется
  */
 export function admitTrigger(
@@ -191,16 +237,93 @@ export function admitTrigger(
   source: EffectTriggerSource,
   eventData: TriggerEventData = {},
   inCombat?: boolean,
+  hold = false,
+  collectNote?: (note: string) => void,
 ): boolean {
   // Порядок проверок — от самой дешёвой отмены к самой дорогой: невыполненное
   // условие не должно тратить ни «раз в ход», ни заряд эффекта
-  return (
+  const passes =
     isTriggerConditionMet(entity, source.trigger, {
       ...eventData,
       sourceId: source.effect.sourceActorId,
     })
     && triggerChanceHolds(source.trigger)
-    && takeTriggerUse(entity, source.scope, source.trigger, inCombat)
+    // Реакцию и бонусное действие под запретом не тратят: срабатывание не
+    // выполняется и лимит не расходует
+    && resolveActionCostBlock(entity, source.trigger.cost) === null;
+
+  if (!passes) {
+    return false;
+  }
+
+  const unresolvedDc = findUnresolvedTriggerSaveDc(entity, source, eventData);
+
+  if (unresolvedDc) {
+    collectNote?.(formatUnresolvedSaveDcNote(source.effect.name, unresolvedDc));
+
+    return false;
+  }
+
+  if (hold) {
+    return (
+      canTakeTriggerUse(entity, source.scope, source.trigger, inCombat)
+      && (!source.instance || hasEffectCharge(entity, source.effect.id))
+    );
+  }
+
+  return takeTriggerAdmission(entity, source, inCombat);
+}
+
+/**
+ * Сл спасброска срабатывания, которую не из чего посчитать.
+ *
+ * Считается так же, как её посчитает бросок: формула — по субъекту, на
+ * котором эффект (`bindTriggerSourceSaveDcs`), остаток — по данным события.
+ * Спасбросок с готовым исходом («автоматический провал, если…») Сл не читает.
+ *
+ * @param entity - субъект срабатывания
+ * @param source - срабатывание с источником
+ * @param eventData - данные события
+ * @returns что не посчиталось либо `null`
+ */
+function findUnresolvedTriggerSaveDc(
+  entity: DnDSceneEntity,
+  source: EffectTriggerSource,
+  eventData: TriggerEventData,
+): UnresolvedSaveDc | null {
+  if (
+    !source.trigger.save
+    || !triggerSaveNeedsRoll(source.trigger, entity, eventData)
+  ) {
+    return null;
+  }
+
+  const { save } = bindTriggerSourceSaveDcs(source, entity).trigger;
+
+  return save
+    ? findUnresolvedSaveDc(
+        save,
+        resolveTriggerSaveDc(save, { entity, eventData }),
+      )
+    : null;
+}
+
+/**
+ * Тратит лимит «не чаще N раз» и заряд эффекта — то, что срабатывание,
+ * спросившее человека, оставило до его согласия.
+ *
+ * @param entity - субъект срабатывания (меняется)
+ * @param source - срабатывание с источником
+ * @param inCombat - идёт ли у субъекта бой (лимит хода и раунда)
+ * @returns `true`, если лимит и заряд ещё были
+ */
+export function takeTriggerAdmission(
+  entity: DnDSceneEntity,
+  source: EffectTriggerSource,
+  inCombat?: boolean,
+): boolean {
+  return (
+    takeTriggerUse(entity, source.scope, source.trigger, inCombat)
     && (!source.instance || takeEffectCharge(entity, source.effect.id))
   );
 }
@@ -224,8 +347,12 @@ export interface TriggerSaveEvent {
 }
 
 /**
- * Сл спасброска срабатывания: формулой от урона события, если она есть и
- * событие несёт урон, иначе число.
+ * Сл спасброска срабатывания: формулой, если она есть и посчиталась, иначе
+ * число.
+ *
+ * Формула считается по бросающему как по владельцу: срабатывание, которое
+ * достаётся другому, получает числа владельца раньше
+ * (`bindTriggerSourceSaveDcs`), и у него осталась разве что `@damage`.
  *
  * @param save - спасбросок срабатывания
  * @param event - кто бросает и данные события
@@ -235,23 +362,7 @@ export function resolveTriggerSaveDc(
   save: EffectTriggerSave,
   event?: TriggerSaveEvent,
 ): number {
-  const damage = event?.eventData.damage;
-
-  if (!save.dcFormula || !event || !damage) {
-    return save.dc;
-  }
-
-  try {
-    const value = evaluateFormula(save.dcFormula, {
-      ...buildFormulaContext(event.entity),
-      event: { damage: damage.amount },
-    });
-
-    return Number.isFinite(value) ? Math.max(1, Math.trunc(value)) : save.dc;
-  } catch {
-    // Автор ошибся в формуле — спасбросок всё равно бросается, против числа
-    return save.dc;
-  }
+  return resolveSaveDc(save, event?.entity, event?.eventData.damage?.amount);
 }
 
 /** Кость автоматического успеха спасброска — условная */
@@ -259,6 +370,23 @@ const AUTO_SAVE_SUCCESS_ROLL = 20;
 
 /** Кость автоматического провала спасброска — условная */
 const AUTO_SAVE_FAILURE_ROLL = 1;
+
+/**
+ * Режим спасброска из пары «преимущество / помеха»: вместе они гасят друг
+ * друга.
+ *
+ * @param advantage - есть преимущество
+ * @param disadvantage - есть помеха
+ * @returns режим либо `undefined`, если бросок обычный
+ */
+function toSaveMode(
+  advantage: boolean,
+  disadvantage: boolean,
+): EffectTriggerSaveMode | undefined {
+  const mode = combineRollMode(advantage, disadvantage);
+
+  return mode === 'normal' ? undefined : mode;
+}
 
 /**
  * Режим спасброска срабатывания: постоянный вместе с теми, что дают
@@ -290,12 +418,45 @@ function resolveTriggerSaveMode(
       .map((rule) => rule.mode),
   ];
 
-  const mode = combineRollMode(
+  return toSaveMode(
     modes.includes('advantage'),
     modes.includes('disadvantage'),
   );
+}
 
-  return mode === 'normal' ? undefined : mode;
+/** Флаг «урон носителя — спасбросок концентрации цели с помехой» */
+export const CONCENTRATION_DISADVANTAGE_FLAG =
+  'damage.concentrationDisadvantage';
+
+/**
+ * Даёт ли нанёсший урон помеху на спасбросок концентрации: флаг на нём самом,
+ * безусловный либо с условием о цели («существо из вашего Гримуара»).
+ *
+ * @param attacker - кто нанёс урон
+ * @param victim - кто бросает спасбросок концентрации
+ * @returns `true`, если спасбросок идёт с помехой
+ */
+function imposesConcentrationDisadvantage(
+  attacker: DnDSceneEntity,
+  victim: DnDSceneEntity,
+): boolean {
+  if (
+    resolveActorStats(attacker).activeFlags.has(CONCENTRATION_DISADVANTAGE_FLAG)
+  ) {
+    return true;
+  }
+
+  return collectRollConditionFlags(collectActiveEffects(attacker), {
+    hasAdvantage: false,
+    hasDisadvantage: false,
+    target: {
+      currentHp: resolveEntityCurrentHp(victim),
+      maxHp: resolveEntityMaxHp(victim),
+      creatureType: resolveEntityCreatureType(victim),
+      extraCreatureTypes: resolveEntityExtraCreatureTypes(victim),
+      entityId: victim.id,
+    },
+  }).includes(CONCENTRATION_DISADVANTAGE_FLAG);
 }
 
 /**
@@ -350,18 +511,31 @@ export function buildTriggerSaveSpec(
     return null;
   }
 
-  const mode = resolveTriggerSaveMode(trigger.save, event);
+  const ownMode = resolveTriggerSaveMode(trigger.save, event);
+
+  // «Наносите урон существу, поддерживающему концентрацию, — оно совершает
+  // спасбросок концентрации с помехой»: помеху даёт тот, кто нанёс урон
+  const mode =
+    effect.concentration
+    && event?.eventData.other
+    && imposesConcentrationDisadvantage(event.eventData.other, event.entity)
+      ? toSaveMode(ownMode === 'advantage', true)
+      : ownMode;
 
   // Спасбросок концентрации — не против магии: «Мантия сопротивления
   // заклинаниям» его не облегчает, «Боевой заклинатель» — да
   const base = {
     effectName: effect.name,
-    ability: trigger.save.ability,
+    // «Сила или Ловкость»: бросающий берёт лучшую из названных
+    ability: pickSaveAbility(event?.entity, trigger.save),
     dc: resolveTriggerSaveDc(trigger.save, event),
     ...(mode ? { mode } : {}),
     ...(effect.concentration
       ? { againstMagic: false, againstConcentration: true }
       : resolveEffectMagicCircumstances(effect)),
+    ...(effect.sourceCreatureType
+      ? { sourceCreatureType: effect.sourceCreatureType }
+      : {}),
   };
 
   return triggerHasEffects(trigger)
@@ -416,6 +590,36 @@ export function resolveTriggerActionScale(
   );
 }
 
+/** Что известно броску урона и лечения срабатывания */
+export interface TriggerRollOptions {
+  /**
+   * Субъект — цель атаки, попавшей критически: кости урона удваиваются
+   */
+  critical?: boolean;
+  /**
+   * Куда писать строки сводки: слагаемое с неподставленным `@`-токеном бросок
+   * пропускает, и молча терять его нельзя
+   */
+  collectNote?: (note: string) => void;
+}
+
+/**
+ * Получатель пропущенных слагаемых срабатывания: превращает их в строки
+ * сводки с именем эффекта.
+ *
+ * @param effect - эффект срабатывания
+ * @param collectNote - куда писать строки сводки; нет — сообщать некому
+ * @returns получатель либо `undefined`
+ */
+function toSkippedReporter(
+  effect: ActiveEffect,
+  collectNote: ((note: string) => void) | undefined,
+): SkippedFormulaReporter | undefined {
+  return collectNote
+    ? (formula) => collectNote(formatSkippedFormulaNote(effect.name, formula))
+    : undefined;
+}
+
 /**
  * Катает урон срабатывания по исходу спасброска; урон не применяется —
  * вызывающий списывает хиты одним изменением.
@@ -425,6 +629,7 @@ export function resolveTriggerActionScale(
  * @param trigger - срабатывание
  * @param passed - пройден ли спасбросок
  * @param stats - resolved-статы субъекта (защиты от урона)
+ * @param options - крит атаки и куда сообщить о непосчитанном слагаемом
  * @returns исход урона либо `null`
  */
 export function rollTriggerDamage(
@@ -433,6 +638,7 @@ export function rollTriggerDamage(
   trigger: EffectTrigger,
   passed: boolean,
   stats: ReturnType<typeof resolveActorStats>,
+  options: TriggerRollOptions = {},
 ): TurnDamageOutcome | null {
   let outcome: TurnDamageOutcome | null = null;
 
@@ -457,6 +663,8 @@ export function rollTriggerDamage(
 
     const rolled = rollEffectDamage(effect.name, action.parts, stats, entity, {
       scale,
+      critical: options.critical,
+      reportSkipped: toSkippedReporter(effect, options.collectNote),
     });
 
     if (!rolled) {
@@ -483,17 +691,25 @@ export function rollTriggerDamage(
  *
  * @param effect - эффект
  * @param trigger - срабатывание
+ * @param collectNote - куда писать о слагаемом, которое не посчиталось
  * @returns исход лечения либо `null`
  */
 export function rollTriggerHealing(
   effect: ActiveEffect,
   trigger: EffectTrigger,
+  collectNote?: (note: string) => void,
 ): TurnHealingOutcome | null {
   const parts = trigger.actions.flatMap((action) =>
     action.type === 'damage' ? action.parts : [],
   );
 
-  return parts.length > 0 ? rollEffectHealing(effect.name, parts) : null;
+  return parts.length > 0
+    ? rollEffectHealing(
+        effect.name,
+        parts,
+        toSkippedReporter(effect, collectNote),
+      )
+    : null;
 }
 
 /**
@@ -606,25 +822,84 @@ export const EFFECT_TRIGGER_SOURCE_KINDS = {
 /**
  * Срабатывания эффектов одного вида источника.
  *
+ * Свои эффекты носителя (его эффекты, надетые предметы, черты существа)
+ * получают его числа и выборы в формулах и условиях срабатываний
+ * (`bindOwnEffectFormulas`): постоянный эффект никто не накладывал, и
+ * подставить их больше некому. Ауре чужого токена числа её носителя подставил
+ * сбор аур — владельца у такого вызова нет.
+ *
  * @param effects - эффекты
  * @param kind - откуда эффекты у субъекта
  * @param triggersOf - какие срабатывания эффекта нужны
+ * @param owner - носитель, он же владелец эффектов; нет — числа уже подставлены
  * @returns срабатывания с источником
  */
 export function buildTriggerSources(
   effects: readonly ActiveEffect[],
   kind: EffectTriggerSourceKind,
   triggersOf: (effect: ActiveEffect) => readonly EffectTrigger[],
+  owner?: DnDSceneEntity,
 ): EffectTriggerSource[] {
-  return effects.flatMap((effect) =>
-    triggersOf(effect).map((trigger) => ({
+  // Подставлять есть смысл только там, где на это событие что-то сработает
+  const listening = effects.filter((effect) => triggersOf(effect).length > 0);
+  const bound = owner ? bindOwnEffectFormulas(listening, owner) : listening;
+
+  return bound.flatMap((rawEffect) => {
+    // Потраченное при включении (`@paid.*`) — в формулы срабатываний: у
+    // эффекта без оплаты это тот же объект
+    const effect = bindLivePaid(rawEffect);
+
+    return triggersOf(effect).map((trigger) => ({
       effect,
       trigger,
       ambient: kind.ambient,
       instance: kind.instance,
       scope: kind.scopeOf(effect),
-    })),
-  );
+    }));
+  });
+}
+
+/** Вид источника срабатываний у вложенной записи носителя */
+const CARRIED_TRIGGER_SOURCE_KINDS: Record<
+  CarriedEffectSourceKind,
+  EffectTriggerSourceKind
+> = {
+  item: EFFECT_TRIGGER_SOURCE_KINDS.item,
+  trait: EFFECT_TRIGGER_SOURCE_KINDS.trait,
+};
+
+/**
+ * Срабатывания события на всём, что действует вместе с носителем: его
+ * собственные эффекты, надетые и настроенные предметы, черты существа. Так
+ * собираются события о поступках носителя — бросок атаки, отдых, лечение,
+ * путь, снятое состояние, поверженная цель: постоянный эффект предмета слышит
+ * их так же, как эффект умения. Снять себя и потратить заряд может только
+ * эффект, лежащий на носителе сам; у предмета и черты снимать нечего.
+ *
+ * @param entity - носитель
+ * @param triggersOf - какие срабатывания эффекта нужны
+ * @returns срабатывания с источником: свои эффекты, затем предметы и черты
+ */
+export function listCarrierEventSources(
+  entity: DnDSceneEntity,
+  triggersOf: (effect: ActiveEffect) => readonly EffectTrigger[],
+): EffectTriggerSource[] {
+  return [
+    ...buildTriggerSources(
+      listLiveEffects(entity),
+      EFFECT_TRIGGER_SOURCE_KINDS.instance,
+      triggersOf,
+      entity,
+    ),
+    ...listCarriedEffectEntries(entity).flatMap((entry) =>
+      buildTriggerSources(
+        [entry.effect],
+        CARRIED_TRIGGER_SOURCE_KINDS[entry.sourceKind],
+        triggersOf,
+        entity,
+      ),
+    ),
+  ];
 }
 
 /**
@@ -709,6 +984,9 @@ const DEFAULT_TAG_DURATION: EffectDuration = {
   turnTiming: 'start',
 };
 
+/** Срок формулой без своей единицы: число раундов */
+const FORMULA_ROUNDS_DURATION: EffectDuration = { type: 'rounds' };
+
 /**
  * Отметка на субъекте: эффект без нагрузки с ключом, который читают условия.
  *
@@ -723,7 +1001,16 @@ function buildTagEffect(action: EffectTriggerApplyTagAction): ActiveEffect {
     disabled: false,
     origin: 'condition',
     transfer: false,
-    duration: action.duration ?? DEFAULT_TAG_DURATION,
+    // Срок формулой без своей единицы — в раундах; бросается тут же, при
+    // наложении, как срок формулой у самого эффекта
+    duration:
+      action.duration
+      ?? (action.durationFormula
+        ? FORMULA_ROUNDS_DURATION
+        : DEFAULT_TAG_DURATION),
+    ...(action.durationFormula
+      ? { durationFormula: action.durationFormula }
+      : {}),
     changes: [],
     flags: [],
     tag: action.tag,
@@ -775,22 +1062,24 @@ const MAX_HP_REDUCTION_LABEL = 'Максимум хитов уменьшен';
 const MAX_HP_REDUCTION_PRIORITY = 50;
 
 /**
- * На сколько уменьшается максимум: число, кости, формула с `@damage` или всё
- * вместе («1к6 + @damage»). Кости бросаются после подстановки токенов — разбор
- * формул костей не знает; формула без костей считается целиком, с функциями.
+ * Число действия срабатывания: на сколько уменьшается максимум, сколько
+ * временных хитов, сколько ресурса вернуть, какими станут хиты. Число, кости,
+ * формула с `@damage` или всё вместе («1к6 + @damage»). Кости бросаются после
+ * подстановки токенов — разбор формул костей не знает; формула без костей
+ * считается целиком, с функциями.
  *
  * @param entity - получатель
  * @param amount - строка действия
  * @param eventDamage - урон события
  * @returns неотрицательное число
  */
-function resolveMaxHpReduction(
+function resolveActionAmount(
   entity: DnDSceneEntity,
   amount: string,
   eventDamage: number | undefined,
 ): number {
   const formulaContext = {
-    ...buildFormulaContext(entity),
+    ...buildResolvedFormulaContext(entity),
     event: { damage: eventDamage ?? 0 },
   };
 
@@ -823,7 +1112,7 @@ function buildMaxHpReduction(
   action: Extract<EffectTriggerAction, { type: 'reduceMaxHp' }>,
   eventDamage: number | undefined,
 ): ActiveEffect | null {
-  const reduction = resolveMaxHpReduction(entity, action.amount, eventDamage);
+  const reduction = resolveActionAmount(entity, action.amount, eventDamage);
 
   if (reduction <= 0) {
     return null;
@@ -936,7 +1225,9 @@ function buildActionStatus(
       : undefined;
 
   const condition = buildConditionActiveEffect(action.conditionKey, {
-    duration: action.duration,
+    duration:
+      action.duration
+      ?? (action.durationFormula ? FORMULA_ROUNDS_DURATION : undefined),
     ...(exhaustionLevel === undefined ? {} : { exhaustionLevel }),
   });
 
@@ -952,8 +1243,18 @@ function buildActionStatus(
       // бы сон со всех целей сразу
       ...(action.triggers ? { triggers: action.triggers } : {}),
       ...(action.recurringSave ? { recurringSave: action.recurringSave } : {}),
+      // Срок формулой: «невидим на число раундов, равное потраченным костям»
+      ...(action.durationFormula
+        ? { durationFormula: action.durationFormula }
+        : {}),
       // Запертое состояние снимает только то, что его наложило
       ...(action.locked ? { conditionLocked: true as const } : {}),
+      // «Вырваться» у состояния, которое кладёт срабатывание: кнопка — на нём
+      ...(action.escape ? { escape: action.escape } : {}),
+      // Флаги сверх самого состояния: «пока отравлена — без реакций»
+      ...(action.flags?.length
+        ? { flags: [...new Set([...condition.flags, ...action.flags])] }
+        : {}),
       // «Спадает при выходе из зоны»: без зоны выходить не из чего, и пометка
       // не ставится — состояние живёт обычным сроком
       ...(action.endsOnExit && options.sourceAreaId
@@ -1049,13 +1350,19 @@ function advanceCarrierStage(
  * (`applyCondition.locked`) так не снимается: его снимает только то, что его
  * наложило.
  *
+ * Список типов сужает снятие до состояний, наложенных существами этих типов
+ * («перестаёт быть очарованной или испуганной такими существами»): тип
+ * наложившего записан на эффекте при наложении, без него состояние остаётся.
+ *
  * @param entity - получатель (меняется)
  * @param conditionKey - какое состояние; нет - все
+ * @param fromCreatureTypes - только наложенные существами этих типов
  * @returns `true`, если что-то сняли
  */
 function removeEntityConditions(
   entity: DnDSceneEntity,
   conditionKey: string | undefined,
+  fromCreatureTypes?: readonly CreatureCategory[],
 ): boolean {
   const effects = entity.activeEffects ?? [];
 
@@ -1063,7 +1370,11 @@ function removeEntityConditions(
     (effect) =>
       effect.conditionKey === undefined
       || effect.conditionLocked === true
-      || (conditionKey !== undefined && effect.conditionKey !== conditionKey),
+      || (conditionKey !== undefined && effect.conditionKey !== conditionKey)
+      || (fromCreatureTypes !== undefined
+        && fromCreatureTypes.length > 0
+        && (effect.sourceCreatureType === undefined
+          || !fromCreatureTypes.includes(effect.sourceCreatureType))),
   );
 
   if (kept.length === effects.length) {
@@ -1134,10 +1445,10 @@ function applyTempHpAction(
   action: EffectTriggerTempHpAction,
   options: EntryEffectOptions,
 ): boolean {
-  const amount = resolveMaxHpReduction(
+  // «+5 к получаемым временным хитам» — и к выданным срабатыванием
+  const amount = withTempHpGainBonus(
     entity,
-    action.amount,
-    options.eventDamage,
+    resolveActionAmount(entity, action.amount, options.eventDamage),
   );
 
   const current = resolveEntityTempHp(entity);
@@ -1245,22 +1556,36 @@ function dropHeldItems(entity: DnDSceneEntity): boolean {
   return dropped;
 }
 
+/** Сколько возвращает действие «Вернуть ресурс» без поля `amount` */
+const DEFAULT_RESTORE_AMOUNT = 1;
+
 /**
  * Возвращает получателю потраченный ресурс: ячейку заклинания или счётчик
  * листа.
  *
  * @param entity - получатель (меняется)
  * @param action - действие «Вернуть ресурс»
+ * @param options - урон события для `@damage`
  * @returns `true`, если ресурс вернулся
  */
 function restoreEntityResource(
   entity: DnDSceneEntity,
   action: EffectTriggerRestoreAction,
+  options: EntryEffectOptions,
 ): boolean {
-  const amount = Math.max(1, action.amount ?? 1);
+  const amount =
+    action.amount === undefined
+      ? DEFAULT_RESTORE_AMOUNT
+      : resolveActionAmount(entity, action.amount, options.eventDamage);
 
   if (action.what === 'counter') {
-    return restoreEntityCounter(entity, action.counter, amount);
+    return action.set
+      ? setEntityCounter(entity, action.counter, amount)
+      : restoreEntityCounter(entity, action.counter, amount);
+  }
+
+  if (amount <= 0) {
+    return false;
   }
 
   const level = action.level ?? MIN_SPELL_SLOT_LEVEL;
@@ -1279,6 +1604,47 @@ function restoreEntityResource(
 }
 
 /**
+ * Меняет счётчик листа: новое значение считает вызывающий, а в пределах от
+ * нуля до максимума его держит эта функция.
+ *
+ * @param entity - получатель (меняется)
+ * @param counterKey - ключ счётчика; нет - менять нечего
+ * @param nextOf - новое значение по прежнему
+ * @returns `true`, если счётчик изменился
+ */
+function updateEntityCounter(
+  entity: DnDSceneEntity,
+  counterKey: string | undefined,
+  nextOf: (current: number) => number,
+): boolean {
+  const counters = entity.system.classCounters;
+
+  if (!counterKey || !Array.isArray(counters)) {
+    return false;
+  }
+
+  let changed = false;
+
+  entity.system.classCounters = counters.map((counter) => {
+    if (counter.counterKey !== counterKey) {
+      return counter;
+    }
+
+    const next = Math.min(counter.max, Math.max(0, nextOf(counter.current)));
+
+    if (next === counter.current) {
+      return counter;
+    }
+
+    changed = true;
+
+    return { ...counter, current: next };
+  });
+
+  return changed;
+}
+
+/**
  * Возвращает единицы счётчика листа.
  *
  * @param entity - получатель (меняется)
@@ -1291,28 +1657,26 @@ function restoreEntityCounter(
   counterKey: string | undefined,
   amount: number,
 ): boolean {
-  const counters = entity.system.classCounters;
+  return amount > 0
+    ? updateEntityCounter(entity, counterKey, (current) => current + amount)
+    : false;
+}
 
-  if (!counterKey || !Array.isArray(counters)) {
-    return false;
-  }
-
-  let changed = false;
-
-  entity.system.classCounters = counters.map((counter) => {
-    if (counter.counterKey !== counterKey || counter.current >= counter.max) {
-      return counter;
-    }
-
-    changed = true;
-
-    return {
-      ...counter,
-      current: Math.min(counter.max, counter.current + amount),
-    };
-  });
-
-  return changed;
+/**
+ * Ставит счётчик листа в число — не выше его максимума: «новая трата ячейки
+ * заменяет прежние Очки мутации».
+ *
+ * @param entity - получатель (меняется)
+ * @param counterKey - ключ счётчика; нет - ставить нечего
+ * @param value - новое значение
+ * @returns `true`, если счётчик изменился
+ */
+function setEntityCounter(
+  entity: DnDSceneEntity,
+  counterKey: string | undefined,
+  value: number,
+): boolean {
+  return updateEntityCounter(entity, counterKey, () => value);
 }
 
 /**
@@ -1380,6 +1744,14 @@ function dispelEntityCasts(
 ): boolean {
   const effects = entity.activeEffects ?? [];
 
+  // Круг формулой («не выше круга вашей ячейки») — числом к этому времени:
+  // `@castLevel` подставлен при касте. Не посчиталась — круг числом
+  const byFormula = action.maxLevelFormula
+    ? resolveActionAmount(entity, action.maxLevelFormula, options.eventDamage)
+    : 0;
+
+  const maxLevel = byFormula > 0 ? byFormula : action.maxLevel;
+
   const dispelled = effects.filter((effect) => {
     if (effect.castId === undefined) {
       return false;
@@ -1387,7 +1759,7 @@ function dispelEntityCasts(
 
     return effect.castLevel === undefined
       ? action.withoutLevel === true
-      : effect.castLevel <= action.maxLevel;
+      : effect.castLevel <= maxLevel;
   });
 
   return endEntityCastEffects(entity, dispelled, options);
@@ -1569,8 +1941,17 @@ export function applyTriggerEffectActions(
     if (action.type === 'setHp') {
       const maxHp = resolveEntityMaxHp(entity);
 
+      // Хиты формулой («5 × круг потраченной ячейки»): не посчиталась или
+      // дала ноль — берётся число действия
+      const computed =
+        action.formula === undefined
+          ? 0
+          : resolveActionAmount(entity, action.formula, options.eventDamage);
+
+      const value = computed > 0 ? computed : action.value;
+
       writeEntityHitPoints(entity, {
-        current: action.toMax ? maxHp : Math.min(action.value, maxHp),
+        current: action.toMax ? maxHp : Math.min(value, maxHp),
         temp: resolveEntityTempHp(entity),
       });
 
@@ -1586,7 +1967,12 @@ export function applyTriggerEffectActions(
     }
 
     if (action.type === 'removeCondition') {
-      applied = removeEntityConditions(entity, action.conditionKey) || applied;
+      applied =
+        removeEntityConditions(
+          entity,
+          action.conditionKey,
+          action.fromCreatureTypes,
+        ) || applied;
 
       continue;
     }
@@ -1604,7 +1990,7 @@ export function applyTriggerEffectActions(
     }
 
     if (action.type === 'restore') {
-      applied = restoreEntityResource(entity, action) || applied;
+      applied = restoreEntityResource(entity, action, options) || applied;
 
       continue;
     }
@@ -1642,7 +2028,12 @@ export function applyTriggerEffectActions(
     const blocked =
       status?.conditionKey !== undefined
       && isImmuneToCondition(
-        getEntityConditionImmunities(entity, options.ambientEffects ?? []),
+        getEntityConditionImmunities(
+          entity,
+          options.ambientEffects ?? [],
+          // Кто наложил эффект со срабатыванием — тот и накладывает состояние
+          source.effect.sourceCreatureType,
+        ),
         status.conditionKey,
       );
 
@@ -1789,11 +2180,13 @@ export function processTurnEffects(
       entity.activeEffects ?? [],
       EFFECT_TRIGGER_SOURCE_KINDS.instance,
       turnTriggersOf,
+      entity,
     ),
     ...buildTriggerSources(
       listTraitEffects(entity),
       EFFECT_TRIGGER_SOURCE_KINDS.trait,
       turnTriggersOf,
+      entity,
     ),
     // Аура «пока внутри» срабатывает на ходу того, кто в ней стоит
     ...buildTriggerSources(
@@ -1851,9 +2244,19 @@ export function processTurnEffects(
       return true;
     }
 
+    // Срабатывание, которое спросит человека, лимит тратит уже по согласию
+    const asks = triggerAsksPermission(source.trigger);
+
     if (
       blockedTriggers.has(source.trigger)
-      || !admitTrigger(entity, source, buildTurnEventData(source, options))
+      || !admitTrigger(
+        entity,
+        source,
+        buildTurnEventData(source, options),
+        undefined,
+        asks,
+        (note) => result.notes.push(note),
+      )
     ) {
       blockedTriggers.add(source.trigger);
 
@@ -1861,7 +2264,7 @@ export function processTurnEffects(
     }
 
     allowedTriggers.add(source.trigger);
-    usageChanged ||= source.trigger.limit !== undefined;
+    usageChanged ||= !asks && source.trigger.limit !== undefined;
 
     return true;
   };
@@ -2015,6 +2418,15 @@ export function processTurnEffects(
   let healedTotal = 0;
   let tempHpGranted = 0;
 
+  /**
+   * Строка сводки хода: слагаемое, которое бросок не посчитал.
+   *
+   * @param note - строка сводки
+   */
+  const collectTurnNote = (note: string): void => {
+    result.notes.push(note);
+  };
+
   // 1. Урон и лечение
   for (const source of sources) {
     const { effect, trigger, ambient, instance } = source;
@@ -2031,7 +2443,7 @@ export function processTurnEffects(
       continue;
     }
 
-    const healing = rollTriggerHealing(effect, trigger);
+    const healing = rollTriggerHealing(effect, trigger, collectTurnNote);
 
     if (healing) {
       result.healingOutcomes.push(healing);
@@ -2089,6 +2501,7 @@ export function processTurnEffects(
       trigger,
       save?.passed ?? false,
       stats,
+      { collectNote: collectTurnNote },
     );
 
     if (damage) {
@@ -2256,6 +2669,7 @@ export function applyEntryEffect(
     source.trigger,
     passed,
     stats,
+    { collectNote: options.collectNote },
   );
 
   if (rolled) {
@@ -2288,7 +2702,7 @@ export function resolveEntryEffect(
   const saveOutcome = effect.applySave
     ? rollEffectSaveOutcome(
         entity,
-        buildApplySaveSpec(effect, effect.applySave),
+        buildApplySaveSpec(effect, effect.applySave, entity),
         options.ambientEffects,
       )
     : null;
@@ -2448,24 +2862,166 @@ export function settlePresenceTrigger(
   return settleTriggerOutcome(entity, entity, source, save, options);
 }
 
+/** Что собирают срабатывания на самой сущности — для сводки в чате */
+export interface SelfTriggerReport {
+  /** Строки сводки: «Сообщить», следующая ступень, списанная цена */
+  notes: string[];
+  /** Исходы срабатываний: урон, лечение, спасброски */
+  results: EntryEffectResult[];
+}
+
+/**
+ * Ответы владельца на вопросы срабатываний, заданные заранее: ключ
+ * срабатывания ({@link selfTriggerKey}) — выбранные варианты цены; у
+ * срабатывания без цены набор пустой. Нет ключа — согласия нет.
+ */
+export type SelfTriggerAnswers = ReadonlyMap<string, ReadonlySet<string>>;
+
+/**
+ * Ключ срабатывания в ответах владельца: источник эффекта и срабатывание.
+ *
+ * @param source - срабатывание с источником
+ * @returns ключ
+ */
+export function selfTriggerKey(source: EffectTriggerSource): string {
+  return `${source.scope}|${source.trigger.id}`;
+}
+
+/**
+ * Цена срабатывания, о котором владельца спросили заранее: списывается по его
+ * ответу. Цена не по карману, согласия нет или выбранного варианта уже не
+ * стало — срабатывание не состоится, и об этом есть строка сводки.
+ *
+ * @param entity - субъект (меняется)
+ * @param source - срабатывание с источником
+ * @param pickIds - ответ владельца; нет — согласия не было
+ * @returns срабатывание с числами либо строка сводки — почему оно отменено
+ */
+function settleAnsweredTriggerPay(
+  entity: DnDSceneEntity,
+  source: EffectTriggerSource,
+  pickIds: ReadonlySet<string> | undefined,
+): PreparedTriggerSource | string {
+  const { pay } = source.trigger;
+  const { name } = source.effect;
+
+  const shortfall = pay
+    ? planEffectPay(entity, pay, buildTriggerPayContext(source)).shortfall
+    : null;
+
+  if (shortfall !== null) {
+    return `${name}: ${TRIGGER_ASK_CHAT_NOTES.unaffordable} (${shortfall})`;
+  }
+
+  if (!pickIds) {
+    return `${name}: ${TRIGGER_ASK_CHAT_NOTES.declined}`;
+  }
+
+  return (
+    payTriggerPrice(entity, source, pickIds)
+    ?? `${name}: ${TRIGGER_ASK_CHAT_NOTES.payGone}`
+  );
+}
+
+/** С чем выполняются срабатывания на самой сущности */
+export interface SelfTriggerOptions {
+  /** Номер идущего раунда: расписание «на раунде N» */
+  combatRound?: number;
+  /**
+   * Выбранные варианты цены срабатывания (окно оплаты на клиенте). Нет поля —
+   * цена без выбора списывается сама, а цена с выбором срабатывание отменяет
+   */
+  payPickIds?: ReadonlySet<string>;
+  /**
+   * Ответы владельца на вопросы срабатываний. Поле задано — срабатывание,
+   * которое спрашивает разрешения (галочка «спрашивать», цена «Реакция», цена
+   * ресурсом), выполняется только по ответу: без него оно отменяется со
+   * строкой в сводку, а не идёт молча и бесплатно. Так идёт «после отдыха».
+   * Нет поля — согласием служит само нажатие («При действии», включение)
+   */
+  answers?: SelfTriggerAnswers;
+  /** Куда складывать исходы и строки сводки; нет — они не нужны */
+  report?: SelfTriggerReport;
+}
+
 /**
  * Выполняет срабатывания на самой сущности без второй стороны и без окна
- * броска: условие и лимит, спасбросок броском системы, действия. Так идут
- * «при включении» и «после отдыха».
+ * броска: условие и лимит, цена ресурсом, спасбросок броском системы,
+ * действия. Так идут «при включении», «При действии» и «после отдыха».
+ *
+ * У «после отдыха» согласием нажатие не служит: владельца спрашивают заранее
+ * (`askSelfTriggers`), и сюда приходят его ответы (`options.answers`).
  *
  * @param entity - субъект (меняется)
  * @param sources - срабатывания с источниками
- * @param combatRound - номер идущего раунда: расписание «на раунде N»
+ * @param options - раунд боя, выбор цены и сбор сводки
  */
 export function settleSelfTriggerSources(
   entity: DnDSceneEntity,
   sources: readonly EffectTriggerSource[],
-  combatRound?: number,
+  options: SelfTriggerOptions = {},
 ): void {
+  const { report, payPickIds, answers } = options;
+
   for (const source of sources) {
-    if (admitTrigger(entity, source, withCombatRound({}, combatRound))) {
-      settlePresenceTrigger(entity, source, rollTriggerSave(entity, source));
+    // О срабатывании спросили владельца заранее: решает его ответ
+    const answered =
+      answers !== undefined && triggerAsksPermission(source.trigger);
+
+    // Лимит и заряд срабатывание с ценой или вопросом тратит после оплаты и
+    // согласия: не хватило ресурса или отказались — «раз в ход» остаётся
+    const holds = source.trigger.pay !== undefined || answered;
+
+    if (
+      !admitTrigger(
+        entity,
+        source,
+        withCombatRound({}, options.combatRound),
+        undefined,
+        holds,
+        report ? (note) => report.notes.push(note) : undefined,
+      )
+    ) {
+      continue;
     }
+
+    let prepared: PreparedTriggerSource | null;
+
+    if (answered) {
+      const settled = settleAnsweredTriggerPay(
+        entity,
+        source,
+        answers.get(selfTriggerKey(source)),
+      );
+
+      // Отменённое срабатывание видно в сводке: молча оно не пропадает
+      if (typeof settled === 'string') {
+        report?.notes.push(settled);
+
+        continue;
+      }
+
+      prepared = settled;
+    } else {
+      prepared = payPickIds
+        ? payTriggerPrice(entity, source, payPickIds)
+        : settleUnaskedTriggerPay(entity, source);
+    }
+
+    if (!prepared || (holds && !takeTriggerAdmission(entity, source))) {
+      continue;
+    }
+
+    report?.notes.push(...prepared.notes);
+
+    const result = settlePresenceTrigger(
+      entity,
+      prepared.source,
+      rollTriggerSave(entity, prepared.source),
+      report ? { collectNote: (note) => report.notes.push(note) } : {},
+    );
+
+    report?.results.push(result);
   }
 }
 
@@ -2498,13 +3054,22 @@ export function settleTriggerOutcome(
     source.trigger,
     passed,
     stats,
+    {
+      // Крит атаки удваивает кости только её цели
+      critical: options.criticalTargetId === recipient.id,
+      collectNote: options.collectNote,
+    },
   );
 
   if (damage) {
     applyDamageToEntity(recipient, damage.total);
   }
 
-  const healing = rollTriggerHealing(source.effect, source.trigger);
+  const healing = rollTriggerHealing(
+    source.effect,
+    source.trigger,
+    options.collectNote,
+  );
 
   const restored = healing
     ? restoreEntityHitPoints(recipient, healing.healed, healing.tempHp)
@@ -2570,8 +3135,9 @@ export interface AttackRollTriggersResult {
 export type AttackRollTriggerPlace = 'client' | 'server';
 
 /**
- * Срабатывания броска атаки стороны на её собственных эффектах: те, что клиент
- * выполняет до броска, либо те, что после броска выполняет сервер.
+ * Срабатывания броска атаки стороны на её эффектах, надетых предметах и
+ * чертах: те, что клиент выполняет до броска, либо те, что после броска
+ * выполняет сервер.
  *
  * @param entity - сторона атаки
  * @param role - атакующий или цель
@@ -2583,15 +3149,12 @@ export function listAttackRollSources(
   role: EffectTriggerAttackRole,
   place: AttackRollTriggerPlace,
 ): EffectTriggerSource[] {
-  return buildTriggerSources(
-    listLiveEffects(entity),
-    EFFECT_TRIGGER_SOURCE_KINDS.instance,
-    (effect) =>
-      listEffectEventTriggers(effect, 'attackRoll').filter(
-        (trigger) =>
-          (trigger.role ?? DEFAULT_TRIGGER_ATTACK_ROLE) === role
-          && isClientAttackRollTrigger(trigger) === (place === 'client'),
-      ),
+  return listCarrierEventSources(entity, (effect) =>
+    listEffectEventTriggers(effect, 'attackRoll').filter(
+      (trigger) =>
+        (trigger.role ?? DEFAULT_TRIGGER_ATTACK_ROLE) === role
+        && isClientAttackRollTrigger(trigger) === (place === 'client'),
+    ),
   );
 }
 

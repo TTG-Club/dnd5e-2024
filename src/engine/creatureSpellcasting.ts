@@ -27,6 +27,7 @@ import type { DnDCreature, Spell, SpellUsesRecovery } from './dndEntities.js';
 import { generateId, isRecord } from '@vtt/shared';
 
 import { isAbilityType } from './consts.js';
+import { withLiveSpellUses } from './spellLiveUses.js';
 
 // ── Типы ────────────────────────────────────────────────────────────────────
 
@@ -622,6 +623,35 @@ export function hasCreatureSpellUsesLeft(
 
   return (
     !spell.uses || spell.uses.recovery === 'atWill' || spell.uses.current > 0
+  );
+}
+
+/**
+ * Остались ли применения у заклинания существа — по самому существу, а не по
+ * копии заклинания у вызывающего. Строка листа и ссылка горячей панели
+ * приносят заклинание и группу, какими они были при отрисовке; заряд за это
+ * время мог списать другой вход, и проверка по копии пускала каст без
+ * ограничения.
+ *
+ * @param creature - существо мира в момент каста
+ * @param spell - заклинание, каким его принёс вход
+ * @param placement - место заклинания в блоках, каким его принёс вход
+ * @returns `true`, если каст возможен
+ */
+export function hasLiveCreatureSpellUsesLeft(
+  creature: Pick<DnDCreature, 'spells' | 'system'>,
+  spell: Spell,
+  placement: CreatureSpellPlacement | undefined,
+): boolean {
+  const liveGroup = placement
+    ? (creature.system.spellcastingBlocks ?? [])
+        .flatMap((block) => block.groups)
+        .find((group) => group.id === placement.group.id)
+    : undefined;
+
+  return hasCreatureSpellUsesLeft(
+    withLiveSpellUses(creature.spells, spell),
+    placement && liveGroup ? { ...placement, group: liveGroup } : placement,
   );
 }
 

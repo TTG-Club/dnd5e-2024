@@ -2,6 +2,9 @@
  * Числа наложившего в эффектах «на цель»: урон и лечение эффекта считаются
  * по тому, кто его накладывает, а не по цели.
  *
+ * Сл спасброска формулой («8 + @prof + @mod.wis» монаха) — тоже числа
+ * наложившего.
+ *
  * Без подстановки сервер пропускает часть урона с `@`: «Божественная искра»
  * `1к8 + @mod.wis` не лечила бы вовсе, «Героизм» не давал бы временных хитов.
  * Подставлять приходится на клиенте и в момент наложения — наложивший может
@@ -16,12 +19,13 @@ import type {
 
 import {
   bindTargetEffectsToSource,
-  buildFormulaContext,
-  resolveActorStats,
+  buildOwnerSaveDcContext,
+  listEffectSaveDcs,
   resolveSpellcastingAbility,
 } from '@vtt/shared/system/dnd.js';
 
-import { listAmbientEffects } from './useResolvedStats';
+import { resolveSpellCastLevel } from './spellCasts';
+import { resolveEntityStats } from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
 
 /**
@@ -33,7 +37,7 @@ import { useWorldEntities } from './useWorldEntities';
  * @returns модификатор характеристики
  */
 function resolveCasterSpellMod(caster: DnDSceneEntity, spell: Spell): number {
-  return resolveActorStats(caster, listAmbientEffects(caster.id)).abilityMods[
+  return resolveEntityStats(caster).abilityMods[
     resolveSpellcastingAbility(caster, spell)
   ];
 }
@@ -58,8 +62,15 @@ export function bindTargetEffectsToCaster(
     return [...effects];
   }
 
+  // Сл формулой — по наложившему: «@spellDc» у умения — Сл его заклинаний
+  const saveDcFormulas = effects
+    .flatMap(listEffectSaveDcs)
+    .map((save) => save.dcFormula);
+
   return bindTargetEffectsToSource(effects, caster, {
-    ...buildFormulaContext(caster),
+    ...buildOwnerSaveDcContext(caster, saveDcFormulas),
+    // Круг ячейки — «Подмога» поднимает хиты цели по кругу каста
+    castLevel: resolveSpellCastLevel(caster.id, spell),
     spellMod: resolveCasterSpellMod(caster, spell),
   });
 }

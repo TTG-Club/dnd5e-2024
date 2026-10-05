@@ -8,6 +8,8 @@
  * от пайплайна эффектов: цикла не возникает.
  */
 
+import type { SkillType } from '@vtt/shared';
+
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type { ConditionRef } from './conditionKeys.js';
 import type { EffectTrigger } from './effectTriggerTypes.js';
@@ -46,8 +48,18 @@ function effectIdentityKey(effect: ActiveEffect): string {
     return 'concentration';
   }
 
+  // «Складывается с одноимёнными»: каждое наложение — само по себе
+  if (effect.stackable) {
+    return `instance:${effect.id}`;
+  }
+
   if (effect.tag) {
-    return `tag:${effect.tag}`;
+    // Отметка «от наложившего» у каждого наложившего своя: «невосприимчив к
+    // Ужасающему облику ЭТОГО привидения» не должна стирать такую же отметку
+    // от другого. Счётчик ступеней и отметка без наложившего — общие
+    return effect.sourceActorId && effect.tagStacks === undefined
+      ? `tag:${effect.tag}:${effect.sourceActorId}`
+      : `tag:${effect.tag}`;
   }
 
   return effect.conditionKey
@@ -108,6 +120,13 @@ export function mergeAppliedEffects(
  * `activeEffects` цели. Эффект, у которого есть только срабатывание «урон
  * снимает эффект», без этого на цель не попал бы вовсе.
  *
+ * Нагрузка — любое поле, которое действует, пока эффект лежит: правило каста
+ * («ячейки 7-го круга и выше недоступны»), «вырваться», иммунитет к
+ * состояниям и их подавление, свет, подмена спасброска, ступени, степень
+ * истощения. Эффект с одним таким полем раньше молча отбрасывался при
+ * наложении. Цена (`pay`), применение (`activation`) и аура сюда не входят:
+ * сами по себе они ничего не делают — им нужна строка, флаг или срабатывание.
+ *
  * @param effect - накладываемый эффект
  * @returns `true`, если у эффекта есть длящаяся нагрузка
  */
@@ -120,6 +139,14 @@ export function hasLastingEffectPayload(effect: ActiveEffect): boolean {
     || effect.recurringSave !== undefined
     || (effect.triggers?.length ?? 0) > 0
     || effect.tag !== undefined
+    || effect.castRule !== undefined
+    || effect.escape !== undefined
+    || (effect.conditionImmunities?.length ?? 0) > 0
+    || (effect.suppressConditions?.length ?? 0) > 0
+    || effect.light !== undefined
+    || effect.saveOverride !== undefined
+    || (effect.stages?.length ?? 0) > 0
+    || effect.exhaustionLevel !== undefined
   );
 }
 
@@ -151,14 +178,17 @@ function hasSourceTriggerSaveDc(effect: ActiveEffect): boolean {
       trigger.save?.dc === 0
       || trigger.actions.some(
         (action) =>
-          action.type === 'applyCondition' && action.recurringSave?.dc === 0,
+          action.type === 'applyCondition'
+          && (action.recurringSave?.dc === 0
+            // «Вырваться» наложенного состояния ждёт ту же Сл источника
+            || action.escape?.check?.dc === 0),
       ),
   );
 }
 
 /**
- * Срабатывание со Сл источника: в спасброске и в повторном спасброске
- * наложенного состояния.
+ * Срабатывание со Сл источника: в спасброске, в повторном спасброске
+ * наложенного состояния и в его проверке «вырваться».
  *
  * @param trigger - срабатывание
  * @param sourceDc - Сл источника
@@ -178,17 +208,36 @@ function stampTriggerSaveDc(
           },
         }
       : {}),
-    actions: trigger.actions.map((action) =>
-      action.type === 'applyCondition' && action.recurringSave
-        ? {
-            ...action,
-            recurringSave: {
-              ...action.recurringSave,
-              dc: resolveEffectSaveDc(action.recurringSave.dc, sourceDc),
-            },
-          }
-        : action,
-    ),
+    actions: trigger.actions.map((action) => {
+      if (action.type !== 'applyCondition') {
+        return action;
+      }
+
+      const { recurringSave, escape } = action;
+
+      return {
+        ...action,
+        ...(recurringSave
+          ? {
+              recurringSave: {
+                ...recurringSave,
+                dc: resolveEffectSaveDc(recurringSave.dc, sourceDc),
+              },
+            }
+          : {}),
+        ...(escape?.check
+          ? {
+              escape: {
+                ...escape,
+                check: {
+                  ...escape.check,
+                  dc: resolveEffectSaveDc(escape.check.dc, sourceDc),
+                },
+              },
+            }
+          : {}),
+      };
+    }),
   };
 }
 
@@ -208,6 +257,8 @@ export function hasSourceTurnSaveDc(effect: ActiveEffect): boolean {
     // Проверка действия «вырваться» ждёт того же: кнопку нажмут потом, когда
     // источника уже не спросишь
     || effect.escape?.check?.dc === 0
+    // Спасбросок при попытке каста бросят позже — тоже без источника под рукой
+    || effect.castRule?.failSave?.dc === 0
     || hasSourceTriggerSaveDc(effect)
   );
 }
@@ -232,7 +283,7 @@ export function stampSourceTurnSaveDc(
   const { recurringSave, recurringDamage, triggers } = effect;
 
   return {
-    ...stampEscapeDc(effect, sourceDc),
+    ...stampCastRuleDc(stampEscapeDc(effect, sourceDc), sourceDc),
     recurringSave: recurringSave
       ? {
           ...recurringSave,
@@ -311,6 +362,34 @@ function stampEscapeDc(effect: ActiveEffect, sourceDc: number): ActiveEffect {
   };
 }
 
+/**
+ * Проставляет Сл источника в спасбросок правила каста («Слово силы: Боль»:
+ * спасбросок Телосложения против Сл наложившего при попытке колдовать).
+ *
+ * @param effect - эффект заклинания или действия
+ * @param sourceDc - Сл спасброска источника
+ * @returns исходный эффект либо копия с проставленной Сл
+ */
+function stampCastRuleDc(effect: ActiveEffect, sourceDc: number): ActiveEffect {
+  const { castRule } = effect;
+  const failSave = castRule?.failSave;
+
+  if (!castRule || failSave?.dc !== 0) {
+    return effect;
+  }
+
+  return {
+    ...effect,
+    castRule: {
+      ...castRule,
+      failSave: { ...failSave, dc: resolveEffectSaveDc(failSave.dc, sourceDc) },
+    },
+  };
+}
+
+/** Наименьшая Сл из проверки навыка: Сл 0 значила бы «Сл источника» */
+const MIN_SKILL_CHECK_DC = 1;
+
 /** Результат вычисления применимости эффекта к цели */
 export interface EffectApplication {
   /** Вешать ли эффект-состояние на цель */
@@ -378,5 +457,57 @@ export function resolveEffectApplication(
       gates.halfOnSave,
       defense,
     ),
+  };
+}
+
+/**
+ * Навыки, итог проверки которых служит Сл спасброска эффектов источника
+ * (`applySave.dcSkill`): «спасбросок Мудрости со Сл, равной результату вашей
+ * проверки Запугивания».
+ *
+ * @param effects - эффекты, которые источник накладывает на цель
+ * @returns навыки без повторов; пусто — Сл обычная
+ */
+export function listSaveDcSkills(
+  effects: readonly ActiveEffect[],
+): SkillType[] {
+  return [
+    ...new Set(
+      effects.flatMap((effect) =>
+        effect.applySave?.dcSkill ? [effect.applySave.dcSkill] : [],
+      ),
+    ),
+  ];
+}
+
+/**
+ * Записывает итог проверки навыка Сл спасброска эффектов, которые её ждут.
+ * Сл не меньше единицы: отрицательный итог проверки спасбросок не отменяет.
+ *
+ * @param effect - эффект источника
+ * @param skill - навык проверки
+ * @param total - итог проверки применившего
+ * @returns исходный эффект либо копия с Сл из проверки
+ */
+export function stampSkillCheckDc(
+  effect: ActiveEffect,
+  skill: SkillType,
+  total: number,
+): ActiveEffect {
+  const { applySave } = effect;
+
+  if (applySave?.dcSkill !== skill) {
+    return effect;
+  }
+
+  return {
+    ...effect,
+    applySave: {
+      ...applySave,
+      dc: Math.max(MIN_SKILL_CHECK_DC, Math.trunc(total)),
+      // Формула уступает проверке: Сл уже число
+      dcFormula: undefined,
+      dcSkill: undefined,
+    },
   };
 }

@@ -1,8 +1,17 @@
-import type { Spell } from '@vtt/shared/system/dnd.js';
+import type { ActiveEffect, Spell } from '@vtt/shared/system/dnd.js';
 
-import { buildEndCastsEvent } from '@vtt/shared/system/dnd.js';
+import { watch } from 'vue';
 
+import {
+  buildEndCastsEvent,
+  isDndSceneEntity,
+  withoutCastEffects,
+} from '@vtt/shared/system/dnd.js';
+
+import { rememberSentCastEnd } from './entityCombatWrite';
+import { refuseWhileSheetEditing } from './sheetEditLock';
 import { emitSystemClientEvent } from './systemClientEvents';
+import { useWorldEntities } from './useWorldEntities';
 
 /**
  * Касты заклинаний с концентрацией.
@@ -133,4 +142,113 @@ export function requestEndCasts(
   }
 
   emitSystemClientEvent(buildEndCastsEvent(casterId, castIds));
+
+  // Эффекты этих кастов лежат в сторе до ответа сервера: полная запись
+  // листа, ушедшая следом, не должна их вернуть
+  rememberSentCastEnd(casterId, castIds);
+}
+
+/**
+ * Сколько ждать ответа сервера на конец кастов, прежде чем разбирать цели
+ * нового: сервер отвечает за десятки миллисекунд, а потерянный ответ не
+ * должен держать каст вечно.
+ */
+export const CAST_END_WAIT_MS = 1000;
+
+/**
+ * Лежат ли ещё где-нибудь в мире эффекты закончившихся кастов заклинателя.
+ *
+ * @param casterId - заклинатель
+ * @param castIds - закончившиеся касты
+ * @returns `true`, пока сервер их не снял
+ */
+export function hasEndedCastEffects(
+  casterId: string,
+  castIds: ReadonlySet<string>,
+): boolean {
+  // Тот же отбор, которым сервер снимает каст: без расхождения в том, что
+  // считается эффектом каста
+  return useWorldEntities()
+    .getCurrentWorldEntities()
+    .some((entity) => {
+      const effects = isDndSceneEntity(entity)
+        ? (entity.activeEffects ?? [])
+        : [];
+
+      return (
+        withoutCastEffects(effects, casterId, castIds).length !== effects.length
+      );
+    });
+}
+
+/**
+ * Ждёт, пока ответ сервера снимет эффекты закончившихся кастов: разбор целей
+ * нового каста читает стор, и окно спасброска иначе видело бы эффект
+ * прежнего («Автоматический провал — из-за… Парализованный»).
+ *
+ * @param casterId - заклинатель
+ * @param castIds - закончившиеся касты; пусто — ждать нечего
+ * @param timeoutMs - сколько ждать самое большее
+ * @returns выполняется, когда эффектов не осталось или вышло время
+ */
+export function waitForCastsEnded(
+  casterId: string,
+  castIds: readonly string[],
+  timeoutMs = CAST_END_WAIT_MS,
+): Promise<void> {
+  const ended = new Set(castIds);
+
+  if (ended.size === 0 || !hasEndedCastEffects(casterId, ended)) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve) => {
+    let stopWatching: (() => void) | undefined;
+
+    const timer = setTimeout(finish, timeoutMs);
+
+    /** Снимает слежение и отпускает ожидающего */
+    function finish(): void {
+      clearTimeout(timer);
+      stopWatching?.();
+      resolve();
+    }
+
+    stopWatching = watch(
+      () => hasEndedCastEffects(casterId, ended),
+      (pending) => {
+        if (!pending) {
+          finish();
+        }
+      },
+    );
+  });
+}
+
+/**
+ * Кнопка «Прервать концентрацию» листа: сервер закончит каст метки у всех
+ * существ и снимет его зону; сама метка уходит тем же исходом.
+ *
+ * Лист в режиме правки каст не прерывает: черновик мира не видит и продолжал
+ * бы показывать снятые эффекты, а его «Сохранить» могло бы вернуть те из них,
+ * что владелец успел поправить.
+ *
+ * @param entityId - чей лист; нет — эффект показан без сущности мира
+ * @param effect - метка концентрации
+ */
+export function endEntityConcentration(
+  entityId: string | null | undefined,
+  effect: Pick<ActiveEffect, 'concentration' | 'castId' | 'sourceActorId'>,
+): void {
+  // Лист носителя метки или самого заклинателя в режиме правки
+  if (
+    refuseWhileSheetEditing(entityId)
+    || refuseWhileSheetEditing(effect.sourceActorId)
+  ) {
+    return;
+  }
+
+  if (effect.concentration && effect.castId && effect.sourceActorId) {
+    requestEndCasts(effect.sourceActorId, [effect.castId]);
+  }
 }

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 import { describe, it } from 'vitest';
 
+import { loadChangeEntityCombatState } from './helpers/combatWrite.mjs';
 import { loadHandler } from './helpers/sourceHandler.mjs';
 import {
   createActor,
@@ -189,7 +190,14 @@ describe('фиксация: срабатывания на ходу', () => {
 });
 
 describe('фиксация: расход эффекта на броске атаки', () => {
-  it('снимаются только эффекты своей роли, одним снимком; без них — ничего', async () => {
+  /**
+   * Настоящий разбор стороны броска атаки с подменённым миром.
+   *
+   * @param {boolean} [inCombat] - идёт ли бой: вне боя счётчик «раз в ход»
+   *   не копится
+   * @returns {Promise<object>} разбор, мир и журналы
+   */
+  async function loadSettle(inCombat = false) {
     const emitted = [];
     const storeUpdates = [];
     const world = new Map();
@@ -201,7 +209,9 @@ describe('фиксация: расход эффекта на броске ата
         findDndWorldEntity: (id) => world.get(id),
         isDndSceneEntity: engine.isDndSceneEntity,
         runAttackRollTriggers: engine.runAttackRollTriggers,
-        isEntityInCombat: () => false,
+        listHeldAttackEffects: engine.listHeldAttackEffects,
+        cloneEntityData: engine.cloneEntityData,
+        isEntityInCombat: () => inCombat,
         resolveActiveTurnActorId: () => null,
         resolveCombatRound: () => undefined,
         isActorEntity: (entity) => entity.entityType === 'actor',
@@ -212,11 +222,20 @@ describe('фиксация: расход эффекта на броске ата
           updateCreature: (_worldId, id, patch) =>
             storeUpdates.push([id, patch]),
         }),
-        useChatStore: () => ({ getSocket: () => ({}) }),
-        emitEntityCombatState: (_socket, entity) => emitted.push(entity),
+        changeEntityCombatState: await loadChangeEntityCombatState({
+          findEntity: (id) => world.get(id),
+          emitted,
+          recordCombatBaseline: engine.recordCombatBaseline,
+        }),
         JSON,
       },
     );
+
+    return { settle, world, emitted, storeUpdates };
+  }
+
+  it('снимаются только эффекты своей роли, одним снимком; без них — ничего', async () => {
+    const { settle, world, emitted, storeUpdates } = await loadSettle();
 
     const sap = createEffect('sap', {
       flags: ['attack.disadvantage'],
@@ -241,9 +260,19 @@ describe('фиксация: расход эффекта на броске ата
       JSON.stringify(['vex']),
     );
 
+    // Стор на месте больше не правится: снимок несёт разницу эффектов, и
+    // запись урона, собранная позже из стора, снятый эффект не вернёт
+    assert.deepEqual(storeUpdates, []);
+
     assert.equal(
-      JSON.stringify(storeUpdates),
-      JSON.stringify([[hero.id, { activeEffects: [vex] }]]),
+      JSON.stringify(engine.diffEffects([sap, vex], emitted[0].activeEffects)),
+      JSON.stringify({ add: [], update: [], removeIds: ['sap'] }),
+    );
+
+    assert.equal(
+      JSON.stringify(engine.pickCombatState(emitted[0]).effectChanges),
+      JSON.stringify({ add: [], update: [], removeIds: ['sap'] }),
+      'снимок несёт разницу от сущности мира',
     );
 
     assert.equal(
@@ -260,6 +289,66 @@ describe('фиксация: расход эффекта на броске ата
     assert.equal(emitted.length, 2);
     assert.equal(emitted[1].activeEffects.length, 0);
   });
+
+  it('расход «раз в ход» едет разницей журнала: урон из стора следом его не откатывает', async () => {
+    const { settle, world, emitted, storeUpdates } = await loadSettle(true);
+    const system = new engine.Dnd5eVttSystem();
+
+    const focus = createEffect('focus', {
+      triggers: [
+        {
+          id: 'trigger_focus',
+          event: 'attackRoll',
+          actions: [{ type: 'applyCondition', conditionKey: 'prone' }],
+          limit: { max: 1, per: 'turn' },
+        },
+      ],
+    });
+
+    const usageKey = 'focus|trigger_focus';
+    const hero = woundedHero({ activeEffects: [focus] });
+    const server = structuredClone(hero);
+
+    world.set(hero.id, hero);
+    settle({ entityId: hero.id, role: 'attacker' }, 'normal');
+
+    assert.equal(emitted.length, 1);
+
+    const rollState = engine.pickCombatState(emitted[0]);
+
+    assert.equal(
+      JSON.stringify(rollState.effectUsageChanges.spend),
+      JSON.stringify({ [usageKey]: { used: 1, per: 'turn' } }),
+      'снимок несёт расход приращением',
+    );
+
+    // Стор не правится: расход дойдёт до стора ответом сервера
+    assert.deepEqual(storeUpdates, []);
+    assert.equal(hero.system.effectUsage, undefined);
+
+    system.settleCombatState(server, rollState);
+
+    // Оркестратор урона собрал запись из стора до ответа сервера
+    const damaged = structuredClone(hero);
+
+    engine.recordCombatBaseline(damaged, hero);
+    engine.writeEntityHitPoints(damaged, { current: 1, temp: 0 });
+    system.settleCombatState(server, engine.pickCombatState(damaged));
+
+    assert.equal(engine.resolveEntityCurrentHp(server), 1);
+    assert.equal(engine.readTriggerUsage(server)[usageKey].used, 1);
+
+    assert.equal(
+      engine.runAttackRollTriggers(server, 'attacker', { inCombat: true })
+        .usageChanged,
+      false,
+      'вторая атака в том же ходу лимит не обходит',
+    );
+  });
+
+  // «Снять после атаки по цели»: эффект действует на сам этот удар и
+  // снимается после него — на обоих порядках (урон в тике броска и после
+  // показа броска) это держит `attackRollSnapshot.test.mjs`
 });
 
 describe('фиксация: разовое срабатывание при входе и попадании', () => {

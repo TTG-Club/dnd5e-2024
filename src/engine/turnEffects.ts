@@ -26,6 +26,7 @@ import type {
   ResolvedActorStats,
 } from './activeEffectTypes.js';
 import type { ConditionRef } from './conditionKeys.js';
+import type { CreatureCategory } from './creatureTypes.js';
 import type { DamageDefenseOutcome } from './damageUtils.js';
 import type { RolledDiceGroup, RolledFormula } from './diceFormula.js';
 import type { DnDSceneEntity } from './dndEntities.js';
@@ -37,16 +38,19 @@ import type {
 } from './effectTriggerTypes.js';
 import type { SceneOffset } from './forcedMovement.js';
 import type { FormulaContext } from './formulaParser.js';
+import type { SaveSourceTraits } from './saveSourceTraits.js';
+import type { TriggerEventData } from './triggerConditions.js';
 
 import { isToggleActivatedEffect } from './activeEffectTypes.js';
 import { stampApplyTimeFormulas } from './applyTimeFormulas.js';
 import {
+  doubleDiceInFormula,
   listSavingThrowBonusKeys,
   resolveSavingThrowModifier,
   resolveSavingThrowRollMode,
 } from './attackUtils.js';
 import { ABILITY_LABELS } from './consts.js';
-import { DAMAGE_TYPE_LABELS } from './damageConstants.js';
+import { resolveDamageTypeLabel } from './damageConstants.js';
 import { damageReachesTarget } from './damageTargetGate.js';
 import { settleDamageTypeChoices } from './damageTypeChoice.js';
 import { applyHpChange, applyMultiTypeDamageDefenses } from './damageUtils.js';
@@ -57,10 +61,16 @@ import {
   buildCarrierContext,
   collectActiveEffects,
   collectBonusRollFormulas,
+  combineEffectsWithAmbient,
   resolveActorStats,
 } from './effectPipeline.js';
+import { resolveSaveDc } from './effectSaveDcOwner.js';
 import { resetTriggerUsage } from './effectTriggerUsage.js';
-import { buildFormulaContext } from './formulaParser.js';
+import {
+  buildFormulaContext,
+  evaluateFormula,
+  formatFormulaNumber,
+} from './formulaParser.js';
 import { limitEntityHealing } from './healingLimits.js';
 import {
   resolveEntityCurrentHp,
@@ -68,6 +78,12 @@ import {
   resolveEntityTempHp,
   writeEntityHitPoints,
 } from './hitPoints.js';
+import { buildResolvedFormulaContext } from './resolvedFormulaContext.js';
+import { pickSaveAbility } from './saveAbilityChoice.js';
+import {
+  resolveSaveSourceAdjustments,
+  withExtraFlags,
+} from './saveSourceConditions.js';
 import { expandDamageParts } from './spellUtils.js';
 
 /** Период лимита, который заканчивается с концом хода */
@@ -230,8 +246,10 @@ export function stampTurnDuration(
       ? (context.sourceId ?? context.carrierId)
       : context.carrierId;
 
+  // «До конца ТЕКУЩЕГО хода» (`turnCurrent`): первая граница — та самая
   const skipFirst =
     timing === 'end'
+    && effect.turnCurrent !== true
     && context.activeTurnActorId != null
     && anchorId === context.activeTurnActorId;
 
@@ -263,6 +281,58 @@ export function stampAppliedEffect(
     { ...effect, sourceActorId: context.sourceId ?? effect.sourceActorId },
     context,
   );
+}
+
+/**
+ * Эффект после своей границы хода: первая граница «хода наложения» только
+ * снимает пропуск, следующая — снимает эффект (переключаемый — выключает).
+ *
+ * @param effect - turn-эффект, чья граница наступила
+ * @returns эффект после границы либо пусто, если он снят
+ */
+function passTurnBoundary(effect: ActiveEffect): ActiveEffect[] {
+  const { duration } = effect;
+
+  if (duration.turnSkipFirst) {
+    // Пропускаем первую границу (ход наложения), снимаем флаг — эффект живёт.
+    return [{ ...effect, duration: { ...duration, turnSkipFirst: false } }];
+  }
+
+  // Переключаемый эффект по истечении выключается, а не уходит с листа
+  if (isToggleActivatedEffect(effect)) {
+    return [
+      {
+        ...effect,
+        disabled: true,
+        duration: { ...duration, turnSkipFirst: undefined },
+      },
+    ];
+  }
+
+  return []; // граница «следующего» хода — снимаем эффект
+}
+
+/**
+ * Наложивший, чьего хода эффект ждёт, — если этот ход вообще наступит. Без
+ * `sourceActorId` (эффект наложен по пути без контекста кастера) и когда
+ * наложившего нет в бою (не добавляли либо удалили после смерти) ждать нечего:
+ * эффект висел бы до конца сессии.
+ *
+ * @param effect - turn-эффект
+ * @param isInCombat - участвует ли сущность с таким id в бою
+ * @returns id наложившего либо `undefined`, если якорь не он или он не в бою
+ */
+function resolveReachableSourceId(
+  effect: ActiveEffect,
+  isInCombat: (entityId: string) => boolean,
+): string | undefined {
+  const sourceId = effect.sourceActorId;
+
+  return (effect.duration.turnAnchor ?? 'carrier') === 'source'
+    && sourceId !== undefined
+    && isInCombat(sourceId)
+    ? sourceId
+    : undefined;
 }
 
 /**
@@ -304,21 +374,13 @@ export function expireTurnEffects(
       return [effect];
     }
 
-    const anchor = duration.turnAnchor ?? 'carrier';
-
     // Якорь источника годится, только если ход источника вообще наступит:
-    // без `sourceActorId` (эффект наложен по пути без контекста кастера) и
-    // когда источника нет в бою (не добавляли либо удалили после смерти) якорь
-    // деградирует к носителю. Иначе эффект ждал бы хода, которого не будет, и
-    // висел бы до конца сессии.
-    const sourceId = effect.sourceActorId;
-
-    const hasReachableSource =
-      anchor === 'source'
-      && sourceId !== undefined
-      && (participantIds?.has(sourceId) ?? true);
-
-    const anchorId = hasReachableSource ? sourceId : entity.id;
+    // иначе он деградирует к носителю
+    const anchorId =
+      resolveReachableSourceId(
+        effect,
+        (entityId) => participantIds?.has(entityId) ?? true,
+      ) ?? entity.id;
 
     if (anchorId !== turnActorId) {
       return [effect]; // граница не нашего якоря
@@ -326,26 +388,52 @@ export function expireTurnEffects(
 
     changed = true;
 
-    if (duration.turnSkipFirst) {
-      // Пропускаем первую границу (ход наложения), снимаем флаг — эффект живёт.
-      return [{ ...effect, duration: { ...duration, turnSkipFirst: false } }];
-    }
-
-    // Переключаемый эффект по истечении выключается, а не уходит с листа
-    if (isToggleActivatedEffect(effect)) {
-      return [
-        {
-          ...effect,
-          disabled: true,
-          duration: { ...duration, turnSkipFirst: undefined },
-        },
-      ];
-    }
-
-    return []; // граница «следующего» хода — снимаем эффект
+    return passTurnBoundary(effect);
   });
 
   return changed;
+}
+
+/**
+ * Точные turn-эффекты сущности, которой в бою нет, — на границе раунда.
+ *
+ * Своего хода у сущности вне инициативы нет, и эффект «до конца её следующего
+ * хода» (или хода наложившего, которого в бою тоже нет) висел бы на ней вечно.
+ * Раунд же идёт у всех, поэтому для неё граница хода — новый раунд: первая
+ * снимает пропуск «хода наложения», следующая — сам эффект. Расхождение с
+ * точным сроком — меньше раунда.
+ *
+ * Эффект, который ждёт хода наложившего-участника, истекает точно — на границе
+ * этого хода, если ядро приносит её и сущностям вне боя. Тогда передаётся
+ * `isInCombat`, и раунд такой эффект не трогает (иначе срок шёл бы дважды).
+ * Без `isInCombat` (ядро разносит границы только участникам) раунд служит
+ * границей всем turn-эффектам сущности.
+ *
+ * @param entity - сущность вне боя (мутируется)
+ * @param isInCombat - участвует ли сущность с таким id в бою; без него ни один
+ *   якорь не считается достижимым
+ * @returns `true`, если эффекты изменились
+ */
+export function expireOutsiderTurnEffects(
+  entity: DnDSceneEntity,
+  isInCombat?: (entityId: string) => boolean,
+): boolean {
+  const effects = entity.activeEffects ?? [];
+
+  const waitsForRound = (effect: ActiveEffect): boolean =>
+    effect.duration.type === 'turn'
+    && (isInCombat === undefined
+      || resolveReachableSourceId(effect, isInCombat) === undefined);
+
+  if (!effects.some(waitsForRound)) {
+    return false;
+  }
+
+  entity.activeEffects = effects.flatMap((effect) =>
+    waitsForRound(effect) ? passTurnBoundary(effect) : [effect],
+  );
+
+  return true;
 }
 
 /** Исход одного повторного спасброска эффекта (начало/конец хода) */
@@ -508,7 +596,7 @@ export interface EffectSavingThrowContext {
  * Обстоятельства спасброска: от них зависят флаги преимущества вроде
  * «Мантии сопротивления заклинаниям» или «преимущество против Испуга».
  */
-export interface SavingThrowCircumstances {
+export interface SavingThrowCircumstances extends SaveSourceTraits {
   /** Спасбросок навязан магией */
   againstMagic: boolean;
   /** Спасбросок навязан именно заклинанием */
@@ -519,6 +607,11 @@ export interface SavingThrowCircumstances {
   againstConcentration?: boolean;
   /** Преимущество или помеха самого спасброска */
   mode?: EffectTriggerSaveMode;
+  /**
+   * Тип того, кто вызвал спасбросок, — для эффектов с условием
+   * `source.creatureType` («Защита от зла и добра»)
+   */
+  sourceCreatureType?: CreatureCategory;
 }
 
 /**
@@ -582,21 +675,33 @@ export function resolveEffectMagicCircumstances(
 export function buildApplySaveSpec(
   effect: ActiveEffect,
   applySave: NonNullable<ActiveEffect['applySave']>,
+  entity?: DnDSceneEntity,
 ): EffectSaveSpec {
   return {
     effectName: effect.name,
-    ability: applySave.ability,
-    dc: applySave.dc,
+    // «Сила или Ловкость»: бросающий берёт лучшую из названных
+    ability: pickSaveAbility(entity, applySave),
+    // Эффект зоны и ауры получил числа владельца при сборе — формула уже
+    // число либо ждёт того, чего здесь нет
+    dc: resolveSaveDc(applySave),
     ...resolveEffectMagicCircumstances(effect),
     againstCondition: effect.conditionKey,
     ...(applySave.allowWilling ? { allowWilling: true } : {}),
+    ...(effect.sourceCreatureType
+      ? { sourceCreatureType: effect.sourceCreatureType }
+      : {}),
   };
 }
 
 /**
  * Собирает контекст один раз для серии спасбросков текущей сущности.
  *
+ * Ауры входят без дублей одноимённых — тем же правилом, что в числах листа:
+ * аура с флагами лежит на сущности ещё и условием, и её кость к спасброску
+ * («+1к4») иначе бросалась бы дважды.
+ *
  * @param entity - сущность, которая бросает
+ * @param ambientEffects - ауры чужих токенов
  * @returns эффекты и свойства носителя для бонусных кубиков
  */
 export function buildEffectSavingThrowContext(
@@ -604,8 +709,13 @@ export function buildEffectSavingThrowContext(
   ambientEffects: readonly ActiveEffect[] = [],
 ): EffectSavingThrowContext {
   return {
-    effects: [...collectActiveEffects(entity), ...ambientEffects],
-    formulaContext: buildFormulaContext(entity),
+    effects: combineEffectsWithAmbient(
+      collectActiveEffects(entity),
+      ambientEffects,
+    ),
+    // Числа листа — итоговые: «+мод. Мудрости» к спасброску читает то, что
+    // показывает лист
+    formulaContext: buildResolvedFormulaContext(entity, { ambientEffects }),
     self: buildCarrierContext(entity),
   };
 }
@@ -647,12 +757,22 @@ export function rollEffectSavingThrow(
     return { roll: 1, total: 1, passed: false };
   }
 
-  const modifier = resolveSavingThrowModifier(stats, ability, circumstances);
+  // «Защита от зла и добра»: эффекты с условием об источнике спасброска
+  const sourceAdjustments = resolveSaveSourceAdjustments(
+    context.effects,
+    ability,
+    circumstances ?? {},
+    context.formulaContext,
+  );
+
+  const modifier =
+    resolveSavingThrowModifier(stats, ability, circumstances)
+    + sourceAdjustments.bonus;
 
   // Те же обстоятельства, что и у спасброска на клиенте: иначе серверный и
   // клиентский бросок одного эффекта давали бы разное преимущество
   const rollMode = resolveSavingThrowRollMode({
-    flags: activeFlags,
+    flags: withExtraFlags(activeFlags, sourceAdjustments.flags),
     ability,
     againstMagic: circumstances?.againstMagic,
     againstSpell: circumstances?.againstSpell,
@@ -684,7 +804,14 @@ export function rollEffectSavingThrow(
     collectBonusRollFormulas(
       context.effects,
       bonusKey,
-      { hasAdvantage, hasDisadvantage, self: context.self },
+      {
+        hasAdvantage,
+        hasDisadvantage,
+        self: context.self,
+        ...(circumstances?.sourceCreatureType
+          ? { source: { creatureType: circumstances.sourceCreatureType } }
+          : {}),
+      },
       context.formulaContext,
     ),
   );
@@ -832,6 +959,38 @@ export interface EffectDamageRollOptions {
    * своего урона не знает, лишнего не наносит.
    */
   damageDealt?: boolean;
+  /**
+   * Урон идёт цели атаки, попавшей критически: кости удваиваются по тому же
+   * правилу, что у урона самой атаки (`doubleDiceInFormula`), плоские прибавки
+   * — нет
+   */
+  critical?: boolean;
+  /** Куда сообщить о слагаемом, которое бросок пропустил */
+  reportSkipped?: SkippedFormulaReporter;
+}
+
+/**
+ * Получатель пропущенного слагаемого урона или лечения: в формуле остался
+ * `@`-токен, который никто не подставил, и бросок её не считает. Молча терять
+ * такое слагаемое нельзя — вызывающий пишет о нём в сводку чата.
+ */
+export type SkippedFormulaReporter = (formula: string) => void;
+
+/** Начало строки сводки о пропущенном слагаемом: дальше — формула */
+const SKIPPED_FORMULA_NOTE = 'не посчитано автоматически — ';
+
+/**
+ * Строка сводки о слагаемом урона или лечения, которое бросок пропустил.
+ *
+ * @param effectName - эффект, чьё срабатывание бросали
+ * @param formula - пропущенное слагаемое
+ * @returns строка для сводки чата
+ */
+export function formatSkippedFormulaNote(
+  effectName: string,
+  formula: string,
+): string {
+  return `${effectName}: ${SKIPPED_FORMULA_NOTE}${formula}`;
 }
 
 /** Одна часть урона эффекта после доли и защит — строка чата */
@@ -899,6 +1058,50 @@ function scaleDamageTotals(totals: readonly number[], scale: number): number[] {
 }
 
 /**
+ * Токены получателя урона: число его отметок, временные хиты и непотраченные
+ * кости хитов. В уроне срабатывания их считает сам получатель — «1к8 за
+ * каждую Точку давления на цели», «получает урон, равный оставшимся временным
+ * хитам».
+ */
+const RECIPIENT_TOKEN_PATTERN =
+  /@(?:tag\.\w+|hp\.temp|hitDice\.left)(?![\w.])/g;
+
+/** Тот же шаблон — для проверки наличия, без позиции поиска у глобального */
+const RECIPIENT_TOKEN_PROBE = new RegExp(RECIPIENT_TOKEN_PATTERN.source, 'u');
+
+/**
+ * Часть урона с числами получателя вместо его токенов. Остальные токены не
+ * трогаются: часть с ними бросок по-прежнему пропустит.
+ *
+ * @param part - часть урона
+ * @param entity - получатель урона
+ * @returns исходная часть, если токенов получателя нет, иначе копия
+ */
+function bindRecipientTokens(
+  part: DamagePart,
+  entity: DnDSceneEntity,
+): DamagePart {
+  if (!RECIPIENT_TOKEN_PROBE.test(part.formula)) {
+    return part;
+  }
+
+  // Числа получателя — отметки, временные хиты, кости хитов: характеристик
+  // среди них нет, и итоговые числа листа здесь считать незачем
+  const context = buildFormulaContext(entity);
+
+  return {
+    ...part,
+    formula: part.formula.replace(RECIPIENT_TOKEN_PATTERN, (token) => {
+      try {
+        return formatFormulaNumber(evaluateFormula(token, context));
+      } catch {
+        return token;
+      }
+    }),
+  };
+}
+
+/**
  * Катает урон нагрузки `DamagePart[]` по частям: кости, доля спасброска, затем
  * защиты цели (по правилам сопротивление применяется после прочих изменений).
  * Сегментирует части (`@dmg.<type>`); лечащие части и контекстные `@`-формулы
@@ -927,7 +1130,13 @@ export function rollEffectDamageParts(
   entity: DnDSceneEntity,
   options: EffectDamageRollOptions = {},
 ): EffectDamageRoll {
-  const { scale = 1, rollFormula = rollDamageFormula, damageDealt } = options;
+  const {
+    scale = 1,
+    rollFormula = rollDamageFormula,
+    damageDealt,
+    critical = false,
+    reportSkipped,
+  } = options;
 
   const gated = damageParts.filter(
     (part) => damageDealt === true || part.requiresDamage !== true,
@@ -936,14 +1145,33 @@ export function rollEffectDamageParts(
   // Число костей выражением (`(2 + 1)к6`) бросок не понимает — считаем заранее.
   // Тип на выбор, не решённый наложившим (эффект без источника), здесь
   // спросить некого — он выпадает случайно
-  const segments = settleDamageTypeChoices(
-    expandDamageParts(gated, undefined, resolveDiceCountExpressions),
-  ).filter(
-    (segment) =>
-      !segment.isHealing
-      && !segment.formula.includes('@')
-      && damageReachesTarget(segment, entity),
-  );
+  const damaging = settleDamageTypeChoices(
+    expandDamageParts(
+      gated.map((part) => bindRecipientTokens(part, entity)),
+      undefined,
+      resolveDiceCountExpressions,
+    ),
+  ).filter((segment) => !segment.isHealing);
+
+  if (reportSkipped) {
+    for (const segment of damaging) {
+      if (segment.formula.includes('@')) {
+        reportSkipped(segment.formula);
+      }
+    }
+  }
+
+  const segments = damaging
+    .filter(
+      (segment) =>
+        !segment.formula.includes('@') && damageReachesTarget(segment, entity),
+    )
+    // Крит удваивает кости уже посчитанного числа: `(1 + 2)к8` — это `6к8`
+    .map((segment) =>
+      critical
+        ? { ...segment, formula: doubleDiceInFormula(segment.formula) }
+        : segment,
+    );
 
   const rolls = segments.map((segment) => rollFormula(segment.formula));
 
@@ -1052,6 +1280,18 @@ export interface EntryEffectOptions extends SceneMoveOptions {
   /** Урон события: `@damage` действия «Максимум хитов уменьшается» */
   eventDamage?: number;
   /**
+   * Данные события срабатывания, выполняемого по ответу человека: спасбросок
+   * получателя после согласия или выбора цели считает по ним Сл формулой
+   * (`@damage`), режим «если…» и автоматический исход — как бросок без вопроса
+   */
+  eventData?: TriggerEventData;
+  /**
+   * Цель атаки, по которой попали критически (событие броска атаки): урон
+   * срабатывания, идущий ей, удваивает кости, как урон самой атаки. Другим
+   * получателям и лечению крит ничего не даёт
+   */
+  criticalTargetId?: string;
+  /**
    * Не привязывать наложенное к касту: наложения «когда заклинание
    * заканчивается» переживают сам каст.
    */
@@ -1088,11 +1328,13 @@ export interface EntryEffectResult {
  *
  * @param effectName - название эффекта (для подписи)
  * @param damageParts - части урона эффекта
+ * @param reportSkipped - куда сообщить о слагаемом, которое не посчиталось
  * @returns исход лечения либо `null`, если лечащих частей нет
  */
 export function rollEffectHealing(
   effectName: string,
   damageParts: DamagePart[],
+  reportSkipped?: SkippedFormulaReporter,
 ): TurnHealingOutcome | null {
   const segments = expandDamageParts(
     damageParts,
@@ -1107,7 +1349,13 @@ export function rollEffectHealing(
   const rolls: RolledFormula[] = [];
 
   for (const segment of segments) {
-    if (!segment.isHealing || segment.formula.includes('@')) {
+    if (!segment.isHealing) {
+      continue;
+    }
+
+    if (segment.formula.includes('@')) {
+      reportSkipped?.(segment.formula);
+
       continue;
     }
 
@@ -1367,6 +1615,16 @@ export function formatRecurringSaveStatus(save: TurnSaveOutcome): string {
 }
 
 /**
+ * Итог спасброска при входе в зону или ауру в сводке чата.
+ *
+ * @param save - исход спасброска
+ * @returns подпись итога
+ */
+export function formatEntrySaveStatus(save: TurnSaveOutcome): string {
+  return save.passed ? '✓ спас' : '✗ провал';
+}
+
+/**
  * Первая строка сводки сработавших эффектов.
  *
  * @param entityName - имя сущности
@@ -1418,13 +1676,10 @@ export function formatEffectsSummary(
   healingOutcomes: TurnHealingOutcome[] = [],
 ): string | null {
   const lines = [formatEffectsSummaryHeader(entityName, whenLabel)];
-  const damageLabels: Record<string, string> = DAMAGE_TYPE_LABELS;
 
   // Урон и лечение с костями показаны карточками бросков (`buildEffectDiceRolls`)
   for (const damage of damageOutcomes.filter(isSummaryOnlyOutcome)) {
-    const typeLabel =
-      damage.types.map((type) => damageLabels[type] ?? type).join('/')
-      || 'урон';
+    const typeLabel = formatDamageTypeLabels(damage.types) || 'урон';
 
     const breakdown = formatRollBreakdown(damage);
 
@@ -1476,17 +1731,24 @@ function isSummaryOnlyOutcome(
 }
 
 /**
+ * Названия типов урона исхода через «/». Тип без названия (служебный `choice`)
+ * пропускается.
+ *
+ * @param types - ключи типов урона
+ * @returns названия; пустая строка — назвать нечего
+ */
+function formatDamageTypeLabels(types: readonly string[]): string {
+  return types.flatMap((type) => resolveDamageTypeLabel(type) ?? []).join('/');
+}
+
+/**
  * Итог урона для подписи броска: «−5 HP (Огненный урон)».
  *
  * @param outcome - исход урона
  * @returns итог
  */
 function formatDamageResult(outcome: TurnDamageOutcome): string {
-  const damageLabels: Record<string, string> = DAMAGE_TYPE_LABELS;
-
-  const typeLabel = outcome.types
-    .map((type) => damageLabels[type] ?? type)
-    .join('/');
+  const typeLabel = formatDamageTypeLabels(outcome.types);
 
   return typeLabel
     ? `−${outcome.total} HP (${typeLabel})`

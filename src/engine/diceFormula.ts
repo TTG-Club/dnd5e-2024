@@ -2,8 +2,15 @@
  * Минимальный разбор и бросок кубиковой формулы — server-safe (без внешних
  * зависимостей и без рандом-движка клиента).
  *
- * Поддерживает слагаемые вида `NкM` / `NдM` / `NdM` (кубики) и плоские числа,
- * соединённые `+`/`−`. Бросок используется серверным рантаймом периодического
+ * Поддерживает слагаемые вида `NкM` / `NдM` / `NdM` (кубики), плоские числа и
+ * арифметику без костей (`(2 * 3)`, `floor(5 / 2)`), соединённые `+`/`−` вне
+ * скобок. Арифметика нужна потому, что подстановка чисел источника оставляет
+ * выражения: `(@classLevel)@heal.temp` Дикой формы приходит сюда как `(3)`, а
+ * `(5 * (@castLevel - 1))@heal` — как `(5 * (2 - 1))`; простое чтение числа
+ * давало на них ноль, и лечение молча пропадало. Скобка с костями внутри
+ * (`(1к8 + 3)@dmg.fire`) раскрывается.
+ *
+ * Бросок используется серверным рантаймом периодического
  * урона (DoT): на клиенте бросок делает rpg-dice-roller, но сервер тикает урон
  * сам. Разбор слагаемых нужен и без броска — формуле хитов существа, где из
  * записи компендиума берётся только число костей.
@@ -18,8 +25,37 @@
  * собранной строке, где есть и пробелы записи мира, и `@`-токены, и слова.
  */
 
+import { evaluateDetachedFormula } from './formulaParser.js';
+
 /** Регэксп одного кубикового слагаемого: `2к6`, `1д8`, `3d10` */
 const DICE_TERM_REGEX = /^(\d+)[кдd](\d+)$/i;
+
+/** Знак, с которого начинается формула-вычет */
+const DEDUCTION_SIGN = '-';
+
+/**
+ * Вычет из урона — формула части, которая начинается с минуса: строка
+ * `damage.all` со значением `-1к8` («Ослабляющий выстрел»). Это не урон:
+ * критическое попадание её кости не удваивает.
+ *
+ * @param formula - формула части урона
+ * @returns `true`, если часть уменьшает урон
+ */
+export function isDeductionFormula(formula: string): boolean {
+  return formula.trim().startsWith(DEDUCTION_SIGN);
+}
+
+/**
+ * Формула для роллера клиента. Его разбор читает ведущий минус перед костью
+ * как «минус одна кость» и не бросает ничего: `-1к8` давало ноль, и вычет из
+ * урона молча пропадал. С нулём впереди та же формула — обычное вычитание.
+ *
+ * @param formula - формула части урона
+ * @returns формула, которую роллер бросает верно
+ */
+export function toRollerFormula(formula: string): string {
+  return isDeductionFormula(formula) ? `0${formula.trim()}` : formula;
+}
 
 /**
  * Латинская буква кости внутри готовой строки: `1d8` → `1к8`.
@@ -66,21 +102,155 @@ interface SignedFormulaTerm {
   body: string;
 }
 
+/** Знак, после которого `+`/`−` — знак числа, а не новое слагаемое: `2*-3` */
+const OPERATOR_BEFORE_SIGN_REGEX = /[*/(,]/;
+
 /**
- * Разбивает формулу на слагаемые со знаком. Пробелы снимаются заранее:
+ * Кость где-то в выражении, в том числе с числом или гранью выражением:
+ * `(1к8+3)`, `(@castLevel)к10`, `1к(8 + 2)`
+ */
+const DICE_IN_EXPRESSION_REGEX = /[\d)]\s*[кдd]\s*[\d(]/i;
+
+/** Слагаемое — просто число, считать нечего */
+const PLAIN_NUMBER_REGEX = /^\d+$/;
+
+/**
+ * Есть ли в формуле кость. Арифметика без костей считается числом и
+ * показывается словами, формула с костью — бросается.
+ *
+ * @param formula - формула, возможно с `@`-переменными
+ * @returns `true`, если в формуле есть кость
+ */
+export function formulaHasDice(formula: string): boolean {
+  return DICE_IN_EXPRESSION_REGEX.test(formula);
+}
+
+/**
+ * Делит формулу на слагаемые со знаком по `+`/`−` вне скобок: `(5*(2-1))` —
+ * одно слагаемое, а не обрывки «(5*(2» и «1))». Пробелы снимаются заранее:
  * «2к6 + 3» и «2к6+3» — одна и та же формула.
+ *
+ * @param formula - формула без `@`-токенов
+ * @returns слагаемые верхнего уровня в порядке записи
+ */
+function splitTopLevelTerms(formula: string): SignedFormulaTerm[] {
+  const normalized = formula.replace(/\s+/g, '');
+  const terms: SignedFormulaTerm[] = [];
+
+  let depth = 0;
+  let sign: 1 | -1 = 1;
+  let body = '';
+
+  for (const char of normalized) {
+    const previous = body.at(-1);
+
+    const startsTerm =
+      depth === 0
+      && (char === '+' || char === '-')
+      && previous !== undefined
+      && !OPERATOR_BEFORE_SIGN_REGEX.test(previous);
+
+    if (startsTerm) {
+      terms.push({ sign, body });
+      sign = char === '-' ? -1 : 1;
+      body = '';
+
+      continue;
+    }
+
+    // Ведущий знак формулы — знак первого слагаемого
+    if (body.length === 0 && depth === 0 && (char === '+' || char === '-')) {
+      if (char === '-') {
+        sign = sign === 1 ? -1 : 1;
+      }
+
+      continue;
+    }
+
+    if (char === '(') {
+      depth++;
+    } else if (char === ')' && depth > 0) {
+      depth--;
+    }
+
+    body += char;
+  }
+
+  if (body.length > 0) {
+    terms.push({ sign, body });
+  }
+
+  return terms;
+}
+
+/**
+ * Внутренность скобки, которая охватывает слагаемое целиком: `(1к8+3)` →
+ * `1к8+3`. У `(1)+(2)` и `floor(5/2)` такой скобки нет.
+ *
+ * @param body - тело слагаемого
+ * @returns выражение в скобках либо `undefined`
+ */
+function unwrapParentheses(body: string): string | undefined {
+  if (!body.startsWith('(') || !body.endsWith(')')) {
+    return undefined;
+  }
+
+  let depth = 0;
+
+  for (const [index, char] of [...body].entries()) {
+    if (char === '(') {
+      depth++;
+    } else if (char === ')') {
+      depth--;
+    }
+
+    if (depth === 0 && index < body.length - 1) {
+      return undefined;
+    }
+  }
+
+  return body.slice(1, -1);
+}
+
+/**
+ * Слагаемые со знаком, где скобка с костями раскрыта: `-(1к4+1)` →
+ * `-1к4`, `-1`. Скобку бросок не катает, а кость внутри неё — должен.
  *
  * @param formula - формула без `@`-токенов
  * @returns слагаемые в порядке записи
  */
 function splitFormulaTerms(formula: string): SignedFormulaTerm[] {
-  const normalized = formula.replace(/\s+/g, '');
-  const terms = normalized.match(/[+-]?[^+-]+/g) ?? [];
+  return splitTopLevelTerms(formula).flatMap((term) => {
+    const inner = unwrapParentheses(term.body);
 
-  return terms.map((term) => ({
-    sign: term.startsWith('-') ? -1 : 1,
-    body: term.replace(/^[+-]/, ''),
-  }));
+    if (inner === undefined || !formulaHasDice(inner)) {
+      return [term];
+    }
+
+    return splitFormulaTerms(inner).map((innerTerm) => ({
+      sign: innerTerm.sign === term.sign ? 1 : -1,
+      body: innerTerm.body,
+    }));
+  });
+}
+
+/**
+ * Число слагаемого без костей: `3`, `(3)`, `(5*(2-1))`, `floor(5/2)`.
+ * Дробь округляется вниз, как все дроби правил.
+ *
+ * @param body - тело слагаемого без знака
+ * @returns число либо `undefined`, если слагаемое не посчитать
+ */
+function evaluateFlatTerm(body: string): number | undefined {
+  if (PLAIN_NUMBER_REGEX.test(body)) {
+    return Number.parseInt(body, 10);
+  }
+
+  const value = evaluateDetachedFormula(body);
+
+  return value === undefined || !Number.isFinite(value)
+    ? undefined
+    : Math.floor(value);
 }
 
 /**
@@ -100,6 +270,39 @@ function parseDiceTerm(body: string): DiceFormulaTerm | undefined {
     count: Number.parseInt(diceMatch[1], 10),
     sides: Number.parseInt(diceMatch[2], 10),
   };
+}
+
+/**
+ * Число со знаком в строке формулы: «- 2» вместо «+ -2».
+ *
+ * @param signed - число с уже учтённым знаком слагаемого
+ * @param isFirst - первое ли слагаемое
+ * @returns запись числа
+ */
+function formatSignedNumber(signed: number, isFirst: boolean): string {
+  return `${formatTermSign(signed < 0 ? -1 : 1, isFirst)}${Math.abs(signed)}`;
+}
+
+/**
+ * Посчитает ли бросок движка формулу целиком: каждое слагаемое — кость или
+ * арифметика без костей. Слагаемое, которое бросок не понимает (`2 * 1к6`,
+ * `1к20kh1`), он молча пропускает, поэтому редактору нужно сказать о нём
+ * заранее.
+ *
+ * @param formula - формула без `@`-токенов
+ * @returns `true`, если бросок учтёт все слагаемые
+ */
+export function isRollableFormula(formula: string): boolean {
+  const terms = splitFormulaTerms(formula);
+
+  return (
+    terms.length > 0
+    && terms.every(
+      (term) =>
+        parseDiceTerm(term.body) !== undefined
+        || evaluateFlatTerm(term.body) !== undefined,
+    )
+  );
 }
 
 /**
@@ -177,11 +380,11 @@ export function rollDamageFormula(formula: string): {
       continue;
     }
 
-    const flat = Number.parseInt(term.body, 10);
+    const flat = evaluateFlatTerm(term.body);
 
-    if (!Number.isNaN(flat)) {
+    if (flat !== undefined) {
       total += term.sign * flat;
-      detailParts.push(`${sign}${flat}`);
+      detailParts.push(formatSignedNumber(term.sign * flat, index === 0));
     }
   }
 
@@ -213,14 +416,27 @@ export function formatDiceLetters(formula: string): string {
  * значит можно привести и русскую `д` (`2д6`), и запись без числа костей
  * (`d6`). Показу, который строку не разбирает, такая свобода опасна.
  *
+ * Арифметика без костей показывается числом, как её посчитает бросок:
+ * `1к6 + (5 * (2 - 1))` — «1к6 + 5». Слагаемое с `@`-переменной не
+ * считается и остаётся записью.
+ *
  * @param formula - формула без `@`-токенов
  * @returns формула для показа
  */
 export function formatDiceFormula(formula: string): string {
   return splitFormulaTerms(formula)
-    .map(
-      (term, index) =>
-        `${formatTermSign(term.sign, index === 0)}${term.body.replace(/^(\d*)[кдd]/i, '$1к')}`,
-    )
+    .map((term, index) => {
+      const isFirst = index === 0;
+
+      const flat = parseDiceTerm(term.body)
+        ? undefined
+        : evaluateFlatTerm(term.body);
+
+      if (flat !== undefined) {
+        return formatSignedNumber(term.sign * flat, isFirst);
+      }
+
+      return `${formatTermSign(term.sign, isFirst)}${term.body.replace(/^(\d*)[кдd]/i, '$1к')}`;
+    })
     .join('');
 }

@@ -20,6 +20,7 @@
     ResolvedGrantedSpell,
     Spell,
     SubclassDefinition,
+    TakenFeatAnswers,
   } from '@vtt/shared/system/dnd.js';
 
   import type { ChoicePickerOption } from '../../ChoicePickerModal.vue';
@@ -31,6 +32,7 @@
   import {
     featChoicePendingCount,
     isSkillType,
+    isTakenFeatAnswered,
     SKILLS_LIST,
   } from '@vtt/shared/system/dnd.js';
 
@@ -41,6 +43,7 @@
   import { CLASS_WIZARD_LABELS, LEVEL_BADGE_SUFFIX } from '../../constants';
   import FeatChoicesFields from '../../feat/FeatChoicesFields.vue';
   import WizardFeatPicker from '../../feat/WizardFeatPicker.vue';
+  import ClassFeatureChoicesView from '../ClassFeatureChoicesView.vue';
   import { SKILL_LABELS } from './constants';
   import WizardFeatureChoicePicker from './WizardFeatureChoicePicker.vue';
   import WizardSpellChip from './WizardSpellChip.vue';
@@ -59,6 +62,8 @@
     featureChoices: Record<string, string[]>;
     /** Ответы на выборы даров: ключ выбора → значения */
     featSelections: Record<string, string[]>;
+    /** Ответы на собственные вопросы черт, взятых уровнем */
+    featOwnAnswers: TakenFeatAnswers;
     /** Навыки, названные умениями: ключ строки → навыки */
     featureSkills: Record<string, SkillType[]>;
     hasSubclassSelection?: boolean;
@@ -82,6 +87,10 @@
     'update:subclassKey': [key: string];
     'update:featSelection': [key: string, featId: string | null];
     'update:featSelections': [selections: Record<string, string[]>];
+    'update:featOwnAnswers': [
+      answersKey: string,
+      answers: Record<string, string[]>,
+    ];
     'update:featureSkills': [rowKey: string, skills: SkillType[]];
     'open-spell': [spell: Spell];
   }>();
@@ -101,12 +110,32 @@
     props.rows.map((row) => ({
       row,
       badge: rowBadge(row),
+      referenceHint: referenceHint(row),
       skillOptions: skillOptions(row),
       grantedSpells: (props.grantedSpells ?? []).filter(
         (granted) => granted.featureName === row.name,
       ),
     })),
   );
+
+  /**
+   * Пояснение справочного списка вариантов: выбирать из него нечего, а записи
+   * вариантов со своей механикой лягут на лист сами — их игроку и называют.
+   *
+   * @param row - строка уровня
+   * @returns пояснение; `null` — справочного списка у строки нет
+   */
+  function referenceHint(row: WizardLevelRow): string | null {
+    if (!row.referenceChoices.length && !row.referenceGrantNames.length) {
+      return null;
+    }
+
+    return row.referenceGrantNames.length
+      ? CLASS_WIZARD_LABELS.referenceListHint
+          + CLASS_WIZARD_LABELS.referenceGrantsPrefix
+          + row.referenceGrantNames.join(', ')
+      : CLASS_WIZARD_LABELS.referenceListHint;
+  }
 
   /**
    * Навыки, из которых выбирает умение: пустой пул записи означает «любой
@@ -168,7 +197,19 @@
         ? 1
         : 0;
 
-    return variants + choices + featPicks + skills;
+    // Взятая здесь черта, которая ждёт ответа на свои вопросы
+    const featQuestions = row.featQuestions.filter(
+      (taken) =>
+        !isTakenFeatAnswered(
+          taken,
+          props.featOwnAnswers,
+          props.actor,
+          { spells: props.spells, weapons: weaponOptions.value },
+          props.proficiencyBonus,
+        ),
+    ).length;
+
+    return variants + choices + featPicks + featQuestions + skills;
   }
 
   /**
@@ -182,7 +223,11 @@
     row: WizardLevelRow,
   ): { label: string; color: 'warning' | 'success' } | null {
     const asksAnything =
-      row.pick || row.choices.length || row.featPicks.length || row.skillChoice;
+      row.pick
+      || row.choices.length
+      || row.featPicks.length
+      || row.featQuestions.length
+      || row.skillChoice;
 
     if (!asksAnything) {
       return null;
@@ -395,6 +440,15 @@
           {{ CLASS_WIZARD_LABELS.reopenedHint }}
         </p>
 
+        <!-- Справочный список: выбирать нечего, механика вариантов ложится
+          на лист сама -->
+        <p
+          v-if="view.referenceHint"
+          class="text-xs text-dimmed"
+        >
+          {{ view.referenceHint }}
+        </p>
+
         <!-- Выборы идут ПЕРЕД описанием: у «Использования заклинаний» описание
           на полстраницы, и вопрос под ним игрок находил, только пролистав
           правила, ради которых карточку не открывал -->
@@ -440,6 +494,30 @@
           @update:model-value="emit('update:featSelection', choice.key, $event)"
         />
 
+        <!-- Собственные вопросы черт, взятых в этой строке (выбором или
+          дарами записи): те же, что в окне выбора при перетаскивании черты
+          на лист. Без ответов черта легла бы на лист пустой -->
+        <div
+          v-for="taken in row.featQuestions"
+          :key="taken.answersKey"
+          class="flex flex-col gap-2 rounded-md border border-default/50 bg-elevated/30 p-3"
+        >
+          <span class="text-sm font-medium text-toned">
+            {{ CLASS_WIZARD_LABELS.featOwnChoicesPrefix }}{{ taken.feat.name }}
+          </span>
+
+          <FeatChoicesFields
+            :model-value="featOwnAnswers[taken.answersKey] ?? {}"
+            :choices="taken.ownChoices"
+            :actor="actor"
+            :proficiency-bonus="proficiencyBonus"
+            :spells="spells"
+            @update:model-value="
+              emit('update:featOwnAnswers', taken.answersKey, $event)
+            "
+          />
+        </div>
+
         <!-- Заклинания, выданные записью: снять их нельзя, читать — можно -->
         <div
           v-if="view.grantedSpells.length"
@@ -465,6 +543,13 @@
           v-if="row.description"
           :content="row.description"
           class="text-muted"
+        />
+
+        <!-- Справочный список читают вместе с правилами умения: описание
+          отсылает к нему («мутации из списка ниже») -->
+        <ClassFeatureChoicesView
+          v-if="row.referenceChoices.length"
+          :choices="row.referenceChoices"
         />
       </div>
     </div>

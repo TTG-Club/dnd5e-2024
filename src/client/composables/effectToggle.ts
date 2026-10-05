@@ -16,9 +16,9 @@ import type {
   ActiveEffect,
   ActorCounterState,
   DnDSceneEntity,
+  EffectPaid,
 } from '@vtt/shared/system/dnd.js';
 
-import { emitEntityCombatState, emitEntityUpdate } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
 import { isActorEntity } from '@vtt/shared';
 import {
@@ -26,14 +26,27 @@ import {
   buildEffectToggleChoice,
   canSwitchOnEffect,
   collectEffectToggleGroup,
+  findBurningActivationPeer,
   needsActivationPayment,
   payActivation,
+  stampEffectPaid,
+  usesPaidHitDiceRoll,
+  withSheetResources,
 } from '@vtt/shared/system/dnd.js';
 
 import { useSystemToastStore } from '../stores/systemToastStore';
-import { EFFECT_USE_LABELS } from '../ui/effect/constants';
+import { EFFECT_USE_LABELS, ITEM_TOGGLE_LABELS } from '../ui/effect/constants';
+import { recordEntityActionSpend, warnActionCostBlocked } from './actionSpend';
+import {
+  emitActedEntity,
+  runWithEffectPay,
+  sendSelfTriggerReport,
+} from './effectPayChoice';
 import { runWithEffectVariants } from './effectVariantChoice';
 import { resolveCombatRound } from './encounterTurn';
+import { changeEntityCombatState } from './entityCombatWrite';
+import { changeEntitySheet } from './entitySheetWrite';
+import { refuseWhileSheetEditing } from './sheetEditLock';
 import { stampEffectOnApply } from './spellResolutionShared';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -101,6 +114,11 @@ export function warnNoCounter(counterKey: string): void {
  * @param effectId - эффект
  */
 export function toggleEntityEffect(entityId: string, effectId: string): void {
+  // Лист в режиме правки — переключатель ждёт «Сохранить» или отмены
+  if (refuseWhileSheetEditing(entityId)) {
+    return;
+  }
+
   const socket = useChatStore().getSocket();
   const entity = useWorldEntities().findCurrentDndEntity(entityId);
   const effects = entity?.activeEffects ?? [];
@@ -117,12 +135,12 @@ export function toggleEntityEffect(entityId: string, effectId: string): void {
   );
 
   if (switchedOnIds.size > 0) {
-    emitEntityCombatState(socket, {
-      ...entity,
-      activeEffects: effects.map((entry) =>
-        switchedOnIds.has(entry.id) ? { ...entry, disabled: true } : entry,
+    changeEntityCombatState(entityId, (current) => ({
+      ...current,
+      activeEffects: (current.activeEffects ?? []).map((entry) =>
+        switchedOnIds.has(entry.id) ? switchOffEffect(entry) : entry,
       ),
-    });
+    }));
 
     return;
   }
@@ -141,6 +159,17 @@ export function toggleEntityEffect(entityId: string, effectId: string): void {
     return;
   }
 
+  // Запрет траты хода («нет бонусных действий») — до выбора варианта
+  if (
+    warnActionCostBlocked(
+      entity,
+      effect.activation?.cost,
+      `${ITEM_TOGGLE_LABELS.blockedTitle}: ${effect.name}`,
+    )
+  ) {
+    return;
+  }
+
   runWithEffectVariants(buildEffectToggleChoice(group), (chosen) => {
     const [picked] = chosen.activeEffects;
 
@@ -151,7 +180,20 @@ export function toggleEntityEffect(entityId: string, effectId: string): void {
 }
 
 /**
- * Включает эффект: тратит ресурс (если включение не горит) и будит
+ * Выключенный переключатель: потраченное при включении (`paid`) с ним не
+ * остаётся — следующее включение заплатит заново и получит свои числа.
+ *
+ * @param effect - включённый эффект
+ * @returns выключенный эффект
+ */
+function switchOffEffect(effect: ActiveEffect): ActiveEffect {
+  const { paid: _paid, ...switchedOff } = effect;
+
+  return { ...switchedOff, disabled: true };
+}
+
+/**
+ * Включает эффект: тратит ресурс и цену (если включение не горит) и будит
  * срабатывания «при включении».
  * Сущность перечитывается — между нажатием и выбором варианта она могла
  * измениться.
@@ -162,32 +204,92 @@ export function toggleEntityEffect(entityId: string, effectId: string): void {
 function switchOnEntityEffect(entityId: string, effectId: string): void {
   const socket = useChatStore().getSocket();
   const entity = useWorldEntities().findCurrentDndEntity(entityId);
-  const effect = entity?.activeEffects?.find((entry) => entry.id === effectId);
+  const effects = entity?.activeEffects ?? [];
+  const effect = effects.find((entry) => entry.id === effectId);
 
   if (!socket || !entity || !effect) {
     return;
   }
 
   // Смена эффекта внутри горящего включения — то же включение, без траты
-  const paid = needsActivationPayment(entity.activeEffects ?? [], effect)
-    ? payEntityActivation(entity, effect)
-    : entity;
+  const paysCounter = needsActivationPayment(effects, effect);
 
-  if (paid !== entity) {
-    emitEntityUpdate(socket, paid);
+  const pay =
+    findBurningActivationPeer(effects, effect) === undefined
+      ? effect.pay
+      : undefined;
+
+  /**
+   * Включает эффект на уже оплаченной сущности и шлёт сводку в чат.
+   *
+   * @param paidEntity - сущность со списанными ресурсами
+   * @param paid - потраченное ценой; нет — цены не было
+   */
+  const activate = (paidEntity: DnDSceneEntity, paid?: EffectPaid): void => {
+    const report = { notes: [], results: [] };
+
+    const activated = activateEffectOnEntity(
+      paidEntity,
+      effectId,
+      (switched) =>
+        stampEffectOnApply(
+          // Переключатель остаётся шаблоном: числа потраченного — полем `paid`
+          paid ? stampEffectPaid(switched, paid, true) : switched,
+          { carrierId: entity.id, sourceId: entity.id },
+        ),
+      resolveCombatRound(),
+      { report },
+    );
+
+    emitActedEntity(paidEntity, activated);
+
+    // Включение состоялось — трата хода в счёт («Замедление»)
+    recordEntityActionSpend(entityId, effect.activation?.cost);
+
+    sendSelfTriggerReport(entity.name, report);
+  };
+
+  if (!pay) {
+    const paidEntity = paysCounter
+      ? payEntityActivation(entity, effect)
+      : entity;
+
+    if (paidEntity !== entity) {
+      changeEntitySheet(entityId, (current) =>
+        withSheetResources(current, paidEntity),
+      );
+    }
+
+    activate(paidEntity);
+
+    return;
   }
 
-  emitEntityCombatState(
-    socket,
-    activateEffectOnEntity(
-      paid,
-      effectId,
-      (activated) =>
-        stampEffectOnApply(activated, {
-          carrierId: entity.id,
-          sourceId: entity.id,
-        }),
-      resolveCombatRound(),
-    ),
+  let paidEntity = entity;
+
+  runWithEffectPay(
+    {
+      payer: entity,
+      pay,
+      sourceName: effect.name,
+      context: { rollHitDice: usesPaidHitDiceRoll(effect) },
+      // Цена и счётчик включения — одним сохранением: два подряд затёрли бы
+      // друг друга
+      commit: (settled) => {
+        paidEntity = paysCounter
+          ? payEntityActivation(settled, effect)
+          : settled;
+
+        const spent = paidEntity;
+
+        // Цена спрошена у человека: ресурсы переносятся на свежую сущность
+        changeEntitySheet(entityId, (current) =>
+          withSheetResources(current, spent),
+        );
+      },
+    },
+    (paid) => {
+      activate(paidEntity, paid);
+    },
   );
 }

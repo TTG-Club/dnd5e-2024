@@ -6,6 +6,8 @@ import type {
 } from '@vtt/shared';
 import type {
   ConditionRef,
+  CreatureCategory,
+  SaveSourceTraits,
   SavingThrowCircumstances,
   SavingThrowRequestPayload,
   SavingThrowResult,
@@ -15,7 +17,6 @@ import type { CheckRollResult } from '../ui/actor/diceRollTypes';
 import type { ActorSaveInfo } from './spellResolutionShared';
 
 import { getRollRequestService } from '@/core/api/rollRequestService';
-import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import { useDiceRollerStore } from '@/stores/diceRollerStore';
 import { useWorldStore } from '@/stores/worldStore';
@@ -28,24 +29,34 @@ import {
   buildAttackFormula,
   formatSavingThrowRequestTitle,
   getNaturalD20Roll,
+  hasSaveSource,
   isDndSceneEntity,
   listSavingThrowBonusKeys,
+  NO_SOURCE_ADJUSTMENTS,
   parseNaturalD20Roll,
   parseSavingThrowResult,
   resolveActorStats,
   resolveAutoSaves,
+  resolveSaveSourceAdjustments,
   resolveSavingThrowModifier,
   resolveSavingThrowRollMode,
   SAVING_THROW_REQUEST_KIND,
+  withExtraFlags,
 } from '@vtt/shared/system/dnd.js';
 
 import { SAVING_THROW_ROLL_LABELS } from '../ui/actor/constants';
+import { openDiceRollWindow } from './diceRollWindow';
 import { buildRollBonusEvaluator } from './rollBonusEvaluator';
+import { offerSaveOverride } from './saveOverrideOffer';
 import {
   determineRollMode,
   formatSavingThrowRollLabel,
   formatSavingThrowTitle,
 } from './spellResolutionShared';
+import {
+  buildEntityFormulaContext,
+  collectEffectsWithAuras,
+} from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
 
 /** Префикс сообщений композабла в консоли */
@@ -55,7 +66,7 @@ const SAVING_THROW_LOG_PREFIX = '[SavingThrow]';
  * Цель спасброска и всё, что нужно, чтобы его разрешить, — своим броском или
  * запросом владельцу.
  */
-export interface SavingThrowTarget {
+export interface SavingThrowTarget extends SaveSourceTraits {
   /** Сущность, которая бросает */
   entity: SceneEntity;
   /** Характеристика спасброска */
@@ -88,6 +99,11 @@ export interface SavingThrowTarget {
   sourceEntityId?: string;
   /** Чем бьют («Огненный шар», «Укус») — в подпись запроса у адресата */
   sourceName?: string;
+  /**
+   * Тип того, кто вызвал спасбросок. Нет — берётся по `sourceEntityId`; у
+   * запроса приезжает в нагрузке, адресат считает тем же числом
+   */
+  sourceCreatureType?: CreatureCategory;
   /**
    * Согласная цель вправе не бросать: в окне появится «Не сопротивляюсь».
    * Решает владелец цели — тот, кто накладывает, только разрешает.
@@ -188,13 +204,26 @@ function getActorSaveInfo(
 
   const stats = resolveActorStats(entity);
 
-  const modifier = resolveSavingThrowModifier(stats, saveAbility, options);
+  // «Защита от зла и добра»: эффекты с условием об источнике спасброска
+  // Эффекты с аурами собираются только по нужде — тип источника известен
+  const sourceAdjustments = hasSaveSource(options)
+    ? resolveSaveSourceAdjustments(
+        collectEffectsWithAuras(entity),
+        saveAbility,
+        options,
+        buildEntityFormulaContext(entity),
+      )
+    : NO_SOURCE_ADJUSTMENTS;
+
+  const modifier =
+    resolveSavingThrowModifier(stats, saveAbility, options)
+    + sourceAdjustments.bonus;
 
   // `againstMagic` приходит от вызывающего: Мантия сопротивления заклинаниям
   // должна сработать на спасброске от заклинания и промолчать на спасброске
   // от яда. Через сеть флаг едет в нагрузке запроса — у адресата тот же счёт.
   const rollMode = resolveSavingThrowRollMode({
-    flags: stats.activeFlags,
+    flags: withExtraFlags(stats.activeFlags, sourceAdjustments.flags),
     ability: saveAbility,
     againstMagic: options.againstMagic,
     againstSpell: options.againstSpell,
@@ -224,6 +253,22 @@ function getActorSaveInfo(
 }
 
 /**
+ * Тип того, кто вызвал спасбросок: задан — он, иначе по сущности-источнику.
+ *
+ * @param target - цель спасброска
+ * @returns тип либо `undefined`, если источник неизвестен
+ */
+function resolveTargetSourceType(
+  target: SavingThrowTarget,
+): CreatureCategory | undefined {
+  if (target.sourceCreatureType) {
+    return target.sourceCreatureType;
+  }
+
+  return useWorldEntities().findEntityCreatureType(target.sourceEntityId);
+}
+
+/**
  * Считает данные спасброска цели по её контексту.
  *
  * @param target - цель спасброска
@@ -236,6 +281,9 @@ function resolveTargetSaveInfo(target: SavingThrowTarget): ActorSaveInfo {
     againstCondition: target.againstCondition,
     againstConcentration: target.againstConcentration,
     mode: target.mode,
+    sourceCreatureType: resolveTargetSourceType(target),
+    sourceSpellSchool: target.sourceSpellSchool,
+    sourceDamageTypes: target.sourceDamageTypes,
   });
 }
 
@@ -261,6 +309,14 @@ function buildRollRequestOptions(
     ...(target.mode ? { mode: target.mode } : {}),
     ...(target.allowWilling ? { allowWilling: true } : {}),
     sourceName: target.sourceName,
+    sourceCreatureType: resolveTargetSourceType(target),
+    // Школа и типы урона источника едут к адресату: счёт у него тот же
+    ...(target.sourceSpellSchool
+      ? { sourceSpellSchool: target.sourceSpellSchool }
+      : {}),
+    ...(target.sourceDamageTypes
+      ? { sourceDamageTypes: target.sourceDamageTypes }
+      : {}),
   };
 
   return {
@@ -326,7 +382,6 @@ export function useSpellSavingThrows() {
   const diceRollerStore = useDiceRollerStore();
   const chatStore = useChatStore();
   const worldStore = useWorldStore();
-  const { openModal } = useModalManager();
 
   /**
    * Открывает окно спасброска — одно на оба применения: свой бросок и бросок
@@ -349,40 +404,43 @@ export function useSpellSavingThrows() {
       target.dc,
     );
 
-    return openModal('DiceRollModal', {
-      ...(options.modalKey
-        ? { _modalKey: options.modalKey }
-        : { allowMultiple: true }),
-      title: options.takeover
-        ? `${SAVING_THROW_ROLL_LABELS.takeoverPrefix}${title}`
-        : title,
-      rollLabel: formatSavingThrowRollLabel(target.ability, target.entity.name),
-      rollButtonText: SAVING_THROW_ROLL_LABELS.button,
-      modifier: info.modifier,
-      initialRollMode: determineRollMode(
-        info.hasAdvantage,
-        info.hasDisadvantage,
-      ),
-      autoFail: info.autoFail,
-      allowWilling: target.allowWilling === true,
-      targetDc: target.dc,
-      evaluateBonusRollFormulas: info.evaluateBonusRollFormulas,
-      onCheckRoll: (result: CheckRollResult) => {
-        const outcome = buildSavingThrowResult(
-          result.total,
-          result.natural,
-          info,
-          target.dc,
-        );
+    return openDiceRollWindow(
+      {
+        title: options.takeover
+          ? `${SAVING_THROW_ROLL_LABELS.takeoverPrefix}${title}`
+          : title,
+        rollLabel: formatSavingThrowRollLabel(
+          target.ability,
+          target.entity.name,
+        ),
+        rollButtonText: SAVING_THROW_ROLL_LABELS.button,
+        modifier: info.modifier,
+        initialRollMode: determineRollMode(
+          info.hasAdvantage,
+          info.hasDisadvantage,
+        ),
+        autoFail: info.autoFail,
+        allowWilling: target.allowWilling === true,
+        targetDc: target.dc,
+        evaluateBonusRollFormulas: info.evaluateBonusRollFormulas,
+        onCheckRoll: (result: CheckRollResult) => {
+          const outcome = buildSavingThrowResult(
+            result.total,
+            result.natural,
+            info,
+            target.dc,
+          );
 
-        // Согласие — провал при любой Сл: при Сл 1 условная единица иначе
-        // «прошла» бы спасбросок
-        options.onResult(
-          result.willing ? { ...outcome, passed: false } : outcome,
-        );
+          // Согласие — провал при любой Сл: при Сл 1 условная единица иначе
+          // «прошла» бы спасбросок
+          options.onResult(
+            result.willing ? { ...outcome, passed: false } : outcome,
+          );
+        },
+        onCancel: options.onCancel,
       },
-      onCancel: options.onCancel,
-    });
+      options.modalKey === undefined ? {} : { modalKey: options.modalKey },
+    );
   }
 
   /**
@@ -454,14 +512,16 @@ export function useSpellSavingThrows() {
    * @param target - цель спасброска
    * @returns промис с результатом или `null`, если окно закрыли
    */
-  function resolveSavingThrowLocally(
+  async function resolveSavingThrowLocally(
     target: SavingThrowTarget,
   ): Promise<SavingThrowResult | null> {
-    if (resolveAutoSaves(target.entity)) {
-      return Promise.resolve(rollSavingThrow(target));
-    }
+    const result = resolveAutoSaves(target.entity)
+      ? rollSavingThrow(target)
+      : await requestManualSavingThrow(target);
 
-    return requestManualSavingThrow(target);
+    // Провал можно превратить в успех («Легендарное сопротивление») — до того,
+    // как по итогу лягут урон и эффекты
+    return result ? offerSaveOverride(target, result) : null;
   }
 
   /**

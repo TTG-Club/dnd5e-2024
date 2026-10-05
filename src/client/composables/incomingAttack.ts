@@ -15,13 +15,16 @@ import type {
 } from '@vtt/shared/system/dnd.js';
 
 import {
-  buildFormulaContext,
   collectIncomingAttackFlags,
   collectIncomingAttackRollFormulas,
   resolveEntityCreatureType,
+  resolveEntityExtraCreatureTypes,
 } from '@vtt/shared/system/dnd.js';
 
-import { collectEffectsWithAuras } from './useResolvedStats';
+import {
+  buildEntityFormulaContext,
+  collectEffectsWithAuras,
+} from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
 
 /**
@@ -37,7 +40,9 @@ export function buildIncomingAttackContext(
 ): DndIncomingAttackContext {
   return {
     attackType,
+    attackerId: attacker.id,
     attackerCreatureType: resolveEntityCreatureType(attacker),
+    attackerExtraCreatureTypes: resolveEntityExtraCreatureTypes(attacker),
   };
 }
 
@@ -112,7 +117,7 @@ export function collectDefenderRollFormulas(
     ? collectIncomingAttackRollFormulas(
         found.effects,
         buildIncomingAttackContext(attacker, attackType),
-        buildFormulaContext(found.defender),
+        buildEntityFormulaContext(found.defender),
       )
     : [];
 }

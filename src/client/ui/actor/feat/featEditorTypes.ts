@@ -62,8 +62,10 @@ import {
   SPELL_LIST_LABELS,
 } from '../constants';
 import {
+  buildCounterExtras,
   entriesToProgression,
   progressionToEntries,
+  toEditableCounterExtras,
 } from '../counterEditorTypes';
 
 // ── Строка дара (вкладка «Владения») ──────────────────────────
@@ -1600,7 +1602,7 @@ export function featDataToGrants(
     // поле формулы тогда пустое и вернётся к записи пустым же
     max: counter.max ?? '',
     min: counter.min ?? 0,
-    recovery: counter.recovery,
+    ...toEditableCounterExtras(counter),
     progression: progressionToEntries(counter.progression),
     // Своего ряда уровней у ресурса записи нет: он появляется вместе с ней
     startLevel: 1,
@@ -2713,7 +2715,7 @@ export function buildFeatData(
       const builtCounter: FeatCounterDefinition = {
         key: counter.key.trim(),
         name: counter.name.trim(),
-        recovery: counter.recovery,
+        ...buildCounterExtras(counter),
       };
 
       // Формулу пишем, если она есть или без неё максимум нечем задать. При

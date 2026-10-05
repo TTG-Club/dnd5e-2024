@@ -1132,7 +1132,8 @@ describe('каталог: условия атаки по носителю', () =
     const ward = createEffect('Защита от добра и зла', {
       effectTarget: 'target',
       flags: ['attacksAgainst.disadvantage'],
-      rollCondition: 'incoming.attackerCreatureType === "fiend"',
+      rollCondition:
+        'incoming.attackerCreatureType === "aberration, celestial, elemental, fey, fiend, undead"',
     });
 
     authoredScenario(ward, 'spell');
@@ -1160,7 +1161,28 @@ describe('каталог: условия атаки по носителю', () =
       });
 
     assert.equal(modeOf('fiend'), 'disadvantage');
+    assert.equal(modeOf('undead'), 'disadvantage');
     assert.equal(modeOf('humanoid'), 'normal');
+    assert.equal(modeOf(undefined), 'normal', 'тип неизвестен — не применяем');
+  });
+
+  it('[S28b] Защита от добра и зла: преимущество на спасброски от этих типов', () => {
+    const ward = createEffect('Защита от добра и зла (спасброски)', {
+      effectTarget: 'target',
+      flags: ['save.advantage'],
+      rollCondition:
+        'source.creatureType === "aberration, celestial, elemental, fey, fiend, undead"',
+    });
+
+    authoredScenario(ward, 'spell');
+
+    const adjustments = (sourceCreatureType) =>
+      engine.resolveSaveSourceAdjustments([ward], 'charisma', {
+        sourceCreatureType,
+      }).flags;
+
+    assert.deepEqual(adjustments('undead'), ['save.advantage']);
+    assert.deepEqual(adjustments('humanoid'), []);
   });
 
   it('[S29] Защита от клинков: атакующий вычитает 1к4', () => {
@@ -1510,5 +1532,88 @@ describe('каталог: заклинания, меняющие оружие', 
       6,
       'излучение — с сопротивлением',
     );
+  });
+
+  it('[S33] Подмога и Лунный луч: числа растут от круга ячейки', () => {
+    const aid = createEffect('Подмога', {
+      effectTarget: 'target',
+      changes: [change('hitPoints.max', '5 * (@castLevel - 1)')],
+      duration: { type: 'hours', value: 8 },
+    });
+
+    authoredScenario(aid, 'spell');
+
+    const context = (castLevel) => ({
+      ...engine.buildFormulaContext(createActor()),
+      castLevel,
+    });
+
+    const [aidAt2, aidAt5] = [2, 5].map(
+      (castLevel) =>
+        engine.bindTargetEffectsToSource(
+          [aid],
+          createActor(),
+          context(castLevel),
+        )[0].changes[0].value,
+    );
+
+    assert.equal(aidAt2, '5 * (2 - 1)');
+    assert.equal(aidAt5, '5 * (5 - 1)');
+
+    const beam = createEffect('Лунный луч', {
+      effectTarget: 'zone',
+      recurringDamage: {
+        damageParts: [{ formula: '(@castLevel)к10@dmg.radiant' }],
+        timing: 'startOfTurn',
+      },
+    });
+
+    assert.equal(
+      engine.bindSourceEffectFormulas(beam, context(3)).recurringDamage
+        .damageParts[0].formula,
+      '3к10@dmg.radiant',
+    );
+  });
+
+  it('[S34] Электрошок: цель без реакций до своего хода', () => {
+    const shock = createEffect('Электрошок', {
+      effectTarget: 'target',
+      flags: ['actions.noReaction'],
+      duration: { type: 'turn', value: 1 },
+    });
+
+    authoredScenario(shock, 'spell');
+
+    const target = createActor({ activeEffects: [shock] });
+
+    assert.equal(
+      engine.resolveSpellCastBlock(target, { castingTimeUnit: 'reaction' }),
+      'Реакция недоступна: Электрошок',
+    );
+
+    assert.equal(engine.resolveActionCostBlock(target, 'action'), null);
+  });
+
+  it('[S34b] Замедление: за ход действие или бонусное, не оба', () => {
+    const slow = createEffect('Замедление', {
+      effectTarget: 'target',
+      flags: ['actions.noReaction', 'actions.oneActionOrBonus'],
+      duration: { type: 'minutes', value: 1 },
+    });
+
+    authoredScenario(slow, 'spell');
+
+    const target = createActor({ activeEffects: [slow] });
+
+    const acted = {
+      ...target,
+      system: {
+        ...target.system,
+        effectUsage: engine.recordActionSpend(target, 'bonus'),
+      },
+    };
+
+    assert.notEqual(engine.resolveActionCostBlock(acted, 'action'), null);
+    assert.notEqual(engine.resolveActionCostBlock(target, 'reaction'), null);
   });
 });

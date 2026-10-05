@@ -40,12 +40,14 @@ import type {
   DamageEventsResult,
   TriggerEventOptions,
 } from './effectDamageEvents.js';
+import type { TriggerSourcePreparer } from './effectPay.js';
 import type { IncomingAttackContext } from './effectPipeline.js';
 import type {
   DeferredTurnTrigger,
   EffectTriggerSourceKind,
 } from './effectTriggerRunner.js';
 import type { EffectTriggerArea } from './effectTriggerTypes.js';
+import type { DndEntityLight } from './entityLight.js';
 import type { DndEntityVision } from './entityVision.js';
 import type { AreaEffectsSyncResult } from './positionalEffects.js';
 import type { SystemClientEvent } from './systemClientEvents.js';
@@ -54,11 +56,15 @@ import type {
   SceneMoveOptions,
   TurnDamageOutcome,
   TurnHealingOutcome,
-  TurnSaveOutcome,
 } from './turnEffects.js';
 
 import { getHealthCondition, HEALTH_CONDITIONS, isRecord } from '@vtt/shared';
 
+import {
+  isTurnMovementSpent,
+  listBlockedConcentrationCasts,
+  recordActionSpend,
+} from './actionRestrictions.js';
 import {
   ActiveEffectsArraySchema,
   isActiveEffect,
@@ -69,6 +75,7 @@ import {
   normalizeActorData as normalizeDndActorData,
   validateActorData as validateDndActorData,
 } from './actorValidation.js';
+import { shapeAuraCondition } from './auraCondition.js';
 import {
   collectAllAuraEffects,
   calculateAmbientAuras as computeAmbientAuras,
@@ -78,6 +85,7 @@ import { syncAutoAppliedConditions } from './autoConditions.js';
 import { normalizeActor, normalizeCreature } from './calculations.js';
 import { resolveClassLabel } from './classLabels.js';
 import { CLASS_KEY_OPTIONS } from './classTypes.js';
+import { recordCombatBaseline } from './combatEffectChanges.js';
 import {
   listConcentrationEffects,
   withoutCastEffects,
@@ -92,7 +100,9 @@ import {
 import {
   BASE_UNARMORED_AC,
   CREATURE_CATEGORIES,
+  CREATURE_SIZE_LABELS,
   DEFAULT_ACTOR,
+  RARITY_LABELS,
 } from './consts.js';
 import {
   applyCombatState as applyCombatStateImpl,
@@ -109,6 +119,7 @@ import {
 } from './damageHits.js';
 import { getSpellDamageParts } from './damageParts.js';
 import {
+  closeDeathSavesAboveZeroHp,
   formatDeathSaveSummary,
   settleDeathSaveDamage,
   syncDeathSavesWithHp,
@@ -121,12 +132,14 @@ import {
   requestTurnTriggerSave,
 } from './deferredEffectSaves.js';
 import { rollDamageFormula as rollDamageFormulaImpl } from './diceFormula.js';
+import { SELF_TRIGGER_SUMMARY_LABEL } from './effectActivation.js';
 import {
   settleAppliedEvents,
   settleAttackRollTriggers,
   settleConditionLostEvents,
   settleDamageEvents,
   settleDownedOtherEvents,
+  settleEffectActionEvents,
   settleHealingEvents,
   settleMovementEvents,
 } from './effectDamageEvents.js';
@@ -147,6 +160,7 @@ import {
 } from './effectTriggerRunner.js';
 import { isLegacyTrigger, listEffectEventTriggers } from './effectTriggers.js';
 import { isDndSceneEntity } from './entityGuards.js';
+import { resolveEntityLight as resolveEntityLightImpl } from './entityLight.js';
 import { resolveEntityVision as resolveEntityVisionImpl } from './entityVision.js';
 import { buildFeatGrantsSummary } from './featGrantsSummary.js';
 import { validateFormula } from './formulaParser.js';
@@ -162,6 +176,7 @@ import {
   runPresenceTriggerSources,
   syncActorAreaEffects,
 } from './positionalEffects.js';
+import { SPELL_SCHOOL_LABELS } from './spellTypes.js';
 import { damagePartIsHealing } from './spellUtils.js';
 import { parseSystemClientEvent } from './systemClientEvents.js';
 import { isPointInTemplate as isPointInTemplateGeometry } from './templateGeometry.js';
@@ -175,7 +190,9 @@ import {
   buildEffectDiceRolls,
   decrementActorEffectDurations,
   expireTurnEffects as expireEntityTurnEffects,
+  expireOutsiderTurnEffects,
   formatEffectsSummary,
+  formatEntrySaveStatus,
   formatRecurringSaveStatus,
   formatTurnEffectsMessage,
   resolveTurnSummaryLabel,
@@ -308,16 +325,6 @@ const REJECTED_COMBAT_STATE: SystemCombatStateResult = {
   changed: false,
   chatSummary: null,
 };
-
-/**
- * Итог спасброска при входе в зону или ауру в сводке чата.
- *
- * @param save - исход спасброска
- * @returns подпись итога
- */
-function formatEntrySaveStatus(save: TurnSaveOutcome): string {
-  return save.passed ? '✓ спас' : '✗ провал';
-}
 
 /**
  * Сводка отложенного исхода зоны, ауры или события для чата.
@@ -636,6 +643,7 @@ function toAreaLister(
  * @param requestRoll - запрос от ядра
  * @param listEntitiesInArea - поиск соседей по сцене
  * @param answerOptions - опции наложения этой границы хода
+ * @param prepare - подготовка срабатывания по ответу (оплата цены)
  * @returns отложенное срабатывание; `null`, если выбирать не из кого
  */
 function requestTurnTriggerChoice(
@@ -647,6 +655,7 @@ function requestTurnTriggerChoice(
     area: EffectTriggerArea,
   ) => DnDSceneEntity[],
   answerOptions: EntryEffectOptions,
+  prepare?: TriggerSourcePreparer,
 ): EngineDeferredTrigger | null {
   const { choice } = turnTrigger.trigger;
 
@@ -662,6 +671,7 @@ function requestTurnTriggerChoice(
     requestRoll,
     formatEffectRequesterLabel(turnTrigger.effect.name),
     answerOptions,
+    prepare,
   );
 }
 
@@ -755,6 +765,7 @@ function expireWithConcentration(
   expire: (entity: DnDSceneEntity) => boolean,
 ): boolean {
   const before = listConcentrationEffects(entity.activeEffects);
+  const effectsBefore = entity.activeEffects ?? [];
   const changed = expire(entity);
 
   const remaining = new Set(
@@ -769,7 +780,22 @@ function expireWithConcentration(
     }
   }
 
-  return changed;
+  if (!changed) {
+    return false;
+  }
+
+  // «Состояние снялось» — и когда оно кончилось по сроку: «после окончания
+  // испуга невосприимчив к Ужасающему облику на 24 часа». Граница срока
+  // отдаёт ядру только «изменилось ли», поэтому срабатывание делает то, что
+  // остаётся на самом носителе (отметка, снятие, эффект); спасбросок бросает
+  // сервер, строки в чат и действия другим сторонам здесь не уходят
+  settleConditionLostEvents(
+    entity,
+    listLostConditions(effectsBefore, entity.activeEffects ?? []),
+    { ...buildTriggerEventOptions(entity, context), requestRoll: undefined },
+  );
+
+  return true;
 }
 
 /**
@@ -977,6 +1003,7 @@ function settleAttackRollEvent(
         hasDisadvantage: event.rollMode === 'disadvantage',
       },
       ...(event.landed === undefined ? {} : { landed: event.landed }),
+      ...(event.critical === true ? { critical: true } : {}),
     });
 
     const subject = outcomeOf(side.subject);
@@ -1017,6 +1044,65 @@ function settleAttackRollEvent(
         context,
       ),
     }));
+}
+
+/**
+ * Кнопка «При действии» с действиями другим: нажать её вправе только тот, кто
+ * управляет носителем. Получатели — те, кого накрыл шаблон нажавшего (список
+ * прислал клиент), либо соседи по радиусу, которых сцена знает сама; отбор
+ * «союзники / враги» в обоих случаях делает сервер.
+ *
+ * @param event - событие кнопки
+ * @param context - возможности ядра и права отправителя
+ * @returns исход по носителю и по каждому задетому
+ */
+function settleEffectActionEvent(
+  event: Extract<SystemClientEvent, { type: 'effectAction' }>,
+  context: SystemClientEventContext,
+): SystemRelatedTriggerResult[] {
+  const subject = toDndEntityResolver(context.getEntity)(event.entityId);
+
+  if (!subject || !context.canControl(subject)) {
+    return [];
+  }
+
+  const options = buildTriggerEventOptions(subject, context);
+  const covered = event.targetIds ? new Set(event.targetIds) : undefined;
+  const hpBefore = resolveEntityCurrentHp(subject);
+
+  const events = settleEffectActionEvents(subject, event.effectId, {
+    ...options,
+    listEntitiesInArea: (entity, area) => {
+      // Без шаблона — обычный радиус от фишки носителя
+      if (!area.template || !covered) {
+        return options.listEntitiesInArea?.(entity, area) ?? [];
+      }
+
+      // Под шаблоном: отношение считается по всей сцене, а круг получателей
+      // — тот, что прислал нажавший
+      return findEntitiesInArea(
+        context.getSceneSurroundings?.(entity),
+        { ...area, radius: Number.POSITIVE_INFINITY },
+        entity,
+      ).filter((found) => covered.has(found.id));
+    },
+  });
+
+  const own = toEntityTriggerResult(
+    subject,
+    events,
+    hpBefore,
+    SELF_TRIGGER_SUMMARY_LABEL,
+    context,
+  );
+
+  const { related } = toDamageEventsTriggerResult(
+    subject,
+    events,
+    SELF_TRIGGER_SUMMARY_LABEL,
+  );
+
+  return [{ entity: subject, ...own }, ...(related ?? [])];
 }
 
 /** Подпись снятых эффектов закончившегося каста в чате */
@@ -1169,15 +1255,18 @@ function settleTurnEffects(
             turnTrigger,
             requestRoll,
             formatEffectRequesterLabel(turnTrigger.effect.name),
-            answerOptions,
-            () =>
-              requestTurnTriggerChoice(
-                entity,
-                turnTrigger,
-                requestRoll,
-                listEntitiesInArea,
-                answerOptions,
-              ),
+            {
+              effectOptions: answerOptions,
+              buildChoiceRequest: (prepare) =>
+                requestTurnTriggerChoice(
+                  entity,
+                  turnTrigger,
+                  requestRoll,
+                  listEntitiesInArea,
+                  answerOptions,
+                  prepare,
+                ),
+            },
           );
         }
 
@@ -1315,6 +1404,29 @@ function warnUnreadableEntity(entity: SceneEntity): void {
 }
 
 /**
+ * Форматтер значений, у которых есть словарь подписей. Порядок вариантов —
+ * порядок словаря: размеры идут от крошечного к громадному, редкость — от
+ * обычной к артефакту, а не по алфавиту подписей.
+ *
+ * @param labels - подписи значений в порядке показа
+ * @returns форматтер для фильтров и разделителей списка
+ */
+function buildLabelFormatter(
+  labels: Readonly<Record<string, string>>,
+): CompendiumValueFormatter {
+  const order = Object.keys(labels);
+
+  return {
+    label: (value) => labels[String(value)] ?? String(value),
+    sortKey: (value) => {
+      const index = order.indexOf(String(value));
+
+      return index === -1 ? order.length : index;
+    },
+  };
+}
+
+/**
  * Форматтеры значений компендиума D&D по имени формата. Управляют подписью
  * и сортировкой опций фильтров и заголовков разделов в обобщённом движке
  * отображения (`useCompendiumView`).
@@ -1347,6 +1459,9 @@ const COMPENDIUM_VALUE_FORMATTERS: Record<string, CompendiumValueFormatter> = {
     label: (value) => resolveClassLabel(String(value)),
     sortKey: (value) => resolveClassLabel(String(value)),
   },
+  spellSchool: buildLabelFormatter(SPELL_SCHOOL_LABELS),
+  creatureSize: buildLabelFormatter(CREATURE_SIZE_LABELS),
+  itemRarity: buildLabelFormatter(RARITY_LABELS),
 };
 
 /**
@@ -1495,7 +1610,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.125';
+  readonly version = '0.8.245';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -1654,6 +1769,13 @@ export class Dnd5eVttSystem implements VttSystem {
   private readonly pendingTurnSaveKeys = new Set<string>();
 
   /**
+   * Разносит ли ядро границы ходов и сущностям вне боя. Пока нет — все их
+   * turn-эффекты истекают по границе раунда (`decrementEffectDurations`); когда
+   * да — только те, чей ход не наступит (свой или наложившего вне боя)
+   */
+  private outsidersGetTurnBoundaries = false;
+
+  /**
    * Уничтожение системы (серверный lifecycle): ожидания ответов остановленного
    * мира забываются.
    */
@@ -1704,7 +1826,6 @@ export class Dnd5eVttSystem implements VttSystem {
    * эффект «до конца хода кастера», которого нет в трекере инициативы, ждал бы
    * хода, который не наступит, — такой якорь деградирует к носителю.
    */
-  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   expireTurnEffects(
     entity: SceneEntity,
     turnActorId: string,
@@ -1716,6 +1837,13 @@ export class Dnd5eVttSystem implements VttSystem {
       return false;
     }
 
+    // Ядро принесло границу хода сущности вне боя — значит, разносит их всем:
+    // эффект, который ждёт хода участника, истекает точно, и раунд его больше
+    // не трогает (иначе срок шёл бы дважды)
+    if (!participantIds.has(entity.id)) {
+      this.outsidersGetTurnBoundaries = true;
+    }
+
     return expireWithConcentration(entity, context, (carrier) =>
       expireEntityTurnEffects(carrier, turnActorId, timing, participantIds),
     );
@@ -1724,8 +1852,12 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Уменьшает длительность (в раундах) всех эффектов на сущности, снимая
    * истёкшие. Истёкшая метка концентрации заканчивает свой каст.
+   *
+   * У сущности вне боя новый раунд служит и границей хода: своего хода у неё
+   * нет, и эффект «до конца следующего хода» на ней иначе не истёк бы никогда.
+   * Эффект, который ждёт хода наложившего-участника, раунд не трогает, если
+   * ядро приносит границы ходов и сущностям вне боя: он истекает точно.
    */
-  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   decrementEffectDurations(
     entity: SceneEntity,
     context?: SystemTriggerContext,
@@ -1734,11 +1866,35 @@ export class Dnd5eVttSystem implements VttSystem {
       return false;
     }
 
-    return expireWithConcentration(
-      entity,
-      context,
-      decrementActorEffectDurations,
-    );
+    // Без ответа ядра «в бою ли сущность» границу раунда за ход не считаем:
+    // участнику боя его ходы придут сами
+    const isOutsider =
+      context?.isInCombat !== undefined && !context.isInCombat(entity);
+
+    /**
+     * В бою ли сущность с таким id — по живой записи мира.
+     *
+     * @param entityId - id сущности
+     * @returns `true`, если она участник идущего боя
+     */
+    const isCombatantId = (entityId: string): boolean => {
+      const other = context?.getEntity?.(entityId);
+
+      return other !== undefined && context?.isInCombat?.(other) === true;
+    };
+
+    return expireWithConcentration(entity, context, (carrier) => {
+      const roundsChanged = decrementActorEffectDurations(carrier);
+
+      const turnsChanged = isOutsider
+        ? expireOutsiderTurnEffects(
+            carrier,
+            this.outsidersGetTurnBoundaries ? isCombatantId : undefined,
+          )
+        : false;
+
+      return roundsChanged || turnsChanged;
+    });
   }
 
   /**
@@ -1781,8 +1937,8 @@ export class Dnd5eVttSystem implements VttSystem {
 
   /**
    * Событие правил от клиента: «прервать концентрацию» — закончить каст может
-   * только тот, кто управляет заклинателем; бросок атаки — срабатывания, которые
-   * выполняет сервер.
+   * только тот, кто управляет заклинателем; бросок атаки и кнопка «При
+   * действии» — срабатывания, которые выполняет сервер.
    */
   // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   handleClientEvent(
@@ -1797,6 +1953,10 @@ export class Dnd5eVttSystem implements VttSystem {
 
     if (event.type === 'attackRoll') {
       return settleAttackRollEvent(event, context);
+    }
+
+    if (event.type === 'effectAction') {
+      return settleEffectActionEvent(event, context);
     }
 
     const caster = context.getEntity(event.casterId);
@@ -1941,6 +2101,24 @@ export class Dnd5eVttSystem implements VttSystem {
     }
 
     const hpBefore = resolveEntityCurrentHp(entity);
+    const options = buildTriggerEventOptions(entity, context);
+
+    // «За ход одно из трёх»: своё перемещение в свой ход — трата хода, после
+    // него действие и бонусное действие недоступны. Толчок и телепорт
+    // правилами — не оно
+    const moveSpend =
+      !movement.forced
+      && movement.distance > 0
+      && options.inCombat
+      && options.activeTurnActorId === entity.id
+        ? recordActionSpend(entity, 'move', {
+            ambientEffects: options.ambientEffects,
+          })
+        : undefined;
+
+    if (moveSpend) {
+      entity.system.effectUsage = moveSpend;
+    }
 
     const events = settleMovementEvents(
       entity,
@@ -1952,16 +2130,18 @@ export class Dnd5eVttSystem implements VttSystem {
           dy: movement.to.y - movement.from.y,
         },
       },
-      buildTriggerEventOptions(entity, context),
+      options,
     );
 
-    const own = toEntityTriggerResult(
+    const settled = toEntityTriggerResult(
       entity,
       events,
       hpBefore,
       MOVEMENT_SUMMARY_LABEL,
       context,
     );
+
+    const own = moveSpend ? { ...settled, changed: true } : settled;
 
     // Действия, отданные другим («урон тому, кто рядом»), уходят в мир
     // другими сторонами — снимок пишет только перемещённая сущность
@@ -1996,6 +2176,21 @@ export class Dnd5eVttSystem implements VttSystem {
   // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   rollDamageFormula(formula: string): { total: number; values: number[] } {
     return rollDamageFormulaImpl(formula);
+  }
+
+  /**
+   * Последнее слово системы о форме условия ауры (VTTG 0.9.601+): ядро кладёт
+   * накрытому эффект ауры целиком, а действовать у него должны только числа,
+   * флаги и их условия — остальное система берёт из списка аур, и по обоим
+   * спискам оно сработало бы дважды. Старое ядро хук не зовёт и кладёт
+   * урезанную запись, как раньше.
+   *
+   * @param condition - условие, собранное ядром из эффекта ауры
+   * @returns условие для `activeEffects` накрытого
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  shapeAuraCondition(condition: BaseActiveEffect): BaseActiveEffect {
+    return isDnDEffect(condition) ? shapeAuraCondition(condition) : condition;
   }
 
   /**
@@ -2057,9 +2252,16 @@ export class Dnd5eVttSystem implements VttSystem {
       return 0;
     }
 
-    return resolveTotalMovementSpeed(
-      resolveActorStats(entity, collectDndAmbientEffects(ambientEffects)),
+    const stats = resolveActorStats(
+      entity,
+      collectDndAmbientEffects(ambientEffects),
     );
+
+    // «За ход одно из трёх»: после действия или бонусного действия
+    // перемещаться в этот ход уже нельзя
+    return isTurnMovementSpent(entity, stats.activeFlags)
+      ? 0
+      : resolveTotalMovementSpeed(stats);
   }
 
   /**
@@ -2089,10 +2291,15 @@ export class Dnd5eVttSystem implements VttSystem {
       return null;
     }
 
-    const { movement } = resolveActorStats(
+    const { movement, activeFlags } = resolveActorStats(
       entity,
       collectDndAmbientEffects(ambientEffects),
     );
+
+    // Ход потрачен на действие под «одним из трёх» — запаса хода нет
+    if (isTurnMovementSpent(entity, activeFlags)) {
+      return { base: 0, extended: 0 };
+    }
 
     const base =
       movement.walk
@@ -2149,6 +2356,19 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
+   * Свет сущности по правилам D&D — самый сильный свет действующих эффектов
+   * поверх света фишки. Хук для сцены приложения по образцу
+   * `resolveEntityVision`: ядро его пока не зовёт (README § «Чего не хватает»,
+   * п. 33), и сцена видит только свет фишки.
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук для ядра: вызывается на экземпляре системы
+  resolveEntityLight(entity: SceneEntity): DndEntityLight | undefined {
+    return isDndSceneEntity(entity)
+      ? resolveEntityLightImpl(entity)
+      : undefined;
+  }
+
+  /**
    * Снимает боевое состояние сущности D&D 5e (ХП и активные эффекты) для
    * отправки на сервер узким каналом `entity:apply-combat-state`.
    */
@@ -2199,6 +2419,14 @@ export class Dnd5eVttSystem implements VttSystem {
 
     // Подъём хитов закрывает серию спасбросков от смерти, падение — начинает
     syncDeathSavesWithHp(entity, hpBefore);
+
+    // Запрет концентрации начал действовать («Ярость» включилась) — текущая
+    // концентрация прерывается сразу, а не на следующем уроне
+    const blockedCasts = listBlockedConcentrationCasts(entity);
+
+    if (blockedCasts.length > 0) {
+      context?.endCasts?.(entity.id, blockedCasts);
+    }
 
     const newEffectIds = new Set(
       (entity.activeEffects ?? [])
@@ -2253,6 +2481,11 @@ export class Dnd5eVttSystem implements VttSystem {
       return { actorName: entity.name, hpBefore: 0, hpAfter: 0 };
     }
 
+    // Ядро правит здесь свою копию цели и шлёт её боевым снимком: основа
+    // копии превращает снимок в разницу эффектов и журнала, и конец каста,
+    // снявший эффекты после копии, не откатывается
+    recordCombatBaseline(entity, entity);
+
     return applyTargetDamageImpl(
       entity,
       amount,
@@ -2275,6 +2508,9 @@ export class Dnd5eVttSystem implements VttSystem {
     if (!isDndSceneEntity(entity) || !isEffectOrigin(origin)) {
       return entity.activeEffects ?? [];
     }
+
+    // Основа — до правки списка: ядро присвоит копии итог и пошлёт её снимком
+    recordCombatBaseline(entity, entity);
 
     return applyEffectsToEntityImpl(
       entity,
@@ -2365,6 +2601,8 @@ export class Dnd5eVttSystem implements VttSystem {
    * Здесь же пересчитываются состояния с правилом «вешать автоматически»
    * (`autoConditions.ts`): Ядро прогоняет персонажа через этот метод на каждой
    * записи, и значки сверяются с сущностью, каким бы путём она ни поменялась.
+   * По той же причине здесь закрывается серия спасбросков от смерти у
+   * персонажа с хитами выше нуля: окно хитов и отдых пишут мимо боевого снимка.
    */
   // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   normalizeActor(actor: BaseActor): void {
@@ -2372,6 +2610,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
     if (isDndSceneEntity(actor)) {
       syncAutoAppliedConditions(actor);
+      closeDeathSavesAboveZeroHp(actor);
     }
   }
 

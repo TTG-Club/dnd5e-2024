@@ -244,6 +244,7 @@
         v-for="section in visibleSections"
         :key="section.key"
         :title="section.title"
+        :section="section.key"
         mode="action"
         :actions="section.actions"
         :is-edit-mode="isEditMode"

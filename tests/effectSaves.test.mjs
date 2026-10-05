@@ -870,6 +870,49 @@ describe('source DC and payload of trigger-only effects', () => {
     assert.equal(engine.hasLastingEffectPayload(createEffect('empty')), false);
   });
 
+  it('an effect with a single lasting field stays on the target', () => {
+    // Король Серый Палец, «Копьё Драконьей Чешуи»: у эффекта только правило
+    // каста — «ячейки 7-го круга и выше недоступны»
+    const lastingFields = {
+      castRule: { maxSlotLevel: 6 },
+      escape: { cost: 'action' },
+      conditionImmunities: ['frightened'],
+      suppressConditions: ['charmed'],
+      light: { bright: 20, dim: 20 },
+      saveOverride: { ability: 'wisdom', with: 'intelligence' },
+      stages: [{ label: 'первая', changes: [], flags: [] }],
+      exhaustionLevel: 1,
+    };
+
+    for (const [field, value] of Object.entries(lastingFields)) {
+      assert.equal(
+        engine.hasLastingEffectPayload(createEffect(field, { [field]: value })),
+        true,
+        `эффект только с «${field}» остаётся на цели`,
+      );
+    }
+
+    // Цена и применение сами по себе ничего не делают
+    assert.equal(
+      engine.hasLastingEffectPayload(
+        createEffect('price', { pay: { options: [] } }),
+      ),
+      false,
+    );
+
+    // Пустые списки — не нагрузка
+    assert.equal(
+      engine.hasLastingEffectPayload(
+        createEffect('blank', {
+          conditionImmunities: [],
+          suppressConditions: [],
+          stages: [],
+        }),
+      ),
+      false,
+    );
+  });
+
   it('a copy left without entry triggers is not applied', () => {
     const entity = createActor();
 

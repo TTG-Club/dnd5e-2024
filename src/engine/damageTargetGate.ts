@@ -12,14 +12,19 @@
  * @module system/dnd/damageTargetGate
  */
 
+import type { SceneEntity } from '@vtt/shared';
+
 import type { CreatureCategory } from './creatureTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { TargetHpGate } from './spellUtils.js';
+
+import { isRecord } from '@vtt/shared';
 
 import { hasEntityCondition } from './activeEffectTypes.js';
 import { BLOODIED_CONDITION_KEY } from './conditionKeys.js';
 import { resolveEntityCreatureType } from './creatureTypeGate.js';
 import { targetHpGateMatches } from './effectPipeline.js';
+import { isDndSceneEntity } from './entityGuards.js';
 import {
   isEntityBloodied,
   resolveEntityCurrentHp,
@@ -95,4 +100,48 @@ export function entityHasDamageStatus(
   }
 
   return hasEntityCondition(entity, status);
+}
+
+/**
+ * Находится ли выбранная цель на полном запасе хитов — для токенов
+ * `@target.full` / `@target.notFull` одиночной цели.
+ *
+ * Само правило «полные хиты» не своё: гейт считает `targetHpGateMatches` —
+ * тот же, которым ветки урона решают, доходят ли они до цели. Потолок берётся
+ * С прибавкой эффектов (`resolveEntityMaxHp`) — как у плитки хитов листа и
+ * полосы над фишкой: по записи листа цель с «Крепким» сходила бы за полную,
+ * не долечившись до показанного максимума. Один расчёт на заклинания и
+ * оружие, с листа и с горячей панели.
+ *
+ * @param entity - сущность-цель (или null, если цель не выбрана)
+ * @returns true/false по состоянию хитов, либо undefined если цели/хитов нет
+ */
+export function isTargetAtFullHp(
+  entity: SceneEntity | null | undefined,
+): boolean | undefined {
+  if (!entity) {
+    return undefined;
+  }
+
+  if (isDndSceneEntity(entity)) {
+    return targetHpGateMatches(
+      'full',
+      resolveEntityCurrentHp(entity),
+      resolveEntityMaxHp(entity),
+    );
+  }
+
+  // Не D&D-форма: `system` ядра — непрозрачная запись, хиты читаются полем за
+  // полем, и прибавку эффектов по ней не посчитать
+  const hitPoints = isRecord(entity.system.hitPoints)
+    ? entity.system.hitPoints
+    : undefined;
+
+  if (typeof hitPoints?.max !== 'number') {
+    return undefined;
+  }
+
+  const current = typeof hitPoints.current === 'number' ? hitPoints.current : 0;
+
+  return current >= hitPoints.max;
 }

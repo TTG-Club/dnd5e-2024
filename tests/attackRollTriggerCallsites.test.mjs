@@ -37,7 +37,8 @@ function readBraces(text, start) {
 }
 
 /**
- * Окна броска атаки в исходнике: шаблонные и открытые через `openModal`.
+ * Окна броска атаки в исходнике: шаблонные и открытые общим помощником
+ * `openDiceRollWindow`.
  *
  * @param {string} text - исходник
  * @returns {Array<{ body: string, attackerKey: string }>} окна с ключом атакующего
@@ -48,7 +49,7 @@ function listAttackRollModals(text) {
     .filter((body) => body.includes(':attack-modifier'))
     .map((body) => ({ body, attackerKey: ':attacker-id' }));
 
-  const opened = [...text.matchAll(/openModal\('DiceRollModal',\s*\{/gu)]
+  const opened = [...text.matchAll(/openDiceRollWindow\(\s*\{/gu)]
     .map((match) => readBraces(text, match.index + match[0].length - 1))
     .filter((body) => /attackModifier/u.test(body))
     .map((body) => ({ body, attackerKey: 'attackerId' }));
@@ -73,7 +74,11 @@ it('окно броска атаки везде получает атакующ�
     }
   }
 
-  assert.ok(attackModals >= 8, `окон атаки найдено ${attackModals}`);
+  // Окно одно на лист и горячую панель — у каста персонажа
+  // (`spellCastFlow.ts`), заклинания и действия существа
+  // (`creatureSpellCast.ts`, `creatureActionRoll.ts`) и удара оружием
+  // (`weaponAttackRoll.ts`)
+  assert.ok(attackModals >= 4, `окон атаки найдено ${attackModals}`);
   assert.deepEqual(missing, []);
 });
 

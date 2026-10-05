@@ -24,6 +24,7 @@ import type { DnDCustomBonusContext } from './customBonuses.js';
 import type {
   DnDActor,
   DnDCreature,
+  DnDGameItem,
   DnDSceneEntity,
   Spell,
   SpellProjectiles,
@@ -40,9 +41,14 @@ import {
   getActorAbilityModifiers,
   getActorProficiencyBonus,
   getCreatureProficiencyBonus,
+  getWeaponDamageParts,
 } from './calculations.js';
 import { getConditionEntry } from './conditionTemplates.js';
-import { isAbilityType, SPELL_SAVE_DC_BASE } from './consts.js';
+import {
+  CREATURE_TYPE_LABELS,
+  isAbilityType,
+  SPELL_SAVE_DC_BASE,
+} from './consts.js';
 import {
   parseTargetTypeToken,
   TARGET_TYPE_STRIP_REGEX,
@@ -51,10 +57,7 @@ import { CHOICE_DAMAGE_TYPE, isDamageType } from './damageConstants.js';
 import { getSpellDamageParts } from './damageParts.js';
 import { entityHasDamageStatus } from './damageTargetGate.js';
 import { formatDiceLetters } from './diceFormula.js';
-import {
-  buildFormulaContext,
-  substituteFormulaVariables,
-} from './formulaParser.js';
+import { substituteFormulaVariables } from './formulaParser.js';
 import {
   applyStatusConditionals,
   DAMAGE_TYPE_TOKEN_GLOBAL_REGEX,
@@ -74,6 +77,7 @@ import {
   stripStatusTokens,
   uniqueDamageTypeChoices,
 } from './formulaTokens.js';
+import { buildResolvedFormulaContext } from './resolvedFormulaContext.js';
 import {
   getSpellAttackBreakdown,
   getSpellSaveDCBreakdown,
@@ -899,8 +903,88 @@ export function formatConditionalDamageDisplay(
   resolveTerm: (subFormula: string) => string,
   hasOwnType = false,
 ): string {
+  const { base, conditional } = splitConditionalDamageDisplay(
+    formula,
+    resolveTerm,
+    hasOwnType,
+  );
+
+  return [base, ...conditional].filter((piece) => piece.length > 0).join(' + ');
+}
+
+/** Показ формулы, разложенный на постоянное и на добавки по условию */
+export interface ConditionalDamageDisplay {
+  /**
+   * То, что бросается всегда: ветки `@target.full` через «или» и общие
+   * слагаемые. Пусто — вся формула под условием
+   */
+  base: string;
+  /**
+   * Добавки по условию, каждая со своей пометкой: «1к8 (атакующий:
+   * Окровавленный)», «2к6 (цель: Исчадие)»
+   */
+  conditional: string[];
+}
+
+/** Условие слагаемого для показа: ключ группы и пометка «чьё и какое» */
+interface TermDisplayCondition {
+  /** Слагаемые с одним ключом идут под одной пометкой */
+  key: string;
+  /** Пометка: «цель: Лежащий ничком», «цель: Исчадие» */
+  label: string;
+}
+
+/**
+ * Условие, под которым слагаемое достаётся не всем: состояние стороны
+ * (`@target.status.*`, `@self.status.*`) либо тип цели (`@target.type.*`).
+ * Ветки `@target.full`/`@target.notFull` сюда не входят: из них одна бросается
+ * всегда, это не добавка, а «или».
+ *
+ * @param term - слагаемое формулы
+ * @returns условие либо `null`, если слагаемое безусловное
+ */
+function readTermDisplayCondition(term: string): TermDisplayCondition | null {
+  const status = readStatusToken(term);
+
+  if (status) {
+    return {
+      key: `status:${status.side}:${status.status}`,
+      label: `${STATUS_SIDE_LABELS[status.side]}: ${readDamageStatusName(status.status)}`,
+    };
+  }
+
+  const targetType = parseTargetTypeToken(term);
+
+  return targetType
+    ? {
+        key: `type:${targetType}`,
+        label: `${STATUS_SIDE_LABELS.target}: ${CREATURE_TYPE_LABELS[targetType]}`,
+      }
+    : null;
+}
+
+/**
+ * Раскладывает показ формулы на постоянную часть и добавки по условию —
+ * состоянию стороны или типу цели. Плитке строки листа нужна только постоянная
+ * часть: добавок может быть сколько угодно, и в плитку они не помещаются — их
+ * место в подсказке. Склеенный показ даёт {@link formatConditionalDamageDisplay}.
+ *
+ * @param formula - формула части (возможно с токенами @target)
+ * @param resolveTerm - резолвер набора слагаемых в отображаемую строку
+ * @param hasOwnType - у части свой тип (ведущие слагаемые берут его, см.
+ *   `spreadKindTokens`)
+ * @returns постоянная часть и добавки по условию
+ */
+export function splitConditionalDamageDisplay(
+  formula: string,
+  resolveTerm: (subFormula: string) => string,
+  hasOwnType = false,
+): ConditionalDamageDisplay {
   if (!formula || !/@(?:target|self)\./i.test(formula)) {
-    return resolveTerm(stripTargetTokens(formula ?? ''));
+    return {
+      base: resolveTerm(stripTargetTokens(formula ?? '')),
+      conditional: [],
+    };
   }
 
   // Блоки раскладываются так же, как при броске, — иначе подпись условия
@@ -911,38 +995,35 @@ export function formatConditionalDamageDisplay(
   const notFullTerms: string[] = [];
   const commonTerms: string[] = [];
 
-  // Слагаемые по состоянию — сверху остальных, с пометкой «чьё и какое»:
-  // «2к6 (цель: Лежащий ничком)». Слагаемые одного условия идут под одной
-  // пометкой — блок `1к6+1` при условии показывается целиком
+  // Слагаемые по условию — отдельно от остальных, с пометкой «чьё и какое»:
+  // «2к6 (цель: Лежащий ничком)», «2к6 (цель: Исчадие)». Слагаемые одного
+  // условия идут под одной пометкой — блок `1к6+1` показывается целиком
   const statusTerms = new Map<string, { label: string; terms: string[] }>();
 
   for (const rawTerm of splitFormulaTerms(typedFormula)) {
     const match = rawTerm.match(TARGET_CONDITION_DETECT_REGEX);
-    const status = readStatusToken(rawTerm);
+    const condition = readTermDisplayCondition(rawTerm);
 
-    if (status) {
-      const statusTerm = resolveTerm(stripTargetTokens(rawTerm)).trim();
-      const statusKey = `${status.side}:${status.status}`;
+    if (condition) {
+      const conditionTerm = resolveTerm(stripTargetTokens(rawTerm)).trim();
 
-      if (statusTerm.length > 0) {
-        const group = statusTerms.get(statusKey) ?? {
-          label: `${STATUS_SIDE_LABELS[status.side]}: ${readDamageStatusName(status.status)}`,
+      if (conditionTerm.length > 0) {
+        const group = statusTerms.get(condition.key) ?? {
+          label: condition.label,
           terms: [],
         };
 
-        statusTerms.set(statusKey, {
+        statusTerms.set(condition.key, {
           ...group,
-          terms: [...group.terms, statusTerm],
+          terms: [...group.terms, conditionTerm],
         });
       }
 
       continue;
     }
 
-    // Токен типа цели снимается вместе с токенами хитов: «или» показывает
-    // взаимоисключающие ветки, а слагаемое «по нежити» не исключает никакое
-    // другое — оно просто достаётся не всем. Не сняв его, превью показало бы
-    // сырой токен пользователю.
+    // Сюда доходит только токен типа с незнакомым типом (опечатка): условием
+    // он не стал, но и сырым его пользователю показывать нельзя.
     const cleaned = rawTerm
       .replace(TARGET_CONDITION_STRIP_REGEX, '')
       .replace(TARGET_TYPE_STRIP_REGEX, '')
@@ -983,9 +1064,10 @@ export function formatConditionalDamageDisplay(
       : `${terms[0]} (${label})`,
   );
 
-  return [branch, commonStr, ...statusStrs]
-    .filter((piece) => piece.length > 0)
-    .join(' + ');
+  return {
+    base: [branch, commonStr].filter((piece) => piece.length > 0).join(' + '),
+    conditional: statusStrs,
+  };
 }
 
 /**
@@ -1062,46 +1144,20 @@ export function resolveSpellDamageFormula(
     return formula;
   }
 
-  const context = buildFormulaContext(actor);
+  // Итоговые числа листа — переданные готовыми или посчитанные здесь: и
+  // @mod.<характеристика>, и @<характеристика>, и @prof читают то, что
+  // показывает лист. Без готовых чисел раньше брались сырые значения записи
+  const context = buildResolvedFormulaContext(
+    actor,
+    resolvedStats ? { stats: resolvedStats } : {},
+  );
+
   const spellAbility = resolveSpellcastingAbility(actor, spell);
 
-  // С resolvedStats модификаторы учитывают внешние бонусы (Active Effects),
-  // поэтому переопределяем как @mod.spell, так и @mod.<характеристика>.
-  if (resolvedStats) {
-    const abilities: AbilityType[] = [
-      'strength',
-      'dexterity',
-      'constitution',
-      'intelligence',
-      'wisdom',
-      'charisma',
-    ];
-
-    for (const ability of abilities) {
-      const mod = resolvedStats.abilityMods[ability];
-
-      if (mod !== undefined) {
-        context.abilities[ability] = {
-          value:
-            resolvedStats.abilities[ability]
-            ?? context.abilities[ability].value,
-          mod,
-        };
-      }
-    }
-
-    context.spellMod =
-      resolvedStats.abilityMods[spellAbility]
-      ?? calculateAbilityModifier(
-        actor.system?.abilities?.[spellAbility] ?? 10,
-      );
-  } else {
-    context.spellMod = calculateAbilityModifier(
-      actor.system?.abilities?.[spellAbility] ?? 10,
-    );
-  }
-
-  return substituteFormulaVariables(formula, context);
+  return substituteFormulaVariables(formula, {
+    ...context,
+    spellMod: context.abilities[spellAbility]?.mod ?? 0,
+  });
 }
 
 /** Сегмент формулы урона с привязанным типом (после разбора @dmg.<type>). */
@@ -1349,6 +1405,16 @@ export interface DamagePartInfo {
    * @-переменные НЕ подставляются (это «определение», не каст).
    */
   formula: string;
+  /**
+   * То же без добавок по состоянию стороны — то, что бросается всегда. Пусто,
+   * если вся часть под условием
+   */
+  baseFormula: string;
+  /**
+   * Добавки по состоянию стороны с пометкой: «1к8 (атакующий: Окровавленный)».
+   * В `formula` они тоже есть — здесь отдельно, для подсказки
+   */
+  conditionalFormulas: string[];
   /** Является ли часть лечением */
   isHealing: boolean;
   /** Лечение временными ХП (`@heal.temp`) */
@@ -1388,19 +1454,100 @@ export function describeDamagePart(part: DamagePart): DamagePartInfo {
     ),
   );
 
+  const display = splitConditionalDamageDisplay(
+    part.formula,
+    (subFormula) => stripHealTokens(stripDamageTypeTokens(subFormula)),
+    Boolean(part.type),
+  );
+
+  const baseFormula = formatDiceLetters(display.base);
+
+  const conditionalFormulas = display.conditional.map((piece) =>
+    formatDiceLetters(piece),
+  );
+
   return {
-    formula: formatDiceLetters(
-      formatConditionalDamageDisplay(
-        part.formula,
-        (subFormula) => stripHealTokens(stripDamageTypeTokens(subFormula)),
-        Boolean(part.type),
-      ),
-    ),
+    formula: [baseFormula, ...conditionalFormulas]
+      .filter((piece) => piece.length > 0)
+      .join(' + '),
+    baseFormula,
+    conditionalFormulas,
     isHealing: segments.some((segment) => segment.healing !== undefined),
     isTemp: segments.some((segment) => segment.healing === 'temp'),
     types: [...new Set(typeList)],
     typeChoices,
   };
+}
+
+/** Показ набора урона: целиком и разложенный для плитки строки листа */
+export interface DamageSetDisplay {
+  /** Весь набор одной строкой, с добавками по условию; пусто — урона нет */
+  formula: string;
+  /**
+   * То, что бросается всегда, — для плитки. У набора целиком под условием
+   * постоянной части нет, и тут пусто: плитка ставит короткую заглушку, а
+   * добавки — как всегда, в подсказке
+   */
+  baseFormula: string;
+  /** Добавки по условию: «1к8 (атакующий: Окровавленный)» — для подсказки */
+  conditionalFormulas: string[];
+}
+
+/** Показ одной части: постоянное и добавки по условию */
+export type DamagePartDisplay = Pick<
+  DamagePartInfo,
+  'baseFormula' | 'conditionalFormulas'
+>;
+
+/**
+ * Склеивает показ частей в показ набора. Плитка строки листа — оружия,
+ * заклинания, действия существа — показывает только постоянный урон: добавок по
+ * условию может быть сколько угодно, их место в подсказке. У набора целиком
+ * под условием («2к10 по исчадиям + 2к10 по нежити» у оружия без своей основы)
+ * постоянной части нет: полный текст добавок раздувал бы плитку и выдавливал
+ * название из строки, поэтому она пуста — показ ставит заглушку.
+ *
+ * @param parts - показ частей по порядку
+ * @returns показ набора
+ */
+export function combineDamagePartDisplays(
+  parts: readonly DamagePartDisplay[],
+): DamageSetDisplay {
+  const formula = parts
+    .flatMap((part) => [part.baseFormula, ...part.conditionalFormulas])
+    .filter((piece) => piece.length > 0)
+    .join(' + ');
+
+  const baseFormula = parts
+    .map((part) => part.baseFormula)
+    .filter((piece) => piece.length > 0)
+    .join(' + ');
+
+  return {
+    formula,
+    baseFormula,
+    conditionalFormulas: parts.flatMap((part) => part.conditionalFormulas),
+  };
+}
+
+/**
+ * Показ урона оружия для плитки строки листа: постоянный урон и добавки по
+ * условию отдельно. Хват двумя руками и замены от эффектов учитываются — через
+ * `getWeaponDamageParts`.
+ *
+ * @param weapon - оружие
+ * @param resolvedStats - итоговые статы владельца (для замен от эффектов)
+ * @returns показ урона оружия
+ */
+export function describeWeaponDamageDisplay(
+  weapon: DnDGameItem,
+  resolvedStats?: ResolvedActorStats,
+): DamageSetDisplay {
+  return combineDamagePartDisplays(
+    getWeaponDamageParts(weapon, resolvedStats).map((part) =>
+      describeDamagePart(part),
+    ),
+  );
 }
 
 /**
@@ -1723,7 +1870,7 @@ export function resolveCreatureDamageParts(
       try {
         return substituteFormulaVariables(
           formula,
-          buildFormulaContext(creature),
+          buildResolvedFormulaContext(creature),
         );
       } catch {
         return formula;
@@ -1933,7 +2080,7 @@ export function resolveCreatureSpellDamageParts(
   spellMod: number,
   targetType?: CreatureCategory,
 ): ResolvedDamagePartInput[] {
-  const context = { ...buildFormulaContext(creature), spellMod };
+  const context = { ...buildResolvedFormulaContext(creature), spellMod };
 
   return expandDamageParts(
     parts,
@@ -2484,4 +2631,28 @@ export function getSpellSaveCondition(spell: Spell): ConditionRef | undefined {
   );
 
   return carrier?.conditionKey;
+}
+
+/**
+ * Заклинания листа с одним потраченным зарядом заклинания: у заклинания с
+ * откатом (врождённого, расового) заряд уменьшается, ниже нуля не уходит.
+ * Список не меняется — возвращается новый. Один расчёт на лист персонажа,
+ * горячую панель и заклинания существа.
+ *
+ * @param spells - заклинания листа
+ * @param spellId - потраченное заклинание
+ * @returns новый список заклинаний
+ */
+export function withSpentSpellUse(
+  spells: readonly Spell[],
+  spellId: string,
+): Spell[] {
+  return spells.map((entry) =>
+    entry.id === spellId && entry.uses
+      ? {
+          ...entry,
+          uses: { ...entry.uses, current: Math.max(0, entry.uses.current - 1) },
+        }
+      : entry,
+  );
 }

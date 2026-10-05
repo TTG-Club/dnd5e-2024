@@ -48,6 +48,7 @@
   } from './constants';
   import {
     EffectAdvancedSection,
+    EffectCastRuleSection,
     EffectDamageStep,
     EffectDescriptionSection,
     EffectDurationStep,
@@ -55,7 +56,9 @@
     EffectFormStep,
     EffectHeaderFields,
     EffectInertFieldsNotice,
+    EffectLightSection,
     EffectModifiersStep,
+    EffectSaveOverrideSection,
     EffectSaveStep,
     EffectScenarioSummary,
     EffectStagesSection,
@@ -378,6 +381,19 @@
               v-model:effect="draft"
               :show-priority-field="showPriorityField"
             />
+
+            <EffectSaveOverrideSection
+              v-if="layout.showSaveOverride"
+              v-model:effect="draft"
+            />
+
+            <EffectCastRuleSection
+              v-model:effect="draft"
+              :layout="layout"
+              :source-save-dc="sourceSaveDc"
+            />
+
+            <EffectLightSection v-model:effect="draft" />
           </EffectFormStep>
 
           <EffectFormStep

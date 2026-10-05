@@ -1104,6 +1104,86 @@ describe('каталог: классы и черты', () => {
   it.todo(
     '[F13] Удача: переброс d20 за очко удачи — пробел (ресурс и переброс)',
   );
+
+  it('[F21] Пугающее присутствие: Сл формулой по Силе варвара', () => {
+    const dcFormula = '8 + @prof + @mod.str';
+
+    const presence = createEffect(
+      engine.buildClassEffectId('barbarian', 'intimidating-presence'),
+      {
+        name: 'Пугающее присутствие',
+        activation: { mode: 'use', counter: 'intimidating-presence' },
+        effectTarget: 'target',
+        conditionKey: 'frightened',
+        applySave: {
+          ability: 'wisdom',
+          dc: 10,
+          dcFormula,
+          onSuccess: 'negate',
+        },
+        recurringSave: {
+          ability: 'wisdom',
+          dc: 10,
+          dcFormula,
+          timing: 'endOfTurn',
+        },
+        duration: { type: 'minutes', value: 1 },
+      },
+    );
+
+    assert.match(
+      authoredScenario(presence, 'feature'),
+      /Сл 8 \+ бонус мастерства \+ мод\. Силы/,
+    );
+
+    const barbarian = hero({
+      classKey: 'barbarian',
+      level: 9,
+      abilities: { strength: 20 },
+      overrides: { id: 'actor_barbarian' },
+    });
+
+    const [landing] = engine.bindTargetEffectsToSource(
+      [presence],
+      barbarian,
+      engine.buildOwnerSaveDcContext(barbarian, [dcFormula]),
+    );
+
+    // 8 + 4 (мастерство 9-го уровня) + 5 (Сила 20) — у любой цели одно число
+    assert.equal(landing.applySave.dc, 17);
+    assert.equal(landing.recurringSave.dc, 17);
+  });
+
+  it('[F22] Аура умения со Сл заклинаний носителя', () => {
+    const aura = createEffect('Аура Бездны', {
+      aura: { radius: 10, target: 'enemies', visible: true },
+      areaTrigger: 'enter',
+      conditionKey: 'frightened',
+      applySave: {
+        ability: 'wisdom',
+        dc: 10,
+        dcFormula: '@spellDc',
+        onSuccess: 'negate',
+      },
+      duration: { type: 'rounds', value: 1 },
+    });
+
+    authoredScenario(aura, 'feature');
+
+    const sorcerer = hero({
+      classKey: 'sorcerer',
+      level: 5,
+      abilities: { charisma: 18 },
+      overrides: { id: 'actor_sorcerer', activeEffects: [aura] },
+    });
+
+    sorcerer.system.classes[0].spellcastingAbility = 'charisma';
+
+    const [collected] = engine.collectAllAuraEffects(sorcerer);
+
+    // 8 + 3 + 4
+    assert.equal(collected.applySave.dc, 15);
+  });
 });
 
 describe('каталог: виды', () => {

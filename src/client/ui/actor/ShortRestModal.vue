@@ -1,6 +1,7 @@
 <script setup lang="ts">
   import type {
     ActorClassEntry,
+    HitDiceSpendRules,
     ManualHitDieGroup,
     ShortRestHitDiceResult,
   } from '@vtt/shared/system/dnd.js';
@@ -11,10 +12,16 @@
   import { Z_INDEX } from '@/shared_ui/consts';
   import { useChatStore } from '@/stores/chatStore';
   import { useDiceRollerStore } from '@/stores/diceRollerStore';
-  import { getHitDiceGroups, spendHitDice } from '@vtt/shared/system/dnd.js';
+  import {
+    formatHitDiceRollTerm,
+    getHitDiceGroups,
+    listHitDiceCharges,
+    lowHitDiceBonus,
+    NO_HIT_DICE_SPEND_RULES,
+    spendHitDice,
+  } from '@vtt/shared/system/dnd.js';
 
   import {
-    ACTOR_LEFT_PANEL_LABELS,
     DICE_ROLL_LABELS,
     HIT_DIE_LETTER,
     HIT_POINTS_LABELS,
@@ -38,11 +45,18 @@
     maxHitPoints: number;
     /** Модификатор Телосложения (прибавляется к каждой потраченной кости) */
     conMod: number;
+    /**
+     * Как черты владельца меняют трату костей хитов: максимум вместо броска,
+     * «1 и 2 как 3», бесплатная первая кость. Те же правила читает цена
+     * ресурсом (`engine/effectPay.ts`)
+     */
+    hitDiceRules?: HitDiceSpendRules;
   }
 
   const props = withDefaults(defineProps<Props>(), {
     classes: () => [],
     manualHitDice: () => [],
+    hitDiceRules: () => NO_HIT_DICE_SPEND_RULES,
   });
 
   const emit = defineEmits<{
@@ -81,6 +95,14 @@
     props.conMod >= 0 ? `+${props.conMod}` : `−${Math.abs(props.conMod)}`,
   );
 
+  /** Выбранные к трате кости по граням */
+  const pendingPicks = computed(() =>
+    hitDiceGroups.value.map((group) => ({
+      die: group.die,
+      count: pending[group.die] ?? 0,
+    })),
+  );
+
   /** Суммарно выбрано костей к трате */
   const totalPending = computed(() =>
     hitDiceGroups.value.reduce(
@@ -96,14 +118,14 @@
       : SHORT_REST_LABELS.finish,
   );
 
-  /** Формула броска выбранных костей (напр. «2к10 + 1к8 + 4») */
+  /**
+   * Формула броска выбранных костей (напр. «2к10 + 1к8 + 4»). Под правилом
+   * «максимум вместо броска» кости не бросаются — в формулу идёт их максимум.
+   */
   const rollFormula = computed(() => {
-    const diceParts = hitDiceGroups.value
-      .filter((group) => (pending[group.die] ?? 0) > 0)
-      .map(
-        (group) =>
-          `${pending[group.die]}${ACTOR_LEFT_PANEL_LABELS.hitDieLetter}${group.die}`,
-      );
+    const diceParts = pendingPicks.value
+      .filter((pick) => pick.count > 0)
+      .map((pick) => formatHitDiceRollTerm(pick, props.hitDiceRules.maximize));
 
     if (diceParts.length === 0) {
       return '';
@@ -163,7 +185,13 @@
     if (totalPending.value > 0 && rollFormula.value) {
       const rollData = diceRollerStore.parseAndRoll(rollFormula.value);
 
-      const healed = Math.max(0, rollData.total);
+      // «1 и 2 считаются как 3»: роллер приложения этого правила не знает —
+      // сумма поправляется по выпавшим значениям
+      const lowBonus = props.hitDiceRules.lowAsThree
+        ? lowHitDiceBonus(rollData.dice.flatMap((group) => group.values))
+        : 0;
+
+      const healed = Math.max(0, rollData.total + lowBonus);
 
       newCurrent = Math.min(
         props.maxHitPoints,
@@ -176,21 +204,24 @@
 
       chatStore.sendMessage(rollFormula.value, 'roll', rollData);
 
-      // Иммутабельно списываем выбранные кости каждого размера по очереди
-      for (const group of hitDiceGroups.value) {
-        const count = pending[group.die] ?? 0;
+      // «Первая кость после отдыха не тратится»: одна из костей этого отдыха
+      // даёт лечение, но не списывается
+      const charges = listHitDiceCharges(
+        pendingPicks.value,
+        props.hitDiceRules.freeDie,
+      );
 
-        if (count > 0) {
-          const spent = spendHitDice(
-            group.die,
-            count,
-            updatedClasses,
-            updatedManualHitDice,
-          );
+      // Иммутабельно списываем кости каждого размера по очереди
+      for (const charge of charges) {
+        const spent = spendHitDice(
+          charge.die,
+          charge.count,
+          updatedClasses,
+          updatedManualHitDice,
+        );
 
-          updatedClasses = spent.classes;
-          updatedManualHitDice = spent.manualHitDice;
-        }
+        updatedClasses = spent.classes;
+        updatedManualHitDice = spent.manualHitDice;
       }
     }
 

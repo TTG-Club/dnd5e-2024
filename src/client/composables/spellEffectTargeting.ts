@@ -1,6 +1,9 @@
+import type { MeasurementTemplate } from '@vtt/shared';
 import type { DnDSceneEntity, Spell } from '@vtt/shared/system/dnd.js';
 
-import { emitEntityCombatState } from '@/core/entityUtils';
+import type { SpellEffectTargetProblem } from '../ui/actor/constants';
+import type { AttackRollSnapshot } from './attackRollSnapshot';
+
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import { useProjectileStore } from '@/stores/projectileStore';
@@ -16,25 +19,30 @@ import {
   isSpellReady,
   pickEffectVariants,
   readEffectVariantChoices,
-  resolveActorStats,
   spellHasDamage,
+  targetEffectsNeedResolution,
 } from '@vtt/shared/system/dnd.js';
 
 import {
+  PROJECTILE_PROMPT_MODAL,
   SPELL_EFFECT_TARGET_LABELS,
   SPELL_EFFECT_TARGET_MODE,
   SPELL_TARGETS_MODAL_KEY_PREFIX,
 } from '../ui/actor/constants';
+import { refuseAction } from './actionRefusal';
+import { listAttackResolutionEntities } from './attackRollSnapshot';
+import { changeEntityCombatState } from './entityCombatWrite';
 import { resolveSpellCastId, resolveSpellCastLevel } from './spellCasts';
 import {
   getTargetSpellEffects,
   postSpellEffectsMessage,
   stampEffectOnApply,
-  targetEffectsNeedResolution,
 } from './spellResolutionShared';
 import { bindTargetEffectsToCaster } from './targetEffectSourceBinding';
+import { resolveEntityStats } from './useResolvedStats';
 import { isSpellTargetBlockedByRange } from './useSceneRangeCheck';
 import { useSpellDamageWithParts } from './useSpellDamageWithParts';
+import { useSpellResolution } from './useSpellResolution';
 import { useWorldEntities } from './useWorldEntities';
 
 /**
@@ -99,9 +107,7 @@ function applyTargetEffectsToEntities(
   casterId: string,
   entities: readonly DnDSceneEntity[],
 ): void {
-  const socket = useChatStore().getSocket();
-
-  if (!socket) {
+  if (!useChatStore().getSocket()) {
     return;
   }
 
@@ -123,9 +129,13 @@ function applyTargetEffectsToEntities(
       }),
     );
 
-    const activeEffects = applyEffectsToEntity(entity, targetEffects, 'spell');
+    // Цель перечитывается в момент записи, а снимок несёт разницу: эффекты
+    // прежнего каста, снятые сервером после выбора целей, не возвращаются
+    changeEntityCombatState(entity.id, (current) => ({
+      ...current,
+      activeEffects: applyEffectsToEntity(current, targetEffects, 'spell'),
+    }));
 
-    emitEntityCombatState(socket, { ...entity, activeEffects });
     names.push(entity.name);
   }
 
@@ -315,7 +325,7 @@ export function requestSpellEffectTargets(
   }
 
   if (!hasCastContext()) {
-    chatStore.sendMessage(SPELL_EFFECT_TARGET_LABELS.unavailable, 'text');
+    refuseAction(spell.name, SPELL_EFFECT_TARGET_LABELS.unavailable);
 
     return;
   }
@@ -348,39 +358,47 @@ export function requestSpellEffectTargets(
 
     let applied = false;
 
-    /** Проверяет актуальное заклинание и остаток выбранного вида ячеек. */
-    function hasResources(
+    /**
+     * Проверяет актуальное заклинание и остаток выбранного вида ячеек.
+     *
+     * @returns чего не хватает; `null` — каст оплатить есть чем
+     */
+    function findResourceProblem(
       castLevel: number,
       consumeSlot: boolean,
       isPactSlot: boolean,
-    ): boolean {
+    ): SpellEffectTargetProblem | null {
       const caster = findEntity(casterId);
 
       if (!caster || caster.entityType !== 'actor') {
-        return false;
+        return 'changed';
       }
 
       const currentSpell = caster.spells?.find(
         (entry) => entry.id === spell.id,
       );
 
+      if (!currentSpell) {
+        return 'spellChanged';
+      }
+
       // Лист старого мира, чьи заговоры ещё не разобраны, держит их доступными
       const cantripsTracked =
         isRecord(caster.system) && caster.system.cantripsTracked === true;
 
-      if (!currentSpell || !isSpellReady(currentSpell, cantripsTracked)) {
-        return false;
+      if (!isSpellReady(currentSpell, cantripsTracked)) {
+        return 'notPrepared';
       }
 
       if (currentSpell.uses) {
-        return (
-          currentSpell.uses.recovery === 'atWill'
+        return currentSpell.uses.recovery === 'atWill'
           || currentSpell.uses.current > 0
-        );
+          ? null
+          : 'noUses';
       }
 
       if (!consumeSlot || castLevel === 0) {
-        return true;
+        return null;
       }
 
       // Свои бонусы к ячейкам считаются от итоговых статов — как на вкладке
@@ -389,8 +407,10 @@ export function requestSpellEffectTargets(
         caster,
         castLevel,
         isPactSlot,
-        resolveActorStats(caster).abilityBonusContext,
-      );
+        resolveEntityStats(caster).abilityBonusContext,
+      )
+        ? null
+        : 'noSlot';
     }
 
     /** Отменяет старый каст, если запись заклинания заменили или изменили. */
@@ -417,20 +437,10 @@ export function requestSpellEffectTargets(
       );
     }
 
-    /** Не позволяет потратить ячейку на удалённую, подменённую или недоступную цель. */
-    function validate(
-      castLevel?: number,
-      consumeSlot = false,
-      isPactSlot = false,
-    ): boolean {
-      const valid =
-        !applied
-        && hasCastContext()
-        && hasCurrentSpellDefinition()
-        && (castLevel === undefined
-          || (castLevel === slotLevel
-            && hasResources(castLevel, consumeSlot, isPactSlot)))
-        && chosenTargets.length > 0
+    /** Выбранные цели на месте, свои и по-прежнему доступны заклинанию. */
+    function hasCurrentTargets(): boolean {
+      return (
+        chosenTargets.length > 0
         && chosenTargets.length <= getSpellEffectTargetCount(spell, slotLevel)
         && chosenTargets.every(
           (chosen) =>
@@ -440,13 +450,59 @@ export function requestSpellEffectTargets(
                 token.id === chosen.tokenId
                 && token.actorId === chosen.entityId,
             ),
-        );
+        )
+      );
+    }
 
-      if (!valid) {
-        chatStore.sendMessage(SPELL_EFFECT_TARGET_LABELS.changed, 'text');
+    /**
+     * Почему каст с выбранными целями больше не действителен. Причина названа
+     * своя: неподготовленное заклинание раньше отказывало фразой про цели, и
+     * игрок выбирал их заново без толку.
+     *
+     * @returns причина отказа; `null` — каст в силе
+     */
+    function findProblem(
+      castLevel: number | undefined,
+      consumeSlot: boolean,
+      isPactSlot: boolean,
+    ): SpellEffectTargetProblem | null {
+      if (applied || !hasCastContext()) {
+        return 'changed';
       }
 
-      return valid;
+      if (!hasCurrentSpellDefinition()) {
+        return 'spellChanged';
+      }
+
+      if (castLevel !== undefined && castLevel !== slotLevel) {
+        return 'changed';
+      }
+
+      const resourceProblem =
+        castLevel === undefined
+          ? null
+          : findResourceProblem(castLevel, consumeSlot, isPactSlot);
+
+      if (resourceProblem) {
+        return resourceProblem;
+      }
+
+      return hasCurrentTargets() ? null : 'changed';
+    }
+
+    /** Не позволяет потратить ячейку на удалённую, подменённую или недоступную цель. */
+    function validate(
+      castLevel?: number,
+      consumeSlot = false,
+      isPactSlot = false,
+    ): boolean {
+      const problem = findProblem(castLevel, consumeSlot, isPactSlot);
+
+      if (problem) {
+        refuseAction(spell.name, SPELL_EFFECT_TARGET_LABELS[problem]);
+      }
+
+      return problem === null;
     }
 
     /**
@@ -488,7 +544,7 @@ export function requestSpellEffectTargets(
     return true;
   }
 
-  useModalManager().openModal('ProjectilePromptModal', {
+  useModalManager().openModal(PROJECTILE_PROMPT_MODAL, {
     _modalKey: generateId(SPELL_TARGETS_MODAL_KEY_PREFIX),
     targetingSessionId,
     spell,
@@ -508,11 +564,13 @@ export function requestSpellEffectTargets(
  * @param spell - заклинание
  * @param source - заклинатель и его Сл спасброска
  * @param effectTargets - цели, зафиксированные при выборе; без них — выбранная цель
+ * @param attack - снимок броска атаки, если эффекты ложатся по попаданию
  */
 function resolveSpellTargetEffects(
   spell: Spell,
   source: SpellTargetEffectsSource,
   effectTargets?: SpellEffectTargets,
+  attack?: AttackRollSnapshot,
 ): void {
   const targetEntities = effectTargets
     ? effectTargets.claimEntities()
@@ -531,9 +589,10 @@ function resolveSpellTargetEffects(
       spell,
       damageTotal: 0,
       spellSaveDC: source.spellSaveDC,
-      actors: useWorldEntities().getCurrentWorldEntities(),
+      actors: listAttackResolutionEntities(attack),
       socket,
       casterId: source.casterId,
+      attack,
     },
     [],
     {
@@ -556,14 +615,17 @@ function resolveSpellTargetEffects(
  * @param spell - заклинание
  * @param source - заклинатель и его Сл спасброска
  * @param effectTargets - цели, зафиксированные при выборе; без них — выбранная цель
+ * @param attack - снимок броска атаки, если эффекты ложатся по попаданию:
+ *   цель разбирается с эффектами, которые бросок израсходовал
  */
 export function applySpellTargetEffects(
   spell: Spell,
   source: SpellTargetEffectsSource,
   effectTargets?: SpellEffectTargets,
+  attack?: AttackRollSnapshot,
 ): void {
   if (targetEffectsNeedResolution(spell)) {
-    resolveSpellTargetEffects(spell, source, effectTargets);
+    resolveSpellTargetEffects(spell, source, effectTargets, attack);
 
     return;
   }
@@ -602,4 +664,58 @@ export function applySpellTargetEffects(
   if (targetName) {
     postSpellEffectsMessage(spell.name, [targetName], targetEffects);
   }
+}
+
+/**
+ * Разбирает цели каста без окна броска (`flow: 'effectsOnly'` плана каста):
+ * спасбросок заклинания без урона («Удержание личности») бросает цель — через
+ * тот же оркестратор, что и у уронных заклинаний, с нулём урона; без
+ * спасброска эффекты на цель ложатся `applySpellTargetEffects`. Один путь на
+ * лист и горячую панель: раньше панель катила такому касту d20 и отдавала
+ * итог в разбор как урон, а лист у врождённого заклинания спасбросок не
+ * спрашивал вовсе.
+ *
+ * @param spell - заклинание каста
+ * @param source - заклинатель и его Сл спасброска
+ * @param options - цели и шаблон каста
+ * @param options.effectTargets - цели, зафиксированные при выборе
+ * @param options.template - шаблон области: цели спасброска — в нём
+ */
+export function settleNoRollSpellTargets(
+  spell: Spell,
+  source: SpellTargetEffectsSource,
+  options: {
+    effectTargets?: SpellEffectTargets;
+    template?: MeasurementTemplate | null;
+  } = {},
+): void {
+  if (spell.saveType === 'none') {
+    applySpellTargetEffects(spell, source, options.effectTargets);
+
+    return;
+  }
+
+  const socket = useChatStore().getSocket();
+  const actors = useWorldEntities().getCurrentWorldEntities();
+
+  if (getTargetSpellEffects(spell).length === 0 || !socket || !actors.length) {
+    return;
+  }
+
+  useSpellResolution().resolveSpellDamage(
+    {
+      spell,
+      damageTotal: 0,
+      spellSaveDC: source.spellSaveDC,
+      actors,
+      socket,
+      casterId: source.casterId,
+    },
+    {
+      hasProjectiles: false,
+      resolvedDamageFormula: '',
+      scene: useWorldStore().currentScene,
+      cachedTemplate: options.template ?? null,
+    },
+  );
 }

@@ -1,13 +1,21 @@
 <script setup lang="ts">
   import type { DnDGameItem } from '@vtt/shared/system/dnd.js';
 
-  import { formatItemCost } from '@vtt/shared';
-  import { formatWeaponDamageFormula } from '@vtt/shared/system/dnd.js';
+  import { computed } from 'vue';
 
+  import { formatItemCost } from '@vtt/shared';
+  import { describeWeaponDamageDisplay } from '@vtt/shared/system/dnd.js';
+
+  import {
+    formatDamageBonusLines,
+    formatDamageTileFormula,
+    resolveDamageStatIcon,
+  } from '../../composables/damageTypeChoice';
   import { useContextMenu } from '../../composables/useContextMenu';
   import { useListRowClass } from '../../composables/useListRowClass';
   import {
     GAME_ITEM_MIME,
+    SHEET_ROW_TOOLTIP_LINE_BREAK,
     WEAPON_RANGE_TYPE_SHORT_LABELS,
     WEIGHT_UNIT_LABEL,
   } from './constants';
@@ -53,6 +61,29 @@
 
   const { isMenuOpen, menuX, menuY, openContextMenu, handleAction, closeMenu } =
     useContextMenu(props, emit);
+
+  /**
+   * Урон для бейджа — как в плитке строки листа: только то, что бросается
+   * всегда. Добавки по условию («+ 2к6 (цель: Исчадие)») в узкую строку списка
+   * не помещаются: о них говорит значок, а сами они — в подсказке бейджа.
+   * Оружие без постоянного урона («Святой мститель»: одни добавки по типу
+   * цели) получает короткую заглушку — иначе бейдж выдавил бы название.
+   */
+  const damageBadge = computed(() => {
+    const display = describeWeaponDamageDisplay(props.item);
+    const bonusLines = formatDamageBonusLines(display.conditionalFormulas);
+
+    return {
+      formula: formatDamageTileFormula(display.baseFormula),
+      icon: resolveDamageStatIcon(false, bonusLines.length > 0),
+      hint:
+        bonusLines.length > 0
+          ? [display.baseFormula, ...bonusLines]
+              .filter((line) => line.length > 0)
+              .join(SHEET_ROW_TOOLTIP_LINE_BREAK)
+          : undefined,
+    };
+  });
 
   /**
    * Начинает перетаскивание предмета (D&D на актёра)
@@ -121,8 +152,10 @@
         variant="subtle"
         size="sm"
         class="shrink-0 font-mono"
+        :trailing-icon="damageBadge.icon"
+        :title="damageBadge.hint"
       >
-        {{ formatWeaponDamageFormula(item) }}
+        {{ damageBadge.formula }}
       </UBadge>
 
       <!-- Стоимость -->

@@ -13,7 +13,7 @@
  * (`positionalEffects`), тики хода (`turnEffects`).
  */
 
-import type { AbilityType } from '@vtt/shared';
+import type { AbilityType, SkillType } from '@vtt/shared';
 
 import type {
   ActiveEffect,
@@ -23,12 +23,17 @@ import type {
   EffectAura,
   EffectCharges,
   EffectEscape,
+  EffectEscapeCheck,
   EffectSave,
   EffectSaveOutcome,
+  EffectUseArea,
 } from './activeEffectTypes.js';
+import type { EffectPay, EffectPrice } from './effectPayTypes.js';
 import type {
+  EffectActionCost,
   EffectTrigger,
   EffectTriggerAction,
+  EffectTriggerApplyConditionAction,
   EffectTriggerChoice,
   EffectTriggerEvent,
   EffectTriggerSave,
@@ -43,10 +48,15 @@ import {
   isUseActivatedEffect,
   MAX_EFFECT_CHARGES,
   MIN_ACTIVATION_RANGE,
+  MIN_ESCAPE_SKILL_DC,
   parseFormNumber,
   SOURCE_SAVE_DC,
+  useAreaHasWidth,
 } from './activeEffectTypes.js';
 import { hasLastingEffectPayload } from './effectAutomation.js';
+import { EffectCastRuleSchema } from './effectCastRuleTypes.js';
+import { priceHasAmount } from './effectPayTypes.js';
+import { mapEffectSaveDcs } from './effectSaveDc.js';
 import { applyEffectStage, resolveEffectStageIndex } from './effectStages.js';
 import {
   createEffectTriggerId,
@@ -151,6 +161,8 @@ export type InertEffectField =
   | 'duration'
   | 'conditionImmunities'
   | 'charges'
+  | 'saveOverride'
+  | 'pay'
   | 'triggers';
 
 /** Вид действия срабатывания */
@@ -236,6 +248,12 @@ export interface EffectFormLayout {
   /** Применение или включение тратит счётчик листа */
   showActivationCounter: boolean;
   /**
+   * Цена ресурсом: её платит тот, кто применяет, включает или колдует, —
+   * поэтому она есть у заклинания, применения и переключателя. Эффект,
+   * который действует постоянно, никто не «запускает», и платить некому
+   */
+  showPay: boolean;
+  /**
    * Дальность применения «на цель»: эффект накладывается применением, и
    * цель можно выбрать дальше касания
    */
@@ -262,6 +280,11 @@ export interface EffectFormLayout {
    * и он ложится экземпляром на существо: заряд списывают из самого эффекта
    */
   showCharges: boolean;
+  /**
+   * «Провал спасброска — вместо этого успех» за ресурс. Работает там, где
+   * эффект действует на своего носителя: его читает сбор эффектов носителя
+   */
+  showSaveOverride: boolean;
   /** Минимальная Сл спасброска (0 — «Сл источника») */
   minSaveDc: number;
   /** Есть где появиться зоне на месте шаблона (у заклинания есть область) */
@@ -294,17 +317,25 @@ const CONTEXT_DELIVERIES: Record<EffectFormContext, readonly EffectDelivery[]> =
  */
 const USE_DELIVERIES: readonly EffectDelivery[] = ['carrier', 'target', 'aura'];
 
+/** Доставки применения с областью: ещё и зона на месте шаблона */
+const USE_AREA_DELIVERIES: readonly EffectDelivery[] = [
+  ...USE_DELIVERIES,
+  'zone',
+];
+
 /**
- * Способы применения и включения по месту окна. Предмет применяют (зелье,
- * стрела) — включать его нечем, он работает, пока надет. Эффект листа и умения
- * применяют кнопкой или включают переключателем.
+ * Способы применения и включения по месту окна. Эффект листа, умения и
+ * предмета применяют кнопкой или включают переключателем.
  */
 const CONTEXT_ACTIVATION_MODES: Partial<
   Record<EffectFormContext, readonly EffectActivationMode[]>
 > = {
   ownEffects: EFFECT_ACTIVATION_MODES,
   feature: EFFECT_ACTIVATION_MODES,
-  item: ['use'],
+  // Предмет применяют (зелье, стрела) и включают («Язык пламени» пылает по
+  // командному слову) — пунктами меню предмета
+  item: EFFECT_ACTIVATION_MODES,
+  weapon: EFFECT_ACTIVATION_MODES,
   generic: EFFECT_ACTIVATION_MODES,
 };
 
@@ -355,9 +386,12 @@ function resolveContextDeliveries(
   effect: ActiveEffect,
   context: EffectFormContext,
 ): readonly EffectDelivery[] {
-  return isUsedInContext(effect, context)
-    ? USE_DELIVERIES
-    : CONTEXT_DELIVERIES[context];
+  if (!isUsedInContext(effect, context)) {
+    return CONTEXT_DELIVERIES[context];
+  }
+
+  // Применение с областью может оставить зону на месте шаблона
+  return effect.activation?.area ? USE_AREA_DELIVERIES : USE_DELIVERIES;
 }
 
 /**
@@ -382,6 +416,7 @@ function normalizeDraftActivation(
 
   const range = Math.trunc(parseFormNumber(activation.range) ?? 0);
   const exclusive = activation.exclusive?.trim() || undefined;
+  const area = normalizeDraftUseArea(activation.area);
 
   return {
     mode: activation.mode,
@@ -393,6 +428,38 @@ function normalizeDraftActivation(
     ...(activation.mode === 'use' && range >= MIN_ACTIVATION_RANGE
       ? { range }
       : {}),
+    ...(activation.cost ? { cost: activation.cost } : {}),
+    // Область — тоже только у применения
+    ...(activation.mode === 'use' && area ? { area } : {}),
+    // Концентрация — у применения: переключатель держится сам
+    ...(activation.mode === 'use' && activation.concentration
+      ? { concentration: true }
+      : {}),
+  };
+}
+
+/**
+ * Область применения для записи: без размера области нет, ширина — только у
+ * линии.
+ *
+ * @param area - область из черновика
+ * @returns область либо `undefined`
+ */
+function normalizeDraftUseArea(
+  area: EffectUseArea | undefined,
+): EffectUseArea | undefined {
+  const size = Math.trunc(parseFormNumber(area?.size) ?? 0);
+
+  if (!area || size < 1) {
+    return undefined;
+  }
+
+  const width = Math.trunc(parseFormNumber(area.width) ?? 0);
+
+  return {
+    shape: area.shape,
+    size,
+    ...(useAreaHasWidth(area.shape) && width >= 1 ? { width } : {}),
   };
 }
 
@@ -414,6 +481,20 @@ const LIVING_CARRIER_CONTEXTS: ReadonlySet<EffectFormContext> = new Set([
  * («Регенерация»). Снять саму черту срабатывание не может.
  */
 const TICKING_CARRIER_CONTEXTS: ReadonlySet<EffectFormContext> = new Set([
+  'creatureTrait',
+]);
+
+/**
+ * Места, где эффект «на носителе» не лежит в `activeEffects` сам (или лежит
+ * копией умения), но действует вместе с носителем и слышит его поступки —
+ * бросок атаки, отдых, путь, снятое состояние, поверженную цель
+ * (`listCarrierEventSources`): умение, надетый и настроенный предмет, оружие в
+ * руке, черта статблока.
+ */
+const ACTING_CARRIER_CONTEXTS: ReadonlySet<EffectFormContext> = new Set([
+  'feature',
+  'item',
+  'weapon',
   'creatureTrait',
 ]);
 
@@ -828,13 +909,23 @@ export function resolveEffectFormLayout(
       || isOnTarget,
     hasSource: !isTickingCarrier,
     endsWithCast: context === 'spell' && livesOnItsOwn,
-    // Применённая копия тоже «ложится»: зелье лечит при наложении
-    landsOnTarget: isOnTarget || isUsed,
+    // Применённая копия тоже «ложится»: зелье лечит при наложении. Эффект
+    // заклинания на самом заклинателе уходит тем же боевым снимком, что и
+    // эффект на цели, — «при наложении» слышит и он («Связь с иным планом»)
+    landsOnTarget:
+      isOnTarget || isUsed || (context === 'spell' && delivery === 'carrier'),
     switchesOn: isToggled,
     // Действующее заклинание на существе несёт свою кнопку действия: «пока
     // заклинание действует, действием можешь…»
     hasActiveAction: context === 'spell' && livesOnItsOwn,
     hasStages: livesOnItsOwn,
+    // Эффект умения скопирован на персонажа, эффект предмета и черты собран с
+    // записи — все они действуют вместе с носителем: срабатывания слышат его
+    // атаку, путь и отдых. Снять сам себя такой эффект не может — это сняло бы
+    // выданную черту или свойство предмета
+    actsWithCarrier:
+      livesOnItsOwn
+      || (delivery === 'carrier' && ACTING_CARRIER_CONTEXTS.has(context)),
   });
 
   return {
@@ -872,6 +963,7 @@ export function resolveEffectFormLayout(
     showActivationCounter:
       effect.activation !== undefined
       && ACTIVATION_COUNTER_CONTEXTS.has(context),
+    showPay: isGeneric || context === 'spell' || isUsed || isToggled,
     showActivationRange: isUsed,
     useActivated: isUsed,
     showStatusToggle: !(isUsed && ACTIVATION_COUNTER_CONTEXTS.has(context)),
@@ -881,6 +973,9 @@ export function resolveEffectFormLayout(
     // Заряд списывают из экземпляра эффекта, и списывать его должно чему:
     // срабатывания в этом месте обязаны работать
     showCharges: livesOnItsOwn && triggerList.triggerEvents.length > 0,
+    showSaveOverride:
+      isGeneric
+      || (delivery === 'carrier' && DAMAGE_EVENT_CONTEXTS.has(context)),
     minSaveDc: acceptsSourceSaveDc(context, delivery, isUsed)
       ? SOURCE_MIN_SAVE_DC
       : FIXED_MIN_SAVE_DC,
@@ -895,9 +990,11 @@ const TURN_OWNERS_SUBJECT: readonly EffectTriggerTurnOwner[] = ['subject'];
  * Что умеет список «Срабатывания» в месте окна. Правила сверены с рантаймом:
  * ход — там, где эффект тикает на существе (`processTurnEffects`), вход и выход
  * — у зоны и ауры (`syncActorAreaEffects`, `applyAuraTriggerEffects`), бросок
- * атаки — у эффекта, лежащего на
- * существе (`runAttackRollTriggers`). Снять эффект можно только лежащий на
- * существе: черту, ауру чужого токена и зону срабатывание не снимает.
+ * атаки и поступки носителя — у всего, что действует вместе с ним
+ * (`listCarrierEventSources`): эффекта, лежащего на существе, эффекта умения,
+ * скопированного на персонажа, надетого предмета и черты статблока. Снять
+ * эффект можно только лежащий на существе сам: черту, умение, свойство
+ * предмета, ауру чужого токена и зону срабатывание не снимает.
  *
  * Ход наложившего выбирается у эффекта, который кто-то накладывает; у черты
  * существа наложившего нет.
@@ -916,6 +1013,8 @@ const TURN_OWNERS_SUBJECT: readonly EffectTriggerTurnOwner[] = ['subject'];
  * @param place.hasActiveAction - у действующего эффекта бывает своя кнопка
  *   действия («действием можешь переместить сферу»)
  * @param place.hasStages - у эффекта бывают ступени
+ * @param place.actsWithCarrier - эффект лежит на живом носителе и слышит его
+ *   поступки: атаку, путь, отдых, снятое состояние
  * @returns события, действия и выбор хода списка
  */
 function resolveTriggerListLayout(place: {
@@ -929,6 +1028,7 @@ function resolveTriggerListLayout(place: {
   switchesOn: boolean;
   hasActiveAction: boolean;
   hasStages: boolean;
+  actsWithCarrier: boolean;
 }): Pick<
   EffectFormLayout,
   'triggerEvents' | 'triggerActions' | 'triggerTurnOwners'
@@ -942,18 +1042,18 @@ function resolveTriggerListLayout(place: {
       : []),
     ...(ticks ? TURN_TRIGGER_EVENTS : []),
     ...(place.hasPresence ? PRESENCE_TRIGGER_EVENTS : []),
-    ...(place.canRemoveSelf ? (['attackRoll'] as const) : []),
+    ...(place.actsWithCarrier ? (['attackRoll'] as const) : []),
     ...(place.hearsDamage ? DAMAGE_TRIGGER_EVENTS : []),
     // Лечат того, у кого меняются хиты, — там же, где слышен урон
     ...(place.hearsDamage ? HEALING_TRIGGER_EVENTS : []),
     // «Состояние снялось» и «свалил цель» — про живого носителя, который
     // действует и с которого что-то снимают
-    ...(place.canRemoveSelf ? CONDITION_LOST_TRIGGER_EVENTS : []),
-    ...(place.canRemoveSelf ? OWN_DEED_TRIGGER_EVENTS : []),
+    ...(place.actsWithCarrier ? CONDITION_LOST_TRIGGER_EVENTS : []),
+    ...(place.actsWithCarrier ? OWN_DEED_TRIGGER_EVENTS : []),
     // «Прошёл N футов» — про носителя, у которого есть фишка и путь
-    ...(place.canRemoveSelf ? MOVEMENT_TRIGGER_EVENTS : []),
+    ...(place.actsWithCarrier ? MOVEMENT_TRIGGER_EVENTS : []),
     ...(place.endsWithCast ? (['castEnd'] as const) : []),
-    ...(place.canRemoveSelf ? (['rest'] as const) : []),
+    ...(place.actsWithCarrier ? (['rest'] as const) : []),
   ];
 
   if (triggerEvents.length === 0) {
@@ -1050,13 +1150,13 @@ function resolveDraftRecipient(
 }
 
 /**
- * Считается ли Сл спасброска формулой от данных события — у событий урона есть
- * `@damage`.
+ * Читает ли Сл формулой урон события — у событий урона есть `@damage`. Сама
+ * Сл формулой (по владельцу эффекта) есть у любого события.
  *
  * @param event - событие
- * @returns `true`, если формула Сл работает
+ * @returns `true`, если в формуле Сл работает `@damage`
  */
-export function triggerEventAcceptsDcFormula(
+export function triggerEventAcceptsDamageDc(
   event: EffectTriggerEvent,
 ): boolean {
   return DAMAGE_DATA_TRIGGER_EVENTS.includes(event);
@@ -1547,6 +1647,42 @@ export function createDefaultEffectSave(
   return { ability: DEFAULT_EFFECT_SAVE_ABILITY, dc: defaultSaveDc(layout) };
 }
 
+/** Цена нового действия «вырваться»: правила обычно просят действие */
+const NEW_ESCAPE_COST: EffectActionCost = 'action';
+
+/** Навык проверки нового действия «вырваться» */
+export const NEW_ESCAPE_CHECK_SKILL: SkillType = 'athletics';
+
+/**
+ * Проверка нового действия «вырваться». Сложность — Сл источника («Авто»)
+ * там, где источник есть, иначе своё число: ноль без источника был бы мёртвым
+ * полем — сохранение всё равно подняло бы его до наименьшей допустимой Сл.
+ *
+ * @param autoDcAllowed - у места окна бывает Сл источника
+ * @returns проверка навыка
+ */
+export function createDefaultEscapeCheck(
+  autoDcAllowed: boolean,
+): EffectEscapeCheck {
+  return {
+    skill: NEW_ESCAPE_CHECK_SKILL,
+    dc: autoDcAllowed ? SOURCE_SAVE_DC : DEFAULT_EFFECT_SAVE_DC,
+  };
+}
+
+/**
+ * Новое действие «вырваться»: действием, проверкой навыка.
+ *
+ * @param autoDcAllowed - у места окна бывает Сл источника
+ * @returns блок действия
+ */
+export function createDefaultEscape(autoDcAllowed: boolean): EffectEscape {
+  return {
+    cost: NEW_ESCAPE_COST,
+    check: createDefaultEscapeCheck(autoDcAllowed),
+  };
+}
+
 /**
  * Включает или выключает спасбросок эффекта.
  *
@@ -1684,6 +1820,7 @@ export function listInertEffectFields(
       !layout.showRecurringSave && effect.recurringSave !== undefined,
     ],
     ['consumeOn', !layout.showConsumeOn && effect.consumeOn !== undefined],
+    ['pay', !layout.showPay && effect.pay !== undefined],
     [
       'landingCondition',
       !layout.showLandingCondition && effect.landingCondition !== undefined,
@@ -1691,6 +1828,10 @@ export function listInertEffectFields(
     ['variant', !layout.showVariant && effect.variant !== undefined],
     ['duration', !layout.showDuration && effect.duration.type !== 'permanent'],
     ['charges', !layout.showCharges && effect.charges !== undefined],
+    [
+      'saveOverride',
+      !layout.showSaveOverride && effect.saveOverride !== undefined,
+    ],
     [
       'conditionImmunities',
       !layout.showConditionImmunities
@@ -1846,6 +1987,73 @@ function normalizeDraftChoice(
 }
 
 /**
+ * Цена для записи: формулы без пробелов по краям, пустая формула — отсутствием
+ * поля (одна единица), платёж счётчиком без ключа не пишется вовсе — разбор
+ * записи его всё равно отбросит. Пустая цена — отсутствием поля.
+ *
+ * @param pay - цена из черновика
+ * @returns цена либо `undefined`
+ */
+export function normalizeDraftPay(
+  pay: EffectPay | undefined,
+): EffectPay | undefined {
+  const prices = (pay ?? []).flatMap((price): EffectPrice[] => {
+    if (!priceHasAmount(price)) {
+      return [price];
+    }
+
+    const amount = price.amount?.trim() || undefined;
+    const max = price.max?.trim() || undefined;
+
+    if (price.kind !== 'counter') {
+      return [{ kind: price.kind, amount, max }];
+    }
+
+    const counter = price.counter.trim();
+
+    return counter ? [{ kind: 'counter', counter, amount, max }] : [];
+  });
+
+  return prices.length > 0 ? prices : undefined;
+}
+
+/**
+ * Действие «наложить состояние» для записи: вложенные срабатывания, «вырваться»
+ * и флаги наложенного состояния — без пустых полей.
+ *
+ * @param action - действие из окна
+ * @param minDc - минимум Сл места
+ * @returns действие для сохранения
+ */
+function normalizeDraftConditionAction(
+  action: EffectTriggerApplyConditionAction,
+  minDc: number,
+): EffectTriggerApplyConditionAction {
+  const { escape: draftEscape, flags: draftFlags, ...rest } = action;
+  const escape = normalizeDraftEscape(draftEscape, minDc);
+
+  return {
+    ...rest,
+    triggers: normalizeNestedTriggers(action.triggers),
+    ...(escape ? { escape } : {}),
+    ...(draftFlags?.length ? { flags: draftFlags } : {}),
+  };
+}
+
+/**
+ * Поле цены срабатывания для записи: пустая цена — без поля вовсе, чтобы у
+ * срабатывания без цены не появлялся пустой ключ.
+ *
+ * @param pay - цена из черновика
+ * @returns поле `pay` либо ничего
+ */
+function withDraftPay(pay: EffectPay | undefined): { pay?: EffectPay } {
+  const normalized = normalizeDraftPay(pay);
+
+  return normalized ? { pay: normalized } : {};
+}
+
+/**
  * Явные срабатывания для записи: без действий — не пишутся (разбор записи их
  * всё равно отбросит), Сл — не ниже допустимой, лимит — от одного раза.
  *
@@ -1858,9 +2066,10 @@ function normalizeDraftTriggers(
   minDc: number,
 ): EffectTrigger[] | undefined {
   const normalized = (triggers ?? [])
-    .map((trigger) => ({
+    .map(({ pay: draftPay, ...trigger }) => ({
       ...trigger,
-      // Получатель и Сл формулой — только у событий, где они работают
+      ...withDraftPay(draftPay),
+      // Получатель — только у событий, где он работает
       recipient: resolveDraftRecipient(trigger),
       area:
         resolveDraftRecipient(trigger) === AREA_TRIGGER_RECIPIENT
@@ -1885,16 +2094,13 @@ function normalizeDraftTriggers(
         )
         .map((action) =>
           action.type === 'applyCondition'
-            ? { ...action, triggers: normalizeNestedTriggers(action.triggers) }
+            ? normalizeDraftConditionAction(action, minDc)
             : action,
         ),
       save: trigger.save
         ? {
             ...trigger.save,
             dc: clampSaveDc(trigger.save.dc, minDc),
-            dcFormula: triggerEventAcceptsDcFormula(trigger.event)
-              ? trigger.save.dcFormula?.trim() || undefined
-              : undefined,
           }
         : undefined,
       limit: trigger.limit
@@ -1930,12 +2136,57 @@ function normalizeDraftEscape(
     return undefined;
   }
 
+  const onFailDamage = (escape.onFailDamage ?? []).filter(
+    (part) => part.formula.trim().length > 0,
+  );
+
   return {
     ...escape,
     label: escape.label?.trim() || undefined,
     check: escape.check
-      ? { ...escape.check, dc: clampSaveDc(escape.check.dc, minSaveDc) }
+      ? normalizeDraftEscapeCheck(escape.check, minSaveDc)
       : undefined,
+    onSuccessApply: escape.onSuccessApply || undefined,
+    onFailDamage: onFailDamage.length > 0 ? onFailDamage : undefined,
+  };
+}
+
+/**
+ * Проверка «вырваться» к виду данных: первый навык списка — он же `skill`
+ * (по нему проверку читают версии системы без списка), своя Сл навыка — от
+ * единицы, список из одного навыка без своих настроек — отсутствием поля.
+ *
+ * @param check - проверка из окна
+ * @param minSaveDc - наименьшая Сл места окна
+ * @returns проверка для сохранения
+ */
+function normalizeDraftEscapeCheck(
+  check: EffectEscapeCheck,
+  minSaveDc: number,
+): EffectEscapeCheck {
+  const skills = (check.skills ?? []).map((option) => {
+    const dc = Math.trunc(parseFormNumber(option.dc) ?? 0);
+    const label = option.label?.trim();
+
+    return {
+      skill: option.skill,
+      ...(dc >= MIN_ESCAPE_SKILL_DC ? { dc } : {}),
+      ...(option.by ? { by: option.by } : {}),
+      ...(label ? { label } : {}),
+    };
+  });
+
+  const [first] = skills;
+
+  const isPlain =
+    skills.length <= 1 && (!first || Object.keys(first).length === 1);
+
+  return {
+    ...check,
+    skill: first?.skill ?? check.skill,
+    dc: clampSaveDc(check.dc, minSaveDc),
+    skills: isPlain ? undefined : skills,
+    mode: check.mode || undefined,
   };
 }
 
@@ -1967,7 +2218,7 @@ export function normalizeEffectDraft(
       ? true
       : effect.disabled;
 
-  return {
+  const normalized: ActiveEffect = {
     ...effect,
     disabled,
     name: effect.name.trim(),
@@ -1977,6 +2228,7 @@ export function normalizeEffectDraft(
     charges: normalizeDraftCharges(effect.charges),
     durationFormula: effect.durationFormula?.trim() || undefined,
     activation: normalizeDraftActivation(effect.activation),
+    pay: normalizeDraftPay(effect.pay),
     variant:
       effect.variant && variantGroup && variantLabel
         ? { ...effect.variant, group: variantGroup, label: variantLabel }
@@ -2038,5 +2290,13 @@ export function normalizeEffectDraft(
       ? resolveEffectStageIndex(effect)
       : undefined,
     escape: normalizeDraftEscape(effect.escape, layout.minSaveDc),
+    // Пустое правило каста — его отсутствие; разбор сам выбрасывает негодное
+    castRule: EffectCastRuleSchema.parse(effect.castRule),
   };
+
+  // Пустая формула Сл — её отсутствие: спасбросок остаётся с числом
+  return mapEffectSaveDcs(normalized, (save) => ({
+    ...save,
+    dcFormula: save.dcFormula?.trim() || undefined,
+  }));
 }

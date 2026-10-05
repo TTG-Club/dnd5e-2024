@@ -36,13 +36,15 @@ import type { ActorCounterState } from './types.js';
 import { generateId } from '@vtt/shared';
 
 import { withActivationDefaults } from './activeEffectTypes.js';
-import { calculateAbilityModifier } from './calculations.js';
 import { getTotalLevel } from './classTypes.js';
 import { ABILITY_OPTIONS, isAbilityType } from './consts.js';
 import {
   COUNTER_COUNT_MIN,
+  counterDefinitionRest,
   evaluateCounterMaxFormula,
+  initialCounterCurrent,
   progressionCounterMax,
+  resizeCounterCurrent,
   withCounterMinimum,
 } from './counterResource.js';
 import {
@@ -50,7 +52,7 @@ import {
   openFeatChoicesAtLevel,
 } from './featChoices.js';
 import { hasSpellcastingFeature } from './featPrerequisites.js';
-import { buildFormulaContext } from './formulaParser.js';
+import { buildResolvedFormulaContext } from './resolvedFormulaContext.js';
 import { getMaxSpellSlotLevel } from './spellSlotTable.js';
 
 /**
@@ -317,8 +319,9 @@ export function isFeatOwnedEffect(
  * @param feat - черта с дарами и ответами игрока
  * @param feat.featData - блоб даров черты
  * @param feat.choices - ответы игрока: ключ выбора → значения
+ * @returns характеристика либо `undefined`, если черта её не задаёт
  */
-function resolveFeatSpellcastingAbility(feat: {
+export function resolveFeatSpellcastingAbility(feat: {
   featData?: FeatData | null;
   choices?: Record<string, string[]>;
 }): AbilityType | undefined {
@@ -374,6 +377,9 @@ export function collectFeatGrantedSpellSources(
     // Значения группы выдачи: они старше значений записи — ради того группа и
     // заводится, чтобы один набор заклинаний считался не так, как другой
     group?: { alwaysPrepared?: boolean; spellcastingAbility?: AbilityType },
+    // Ответ игрока на выбор, а не выдача записи: мастер класса кладёт такое
+    // заклинание подготовленным, пока есть место
+    chosenByPlayer = false,
   ): void => {
     if (!spellId || seenSpellIds.has(spellId)) {
       return;
@@ -388,6 +394,7 @@ export function collectFeatGrantedSpellSources(
       alwaysPrepared:
         group?.alwaysPrepared ?? feat.featData?.grantedSpellsAlwaysPrepared,
       castingAbility: group?.spellcastingAbility ?? castingAbility,
+      ...(chosenByPlayer ? { chosenByPlayer: true } : {}),
     });
   };
 
@@ -416,6 +423,7 @@ export function collectFeatGrantedSpellSources(
         spellId,
         undefined,
         choice.alwaysPrepared ? { alwaysPrepared: true } : undefined,
+        true,
       );
     }
   }
@@ -1009,12 +1017,16 @@ export function buildFeatCounters(
 
   const characterLevel = getTotalLevel(actor.system.classes);
 
+  // Итоговые числа листа: максимум по бонусу мастерства и модификатору —
+  // тот же, что показывает лист
+  const resolvedContext = buildResolvedFormulaContext(actor);
+
   const context = {
-    ...buildFormulaContext(actor),
+    ...resolvedContext,
     // `@mod.spell` в максимуме («Вознесение лича» — по заклинательной
     // характеристике): вне контекста заклинания движок его не знает, а у черты
     // характеристика есть — своя, спрошенная у игрока либо от класса
-    spellMod: featSpellcastingModifier(feat, actor),
+    spellMod: featSpellcastingModifier(feat, actor, resolvedContext),
   };
 
   return definitions
@@ -1037,19 +1049,20 @@ export function buildFeatCounters(
           && counter.counterKey === definition.key,
       );
 
-      // Потраченное бережём только у ресурса, который уже был: «0 из 0» ничего
-      // не тратило, и появившийся на новой ступени заряд обязан прийти целым
-      const current =
-        previous && previous.max > COUNTER_COUNT_MIN
-          ? Math.min(previous.current, max)
-          : max;
+      // Потраченное бережём только у ресурса, который уже был, а рост
+      // максимума прибавляет к текущему, как у хитов. «0 из 0» ничего не
+      // тратило, и появившийся на новой ступени заряд обязан прийти целым —
+      // либо пустым, если так записан сам ресурс
+      const current = previous
+        ? resizeCounterCurrent(previous, max, definition)
+        : initialCounterCurrent(definition, max);
 
       return {
         counterKey: definition.key,
         featureId: feat.id,
         name: definition.name,
         shortName: definition.shortName,
-        recovery: definition.recovery,
+        ...counterDefinitionRest(definition),
         // Формула и граница живут на счётчике: отдых пересчитывает максимум по
         // ним, не заглядывая в определение черты. У ступеней формулы нет —
         // отдых берёт посчитанный максимум как есть, как и у счётчика класса
@@ -1096,10 +1109,12 @@ function featCounterFormulaMax(
  * @param feat.featData - блоб даров черты
  * @param feat.choices - ответы игрока: ключ выбора → значения
  * @param actor - лист персонажа
+ * @param context - итоговые числа листа
  */
 function featSpellcastingModifier(
   feat: { featData?: FeatData | null; choices?: Record<string, string[]> },
   actor: DnDActor,
+  context: FormulaContext,
 ): number | undefined {
   const casterClass = (actor.system.classes ?? []).find(
     (entry) => entry.spellcastingAbility,
@@ -1112,7 +1127,8 @@ function featSpellcastingModifier(
     return undefined;
   }
 
-  return calculateAbilityModifier(actor.system.abilities[ability] ?? 10);
+  // Итоговый модификатор листа, а не сырого значения записи
+  return context.abilities[ability]?.mod;
 }
 
 /**

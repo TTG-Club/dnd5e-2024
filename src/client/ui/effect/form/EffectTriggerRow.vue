@@ -1,7 +1,7 @@
 <!--
   Строка списка «Срабатывания»: когда → спасбросок → что сделать → сколько раз.
   Что доступно, решает движок по месту окна: события — `layout.triggerEvents`,
-  действия — `listTriggerActionTypes`, Сл формулой — `triggerEventAcceptsDcFormula`.
+  действия — `listTriggerActionTypes`, Сл формулой — `triggerEventAcceptsDamageDc`.
 -->
 <script setup lang="ts">
   // Корневой вход `@nuxt/ui` типов компонентов не отдаёт — берём из подпути
@@ -11,6 +11,7 @@
   import type { AbilityType } from '@vtt/shared';
   import type {
     EffectFormLayout,
+    EffectPay,
     EffectTrigger,
     EffectTriggerAction,
     EffectTriggerActionGate,
@@ -24,8 +25,10 @@
     EffectTriggerRestType,
     EffectTriggerSaveMode,
     EffectTriggerTurnOwner,
+    EffectUseArea,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { EffectUseAreaChoice } from '../constants';
   import type {
     EffectTriggerDamageGateChoice,
     EffectTriggerSaveModeChoice,
@@ -50,28 +53,36 @@
     DEFAULT_TRIGGER_RECIPIENT,
     DEFAULT_TRIGGER_REST_TYPE,
     DEFAULT_TRIGGER_TURN_OWNER,
+    EVENT_DAMAGE_TOKEN,
     isTurnTriggerEvent,
     layoutAcceptsSourceSaveDc,
     listTriggerActionTypes,
+    MAX_EFFECT_USE_AREA_SIZE,
     MAX_TRIGGER_CHANCE_PERCENT,
     MAX_TRIGGER_CHOICE_COUNT,
     MAX_TRIGGER_PATH_FEET,
     MIN_TRIGGER_CHANCE_PERCENT,
     MIN_TRIGGER_CHOICE_COUNT,
     MIN_TRIGGER_LIMIT_MAX,
+    normalizeAltAbilities,
     resolveTriggerActionGate,
-    triggerEventAcceptsDcFormula,
+    triggerEventAcceptsDamageDc,
     triggerEventHasConditionKey,
     triggerEventHasPathFeet,
     triggerEventHasRestType,
     triggerEventHasRole,
-    validateFormula,
+    useAreaHasWidth,
   } from '@vtt/shared/system/dnd.js';
 
   import { SCROLLABLE_DROPDOWN_UI } from '../../actor/constants';
+  import FieldHint from '../../actor/FieldHint.vue';
   import {
+    DEFAULT_USE_AREA_SIZE,
+    EFFECT_ACTIVATION_EXTRA_LABELS,
     EFFECT_AURA_RADIUS_STEP,
     EFFECT_SOURCE_DC_LABELS,
+    EFFECT_TRIGGER_TEMPLATE_OPTIONS,
+    NO_USE_AREA,
   } from '../constants';
   import {
     ANY_CONDITION_KEY,
@@ -89,6 +100,7 @@
     EFFECT_TRIGGER_SAVE_MODE_OPTIONS,
     triggerEventHasRecipientChoice,
   } from '../effectFormOptions';
+  import { EFFECT_PAY_FIELD_LABELS } from '../payLabels';
   import {
     EFFECT_TRIGGER_ACTION_ICONS,
     EFFECT_TRIGGER_ACTION_LABELS,
@@ -101,6 +113,7 @@
     EFFECT_TRIGGER_TURN_OWNER_LABELS,
   } from '../triggerLabels';
   import EffectActionCostFields from './EffectActionCostFields.vue';
+  import EffectPayFields from './EffectPayFields.vue';
   import EffectTriggerActionFields from './EffectTriggerActionFields.vue';
   import EffectTriggerConditionPicker from './EffectTriggerConditionPicker.vue';
   import SaveDcField from './SaveDcField.vue';
@@ -154,7 +167,7 @@
   );
 
   const acceptsDcFormula = computed(() =>
-    triggerEventAcceptsDcFormula(trigger.value.event),
+    triggerEventAcceptsDamageDc(trigger.value.event),
   );
 
   const hasOtherParty = computed(() =>
@@ -257,7 +270,8 @@
   });
 
   /**
-   * Спасбросок без формулы Сл, если новое событие её не знает.
+   * Спасбросок без формулы Сл, если она читает урон события, а новое событие
+   * урона не несёт: формула по владельцу работает у любого события.
    *
    * @param save - спасбросок строки
    * @param nextEvent - новое событие
@@ -267,9 +281,12 @@
     save: NonNullable<EffectTrigger['save']>,
     nextEvent: EffectTriggerEvent,
   ): NonNullable<EffectTrigger['save']> {
-    const { dcFormula: _formula, ...rest } = save;
+    const { dcFormula, ...rest } = save;
 
-    return triggerEventAcceptsDcFormula(nextEvent) ? save : rest;
+    return triggerEventAcceptsDamageDc(nextEvent)
+      || !dcFormula?.includes(EVENT_DAMAGE_TOKEN)
+      ? save
+      : rest;
   }
 
   // Получатель по умолчанию в данных не пишется
@@ -368,30 +385,83 @@
     set: (target: EffectTriggerAreaTarget) =>
       update({
         area: {
+          ...trigger.value.area,
           radius: trigger.value.area?.radius ?? DEFAULT_TRIGGER_AREA_RADIUS,
           target: target === DEFAULT_TRIGGER_AREA_TARGET ? undefined : target,
         },
       }),
   });
 
-  const dcFormula = computed({
-    get: () => trigger.value.save?.dcFormula ?? '',
-    set: (next: string | number) => {
-      if (!trigger.value.save) {
-        return;
-      }
+  /** Ширина шаблона — только у линии */
+  const templateHasWidth = computed(() =>
+    useAreaHasWidth(trigger.value.area?.template?.shape),
+  );
 
-      const { dcFormula: _formula, ...rest } = trigger.value.save;
-      const formula = String(next).trim();
+  /** Шаблон ставит нажавший кнопку — он есть только у события «При действии» */
+  const acceptsAreaTemplate = computed(
+    () => trigger.value.event === 'activate',
+  );
 
-      update({ save: formula ? { ...rest, dcFormula: formula } : rest });
+  /**
+   * Записывает шаблон области получателей.
+   *
+   * @param template - шаблон; нет — получатели по радиусу от носителя
+   */
+  function updateAreaTemplate(template: EffectUseArea | undefined): void {
+    update({
+      area: {
+        ...trigger.value.area,
+        radius: trigger.value.area?.radius ?? DEFAULT_TRIGGER_AREA_RADIUS,
+        template,
+      },
+    });
+  }
+
+  // Шаблон вместо радиуса: «нет» — радиус от фишки носителя
+  const areaTemplateShape = computed({
+    get: () => trigger.value.area?.template?.shape ?? NO_USE_AREA,
+    set: (shape: EffectUseAreaChoice) => {
+      updateAreaTemplate(
+        shape === NO_USE_AREA
+          ? undefined
+          : {
+              ...trigger.value.area?.template,
+              shape,
+              size: trigger.value.area?.template?.size ?? DEFAULT_USE_AREA_SIZE,
+            },
+      );
     },
   });
 
-  const dcFormulaError = computed(() => {
-    const formula = trigger.value.save?.dcFormula;
+  const areaTemplateSize = computed({
+    get: () => trigger.value.area?.template?.size ?? DEFAULT_USE_AREA_SIZE,
+    set: (size: number | null) => {
+      const template = trigger.value.area?.template;
 
-    return formula ? validateFormula(formula).error : undefined;
+      if (template && size !== null) {
+        updateAreaTemplate({ ...template, size });
+      }
+    },
+  });
+
+  const areaTemplateWidth = computed({
+    get: () => trigger.value.area?.template?.width ?? null,
+    set: (width: number | null) => {
+      const template = trigger.value.area?.template;
+
+      if (template) {
+        updateAreaTemplate({ ...template, width: width ?? undefined });
+      }
+    },
+  });
+
+  const dcFormula = computed({
+    get: () => trigger.value.save?.dcFormula,
+    set: (formula: string | undefined) => {
+      if (trigger.value.save) {
+        update({ save: { ...trigger.value.save, dcFormula: formula } });
+      }
+    },
   });
 
   const condition = computed({
@@ -469,6 +539,21 @@
     set: (ability: AbilityType) => {
       if (trigger.value.save) {
         update({ save: { ...trigger.value.save, ability } });
+      }
+    },
+  });
+
+  // Ещё характеристики на выбор бросающего: «спасбросок Силы или Ловкости»
+  const saveAltAbilities = computed({
+    get: () => trigger.value.save?.altAbilities ?? [],
+    set: (abilities: AbilityType[]) => {
+      if (trigger.value.save) {
+        update({
+          save: {
+            ...trigger.value.save,
+            altAbilities: normalizeAltAbilities(saveAbility.value, abilities),
+          },
+        });
       }
     },
   });
@@ -705,6 +790,11 @@
       }),
   });
 
+  const pay = computed({
+    get: () => trigger.value.pay,
+    set: (next: EffectPay | undefined) => update({ pay: next }),
+  });
+
   const asker = computed({
     get: () => trigger.value.asker ?? DEFAULT_TRIGGER_CHOOSER,
     set: (next: EffectTriggerChooser) =>
@@ -793,7 +883,57 @@
       </UFormField>
 
       <template v-if="isAreaRecipient">
+        <template v-if="acceptsAreaTemplate">
+          <UFormField class="w-52">
+            <template #label>
+              <span class="flex items-center gap-1">
+                {{ EFFECT_TRIGGER_AREA_LABELS.template }}
+
+                <FieldHint :text="EFFECT_TRIGGER_AREA_LABELS.templateHint" />
+              </span>
+            </template>
+
+            <USelect
+              v-model="areaTemplateShape"
+              :items="EFFECT_TRIGGER_TEMPLATE_OPTIONS"
+              value-key="value"
+              size="sm"
+              class="w-full"
+              :portal="false"
+            />
+          </UFormField>
+
+          <UFormField
+            v-if="trigger.area?.template"
+            :label="EFFECT_ACTIVATION_EXTRA_LABELS.areaSize"
+            class="w-28"
+          >
+            <UInputNumber
+              v-model="areaTemplateSize"
+              :min="1"
+              :max="MAX_EFFECT_USE_AREA_SIZE"
+              size="sm"
+              class="w-full"
+            />
+          </UFormField>
+
+          <UFormField
+            v-if="templateHasWidth"
+            :label="EFFECT_ACTIVATION_EXTRA_LABELS.areaWidth"
+            class="w-28"
+          >
+            <UInputNumber
+              v-model="areaTemplateWidth"
+              :min="1"
+              :max="MAX_EFFECT_USE_AREA_SIZE"
+              size="sm"
+              class="w-full"
+            />
+          </UFormField>
+        </template>
+
         <UFormField
+          v-if="!trigger.area?.template"
           :label="EFFECT_TRIGGER_AREA_LABELS.radius"
           class="w-28"
         >
@@ -947,6 +1087,21 @@
       </UFormField>
 
       <UFormField
+        :label="EFFECT_TRIGGER_ROW_LABELS.saveAltAbilities"
+        class="w-56"
+      >
+        <USelect
+          v-model="saveAltAbilities"
+          :items="ABILITY_OPTIONS"
+          value-key="value"
+          multiple
+          size="sm"
+          class="w-full"
+          :portal="false"
+        />
+      </UFormField>
+
+      <UFormField
         :label="EFFECT_TRIGGER_ROW_LABELS.saveMode"
         class="w-44"
       >
@@ -962,26 +1117,14 @@
 
       <SaveDcField
         v-model="saveDc"
+        v-model:formula="dcFormula"
         :label="EFFECT_TRIGGER_ROW_LABELS.saveDc"
         :auto-allowed="acceptsSourceSaveDc"
         :auto-label="EFFECT_SOURCE_DC_LABELS[layout.context]"
         :auto-value="sourceSaveDc"
+        formula-allowed
+        :accepts-damage="acceptsDcFormula"
       />
-
-      <UFormField
-        v-if="acceptsDcFormula"
-        :label="EFFECT_TRIGGER_ROW_LABELS.dcFormula"
-        :hint="EFFECT_TRIGGER_ROW_LABELS.dcFormulaHint"
-        :error="dcFormulaError"
-        class="w-72"
-      >
-        <UInput
-          v-model="dcFormula"
-          :placeholder="EFFECT_TRIGGER_ROW_LABELS.dcFormulaPlaceholder"
-          size="sm"
-          class="w-full"
-        />
-      </UFormField>
     </div>
 
     <template v-if="trigger.save">
@@ -1207,5 +1350,10 @@
         />
       </UFormField>
     </div>
+
+    <EffectPayFields
+      v-model="pay"
+      :hint="EFFECT_PAY_FIELD_LABELS.hintTrigger"
+    />
   </div>
 </template>

@@ -14,12 +14,21 @@
  * Вторая: ответ игрока на вопрос варианта, от которого он отказался, во
  * владения попасть не должен. Дары собираются только у ВЫБРАННЫХ вариантов —
  * {@link collectClassOptionGrants}.
+ *
+ * У справочного списка выбранных вариантов нет: из него не выбирают, им
+ * пользуются по ситуации («Трансмутационный метаболизм»: мутацию называют,
+ * поглотив порцию). Механика его вариантов достаётся владельцу умения вся —
+ * {@link collectReferenceOptionGrants}.
  */
 
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type { ClassFeature, ClassFeatureChoice } from './classTypes.js';
 import type { FeatChoice, FeatData } from './featTypes.js';
 
+import {
+  isReferenceClassFeatureChoices,
+  openClassFeatureChoices,
+} from './classTypes.js';
 import { FEAT_CHOICE_TYPE_LABELS } from './featChoices.js';
 
 /**
@@ -163,7 +172,10 @@ export function scopeClassOptionFeatData(
   return scoped;
 }
 
-/** Дары одного выбранного варианта умения, готовые лечь на лист. */
+/**
+ * Дары одного варианта умения, готовые лечь на лист: выбранного игроком либо
+ * варианта справочного списка.
+ */
 export interface ClassOptionGrant {
   /** Ключ умения, чей это вариант */
   featureKey: string;
@@ -171,6 +183,8 @@ export interface ClassOptionGrant {
   optionKey: string;
   /** Название варианта: им подписаны вопросы игроку и запись на листе */
   name: string;
+  /** Описание варианта — описание его записи на листе */
+  description: string;
   /** Приставка ключей выбора варианта */
   scope: string;
   /**
@@ -213,22 +227,68 @@ export function collectClassOptionGrants(
 
   const chosen = new Set(selectedKeys);
 
-  return (feature.choices ?? []).flatMap((option) => {
-    if (!chosen.has(option.key) || !hasClassOptionGrants(option)) {
-      return [];
-    }
+  return (feature.choices ?? [])
+    .filter((option) => chosen.has(option.key) && hasClassOptionGrants(option))
+    .map((option) => buildClassOptionGrant(feature.key, option));
+}
 
-    const scope = classOptionChoiceScope(feature.key, option.key);
+/**
+ * Дары вариантов СПРАВОЧНОГО списка, открытых к уровню класса.
+ *
+ * Из справочного списка не выбирают, и «выбранных» у него нет — а механика у
+ * вариантов бывает: мутации «Трансмутационного метаболизма» включаются за
+ * порцию, приспособления ловчего применяются кнопкой. Достаться владельцу
+ * умения она может только вся разом: чем из списка пользоваться, игрок решает
+ * по ситуации, а не при взятии уровня. Вариант со своим уровнем доступа ждёт
+ * этого уровня — как и в выбираемом списке.
+ *
+ * Информационное умение ничего листу не даёт — не дают и его варианты.
+ *
+ * @param feature - умение класса или подкласса
+ * @param classLevel - уровень класса, который берут сейчас
+ * @returns дары открытых вариантов; пусто — список выбираемый, умения ещё нет
+ *   либо своей механики ни у одного варианта нет
+ */
+export function collectReferenceOptionGrants(
+  feature: Pick<
+    ClassFeature,
+    'key' | 'level' | 'choices' | 'choiceConfig' | 'isInformationalOnly'
+  >,
+  classLevel: number,
+): ClassOptionGrant[] {
+  if (
+    feature.isInformationalOnly
+    || classLevel < feature.level
+    || !isReferenceClassFeatureChoices(feature)
+  ) {
+    return [];
+  }
 
-    return [
-      {
-        featureKey: feature.key,
-        optionKey: option.key,
-        name: option.name,
-        scope,
-        featData: scopeClassOptionFeatData(option.featData, scope, option.name),
-        activeEffects: option.activeEffects ?? [],
-      },
-    ];
-  });
+  return (openClassFeatureChoices(feature, classLevel) ?? [])
+    .filter(hasClassOptionGrants)
+    .map((option) => buildClassOptionGrant(feature.key, option));
+}
+
+/**
+ * Дары одного варианта с ключами выбора в его области.
+ *
+ * @param featureKey - ключ умения, которому принадлежит вариант
+ * @param option - вариант умения из справочника
+ * @returns дары варианта, готовые лечь на лист
+ */
+function buildClassOptionGrant(
+  featureKey: string,
+  option: ClassFeatureChoice,
+): ClassOptionGrant {
+  const scope = classOptionChoiceScope(featureKey, option.key);
+
+  return {
+    featureKey,
+    optionKey: option.key,
+    name: option.name,
+    description: option.description,
+    scope,
+    featData: scopeClassOptionFeatData(option.featData, scope, option.name),
+    activeEffects: option.activeEffects ?? [],
+  };
 }

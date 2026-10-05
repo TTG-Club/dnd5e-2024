@@ -417,6 +417,13 @@
                   +{{ spell.scaling.additionalTargets }}
                 </span>
 
+                <span v-if="spell.scaling.additionalAreaSize">
+                  <strong>{{
+                    SPELL_DETAIL_LABELS.scalingAreaSizePrefix
+                  }}</strong>
+                  +{{ spell.scaling.additionalAreaSize }}
+                </span>
+
                 <span v-if="spell.scaling.description">
                   ({{ spell.scaling.description }})
                 </span>

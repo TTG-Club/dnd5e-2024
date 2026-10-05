@@ -14,6 +14,7 @@
  */
 
 import type { ActiveEffect, EffectSaveTiming } from './activeEffectTypes.js';
+import type { SaveDcSource } from './effectSaveDc.js';
 import type {
   EffectTrigger,
   EffectTriggerAction,
@@ -33,6 +34,7 @@ import {
   LEGACY_TRIGGER_IDS,
   MOVEMENT_TRIGGER_EVENTS,
   PRESENCE_TRIGGER_EVENTS,
+  triggerAsksPermission,
   TURN_TRIGGER_EVENTS,
 } from './effectTriggerTypes.js';
 import { resolveHalfDamageScale } from './saveDamage.js';
@@ -193,11 +195,25 @@ export function readEffectLandingTrigger(
           save: {
             ability: effect.applySave.ability,
             dc: effect.applySave.dc,
+            ...pickSaveDcFormula(effect.applySave),
           },
         }
       : {}),
     actions,
   };
+}
+
+/**
+ * Формула Сл старого поля для срабатывания — только если она есть: пустое
+ * поле в данных не пишется.
+ *
+ * @param save - Сл старого поля
+ * @returns поле формулы либо ничего
+ */
+function pickSaveDcFormula(
+  save: SaveDcSource,
+): Pick<SaveDcSource, 'dcFormula'> {
+  return save.dcFormula ? { dcFormula: save.dcFormula } : {};
 }
 
 /**
@@ -263,7 +279,15 @@ function readLegacyListTriggers(effect: ActiveEffect): EffectTrigger[] {
     triggers.push({
       id: LEGACY_TRIGGER_IDS.recurringDamage,
       event: turnTriggerEventOf(recurringDamage.timing),
-      ...(save ? { save: { ability: save.ability, dc: save.dc } } : {}),
+      ...(save
+        ? {
+            save: {
+              ability: save.ability,
+              dc: save.dc,
+              ...pickSaveDcFormula(save),
+            },
+          }
+        : {}),
       actions: [
         {
           type: 'damage',
@@ -279,7 +303,11 @@ function readLegacyListTriggers(effect: ActiveEffect): EffectTrigger[] {
     triggers.push({
       id: LEGACY_TRIGGER_IDS.recurringSave,
       event: turnTriggerEventOf(recurringSave.timing),
-      save: { ability: recurringSave.ability, dc: recurringSave.dc },
+      save: {
+        ability: recurringSave.ability,
+        dc: recurringSave.dc,
+        ...pickSaveDcFormula(recurringSave),
+      },
       actions: [{ type: 'removeSelf', on: 'saved' }],
     });
   }
@@ -356,6 +384,18 @@ export function listEffectEventTriggers(
   return listEffectListTriggers(effect).filter(
     (trigger) => trigger.event === event,
   );
+}
+
+/**
+ * Слушает ли эффект своё наложение: срабатывание «при наложении» выполняет
+ * сервер, когда эффект приходит боевым снимком. Простое сохранение листа
+ * событием наложения не считается — такой эффект обязан идти снимком.
+ *
+ * @param effect - эффект
+ * @returns `true`, если у эффекта есть срабатывание «при наложении»
+ */
+export function hasLandingTrigger(effect: ActiveEffect): boolean {
+  return listEffectEventTriggers(effect, 'applied').length > 0;
 }
 
 /**
@@ -444,8 +484,8 @@ const SERVER_TRIGGER_ACTIONS: ReadonlySet<EffectTriggerAction['type']> =
 
 /**
  * Выполняется ли срабатывание броска атаки на клиенте до броска: без
- * спасброска, урона, конца каста и действий другой стороне — только снятие и
- * наложения на субъекте. Такое снятие должно опередить урон атаки, иначе два
+ * спасброска, вопроса человеку, урона, конца каста и действий другой стороне —
+ * только снятие и наложения на субъекте. Такое снятие должно опередить урон атаки, иначе два
  * снимка сущности гонятся. Остальное выполняет сервер после броска
  * (`settleAttackRollTriggers`).
  *
@@ -455,6 +495,8 @@ const SERVER_TRIGGER_ACTIONS: ReadonlySet<EffectTriggerAction['type']> =
 export function isClientAttackRollTrigger(trigger: EffectTrigger): boolean {
   return (
     !trigger.save
+    // Вопрос человеку (согласие, реакция, цена ресурсом) задаёт сервер
+    && !triggerAsksPermission(trigger)
     && (trigger.recipient ?? DEFAULT_TRIGGER_RECIPIENT) === 'subject'
     && trigger.actions.every(
       (action) => !SERVER_TRIGGER_ACTIONS.has(action.type),
@@ -514,6 +556,7 @@ function isPlainTrigger(trigger: EffectTrigger): boolean {
     // Цены, вопроса человеку и шанса срабатывания у старых полей нет
     && trigger.cost === undefined
     && trigger.ask === undefined
+    && trigger.pay === undefined
     && trigger.chancePercent === undefined
     && isPlainTriggerSave(trigger.save)
   );

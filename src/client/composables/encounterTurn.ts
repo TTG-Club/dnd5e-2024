@@ -37,6 +37,17 @@ export function isEntityInCombat(entityId: string): boolean {
 }
 
 /**
+ * Идёт ли сейчас ход сущности. Вне боя хода нет — он считается своим: там
+ * действуют, когда хотят.
+ *
+ * @param entityId - сущность
+ * @returns `true` в свой ход и вне боя
+ */
+export function isEntityOwnTurn(entityId: string): boolean {
+  return !isEntityInCombat(entityId) || resolveActiveTurnActorId() === entityId;
+}
+
+/**
  * Какой раунд идёт в бою — для правил по расписанию «на раунде N».
  *
  * Как и на сервере: номер есть только у активного и уже начатого боя.
@@ -49,4 +60,21 @@ export function resolveCombatRound(): number | undefined {
   return encounter?.isActive === true && encounter.currentTurnIndex >= 0
     ? encounter.round
     : undefined;
+}
+
+/** Метка «боя нет»: вне боя ход не меняется */
+const NO_COMBAT_TURN_STAMP = '';
+
+/**
+ * Метка идущего хода: раунд и место в порядке инициативы. Меняется с каждым
+ * концом хода — по ней узнают, что счётчики хода и раунда сервер уже сбросил.
+ *
+ * @returns метка хода; вне боя — пустая
+ */
+export function resolveTurnStamp(): string {
+  const encounter = useInitiativeStore().encounter;
+
+  return encounter?.isActive === true && encounter.currentTurnIndex >= 0
+    ? `${encounter.round}:${encounter.currentTurnIndex}`
+    : NO_COMBAT_TURN_STAMP;
 }

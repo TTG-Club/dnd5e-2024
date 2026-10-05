@@ -48,8 +48,10 @@ import {
 
 import { CHOICE_CONFIG_DEFAULT_COUNT, CHOICE_COUNT_MIN } from '../constants';
 import {
+  buildCounterExtras,
   entriesToProgression,
   progressionToEntries,
+  toEditableCounterExtras,
 } from '../counterEditorTypes';
 import {
   buildFeatData,
@@ -822,7 +824,7 @@ export function toEditableCounter(
     // у ресурса записи, — поле максимума у них общее
     max: counter.formula || '',
     min: counter.min ?? 0,
-    recovery: counter.recovery ?? 'long',
+    ...toEditableCounterExtras(counter),
     progression: progressionToEntries(counter.progression),
     startLevel: counter.startLevel ?? 1,
     showInTable: counter.showInTable ?? false,
@@ -1300,7 +1302,7 @@ export function buildCounter(
     key: counter.key.trim() || generateId('cnt'),
     name: counter.name.trim(),
     startLevel: Math.max(1, Math.round(counter.startLevel || 1)),
-    recovery: counter.recovery,
+    ...buildCounterExtras(counter),
   };
 
   // Нулевая граница ничего не описывает: у ресурса без неё поля быть не должно

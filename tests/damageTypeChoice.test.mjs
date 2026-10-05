@@ -491,3 +491,16 @@ describe('строка урона: кнопки типа на выбор и сл
     );
   });
 });
+
+describe('название типа урона', () => {
+  it('у служебного «choice» названия нет — его ключ в подписи не попадает', () => {
+    assert.equal(engine.resolveDamageTypeLabel('choice'), undefined);
+    assert.equal(engine.getShortDamageTypeLabel('choice'), '');
+  });
+
+  it('известный тип называется, неизвестный показывается как есть', () => {
+    assert.equal(engine.resolveDamageTypeLabel('fire'), 'Огненный урон');
+    assert.equal(engine.getShortDamageTypeLabel('fire'), 'огненный');
+    assert.equal(engine.resolveDamageTypeLabel('sonic'), 'sonic');
+  });
+});

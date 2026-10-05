@@ -12,11 +12,17 @@
  */
 
 import type { SceneEntity } from '@vtt/shared';
-import type { DnDSceneEntity } from '@vtt/shared/system/dnd.js';
+import type {
+  CreatureCategory,
+  DnDSceneEntity,
+} from '@vtt/shared/system/dnd.js';
 
 import { collectWorldEntities, findEntityInWorld } from '@/core/entityUtils';
 import { useWorldStore } from '@/stores/worldStore';
-import { isDndSceneEntity } from '@vtt/shared/system/dnd.js';
+import {
+  isDndSceneEntity,
+  resolveEntityCreatureType,
+} from '@vtt/shared/system/dnd.js';
 
 /**
  * Доступ к сущностям текущего мира — актёрам и существам одним списком.
@@ -66,8 +72,24 @@ export function useWorldEntities() {
     return entity && isDndSceneEntity(entity) ? entity : undefined;
   }
 
+  /**
+   * Тип существа сущности текущего мира — у заклинателя, наложившего,
+   * источника спасброска.
+   *
+   * @param entityId - идентификатор сущности
+   * @returns тип либо `undefined`, если сущности нет или тип неизвестен
+   */
+  function findEntityCreatureType(
+    entityId: string | null | undefined,
+  ): CreatureCategory | undefined {
+    const entity = findCurrentDndEntity(entityId);
+
+    return entity ? resolveEntityCreatureType(entity) : undefined;
+  }
+
   return {
     findCurrentDndEntity,
+    findEntityCreatureType,
     findCurrentWorldEntity,
     getCurrentWorldEntities,
   };

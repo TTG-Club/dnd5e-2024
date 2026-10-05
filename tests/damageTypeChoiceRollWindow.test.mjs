@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 import { describe, it } from 'vitest';
 
+import { loadPerformRoll } from './helpers/diceRollWindow.mjs';
 import { loadHandler } from './helpers/sourceHandler.mjs';
 import { engine } from './scenarios/_fixtures.mjs';
 
@@ -13,7 +14,6 @@ import { engine } from './scenarios/_fixtures.mjs';
 
 const modalPath = 'src/client/ui/actor/DiceRollModal.vue';
 const composablePath = 'src/client/composables/damageTypeChoice.ts';
-const macroPath = 'src/client/macros/dnd5eMacros.ts';
 
 const FIRE_OR_COLD = { mode: 'choose', options: ['fire', 'cold'] };
 const RANDOM_ACID_OR_THUNDER = { mode: 'random', options: ['acid', 'thunder'] };
@@ -137,9 +137,8 @@ describe('окно броска решает тип урона на выбор',
   it('источник узнаёт тип раньше, чем окно отдаёт урон, и части идут выбранным типом', async () => {
     const events = [];
 
-    const performRoll = await loadHandler(modalPath, 'performRoll', {
+    const performRoll = await loadPerformRoll({
       console,
-      hasRolled: false,
       props: {},
       activeDamageVariant: {
         value: { onSelect: () => events.push('variant') },
@@ -259,6 +258,13 @@ function createPorts(applied) {
       reasons: { advantage: [], disadvantage: [] },
     }),
     getSpellAttackType: (spell) => spell.deliveryType,
+    // Общий разбор заклинания существа: вид каста — план движка
+    resolveSpellCastPlan: engine.resolveSpellCastPlan,
+    useTargetStore: () => ({ getTargetActor: () => null }),
+    isTargetAtFullHp: () => undefined,
+    isDndSceneEntity: () => false,
+    resolveEntityCreatureType: () => undefined,
+    readCreature: () => undefined,
     calculateCreatureSpellBlockNumbers: () => ({ attackBonus: 5, saveDC: 13 }),
     getCreatureSpellBlockAbility: () => 'wisdom',
     getCreatureSpellMod: () => 2,
@@ -266,6 +272,8 @@ function createPorts(applied) {
     resolveCreatureSpellSaveDC: (_spell, blockSaveDC) => blockSaveDC,
     generateId: (prefix) => `${prefix}_test`,
     SPELL_CAST_KEY_PREFIX: 'cast',
+    SPELL_ATTACK_KEY: 'attack.spell',
+    PAGE_UNLOAD_EVENT: 'beforeunload',
     beginSpellCast: () => {},
     spellIsHealing: () => false,
     applyActionParts: record,
@@ -287,12 +295,12 @@ describe('выбор из окна доходит до эффектов исто
   const creature = { id: 'dragon', name: 'Дракон' };
 
   for (const [path, name, creatureFirst] of [
+    // Лист существа и горячая панель совершают действие одним путём
     [
-      'src/client/ui/creature/CreatureActionsBlock.vue',
-      'startActionRoll',
+      'src/client/composables/creatureActionRoll.ts',
+      'openCreatureActionRoll',
       false,
     ],
-    [macroPath, 'openCreatureActionRoll', true],
   ]) {
     it(`${name}: эффект действия на цель ложится выбранным типом`, async () => {
       const applied = [];
@@ -335,9 +343,13 @@ describe('выбор из окна доходит до эффектов исто
     });
   }
 
+  // Лист существа и горячая панель кастуют одним разбором существа
   for (const [path, name, creatureFirst] of [
-    ['src/client/ui/creature/CreatureSpellsBlock.vue', 'startSpellRoll', false],
-    [macroPath, 'openCreatureSpellRoll', true],
+    [
+      'src/client/composables/creatureSpellCast.ts',
+      'openCreatureSpellRoll',
+      false,
+    ],
   ]) {
     it(`${name}: эффект заклинания на цель ложится выбранным типом`, async () => {
       const applied = [];
@@ -385,12 +397,12 @@ describe('урон «или» выбирают в окне броска', () => 
   }
 
   for (const [path, name, creatureFirst] of [
+    // Лист существа и горячая панель совершают действие одним путём
     [
-      'src/client/ui/creature/CreatureActionsBlock.vue',
-      'startActionRoll',
+      'src/client/composables/creatureActionRoll.ts',
+      'openCreatureActionRoll',
       false,
     ],
-    [macroPath, 'openCreatureActionRoll', true],
   ]) {
     it(`${name}: у каждого набора свой урон, выбранный называется в чате`, async () => {
       announcedVariants.length = 0;
@@ -439,8 +451,8 @@ describe('урон «или» выбирают в окне броска', () => 
     const ports = createPorts(applied);
 
     const handler = await loadHandler(
-      'src/client/ui/creature/CreatureActionsBlock.vue',
-      'startActionRoll',
+      'src/client/composables/creatureActionRoll.ts',
+      'openCreatureActionRoll',
       ports,
     );
 
@@ -473,10 +485,26 @@ describe('плитка урона в строке листа', () => {
       },
     );
 
+    const formatDamageBonusLines = await loadHandler(
+      composablePath,
+      'formatDamageBonusLines',
+      { DAMAGE_BONUS_LINE_PREFIX: '+ ' },
+    );
+
+    const resolveDamageStatIcon = await loadHandler(
+      composablePath,
+      'resolveDamageStatIcon',
+      {
+        DAMAGE_VARIANTS_STAT_ICON: 'variants-icon',
+        DAMAGE_BONUS_STAT_ICON: 'bonus-icon',
+      },
+    );
+
     return loadHandler(composablePath, 'describeDamageVariantsStat', {
       describeSourceDamageTypeChoices,
+      formatDamageBonusLines,
+      resolveDamageStatIcon,
       SHEET_ROW_TOOLTIP_LINE_BREAK: '\n',
-      DAMAGE_VARIANTS_STAT_ICON: 'variants-icon',
     });
   }
 
@@ -504,5 +532,20 @@ describe('плитка урона в строке листа', () => {
 
     assert.equal(stat.icon, undefined);
     assert.equal(stat.tooltip, 'Урон заклинания');
+  });
+
+  it('добавка по условию — свой значок и строка в подсказке', async () => {
+    const describeStat = await loadStat();
+
+    const stat = describeStat(
+      { damageParts: [{ formula: '1к6+3@dmg.acid' }] },
+      'Урон заклинания',
+      (typeKey) => typeKey,
+      ['2к6 (цель: Лежащий ничком)'],
+    );
+
+    assert.equal(stat.icon, 'bonus-icon');
+
+    assert.equal(stat.tooltip, 'Урон заклинания\n+ 2к6 (цель: Лежащий ничком)');
   });
 });

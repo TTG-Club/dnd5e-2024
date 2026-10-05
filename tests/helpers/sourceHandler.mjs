@@ -125,6 +125,48 @@ export async function loadHandler(relativePath, name, ports, macro = false) {
   ports.runWithDamageTypeChoices ??= (source, proceed) => proceed(source);
   ports.applySourceDamageTypeChoices ??= (source) => source;
 
+  // Сл спасброска у фикстур считается: проверка непосчитанной Сл проходная
+  ports.findUnresolvedTargetSaveDc ??= () => null;
+
+  // Действие существа «спасбросок без урона» идёт мимо окна броска: у фикстур
+  // с уроном разбор отвечает «нет» и окно открывается как раньше
+  ports.runDamagelessCreatureAction ??= () => false;
+
+  // Снимка броска атаки у фикстур нет: сущности разбора — сущности мира
+  ports.listAttackResolutionEntities ??= () =>
+    ports.useWorldEntities?.().getCurrentWorldEntities() ?? [];
+
+  // Числа сущности с аурами карты — тем же расчётом, что помощник клиента,
+  // из портов теста: расчёт чисел и ауры тест даёт сам
+  ports.resolveEntityStats ??= (entity) =>
+    ports.resolveActorStats(
+      entity,
+      ports.listAmbientEffects?.(entity.id) ?? [],
+    );
+
+  // Разделитель раздела и названия в ключе источника действия существа
+  ports.ACTION_SOURCE_SEPARATOR ??= '/';
+
+  // Окно того же источника у фикстур не открыто: заменять нечего
+  ports.closeRollWindow ??= () => false;
+
+  ports.buildRollSourceKey ??= (entityId, kind, sourceId) =>
+    [entityId, kind, sourceId].join(':');
+
+  // Лист фикстур не в режиме правки: проверка листа проходная
+  ports.refuseWhileSheetEditing ??= () => false;
+
+  // Окно броска открывает один помощник: тестам с подменённым менеджером окон
+  // он даётся настоящим поверх их менеджера (импорт здесь, а не наверху:
+  // модуль помощника сам собирается этим загрузчиком)
+  if (ports.useModalManager && !('openDiceRollWindow' in ports)) {
+    const { bindOpenDiceRollWindow } = await import('./diceRollWindow.mjs');
+
+    ports.openDiceRollWindow = bindOpenDiceRollWindow(() =>
+      ports.useModalManager(),
+    );
+  }
+
   return runInNewContext(
     `${compiled.outputText}\n${expression ? 'execute' : name}`,
     ports,

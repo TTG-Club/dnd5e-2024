@@ -10,6 +10,7 @@ import type {
   ActorMovement,
   MovementType,
   SkillType,
+  TokenDispositionSetting,
   ToolCategory,
 } from '@vtt/shared';
 
@@ -133,6 +134,8 @@ export const ABILITY_OPTIONS: ReadonlyArray<{
  * же переменная не называлась в двух местах по-разному.
  */
 export const FORMULA_VARIABLE_LABELS: Readonly<Record<string, string>> = {
+  '@hitDice.left': 'непотраченные кости хитов',
+  '@hp.temp': 'текущие временные хиты',
   '@mod.spell': 'мод. закл. характеристики',
   '@mod.str': 'мод. Силы',
   '@mod.dex': 'мод. Ловкости',
@@ -155,8 +158,45 @@ export const FORMULA_VARIABLE_LABELS: Readonly<Record<string, string>> = {
   '@speed.climb': 'скорость лазания',
   '@speed.burrow': 'скорость копания',
   '@damage': 'урон события',
+  '@spellDc': 'Сл заклинаний',
+  '@castLevel': 'круг ячейки',
   '@roll': 'сохранённый бросок',
+  // Потраченное ценой ресурсом (`effectPay.ts`)
+  '@paid.slotLevel': 'круг потраченной ячейки',
+  '@paid.hitDice': 'число потраченных костей хитов',
+  '@paid.hitDie': 'грань потраченных костей хитов',
+  '@paid.hitDiceRoll': 'бросок потраченных костей хитов',
+  '@paid.counter': 'потрачено единиц счётчика',
+  '@paid.itemUses': 'потрачено зарядов',
 };
+
+/** Токен формулы: `@prof`, `@mod.wis`, `@paid.slotLevel` */
+const FORMULA_VARIABLE_TOKEN_PATTERN = /@[a-z][\w.]*/gi;
+
+/**
+ * Подпись переменной формулы (`@prof` → «бонус мастерства»).
+ *
+ * @param token - переменная с `@`
+ * @returns подпись; незнакомая переменная отдаётся как есть
+ */
+export function labelFormulaVariable(token: string): string {
+  return FORMULA_VARIABLE_LABELS[token] ?? token;
+}
+
+/**
+ * Формула с подписями вместо токенов: «круг потраченной ячейки», а не сырой
+ * `@paid.slotLevel`. Числа, кости и незнакомые токены остаются как есть.
+ *
+ * @param formula - формула
+ * @param pattern - какие токены заменять; по умолчанию — все
+ * @returns формула словами
+ */
+export function labelFormulaVariables(
+  formula: string,
+  pattern: RegExp = FORMULA_VARIABLE_TOKEN_PATTERN,
+): string {
+  return formula.replaceAll(pattern, labelFormulaVariable);
+}
 
 // ============================================================
 // Навыки → Характеристики (Skills → Abilities)
@@ -590,6 +630,13 @@ export function getEquipmentCategoryIcon(
 // Значения по умолчанию для актора
 // ============================================================
 
+/**
+ * Отношение фишки персонажа без настройки: персонажи друг другу союзники.
+ * У существа умолчание своё — «враждебный» (`DEFAULT_CREATURE`).
+ */
+export const DEFAULT_ACTOR_TOKEN_DISPOSITION: TokenDispositionSetting =
+  'friendly';
+
 /** Значения по умолчанию для нового актора D&D 5e */
 export const DEFAULT_ACTOR: Omit<DnDActor, 'id'> = {
   entityType: 'actor',
@@ -602,6 +649,7 @@ export const DEFAULT_ACTOR: Omit<DnDActor, 'id'> = {
   token: {
     frameUrl: 'assets/token-frames/0.png',
     showName: false,
+    disposition: DEFAULT_ACTOR_TOKEN_DISPOSITION,
   },
 
   // Системные данные D&D 5e
@@ -1477,3 +1525,6 @@ export function normalizeSpellUsesRecovery(
 
   return 'atWill';
 }
+
+/** Буква кости в записи формулы хитов существа: «2к8» */
+export const HIT_DICE_FORMULA_LETTER = 'к';

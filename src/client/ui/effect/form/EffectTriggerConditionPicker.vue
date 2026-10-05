@@ -26,10 +26,12 @@
     getTriggerConditionParameter,
     isDamageType,
     isEffectTag,
+    joinCreatureTypeList,
     listTriggerConditionKinds,
     MIN_TAG_COUNT_THRESHOLD,
     normalizeTagCountThreshold,
     readTriggerConditionParts,
+    splitCreatureTypeList,
     triggerConditionHasAmount,
     writeTriggerCondition,
   } from '@vtt/shared/system/dnd.js';
@@ -271,6 +273,29 @@
   }
 
   /**
+   * Выбирается ли у части список типов существа.
+   *
+   * @param part - часть условия
+   * @returns `true` для частей о типе существа
+   */
+  function isCreatureTypePart(part: TriggerConditionPart): boolean {
+    return getTriggerConditionParameter(part.kind) === 'creatureType';
+  }
+
+  /**
+   * Меняет список типов части. Пустой не пишется: часть без типов не
+   * разобралась бы обратно.
+   *
+   * @param index - номер части
+   * @param types - выбранные типы
+   */
+  function updatePartTypes(index: number, types: string[]): void {
+    if (types.length > 0) {
+      updatePartValue(index, joinCreatureTypeList(types));
+    }
+  }
+
+  /**
    * Вводится ли значение части числом — хиты.
    *
    * @param part - часть условия
@@ -355,8 +380,21 @@
         {{ row.text }}
       </span>
 
+      <!-- Тип существа — списком: «нежить или исчадие» -->
       <USelect
-        v-if="row.part && valueItemsOf(row.part).length > 0"
+        v-if="row.part && isCreatureTypePart(row.part)"
+        :model-value="splitCreatureTypeList(row.part.value ?? '')"
+        :items="CREATURE_CATEGORY_OPTIONS"
+        value-key="value"
+        multiple
+        size="xs"
+        class="w-56"
+        :portal="false"
+        @update:model-value="updatePartTypes(index, $event)"
+      />
+
+      <USelect
+        v-else-if="row.part && valueItemsOf(row.part).length > 0"
         :model-value="row.part.value"
         :items="valueItemsOf(row.part)"
         value-key="value"

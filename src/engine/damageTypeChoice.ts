@@ -283,6 +283,60 @@ export function applySourceDamageTypeChoices<
 }
 
 /**
+ * Источник броска с переписанными частями урона — его собственными, ступеней
+ * заговора и эффектов (урон эффекта, периодический и урон срабатываний).
+ *
+ * @param source - заклинание, действие, оружие или предмет
+ * @param mapPart - что сделать с частью
+ * @returns копия источника
+ */
+export function mapSourceDamageParts<Source extends DamageTypeChoiceSource>(
+  source: Source,
+  mapPart: (part: DamagePart) => DamagePart,
+): Source {
+  return {
+    ...source,
+    ...(source.damageParts === undefined
+      ? {}
+      : { damageParts: source.damageParts.map(mapPart) }),
+    ...(source.cantripScalingTiers === undefined
+      ? {}
+      : {
+          cantripScalingTiers: source.cantripScalingTiers.map((tier) => ({
+            ...tier,
+            parts: tier.parts.map(mapPart),
+          })),
+        }),
+    ...(source.activeEffects === undefined
+      ? {}
+      : {
+          activeEffects: source.activeEffects.map((effect) => ({
+            ...effect,
+            ...(effect.damageParts === undefined
+              ? {}
+              : { damageParts: effect.damageParts.map(mapPart) }),
+            ...(effect.recurringDamage === undefined
+              ? {}
+              : {
+                  recurringDamage: {
+                    ...effect.recurringDamage,
+                    damageParts:
+                      effect.recurringDamage.damageParts.map(mapPart),
+                  },
+                }),
+            ...(effect.triggers === undefined
+              ? {}
+              : {
+                  triggers: effect.triggers.map((trigger) =>
+                    mapTriggerDamageParts(trigger, mapPart),
+                  ),
+                }),
+          })),
+        }),
+  };
+}
+
+/**
  * Случайный тип из вариантов — с равными шансами («бросьте к8: тип по
  * таблице»).
  *

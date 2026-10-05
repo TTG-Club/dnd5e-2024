@@ -133,14 +133,34 @@ export const DAMAGE_DEFENSE_KIND_LABELS: Record<DamageDefenseKind, string> = {
 };
 
 /**
- * Возвращает краткое локализованное название типа урона в нижнем регистре.
+ * Название типа урона для показа.
+ *
+ * Тип приходит строкой из формул и записей мира: у неизвестного показываем
+ * саму строку. У служебного `choice` названия нет: это не тип, а отметка «тип
+ * решится при броске», и показывать её ключ нельзя — там, где тип так и не
+ * выбрали (урон эффекта «как у атаки»), урон называют без типа.
+ *
+ * @param damageType - ключ типа урона
+ * @returns название; `undefined` — у типа нет названия
  */
-export function getShortDamageTypeLabel(damageType: string): string {
-  // Тип приходит строкой из формул и записей мира: у неизвестного показываем
-  // саму строку, как и раньше
-  const label = isDefensibleDamageType(damageType)
+export function resolveDamageTypeLabel(damageType: string): string | undefined {
+  if (damageType === CHOICE_DAMAGE_TYPE) {
+    return undefined;
+  }
+
+  return isDefensibleDamageType(damageType)
     ? DAMAGE_TYPE_LABELS[damageType]
     : damageType;
+}
+
+/**
+ * Возвращает краткое локализованное название типа урона в нижнем регистре.
+ *
+ * @param damageType - ключ типа урона
+ * @returns название; пустая строка — у типа нет названия
+ */
+export function getShortDamageTypeLabel(damageType: string): string {
+  const label = resolveDamageTypeLabel(damageType) ?? '';
 
   return label
     .replace(/урон\s*|^\s*урон\s*/gi, '')

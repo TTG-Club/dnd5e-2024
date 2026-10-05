@@ -11,6 +11,12 @@
  * геометрия перемещения не видит. Это записано в каталоге сценариев — толчок
  * пройдёт сквозь стену.
  *
+ * Фишка встаёт в клетку: расстояние считается по счёту сетки сцены (диагональ
+ * квадратной сетки стоит столько, сколько назначило её правило), а итоговая
+ * точка привязывается к сетке. Ядро ставит фишку ровно туда, куда сказано, и
+ * толчок на 5 футов наискось по прямой между центрами увозил её на 0,7 клетки
+ * по каждой оси — мимо сетки.
+ *
  * @module system/dnd/forcedMovement
  */
 
@@ -18,7 +24,15 @@ import type { GridSettings, SystemSceneSurroundings, Token } from '@vtt/shared';
 
 import type { EffectTriggerMoveAction } from './effectTriggerTypes.js';
 
-import { getTokenAnchor, resolveGridPixelsPerUnit } from '@vtt/shared';
+import {
+  computeSquareDistanceInCells,
+  DEFAULT_DIAGONAL_RULE,
+  getTokenAnchor,
+  isHexGrid,
+  resolveGridCellSize,
+  resolveGridPixelsPerUnit,
+  snapTokenTopLeft,
+} from '@vtt/shared';
 
 import { DEFAULT_TRIGGER_MOVE_ORIGIN } from './effectTriggerTypes.js';
 
@@ -49,6 +63,41 @@ export function resolveTokenAnchor(
   return getTokenAnchor(gridSettings, token.x, token.y, token.scale);
 }
 
+/** Длина отрезка по его проекциям на оси, px */
+export type SceneLengthMeasure = (deltaX: number, deltaY: number) => number;
+
+/**
+ * Счёт расстояния сетки сцены. На квадратной сетке диагональ стоит столько,
+ * сколько назначило правило сцены: по умолчанию клетка наискось — те же 5
+ * футов, что и прямая. На гексах все соседи равноудалены, и счёт — обычная
+ * длина.
+ *
+ * @param gridSettings - сетка сцены
+ * @returns длина отрезка в счёте сетки
+ */
+export function resolveGridLengthMeasure(
+  gridSettings: GridSettings,
+): SceneLengthMeasure {
+  if (isHexGrid(gridSettings)) {
+    return Math.hypot;
+  }
+
+  const cell = resolveGridCellSize(gridSettings);
+
+  if (cell <= 0) {
+    return Math.hypot;
+  }
+
+  const rule = gridSettings.diagonalRule ?? DEFAULT_DIAGONAL_RULE;
+
+  return (deltaX, deltaY) =>
+    computeSquareDistanceInCells(
+      Math.abs(deltaX) / cell,
+      Math.abs(deltaY) / cell,
+      rule,
+    ) * cell;
+}
+
 /**
  * Смещение точки по прямой через опору: от опоры или к ней. К опоре точка не
  * проходит дальше самой опоры — иначе «на 30 футов к себе» выбрасывало бы её
@@ -58,6 +107,7 @@ export function resolveTokenAnchor(
  * @param anchor - опора
  * @param stepPx - на сколько, px
  * @param toward - к опоре, а не от неё
+ * @param measure - счёт длины; без него — обычная длина отрезка
  * @returns смещение либо `null`, если точки совпали и направления нет
  */
 export function shiftAlongLine(
@@ -65,10 +115,11 @@ export function shiftAlongLine(
   anchor: ScenePosition,
   stepPx: number,
   toward: boolean,
+  measure: SceneLengthMeasure = Math.hypot,
 ): SceneOffset | null {
   const deltaX = moving.x - anchor.x;
   const deltaY = moving.y - anchor.y;
-  const length = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+  const length = measure(deltaX, deltaY);
 
   if (length === 0) {
     return null;
@@ -94,6 +145,39 @@ export interface ForcedMoveScene {
 /** Флаг «не может телепортироваться» */
 export const TELEPORT_BLOCKED_FLAG = 'movement.teleportBlocked';
 
+/** Виды перемещения, которые считаются телепортацией */
+const TELEPORT_MOVE_KINDS: readonly EffectTriggerMoveAction['kind'][] = [
+  'teleport',
+  'bring',
+];
+
+/**
+ * На сколько пикселей фишка идёт к опоре, чтобы встать к ней вплотную: центры
+ * расходятся на полуразмеры обеих фишек. Уже стоит вплотную — ноль.
+ *
+ * @param scene - кого двигают и к кому
+ * @param targetAnchor - центр фишки, которую двигают
+ * @param originAnchor - центр опоры
+ * @returns шаг в пикселях
+ */
+function resolveBringStep(
+  scene: ForcedMoveScene,
+  targetAnchor: ScenePosition,
+  originAnchor: ScenePosition,
+): number {
+  const { target, origin, gridSettings } = scene;
+  const cell = resolveGridCellSize(gridSettings);
+
+  const reach = (((target.scale ?? 1) + (origin.scale ?? 1)) * cell) / 2;
+
+  const length = Math.hypot(
+    targetAnchor.x - originAnchor.x,
+    targetAnchor.y - originAnchor.y,
+  );
+
+  return Math.max(0, length - reach);
+}
+
 /**
  * Куда встанет фишка после принудительного перемещения.
  *
@@ -115,28 +199,54 @@ export function resolveForcedMovePosition(
 ): ScenePosition | null {
   const { target, origin, gridSettings } = scene;
   const perFoot = resolveGridPixelsPerUnit(gridSettings);
+  const isBring = action.kind === 'bring';
 
-  if (perFoot <= 0 || action.distance <= 0) {
+  if (perFoot <= 0 || (!isBring && action.distance <= 0)) {
     return null;
   }
 
   // «Не может телепортироваться» («Цепи Белета»): перенос не состоится, а
   // толчок и притягивание — обычное перемещение, их запрет не касается
   if (
-    action.kind === 'teleport'
+    TELEPORT_MOVE_KINDS.includes(action.kind)
     && scene.targetFlags?.has(TELEPORT_BLOCKED_FLAG) === true
   ) {
     return null;
   }
 
-  const offset = shiftAlongLine(
-    resolveTokenAnchor(target, gridSettings),
-    resolveTokenAnchor(origin, gridSettings),
-    action.distance * perFoot,
-    action.kind === 'pull',
+  const targetAnchor = resolveTokenAnchor(target, gridSettings);
+  const originAnchor = resolveTokenAnchor(origin, gridSettings);
+
+  const offset = isBring
+    ? shiftAlongLine(
+        targetAnchor,
+        originAnchor,
+        resolveBringStep(scene, targetAnchor, originAnchor),
+        true,
+      )
+    : shiftAlongLine(
+        targetAnchor,
+        originAnchor,
+        action.distance * perFoot,
+        // «На выбор» без выбора (спросить было некого) толкает от опоры
+        action.kind === 'pull',
+        // Футы толчка — в счёте сетки: клетка наискось стоит как прямая
+        resolveGridLengthMeasure(gridSettings),
+      );
+
+  if (!offset) {
+    return null;
+  }
+
+  // Фишка встаёт в клетку, а не в точку на прямой между центрами
+  const snapped = snapTokenTopLeft(
+    gridSettings,
+    target.x + offset.dx,
+    target.y + offset.dy,
+    target.scale,
   );
 
-  return offset ? { x: target.x + offset.dx, y: target.y + offset.dy } : null;
+  return { x: snapped.x, y: snapped.y };
 }
 
 /**

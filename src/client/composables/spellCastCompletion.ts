@@ -16,36 +16,38 @@ import type {
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
-import { emitEntityCombatState } from '@/core/entityUtils';
 import { useChatStore } from '@/stores/chatStore';
 import { useWorldStore } from '@/stores/worldStore';
 import { resolveGridCellSize } from '@vtt/shared';
 import {
-  bindClassLevels,
+  bindOwnerTokens,
   bindSourceEffectFormulas,
   bindWeaponSpellAbility,
   buildConcentrationEffect,
-  buildFormulaContext,
   buildSpellZoneDraft,
   getCasterSpellEffects,
   listConcentrationCastIds,
   mergeAppliedEffects,
   passesLandingCondition,
+  resolveEntityCreatureType,
   resolveSpellcastingAbility,
   stampSourceSaveDcs,
 } from '@vtt/shared/system/dnd.js';
 
 import { resolveCombatRound } from './encounterTurn';
+import { changeEntityCombatState } from './entityCombatWrite';
 import {
   requestEndCasts,
   resolveSpellCastId,
   resolveSpellCastLevel,
+  waitForCastsEnded,
 } from './spellCasts';
 import {
   instantiateSpellEffects,
   postSpellEffectsMessage,
   stampEffectOnApply,
 } from './spellResolutionShared';
+import { buildEntityFormulaContext } from './useResolvedStats';
 
 /** Заклинатель как источник чисел эффекта */
 export interface SpellCasterSource {
@@ -106,12 +108,14 @@ export function prepareCasterSpellEffects(
   }
 
   const formulaContext = {
-    ...buildFormulaContext(caster),
+    ...buildEntityFormulaContext(caster),
     spellMod: source.spellMod,
+    spellSaveDc: source.saveDc,
+    castLevel: resolveSpellCastLevel(caster.id, spell),
   };
 
   // Уровень класса — по id умения, пока новые id наложения его не стёрли
-  const classBound = bindClassLevels(casterEffects, caster);
+  const classBound = bindOwnerTokens(casterEffects, caster);
 
   const spellAbility =
     source.spellAbility ?? resolveSpellcastingAbility(caster, spell);
@@ -151,24 +155,43 @@ export function applyCasterSpellEffectsToEntity(
   source: SpellCasterSource,
 ): void {
   const prepared = prepareCasterSpellEffects(spell, caster, source);
-  const chatStore = useChatStore();
-  const socket = chatStore.getSocket();
 
-  if (prepared.length === 0 || !socket) {
+  if (prepared.length === 0 || !landCasterEventEffects(caster, prepared)) {
     return;
   }
 
-  // Клон: живую запись стора меняет только ответ сервера
-  const updatedCaster: DnDSceneEntity = JSON.parse(JSON.stringify(caster));
-
-  updatedCaster.activeEffects = mergeAppliedEffects(
-    updatedCaster.activeEffects ?? [],
-    prepared,
-  );
-
-  emitEntityCombatState(socket, updatedCaster);
-
   postSpellEffectsMessage(spell.name, [caster.name], prepared);
+}
+
+/**
+ * Кладёт готовые эффекты на заклинателя боевым снимком — единственный путь
+ * эффектов заклинателя: событие наложения сервер видит только в снимке
+ * («Связь с иным планом»: спасбросок, урон и состояние срабатывания), а
+ * снимок несёт разницу и не возвращает эффекты прежнего каста, снятые
+ * сервером. Сохранение листа после конца концентрации этого не умело: оно
+ * писало сущность целиком.
+ *
+ * @param caster - заклинатель с текущими эффектами
+ * @param effects - готовые эффекты «на себя»
+ * @returns `true`, если снимок ушёл; нет эффектов или соединения — `false`
+ */
+export function landCasterEventEffects(
+  caster: DnDSceneEntity,
+  effects: readonly ActiveEffect[],
+): boolean {
+  if (effects.length === 0) {
+    return false;
+  }
+
+  // Заклинатель перечитывается в момент записи; копия — живую запись стора
+  // меняет только ответ сервера. Снимок несёт разницу: прежние эффекты,
+  // снятые сервером концом прежнего каста, не возвращаются
+  return (
+    changeEntityCombatState(caster.id, (current) => ({
+      ...current,
+      activeEffects: mergeAppliedEffects(current.activeEffects ?? [], effects),
+    })) !== null
+  );
 }
 
 /**
@@ -178,23 +201,23 @@ export function applyCasterSpellEffectsToEntity(
  *
  * @param caster - заклинатель
  * @param castId - идущий каст: его не трогать
+ * @returns закончившиеся касты — их эффекты снимет ответ сервера
  */
 export function releaseConcentration(
   caster: DnDSceneEntity,
   castId: string | undefined,
-): void {
-  requestEndCasts(
-    caster.id,
-    listConcentrationCastIds(caster.activeEffects).filter(
-      (previous) => previous !== castId,
-    ),
+): string[] {
+  const endedCastIds = listConcentrationCastIds(caster.activeEffects).filter(
+    (previous) => previous !== castId,
   );
+
+  requestEndCasts(caster.id, endedCastIds);
 
   const scene = useWorldStore().currentScene;
   const socket = useChatStore().getSocket();
 
   if (!scene || !socket) {
-    return;
+    return endedCastIds;
   }
 
   for (const area of scene.customAreas ?? []) {
@@ -208,6 +231,8 @@ export function releaseConcentration(
       socket.emit('custom-area:delete', scene.id, area.id);
     }
   }
+
+  return endedCastIds;
 }
 
 /**
@@ -237,10 +262,12 @@ export function requestSpellZone(
     spell,
     template,
     casterId: caster.id,
+    casterCreatureType: resolveEntityCreatureType(caster),
     saveDc: source.saveDc,
     formulaContext: {
-      ...buildFormulaContext(caster),
+      ...buildEntityFormulaContext(caster),
       spellMod: source.spellMod,
+      castLevel: resolveSpellCastLevel(caster.id, spell),
     },
     gridSize: resolveGridCellSize(scene.gridSettings),
     castId: resolveSpellCastId(caster.id, spell),
@@ -266,11 +293,6 @@ export interface SpellCastCompletionInput {
   /** Шаблон, если заклинание с областью */
   template?: MeasurementTemplate | null;
   /**
-   * Накладывать ли эффекты на заклинателя. Лист персонажа и каст без броска
-   * пишут их вместе со своим обновлением сущности и передают `false`.
-   */
-  applyCasterEffects: boolean;
-  /**
    * Ключ каста: окно броска может позвать применение и по попаданию, и по
    * частям урона — каст доводится один раз. Без ключа повтор не отсекается.
    */
@@ -278,17 +300,27 @@ export interface SpellCastCompletionInput {
 }
 
 /**
- * Доводит применённое заклинание: конец прежней концентрации, эффекты на
- * заклинателе, зона на месте шаблона.
+ * Доводит применённое заклинание — строго в этом порядке: конец прежней
+ * концентрации, эффекты на заклинателе (боевым снимком), зона на месте
+ * шаблона. Эффекты на заклинателя готовятся и пишутся только здесь: путь
+ * каста, записавший их сам сохранением листа, затирал метку концентрации
+ * или возвращал эффекты прежнего каста.
+ *
+ * Ресурсы каста (ячейка, заряд) вызывающий пишет ДО этого вызова, а цели
+ * разбирает ПОСЛЕ его промиса ({@link afterSpellCast}).
  *
  * @param input - заклинание, заклинатель и шаблон
+ * @returns выполняется, когда сервер снял эффекты закончившихся кастов (или
+ *   вышло время): окно спасброска цели не должно видеть эффект прежнего
  */
-export function completeSpellCast(input: SpellCastCompletionInput): void {
+export function completeSpellCast(
+  input: SpellCastCompletionInput,
+): Promise<void> {
   const { spell, caster, source, template, castKey } = input;
 
   if (castKey !== undefined) {
     if (completedCastKeys.has(castKey)) {
-      return;
+      return Promise.resolve();
     }
 
     if (completedCastKeys.size >= COMPLETED_CAST_MEMORY) {
@@ -298,14 +330,32 @@ export function completeSpellCast(input: SpellCastCompletionInput): void {
     completedCastKeys.add(castKey);
   }
 
-  // Концентрация кончается до новой зоны: иначе снялась бы и она сама
-  if (spell.concentration) {
-    releaseConcentration(caster, resolveSpellCastId(caster.id, spell));
-  }
+  // Концентрация кончается до новой зоны (иначе снялась бы и она сама) и до
+  // эффектов на заклинателе: среди них новая метка концентрации, а прежний
+  // каст ищется по старой
+  const endedCastIds = spell.concentration
+    ? releaseConcentration(caster, resolveSpellCastId(caster.id, spell))
+    : [];
 
-  if (input.applyCasterEffects) {
-    applyCasterSpellEffectsToEntity(spell, caster, source);
-  }
-
+  applyCasterSpellEffectsToEntity(spell, caster, source);
   requestSpellZone(spell, caster, source, template);
+
+  return waitForCastsEnded(caster.id, endedCastIds);
+}
+
+/**
+ * Продолжает каст после его доведения: разбор целей ждёт, пока сервер снимет
+ * эффекты прежнего каста. Обработчики окна броска синхронные — ожидание
+ * уходит сюда, а сбой продолжения пишется в консоль, а не теряется молча.
+ *
+ * @param completion - промис {@link completeSpellCast}
+ * @param proceed - разбор целей каста
+ */
+export function afterSpellCast(
+  completion: Promise<void>,
+  proceed: () => void,
+): void {
+  completion.then(proceed).catch((error: unknown) => {
+    console.error('[spellCast] разбор целей после каста не удался:', error);
+  });
 }

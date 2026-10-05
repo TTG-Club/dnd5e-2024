@@ -9,6 +9,7 @@
 
 import type { EffectDuration } from '@vtt/shared';
 
+import type { SaveDcSource } from './effectSaveDc.js';
 import type {
   EffectTempHpMode,
   EffectTrigger,
@@ -32,6 +33,7 @@ import {
   describeEffectChangeCondition,
   describeEffectDamageParts,
   describeEffectDuration,
+  formatEffectSaveDc,
 } from './activeEffectDescribe.js';
 import {
   ABILITY_GENITIVE_LABELS,
@@ -41,8 +43,10 @@ import {
   isAbilityType,
   isCreatureCategory,
   isCreatureSize,
+  labelFormulaVariables,
 } from './consts.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
+import { describeEffectPay, EFFECT_PRICE_LABELS } from './effectPayTypes.js';
 import {
   classifyLegacyTrigger,
   isTurnTriggerEvent,
@@ -65,11 +69,14 @@ import {
   SOURCE_TRIGGER_RECIPIENT,
 } from './effectTriggerTypes.js';
 import { EVENT_DAMAGE_VARIABLE } from './formulaParser.js';
+import { describeSaveAbilitiesGenitive } from './saveAbilityChoice.js';
 import { MIN_SPELL_SLOT_LEVEL } from './spellSlotTable.js';
 import {
   DEFAULT_TAG_COUNT_THRESHOLD,
   isTriggerAttackKind,
+  joinCreatureTypeList,
   readTriggerConditionParts,
+  splitCreatureTypeList,
 } from './triggerConditions.js';
 
 /** Что даёт успех спасброска против урона каждый ход */
@@ -148,6 +155,8 @@ const TRIGGER_LABELS = {
   setHpPrefix: 'хиты становятся ',
   setHpMax: 'хиты восстанавливаются полностью',
   removeConditionPrefix: 'снимается состояние ',
+  moveUpToPrefix: 'до ',
+  removeConditionFromTypes: ', наложенное существом типа: ',
   removeAllConditions: 'снимаются все состояния',
   kill: 'получатель умирает',
   revivePrefix: 'получатель возвращается к жизни с ',
@@ -163,7 +172,6 @@ const TRIGGER_LABELS = {
   nextStage: 'эффект переходит на следующую ступень',
   actionJoiner: ', ',
   endCast: 'каст заканчивается',
-  dcFormulaPrefix: 'Сл = ',
   damageVariable: 'урон',
   recipientOther: ', на другую сторону',
   recipientSource: ', на наложившего',
@@ -179,6 +187,9 @@ const TRIGGER_LABELS = {
   nothing: 'ничего',
   listJoiner: ', ',
   clauseJoiner: '; ',
+  restoreAmountPrefix: ' ×',
+  restoreSetPrefix: ' становится ',
+  setHpFormulaPrefix: 'хиты становятся ',
   limitPrefix: ', не чаще ',
   limitOnce: 'одного раза',
   limitTimes: ' раз',
@@ -189,11 +200,16 @@ const TRIGGER_LABELS = {
   saveModeDisadvantage: ' с помехой',
 } as const;
 
+/** Сколько возвращает «Вернуть ресурс» без поля `amount` — в фразе */
+const DEFAULT_RESTORE_AMOUNT_TEXT = '1';
+
 /** Как двигает действие «Переместить» — в фразе */
 const MOVE_KIND_PHRASES: Record<EffectTriggerMoveKind, string> = {
   push: 'отталкивает на ',
   pull: 'притягивает на ',
   teleport: 'переносит на ',
+  bring: 'переносит вплотную к опоре',
+  choose: 'отталкивает или притягивает (на выбор применившего) на ',
 };
 
 /** Как сдвигается зона — в фразе */
@@ -309,8 +325,8 @@ const REST_UNTIL_LABELS: Record<EffectTriggerRestType, string> = {
 
 /** Настройки фразы */
 export interface EffectTriggerDescribeOptions {
-  /** Подпись Сл (0 — Сл источника по месту окна) */
-  formatDc: (dc: number) => string;
+  /** Подпись Сл (0 — Сл источника по месту окна, формула — словами) */
+  formatDc: (save: SaveDcSource) => string;
 }
 
 /**
@@ -328,15 +344,20 @@ const TRIGGER_CONDITION_PHRASES: Record<
   selfBloodied: () => 'у носителя не больше половины хитов',
   selfWounded: () => 'носитель ранен',
   selfCreatureType: (value) => `носитель — ${describeCreatureType(value)}`,
+  selfCreatureTypeNot: (value) =>
+    `носитель — ${describeCreatureTypeNot(value)}`,
   selfTag: (value) => `на носителе отметка «${value}»`,
   selfTagNot: (value) => `на носителе нет отметки «${value}»`,
   rollAdvantage: () => 'атака с преимуществом',
   rollDisadvantage: () => 'атака с помехой',
   otherCreatureType: (value) =>
     `другая сторона — ${describeCreatureType(value)}`,
+  otherCreatureTypeNot: (value) =>
+    `другая сторона — ${describeCreatureTypeNot(value)}`,
   otherMarkedBySelf: () => 'другая сторона помечена носителем',
   selfHpAtMost: (value) => `у носителя не больше ${value} хитов`,
   selfHpAtLeast: (value) => `у носителя не меньше ${value} хитов`,
+  selfHpMaxAtMost: (value) => `максимум хитов носителя не больше ${value}`,
   selfSizeAtMost: (value) =>
     `носитель размером не больше «${describeCreatureSize(value)}»`,
   selfSizeAtLeast: (value) =>
@@ -354,11 +375,18 @@ const TRIGGER_CONDITION_PHRASES: Record<
   selfTempHpZero: () => 'у носителя нет временных хитов',
   selfGrounded: () => 'носитель не летит',
   selfSpecies: (value) => `вид носителя — «${value}»`,
+  selfSpeciesNot: (value) => `вид носителя — не «${value}»`,
+  otherSpecies: (value) => `вид другой стороны — «${value}»`,
+  otherSpeciesNot: (value) => `вид другой стороны — не «${value}»`,
+  damageTypeChosen: (value) => `урон типа из выбора владельца (${value})`,
+  otherCreatureTypeChosen: (value) =>
+    `другая сторона — тип из выбора владельца (${value})`,
   selfAbilityAtMost: (value, amount) =>
     `${describeAbilityName(value)} носителя не больше ${amount}`,
   selfAbilityAtLeast: (value, amount) =>
     `${describeAbilityName(value)} носителя не меньше ${amount}`,
   otherIsSource: () => 'другая сторона — тот, кто наложил эффект',
+  otherIsSourceSide: () => 'другая сторона — наложивший эффект или его союзник',
   otherBloodied: () => 'у другой стороны не больше половины хитов',
   otherHpAtMost: (value) => `у другой стороны не больше ${value} хитов`,
   damageAtLeast: (value) => `урон не меньше ${value}`,
@@ -425,7 +453,26 @@ function describeCreatureSize(value: string): string {
  * @returns подпись либо ключ
  */
 function describeCreatureType(value: string): string {
-  return isCreatureCategory(value) ? CREATURE_CATEGORIES[value] : value;
+  return splitCreatureTypeList(value)
+    .map((type) =>
+      isCreatureCategory(type) ? CREATURE_CATEGORIES[type] : type,
+    )
+    .join(' или ');
+}
+
+/**
+ * Типы «не из списка» словами: «не нежить и не исчадие».
+ *
+ * @param value - список типов через запятую
+ * @returns подпись
+ */
+function describeCreatureTypeNot(value: string): string {
+  return splitCreatureTypeList(value)
+    .map(
+      (type) =>
+        `не ${isCreatureCategory(type) ? CREATURE_CATEGORIES[type] : type}`,
+    )
+    .join(' и ');
 }
 
 /**
@@ -491,14 +538,14 @@ function describeAction(
         return condition;
       }
 
-      const { ability, dc, timing } = action.recurringSave;
+      const { ability, timing } = action.recurringSave;
 
       const moment =
         timing === 'startOfTurn'
           ? TRIGGER_LABELS.startOfTurn
           : TRIGGER_LABELS.endOfTurn;
 
-      return `${condition} (${TRIGGER_LABELS.recurringSavePrefix}${ABILITY_GENITIVE_LABELS[ability]} ${options.formatDc(dc)}${moment}${TRIGGER_LABELS.recurringSaveSuffix})`;
+      return `${condition} (${TRIGGER_LABELS.recurringSavePrefix}${ABILITY_GENITIVE_LABELS[ability]} ${options.formatDc(action.recurringSave)}${moment}${TRIGGER_LABELS.recurringSaveSuffix})`;
     }
     case 'applyTag':
       return withDurationSuffix(
@@ -515,16 +562,26 @@ function describeAction(
 
       return `${TRIGGER_LABELS.maxHpPrefix}${amount}${endsOnRest === MAX_HP_REDUCTION_NEVER_ENDS ? '' : REST_UNTIL_LABELS[endsOnRest]}`;
     }
-    case 'setHp':
-      return action.toMax
-        ? TRIGGER_LABELS.setHpMax
+    case 'setHp': {
+      if (action.toMax) {
+        return TRIGGER_LABELS.setHpMax;
+      }
+
+      return action.formula
+        ? `${TRIGGER_LABELS.setHpFormulaPrefix}${labelFormulaVariables(action.formula)}`
         : `${TRIGGER_LABELS.setHpPrefix}${action.value}`;
+    }
     case 'tempHp':
       return `${TEMP_HP_PHRASES[action.mode ?? DEFAULT_TEMP_HP_MODE]}${action.amount}`;
-    case 'removeCondition':
-      return action.conditionKey
+    case 'removeCondition': {
+      const removed = action.conditionKey
         ? `${TRIGGER_LABELS.removeConditionPrefix}«${describeConditionName(action.conditionKey)}»`
         : TRIGGER_LABELS.removeAllConditions;
+
+      return action.fromCreatureTypes?.length
+        ? `${removed}${TRIGGER_LABELS.removeConditionFromTypes}${describeCreatureType(joinCreatureTypeList(action.fromCreatureTypes))}`
+        : removed;
+    }
     case 'kill':
       return TRIGGER_LABELS.kill;
     case 'revive':
@@ -533,16 +590,35 @@ function describeAction(
         : `${TRIGGER_LABELS.revivePrefix}${action.hp ?? MIN_REVIVE_HP}`;
     case 'dropHeld':
       return TRIGGER_LABELS.dropHeld;
-    case 'restore':
-      return action.what === 'spellSlot'
-        ? `${TRIGGER_LABELS.restoreSlotPrefix}${action.level ?? MIN_SPELL_SLOT_LEVEL}`
-        : `${TRIGGER_LABELS.restoreCounterPrefix}«${action.counter ?? ''}»`;
+    case 'restore': {
+      if (action.what === 'spellSlot') {
+        return `${TRIGGER_LABELS.restoreSlotPrefix}${action.level ?? MIN_SPELL_SLOT_LEVEL}`;
+      }
+
+      const counter = `«${action.counter ?? ''}»`;
+
+      const amount =
+        action.amount === undefined ? '' : labelFormulaVariables(action.amount);
+
+      if (action.set) {
+        return `${counter}${TRIGGER_LABELS.restoreSetPrefix}${amount || DEFAULT_RESTORE_AMOUNT_TEXT}`;
+      }
+
+      return `${TRIGGER_LABELS.restoreCounterPrefix}${counter}${amount ? `${TRIGGER_LABELS.restoreAmountPrefix}${amount}` : ''}`;
+    }
     case 'dispel':
-      return `${TRIGGER_LABELS.dispelPrefix}${action.maxLevel}`;
+      return `${TRIGGER_LABELS.dispelPrefix}${
+        action.maxLevelFormula
+          ? labelFormulaVariables(action.maxLevelFormula)
+          : action.maxLevel
+      }`;
     case 'grantInspiration':
       return TRIGGER_LABELS.grantInspiration;
     case 'move':
-      return `${MOVE_KIND_PHRASES[action.kind]}${action.distance}${TRIGGER_LABELS.moveSuffix}`;
+      // Перенос вплотную расстояния не читает
+      return action.kind === 'bring'
+        ? MOVE_KIND_PHRASES.bring
+        : `${MOVE_KIND_PHRASES[action.kind]}${action.upTo ? TRIGGER_LABELS.moveUpToPrefix : ''}${action.distance}${TRIGGER_LABELS.moveSuffix}`;
     case 'moveArea':
       return action.kind === 'follow'
         ? AREA_SHIFT_PHRASES.follow
@@ -652,16 +728,16 @@ function describeLegacyShape(
     const { save } = trigger;
 
     const saveClause = save
-      ? ` (${TRIGGER_LABELS.savePrefix}${ABILITY_GENITIVE_LABELS[save.ability]}, ${options.formatDc(save.dc)}${TRIGGER_LABELS.damageSaveSuccess}${RECURRING_DAMAGE_SUCCESS_LABELS[action.halfOnSave ? 'half' : 'negate']})`
+      ? ` (${TRIGGER_LABELS.savePrefix}${describeSaveAbilitiesGenitive(save)}, ${options.formatDc(save)}${TRIGGER_LABELS.damageSaveSuccess}${RECURRING_DAMAGE_SUCCESS_LABELS[action.halfOnSave ? 'half' : 'negate']})`
       : '';
 
     return `${TRIGGER_LABELS.everyTurnPrefix}${damage}${timing}${saveClause}`;
   }
 
   if (kind === 'recurringSave' && trigger.save) {
-    const { ability, dc } = trigger.save;
+    const { ability } = trigger.save;
 
-    return `${TRIGGER_LABELS.recurringSavePrefix}${ABILITY_GENITIVE_LABELS[ability]} ${options.formatDc(dc)}${timing}${TRIGGER_LABELS.recurringSaveSuffix}`;
+    return `${TRIGGER_LABELS.recurringSavePrefix}${ABILITY_GENITIVE_LABELS[ability]} ${options.formatDc(trigger.save)}${timing}${TRIGGER_LABELS.recurringSaveSuffix}`;
   }
 
   if (kind === 'consumeOn' && trigger.role) {
@@ -683,6 +759,18 @@ function describeSaveMode(mode: EffectTriggerSaveMode | undefined): string {
   }
 
   return mode === 'disadvantage' ? TRIGGER_LABELS.saveModeDisadvantage : '';
+}
+
+/**
+ * Цена ресурсом срабатывания.
+ *
+ * @param trigger - срабатывание
+ * @returns продолжение фразы либо пустая строка
+ */
+function describeTriggerPay(trigger: EffectTrigger): string {
+  return trigger.pay
+    ? `${EFFECT_PRICE_LABELS.payClausePrefix}${describeEffectPay(trigger.pay)}`
+    : '';
 }
 
 /**
@@ -728,17 +816,15 @@ export function describeEffectTrigger(
   const recipient = describeTriggerRecipient(trigger);
 
   const moment = `${describeMoment(trigger)}${condition}${recipient}`;
-  const limit = describeLimit(trigger);
+  const limit = `${describeTriggerPay(trigger)}${describeLimit(trigger)}`;
 
   if (!trigger.save) {
     return `${moment}: ${describeOutcomeActions(trigger, false, options)}${limit}`;
   }
 
-  const { ability, dc, dcFormula, mode } = trigger.save;
+  const { ability, mode } = trigger.save;
 
-  const dcLabel = dcFormula
-    ? `${TRIGGER_LABELS.dcFormulaPrefix}${dcFormula.replaceAll(`@${EVENT_DAMAGE_VARIABLE}`, TRIGGER_LABELS.damageVariable)}`
-    : options.formatDc(dc);
+  const dcLabel = options.formatDc(trigger.save);
 
   return [
     `${moment}: ${TRIGGER_LABELS.savePrefix}${ABILITY_GENITIVE_LABELS[ability]}${describeSaveMode(mode)}, ${dcLabel}`,
@@ -759,7 +845,7 @@ export function describeEffectTrigger(
  */
 export function describeTriggerActions(trigger: EffectTrigger): string {
   return trigger.actions
-    .map((action) => describeAction(action, { formatDc: (dc) => String(dc) }))
+    .map((action) => describeAction(action, { formatDc: formatEffectSaveDc }))
     .filter((text) => text.length > 0)
     .join(TRIGGER_LABELS.actionJoiner);
 }

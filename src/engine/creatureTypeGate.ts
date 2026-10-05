@@ -72,6 +72,40 @@ export function parseTargetTypeToken(
 export const CREATURE_TYPE_CHANGE_KEY = 'creatureType';
 
 /**
+ * Ключ строки изменения, ДОБАВЛЯЮЩЕЙ тип существа: «получаете тип существа
+ * цели в дополнение к собственному». Отдельный ключ, а не режим: у строки
+ * `creatureType` режим не читается, и старые записи с режимом «Добавить»
+ * продолжают тип заменять.
+ */
+export const CREATURE_TYPE_EXTRA_CHANGE_KEY = 'creatureType.extra';
+
+/**
+ * Дополнительные типы существа от действующих эффектов: условия по типу
+ * считают их наравне с основным.
+ *
+ * @param entity - актор или существо
+ * @returns типы без повторов; пусто — дополнительных нет
+ */
+export function resolveEntityExtraCreatureTypes(
+  entity: DnDSceneEntity,
+): CreatureCategory[] {
+  const extra = new Set<CreatureCategory>();
+
+  for (const effect of listLiveEffects(entity)) {
+    for (const change of effect.changes) {
+      if (
+        change.key === CREATURE_TYPE_EXTRA_CHANGE_KEY
+        && isCreatureCategory(change.value)
+      ) {
+        extra.add(change.value);
+      }
+    }
+  }
+
+  return [...extra];
+}
+
+/**
  * Тип существа, назначенный действующим эффектом.
  *
  * Строка изменения с ключом `creatureType` несёт ключ типа значением: режим у

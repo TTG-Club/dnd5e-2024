@@ -14,6 +14,7 @@ import type {
   SpeciesDefinition,
   SpeciesFeatDataSource,
   SpeciesFeature,
+  TakenFeat,
 } from '@vtt/shared/system/dnd.js';
 
 import type { CompendiumFeat } from '../feat/featApply';
@@ -25,6 +26,7 @@ import {
   applyFeatChoiceSelections,
   applyFeatDataProficiencies,
   buildFeatGrantEffect,
+  buildTakenFeat,
   calculateProficiencyBonus,
   collectSpeciesFeatDataSources,
   collectSpeciesGrantedSpellSources,
@@ -39,6 +41,7 @@ import {
   hasNoFeatChoiceOptions,
   isFeatPickChoice,
   isSkillType,
+  isTakenFeatAnswered,
   openFeatChoicesAtLevel,
   prepareFeatChoices,
   refreshSpeciesCounters,
@@ -48,6 +51,7 @@ import {
   resolveFeatChoicesToAsk,
   resolveSpeciesVision,
   withActivationDefaults,
+  withTakenFeatAnswers,
 } from '@vtt/shared/system/dnd.js';
 
 import { useFeatChoiceWeapons } from '../../../composables/useFeatChoiceWeapons';
@@ -118,6 +122,22 @@ export interface SpeciesFeatPick {
 
 /** Разделитель составного ключа вопроса о черте: источник и сам выбор. */
 const FEAT_PICK_KEY_SEPARATOR = '::';
+
+/**
+ * Черта, которую дары вида кладут на лист без выбора, вместе с её собственными
+ * вопросами. Ответы лежат там же, где ответы выбранных черт
+ * ({@link SpeciesWizardState.featPickAnswers}), под своим ключом.
+ */
+export interface SpeciesGrantedFeat extends TakenFeat<CompendiumFeat> {
+  /** Название записи-источника — подпись над вопросами */
+  sourceName: string;
+}
+
+/**
+ * Приставка ключа ответов выданной без выбора черты: с ключом вопроса о черте
+ * ({@link SpeciesFeatPick.pickKey}) он не столкнётся.
+ */
+const GRANTED_FEAT_KEY_PREFIX = 'grant:';
 
 /**
  * Собирает флаги защит от урона (`resistance.*`/`immunity.*`/`vulnerability.*`)
@@ -547,6 +567,52 @@ export function useSpeciesWizard(
   );
 
   /**
+   * Черты, которые дары вида кладут без выбора, с их собственными вопросами —
+   * теми же, что задаёт окно выбора при перетаскивании черты на лист.
+   * Неизвестные ключи пропускаются: черта могла уехать из компендиума с паком.
+   */
+  const grantedFeats = computed<SpeciesGrantedFeat[]>(() =>
+    featDataSources.value.flatMap((source) =>
+      (source.featData.grantedFeats ?? []).flatMap((grantedRef) => {
+        const feat = compendiumFeats.value.find(
+          (entry) => entry.id === grantedRef.featId,
+        );
+
+        return feat
+          ? [
+              {
+                ...buildTakenFeat(
+                  `${GRANTED_FEAT_KEY_PREFIX}${source.sourceKey}${FEAT_PICK_KEY_SEPARATOR}${feat.id}`,
+                  feat,
+                  actor.value,
+                ),
+                sourceName: source.sourceName,
+              },
+            ]
+          : [];
+      }),
+    ),
+  );
+
+  /** Выданные без выбора черты, которым есть что спросить */
+  const grantedFeatQuestions = computed(() =>
+    grantedFeats.value.filter((granted) => granted.ownChoices.length > 0),
+  );
+
+  /** Отвечены ли собственные вопросы черт, выданных без выбора */
+  const areGrantedFeatsAnswered = computed(() =>
+    grantedFeats.value.every((granted) =>
+      isTakenFeatAnswered(
+        granted,
+        state.value.featPickAnswers,
+        actor.value,
+        { weapons: weaponOptions.value },
+        proficiencyBonus.value,
+      ),
+    ),
+  );
+
+  /**
    * Нужен ли мастеру каталог черт компендиума: есть ли выбор черты или черта,
    * выдаваемая дарами без выбора.
    */
@@ -607,15 +673,11 @@ export function useSpeciesWizard(
         : [],
     );
 
-    const granted = featDataSources.value
-      .flatMap((source) => source.featData.grantedFeats ?? [])
-      .flatMap((grantedRef) => {
-        const feat = compendiumFeats.value.find(
-          (entry) => entry.id === grantedRef.featId,
-        );
-
-        return feat ? [feat] : [];
-      });
+    // Выданная без выбора черта ложится с ответами на свои вопросы: без них
+    // она легла бы на лист пустой — так же, как выбранная
+    const granted = grantedFeats.value.map((grantedFeat) =>
+      withTakenFeatAnswers(grantedFeat, state.value.featPickAnswers),
+    );
 
     return [...picked, ...granted];
   });
@@ -739,6 +801,7 @@ export function useSpeciesWizard(
         legacyChoicesAnswered
         && areFeatDataChoicesComplete.value
         && areFeatPicksComplete.value
+        && areGrantedFeatsAnswered.value
       );
     }
 
@@ -1322,6 +1385,7 @@ export function useSpeciesWizard(
     selectedSubspecies,
     featDataSources,
     featPickChoices,
+    grantedFeatQuestions,
     needsCompendiumFeats,
     proficiencyBonus,
     buildUpdates,

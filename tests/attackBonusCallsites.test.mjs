@@ -6,10 +6,14 @@ import { loadEngineBundle } from './helpers/engineBundle.mjs';
 import { loadHandler } from './helpers/sourceHandler.mjs';
 
 const engine = await loadEngineBundle(
-  "export * from './src/engine/attackUtils.ts'; export * from './src/engine/effectPipeline.ts'; export * from './src/engine/consts.ts'; export * from './src/engine/formulaParser.ts'; export * from './src/engine/hitPoints.ts'; export { isSaveAbility } from './src/engine/spellUtils.ts'; export { creatureActionHasSave } from './src/engine/creatureUtils.ts';",
+  "export * from './src/engine/attackUtils.ts'; export * from './src/engine/effectPipeline.ts'; export * from './src/engine/consts.ts'; export * from './src/engine/formulaParser.ts'; export * from './src/engine/resolvedFormulaContext.ts'; export * from './src/engine/spellCastPlan.ts'; export * from './src/engine/hitPoints.ts'; export { isSaveAbility } from './src/engine/spellUtils.ts'; export { creatureActionHasSave } from './src/engine/creatureUtils.ts';",
 );
 
 const macroPath = 'src/client/macros/dnd5eMacros.ts';
+
+const creatureSpellPath = 'src/client/composables/creatureSpellCast.ts';
+
+const creatureActionPath = 'src/client/composables/creatureActionRoll.ts';
 
 /** Настоящая сборка наборов урона действия: без вариантов «или» набор один */
 const buildCreatureRollVariants = await loadHandler(
@@ -62,6 +66,20 @@ function createPorts(current) {
     buildRollBonusEvaluator,
     buildCreatureRollVariants,
     props: { entity: current.value, actor: current.value, isEditMode: false },
+    // Запретов трат хода у существа нет, трата хода не пишется
+    blockOf: () => null,
+    spendSectionTurn: () => {},
+    isCreatureAttackAction: () => true,
+    // Удар оружием персонажа тоже не под запретом: идёт действием «Атака»;
+    // трата хода не пишется
+    runWithWeaponAttackCost: (_entity, _weaponName, _refuse, proceed) =>
+      proceed('action'),
+    refuseBlockedMacro: (reason) => reason !== null,
+    refuseWeaponAttack: () => {},
+    recordEntityActionSpend: () => {},
+    warnOpportunityAttack: () => {},
+    isEntityOwnTurn: () => true,
+    toast: { add: () => {} },
     rollConfig,
     isRollModalOpen: { value: false },
     getCreatureEntity: () => current.value,
@@ -76,7 +94,10 @@ function createPorts(current) {
     resolvedStats: { value: { activeFlags: new Set() } },
     combinedEffects: { value: [] },
     targetStore: { getTargetActor: () => null },
-    useTargetStore: () => ({ getTargetFlags: () => new Set() }),
+    useTargetStore: () => ({
+      getTargetFlags: () => new Set(),
+      getTargetActor: () => null,
+    }),
     useModalManager: () => ({
       openModal: (_name, props) => {
         rollConfig.value = props;
@@ -97,6 +118,8 @@ function createPorts(current) {
     getDamageBonusKey: engine.getDamageBonusKey,
     calculateWeaponAttackModifier: () => 5,
     getWeaponPrimaryDamageType: () => undefined,
+    // Порог крита по цели — тот же, что у листа
+    resolveTargetedCritThreshold: (_attacker, threshold) => threshold,
     resolveTargetedAttackRoll: () => ({
       mode: 'normal',
       reasons: { advantage: [], disadvantage: [] },
@@ -107,18 +130,26 @@ function createPorts(current) {
     creatureActionHasSave: engine.creatureActionHasSave,
     getDamagePartsPrimaryType: () => undefined,
     getSpellAttackType: (spell) => spell.deliveryType,
+    // Общий разбор заклинания существа: существо из мира, вид каста — план
+    readCreature: () => current.value,
+    resolveSpellCastPlan: engine.resolveSpellCastPlan,
+    isTargetAtFullHp: () => undefined,
+    resolveEntityCreatureType: () => undefined,
     calculateCreatureSpellBlockNumbers: () => ({ attackBonus: 5, saveDC: 13 }),
     getCreatureSpellBlockAbility: () => 'wisdom',
     getCreatureSpellMod: () => 2,
     getCreatureSpellRollButtonText: () => 'roll',
     generateId: (prefix) => `${prefix}_test`,
     SPELL_CAST_KEY_PREFIX: 'cast',
+    SPELL_ATTACK_KEY: 'attack.spell',
+    PAGE_UNLOAD_EVENT: 'beforeunload',
     resolveCreatureSpellSaveDC: (_spell, blockSaveDC) => blockSaveDC,
     completeSpellCast: () => {},
     beginSpellCast: () => {},
     spellIsHealing: () => false,
     CREATURE_ACTIONS_BLOCK_LABELS: { attackRollPrefix: 'Attack ' },
     ACTOR_SPELLS_TAB_LABELS: { attackRoll: 'Roll attack' },
+    ACTOR_EQUIPMENT_TAB_LABELS: { attackRollPrefix: 'Attack ' },
     CREATURE_ACTION_MENU_LABELS: { attack: 'attack' },
     SPELL_DAMAGE_ROLL_BUTTON: 'roll',
   };
@@ -126,16 +157,49 @@ function createPorts(current) {
   return ports;
 }
 
+/** Удар оружием: вкладка снаряжения и горячая панель — один путь */
+const weaponAttackPath = 'src/client/composables/weaponAttackRoll.ts';
+
+/**
+ * Вход удара для теста: атакующий — сущность мира.
+ *
+ * @param {{ value: object }} current - сущность мира
+ * @param {object} overrides - подмены порта
+ * @returns {object} порт удара
+ */
+function createWeaponPort(current, overrides = {}) {
+  return {
+    readAttacker: () => current.value,
+    spendAmmunition: () => {},
+    refuse: () => {},
+    ...overrides,
+  };
+}
+
+/**
+ * Настоящий общий удар оружием на портах теста.
+ *
+ * @param {object} ports - окружение
+ * @param {object} port - вход удара
+ * @returns {Promise<Function>} удар оружием
+ */
+async function loadWeaponAttack(ports, port) {
+  ports.openWeaponAttackRoll = await loadHandler(
+    weaponAttackPath,
+    'openWeaponAttackRoll',
+    ports,
+  );
+
+  const start = await loadHandler(weaponAttackPath, 'startWeaponAttack', ports);
+
+  return (weapon) => start(weapon, port);
+}
+
 for (const rangeType of ['melee', 'ranged']) {
-  it(`actual equipment sheet forwards only ${rangeType} attack dice and keeps the source reactive`, async () => {
+  it(`actual weapon attack forwards only ${rangeType} attack dice and keeps the source reactive`, async () => {
     const current = { value: createEntity() };
     const ports = createPorts(current);
-
-    const handler = await loadHandler(
-      'src/client/ui/actor/tabs/ActorEquipmentTab.vue',
-      'openRollModal',
-      ports,
-    );
+    const handler = await loadWeaponAttack(ports, createWeaponPort(current));
 
     const weapon = {
       name: 'Weapon',
@@ -150,7 +214,7 @@ for (const rangeType of ['melee', 'ranged']) {
       current.value.bonuses[`attack.${rangeType}`],
     );
 
-    ports.props.entity = { ...current.value, bonuses: {} };
+    current.value = { ...current.value, bonuses: {} };
 
     assert.deepEqual(
       ports.rollConfig.value.evaluateBonusRollFormulas(normalContext),
@@ -163,7 +227,7 @@ for (const rangeType of ['melee', 'ranged']) {
 }
 
 for (const kind of ['melee', 'ranged']) {
-  it(`actual equipment sheet rolls a thrown weapon as the chosen ${kind} attack`, async () => {
+  it(`actual weapon attack rolls a thrown weapon as the chosen ${kind} attack`, async () => {
     const current = { value: createEntity() };
     const ports = createPorts(current);
     const asked = [];
@@ -174,11 +238,7 @@ for (const kind of ['melee', 'ranged']) {
       proceed({ ...weapon, rangeType: kind });
     };
 
-    const handler = await loadHandler(
-      'src/client/ui/actor/tabs/ActorEquipmentTab.vue',
-      'openRollModal',
-      ports,
-    );
+    const handler = await loadWeaponAttack(ports, createWeaponPort(current));
 
     handler({
       name: 'Javelin',
@@ -199,7 +259,7 @@ for (const kind of ['melee', 'ranged']) {
   });
 }
 
-it('actual openRollModal shoots the ammunition and spends it when the roll goes', async () => {
+it('actual weapon attack shoots the ammunition and spends it when the roll goes', async () => {
   const current = { value: createEntity() };
   const ports = createPorts(current);
   const committed = [];
@@ -216,19 +276,19 @@ it('actual openRollModal shoots the ammunition and spends it when the roll goes'
   };
 
   ports.prepareAmmunitionShot = () => shot;
-  ports.inventory = { value: ['quiver'] };
-  ports.spendAmmunition = (inventory, id) => [...inventory, `spent:${id}`];
-  ports.commitEquipment = (equipment) => committed.push(equipment);
 
   ports.buildWeaponRollSetup = (options) => ({
     ...createRollSetup(),
     pseudoSpell: { magicBonus: options.weapon.magicBonus },
   });
 
-  const handler = await loadHandler(
-    'src/client/ui/actor/tabs/ActorEquipmentTab.vue',
-    'openRollModal',
+  // Вход тратит боеприпас своей записью: лист — сохранением листа, панель —
+  // записью листа сущности мира
+  const handler = await loadWeaponAttack(
     ports,
+    createWeaponPort(current, {
+      spendAmmunition: (id) => committed.push(['quiver', `spent:${id}`]),
+    }),
   );
 
   handler(weapon);
@@ -240,9 +300,12 @@ it('actual openRollModal shoots the ammunition and spends it when the roll goes'
   shot = { weapon };
   handler(weapon);
 
-  assert.equal(
-    ports.rollConfig.value.beforeRoll,
-    undefined,
+  // Бросок пошёл — трата хода пишется всегда, а боеприпаса без учёта нет
+  assert.equal(ports.rollConfig.value.beforeRoll(), true);
+
+  assert.deepEqual(
+    committed,
+    [['quiver', 'spent:arrows']],
     'учёта нет — тратить нечего',
   );
 
@@ -257,10 +320,8 @@ it('actual openRollModal shoots the ammunition and spends it when the roll goes'
   );
 });
 
-for (const entry of [
-  ['src/client/ui/creature/CreatureActionsBlock.vue', 'startActionRoll', false],
-  [macroPath, 'openCreatureActionRoll', true],
-]) {
+// Лист существа и горячая панель совершают действие одним путём
+for (const entry of [[creatureActionPath, 'openCreatureActionRoll', false]]) {
   it(`actual ${entry[1]} uses current creature effects and disables attack dice for saving-throw actions`, async () => {
     const current = { value: createEntity() };
     const ports = createPorts(current);
@@ -308,10 +369,8 @@ for (const entry of [
   });
 }
 
-for (const entry of [
-  ['src/client/ui/creature/CreatureSpellsBlock.vue', 'startSpellRoll', false],
-  [macroPath, 'openCreatureSpellRoll', true],
-]) {
+// Лист существа и горячая панель кастуют одним разбором существа
+for (const entry of [[creatureSpellPath, 'openCreatureSpellRoll', false]]) {
   it(`actual ${entry[1]} applies only attack.spell and follows effect changes`, async () => {
     const current = { value: createEntity() };
     const ports = createPorts(current);
@@ -363,19 +422,19 @@ const ROLL_MODE_BY_CATEGORY = {
 
 for (const entry of [
   [
-    'src/client/ui/actor/tabs/ActorEquipmentTab.vue',
-    'openRollModal',
-    (weapon) => [weapon],
+    weaponAttackPath,
+    'openWeaponAttackRoll',
+    (weapon, attacker) => [
+      weapon,
+      attacker,
+      { attackerId: attacker.id, readAttacker: () => attacker },
+      { isDisadvantage: false, beforeRoll: () => true },
+    ],
   ],
   [
-    'src/client/ui/creature/CreatureActionsBlock.vue',
-    'startActionRoll',
-    (action, creature) => [action, creature, false, undefined],
-  ],
-  [
-    macroPath,
+    creatureActionPath,
     'openCreatureActionRoll',
-    (action, creature) => [creature, action, false, undefined],
+    (action, creature) => [action, creature, false, undefined],
   ],
 ]) {
   it(`actual ${entry[1]} takes the roll mode of the shared attack helper`, async () => {
@@ -418,10 +477,8 @@ for (const entry of [
   });
 }
 
-for (const entry of [
-  ['src/client/ui/creature/CreatureSpellsBlock.vue', 'startSpellRoll', false],
-  [macroPath, 'openCreatureSpellRoll', true],
-]) {
+// Лист существа и горячая панель кастуют одним разбором существа
+for (const entry of [[creatureSpellPath, 'openCreatureSpellRoll', false]]) {
   it(`actual ${entry[1]} takes the spell roll mode of the shared attack helper`, async () => {
     const current = { value: createEntity() };
     const ports = createPorts(current);
@@ -513,63 +570,66 @@ it('macro source lookup reads a replaced entity and returns no stale source afte
   assert.equal(lookup('caster'), undefined);
 });
 
-for (const relativePath of [
-  'src/client/ui/actor/tabs/ActorSpellsTab.vue',
-  macroPath,
-]) {
-  it(`actual projectile callback in ${relativePath} preserves the captured bonus formulas`, async () => {
-    let forwarded;
+it('actual projectile callback of the shared cast flow preserves the captured bonus formulas', async () => {
+  let forwarded;
+  let finishedCasts = 0;
 
-    const entity = createEntity();
+  const entity = createEntity();
 
-    const worldStore = {
-      currentScene: { tokens: [] },
-      connectionState: { currentWorldId: 'world' },
-      worlds: [{ id: 'world', actors: [entity] }],
-    };
-
-    const handler = await loadHandler(
-      relativePath,
-      'handleProjectileAttackRoll',
-      {
-        spell: { name: 'Ray' },
-        actor: entity,
-        props: { actor: entity },
-        incomingAttackType: 'ranged',
-        getSpellAttackType: () => 'ranged',
-        isApplied: false,
-        window: { removeEventListener() {} },
-        handleUnload() {},
-        worldStore,
-        getCurrentWorldEntities: () => [entity],
-        getWorldSocket: () => ({}),
-        useChatStore: () => ({ getSocket: () => ({}) }),
-        evaluateSpellBonusParts: undefined,
-        withFlatDamageBonusPart: (parts) => parts,
-        spellIsHealing: () => false,
-        flatSpellDamageBonus: 0,
+  // Лист и горячая панель зовут один обработчик общего разбора каста
+  const handler = await loadHandler(
+    'src/client/composables/spellCastFlow.ts',
+    'settleSpellProjectileAttack',
+    {
+      markSpellCastApplied: (session) => {
+        session.state.applied = true;
+      },
+      withFlatDamageBonusPart: (parts) => parts,
+      spellIsHealing: () => false,
+      useChatStore: () => ({ getSocket: () => ({}) }),
+      useWorldEntities: () => ({ getCurrentWorldEntities: () => [entity] }),
+      useWorldStore: () => ({ currentScene: { tokens: [] } }),
+      targetEffectsSourceOf: () => ({ casterId: entity.id, spellSaveDC: 13 }),
+      useSpellResolution: () => ({
         resolveSpellDamage: (_context, options) => {
           forwarded = options.projectileAttack;
         },
-        resolveSpellSaveDC: () => 13,
-        spellSaveDc: 13,
-        resolvedStats: { spellSaveDC: 13, value: {} },
-        resolvedDamageFormula: '1d6',
+      }),
+      finishSpellCast: () => {
+        finishedCasts += 1;
+
+        return Promise.resolve();
       },
-    );
+      // Разбор целей ждёт доведения каста; здесь — сразу
+      afterSpellCast: (_completion, proceed) => proceed(),
+    },
+  );
 
-    const formulas = new Map([['target', Object.freeze(['1d4'])]]);
+  const session = {
+    port: { casterId: entity.id },
+    plan: { attackType: 'ranged' },
+    resolvedDamageFormula: '1d6',
+    flatSpellDamageBonus: 0,
+    evaluateSpellBonusParts: undefined,
+    state: { spell: { name: 'Ray' }, attackLanded: false, applied: false },
+  };
 
-    handler({
-      attackModifier: 5,
-      rollMode: 'advantage',
-      bonusDiceFormulasByTarget: formulas,
-    });
+  const formulas = new Map([['target', Object.freeze(['1d4'])]]);
 
-    assert.equal(forwarded.bonusDiceFormulasByTarget, formulas);
-    assert.equal(forwarded.rollMode, 'advantage');
+  handler(session, {
+    attackModifier: 5,
+    rollMode: 'advantage',
+    bonusDiceFormulasByTarget: formulas,
   });
-}
+
+  assert.equal(forwarded.bonusDiceFormulasByTarget, formulas);
+  assert.equal(forwarded.rollMode, 'advantage');
+
+  // Серия снарядов доводит каст: конец прежней концентрации и эффекты на
+  // заклинателе раньше оставались без неё
+  assert.equal(finishedCasts, 1);
+  assert.equal(session.state.applied, true);
+});
 
 it('actual projectile series rolls attack bonus per beam and preserves natural critical rules under advantage', async () => {
   const first = { id: 'first', name: 'First', armorClass: 17 };
@@ -708,9 +768,27 @@ it('registered weapon macro selects melee/ranged dice from the fresh actor and o
     findWeapon: () => ({ actor: current.value, weapon }),
     isDnDEffect: () => true,
     combineEffectsWithAmbient: () => [],
-    isTargetFullHp: () => undefined,
+    isTargetAtFullHp: () => undefined,
     console: { warn: assert.fail, error: assert.fail },
   });
+
+  // Макрос зовёт общий удар — он тот же, что у вкладки снаряжения
+  ports.spendShotAmmunition = () => {};
+
+  await loadWeaponAttack(ports, undefined);
+
+  ports.startWeaponAttack = await loadHandler(
+    weaponAttackPath,
+    'startWeaponAttack',
+    ports,
+  );
+
+  // Порт удара — та же фабрика мира, что у вкладки снаряжения
+  ports.createWeaponAttackPort = await loadHandler(
+    weaponAttackPath,
+    'createWeaponAttackPort',
+    ports,
+  );
 
   const handler = await loadHandler(
     macroPath,
@@ -829,6 +907,7 @@ it('projectile attack bonuses follow each assigned target instead of the unrelat
       isActorEntity: (entity) => entity.entityType === 'actor',
       isCreatureEntity: (entity) => entity.entityType === 'creature',
       resolveEntityCreatureType: () => 'humanoid',
+      resolveEntityExtraCreatureTypes: () => [],
     },
   );
 
@@ -840,6 +919,9 @@ it('projectile attack bonuses follow each assigned target instead of the unrelat
       },
     }),
     useResolvedStats: () => ({ combinedEffects: effects }),
+    // Контекст формул клиента — итоговые числа листа с аурами карты
+    buildEntityFormulaContext: (entity) =>
+      engine.buildResolvedFormulaContext(entity),
     useBonusDamageParts: () => ({ buildTargetHpContext }),
     getAttackFlagCategoryOfKeys: () => undefined,
     withAdjacentAllies: (target) => target,
@@ -973,6 +1055,7 @@ it('the shared target context reads creature average HP through the combat HP he
       ...engine,
       isDndSceneEntity: () => true,
       resolveEntityCreatureType: () => 'humanoid',
+      resolveEntityExtraCreatureTypes: () => [],
       targetStore: { getTargetActor: () => null },
     },
   );
@@ -986,6 +1069,7 @@ it('the shared target context reads creature average HP through the combat HP he
       currentHp: 12,
       maxHp: 12,
       creatureType: 'humanoid',
+      extraCreatureTypes: [],
       markedBy: [],
     },
   );
@@ -999,6 +1083,7 @@ it('the shared target context reads creature average HP through the combat HP he
       currentHp: 5,
       maxHp: 12,
       creatureType: 'humanoid',
+      extraCreatureTypes: [],
       markedBy: [],
     },
   );
@@ -1020,6 +1105,7 @@ it('the shared target context asks for an adjacent ally only when the attacker i
       ...engine,
       isDndSceneEntity: () => true,
       resolveEntityCreatureType: () => 'humanoid',
+      resolveEntityExtraCreatureTypes: () => [],
       targetStore: { getTargetActor: () => target },
       findAlliesAdjacentToTarget: (attackerId, targetId) => {
         asked.push([attackerId, targetId]);
@@ -1054,7 +1140,7 @@ it('attack roll bonuses add the target defences against this attack', async () =
       }),
       useResolvedStats: () => ({ combinedEffects: { value: [] } }),
       buildCarrierContext: (entity) => ({ entityId: entity.id }),
-      buildFormulaContext: () => ({}),
+      buildEntityFormulaContext: () => ({}),
       useBonusDamageParts: () => ({
         buildTargetHpContext: (_entity, attackerId) => ({
           entityId: 'warded',
@@ -1086,23 +1172,23 @@ it('attack roll bonuses add the target defences against this attack', async () =
   );
 });
 
-it('actual creature action sheet checks distance with the chosen attack kind', async () => {
-  const creature = createEntity();
+it('actual creature action entry checks distance with the chosen attack kind', async () => {
+  const creature = { ...createEntity(), id: 'goblin' };
   const checked = [];
   const rolled = [];
   const messages = [];
 
   const ports = {
-    props: { creatureId: 'goblin' },
-    targetStore: { targetTokenId: 'target' },
-    chatStore: { sendMessage: (text) => messages.push(text) },
+    readCreature: () => creature,
+    spendCreatureActionTurn: () => {},
+    useTargetStore: () => ({ targetTokenId: 'target' }),
+    useChatStore: () => ({ sendMessage: (text) => messages.push(text) }),
     CREATURE_ACTIONS_BLOCK_LABELS: {
       outOfRangePrefix: '⛔ ',
       outOfRangeMiddle: ': ',
       outOfRangeSuffix: '',
     },
-    hasAttackParams: () => true,
-    getCreatureEntity: () => creature,
+    hasCreatureActionRoll: () => true,
     // Вопрос о виде отвечен «дальнобойная»
     runCreatureActionChoices: (action, creatureId, proceed) => {
       assert.equal(creatureId, 'goblin');
@@ -1119,26 +1205,30 @@ it('actual creature action sheet checks distance with the chosen attack kind', a
       };
     },
     runWithCreatureDamageChoice: (action, _creature, proceed) =>
-      proceed(action, undefined),
+      proceed(action, undefined, () => {}),
     launchCreatureAction: (_action, _creatureId, proceed) => proceed(undefined),
-    startActionRoll: (action, _creature, isDisadvantage) =>
-      rolled.push({ rangeType: action.rangeType, isDisadvantage }),
+    openCreatureActionRoll: (action, _creature, isDisadvantage) =>
+      rolled.push({ rangeType: action.rangeType, isDisadvantage }) > 0,
   };
 
+  // Лист существа и горячая панель зовут один вход действия
   const handler = await loadHandler(
-    'src/client/ui/creature/CreatureActionsBlock.vue',
-    'openRollModal',
+    creatureActionPath,
+    'startCreatureAction',
     ports,
   );
 
-  handler({
-    name: 'Javelin',
-    attackBonus: 4,
-    rangeType: 'meleeOrRanged',
-    reach: 5,
-    range: { normal: 30, long: 120 },
-    damageParts: [{ formula: '1d6+2' }],
-  });
+  handler(
+    {
+      name: 'Javelin',
+      attackBonus: 4,
+      rangeType: 'meleeOrRanged',
+      reach: 5,
+      range: { normal: 30, long: 120 },
+      damageParts: [{ formula: '1d6+2' }],
+    },
+    { creatureId: 'goblin', section: undefined },
+  );
 
   assert.deepEqual(checked, ['ranged']);
   assert.deepEqual(rolled, [{ rangeType: 'ranged', isDisadvantage: true }]);

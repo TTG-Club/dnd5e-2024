@@ -33,7 +33,6 @@ import { useTargetStore } from '@/stores/targetStore';
  */
 import {
   buildCarrierContext,
-  buildFormulaContext,
   buildPseudoSpell,
   calculateWeaponDamageModifier,
   collectBonusDamageFormulas,
@@ -47,6 +46,7 @@ import {
   hasBonusDamageFormulas,
   isDnDEffect,
   isDndSceneEntity,
+  isUseActivatedEffect,
   listEnabledEffects,
   listEntityMarkSources,
   resolveBonusDamageParts,
@@ -55,6 +55,7 @@ import {
   resolveDamagePartsForCast,
   resolveEntityCreatureType,
   resolveEntityCurrentHp,
+  resolveEntityExtraCreatureTypes,
   resolveEntityMaxHp,
   resolveSpellDamageFormula,
   substituteFormulaVariables,
@@ -62,6 +63,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { findAlliesAdjacentToTarget } from './targetAllyAdjacent';
+import { buildEntityFormulaContext } from './useResolvedStats';
 
 /** Контекст броска из модалки (фактический режим преимущества/помехи) */
 interface ModalRollContext {
@@ -303,6 +305,7 @@ export function useBonusDamageParts() {
         currentHp: number;
         maxHp: number;
         creatureType?: CreatureCategory;
+        extraCreatureTypes: CreatureCategory[];
         markedBy: string[];
         entityId: string;
         adjacentAllies?: readonly AdjacentAllyState[];
@@ -332,6 +335,8 @@ export function useBonusDamageParts() {
       // Тип цели — для условий `target.creatureType` и токенов `@target.type.*`:
       // читается с той же сущности, отдельного источника цели заводить незачем
       creatureType: resolveEntityCreatureType(entity),
+      // Дополнительные типы цели считаются наравне с основным
+      extraCreatureTypes: resolveEntityExtraCreatureTypes(entity),
       // Кто пометил цель — для условия «цель помечена мной» (Метка охотника)
       markedBy: listEntityMarkSources(entity),
     };
@@ -445,7 +450,10 @@ export function useBonusDamageParts() {
       saveEffect: weapon.saveEffect,
       // Эффекты оружия (статус/доп.урон со своим applySave) обрабатывает
       // оркестратор per-target — тем же путём, что и у заклинаний/существ.
-      activeEffects: weapon.activeEffects?.filter(isDnDEffect),
+      // Применяемый эффект оружия — кнопка предмета, а не свойство удара
+      activeEffects: weapon.activeEffects
+        ?.filter(isDnDEffect)
+        .filter((effect) => !isUseActivatedEffect(effect)),
     });
 
     // Базовые части урона оружия через тот же резолвер, что и заклинания
@@ -472,7 +480,7 @@ export function useBonusDamageParts() {
 
     const baseParts = withFlatDamageBonus(resolvedParts, flatDamageMod);
 
-    const formulaContext = buildFormulaContext(actor);
+    const formulaContext = buildEntityFormulaContext(actor, resolvedStats);
 
     // Контекст тот же, что у основной формулы урона: @mod.<abil>, @prof,
     // @level (@mod.spell у оружия недоступен — нет контекста заклинания)
@@ -575,7 +583,7 @@ export function useBonusDamageParts() {
       targetType,
     );
 
-    const formulaContext = buildFormulaContext(creature);
+    const formulaContext = buildEntityFormulaContext(creature);
 
     const resolveFormula = (subFormula: string): string =>
       resolveBonusFormula(subFormula, 'существа', (formula) =>
@@ -642,7 +650,7 @@ export function useBonusDamageParts() {
       targetType,
     );
 
-    const formulaContext = buildFormulaContext(creature);
+    const formulaContext = buildEntityFormulaContext(creature);
 
     // У заклинания существа в контексте есть ещё и @mod.spell
     const resolveFormula = (subFormula: string): string =>

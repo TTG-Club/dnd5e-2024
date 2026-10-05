@@ -10,7 +10,6 @@ import { useProjectileStore } from '@/stores/projectileStore';
 import { useWorldStore } from '@/stores/worldStore';
 import {
   buildCarrierContext,
-  buildFormulaContext,
   collectBonusRollFormulas,
   getAttackFlagCategoryOfKeys,
   isDndSceneEntity,
@@ -19,7 +18,10 @@ import {
 import { collectDefenderRollFormulas } from './incomingAttack';
 import { findAlliesAdjacentToTarget } from './targetAllyAdjacent';
 import { useBonusDamageParts } from './useBonusDamageParts';
-import { useResolvedStats } from './useResolvedStats';
+import {
+  buildEntityFormulaContext,
+  useResolvedStats,
+} from './useResolvedStats';
 import { useWorldEntities } from './useWorldEntities';
 
 /** Сборщик кубиковых бонусов d20-проверки по фактическому режиму броска. */
@@ -83,7 +85,7 @@ export function buildRollBonusEvaluator(
       self: buildCarrierContext(entity),
     };
 
-    const formulaContext = buildFormulaContext(entity);
+    const formulaContext = buildEntityFormulaContext(entity);
     const targetEntityId = rollContext.target?.entityId;
 
     const ownFormulas = keys.flatMap((targetKey) =>

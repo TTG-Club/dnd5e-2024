@@ -619,10 +619,11 @@ describe('неработающие поля', () => {
       actions: [{ type: 'removeSelf' }],
     };
 
-    // Черту включают переключателем, у предмета его нет
+    // Черту и предмет включают переключателем, у черты существа его нет
     for (const [context, switches] of [
       ['feature', ['toggle']],
-      ['item', []],
+      ['item', ['toggle']],
+      ['creatureTrait', []],
     ]) {
       const effect = createEffect({ triggers: [toggleTrigger] });
 
@@ -781,8 +782,9 @@ describe('получатель «всем в радиусе»', () => {
 });
 
 describe('применение и включение', () => {
-  it('способы по месту окна: предмет применяют, умение ещё и включают', () => {
-    assert.deepEqual(layoutOf('item').activationModes, ['use']);
+  it('способы по месту окна: предмет, оружие и умение применяют и включают', () => {
+    assert.deepEqual(layoutOf('item').activationModes, ['use', 'toggle']);
+    assert.deepEqual(layoutOf('weapon').activationModes, ['use', 'toggle']);
     assert.deepEqual(layoutOf('feature').activationModes, ['use', 'toggle']);
     assert.deepEqual(layoutOf('ownEffects').activationModes, ['use', 'toggle']);
     assert.deepEqual(layoutOf('spell').activationModes, []);
@@ -851,15 +853,25 @@ describe('применение и включение', () => {
 
   it('применение не для этого места — неработающее поле', () => {
     const toggled = createEffect({ activation: { mode: 'toggle' } });
-    const layout = engine.resolveEffectFormLayout('item', toggled);
+    const layout = engine.resolveEffectFormLayout('creatureTrait', toggled);
 
     assert.deepEqual(engine.listInertEffectFields(toggled, layout), [
       'activation',
     ]);
 
     assert.equal(
-      engine.clearInertEffectFields(toggled, ['activation'], 'item').activation,
+      engine.clearInertEffectFields(toggled, ['activation'], 'creatureTrait')
+        .activation,
       undefined,
+    );
+
+    // У предмета переключатель работает: «Язык пламени» зажигают и гасят
+    assert.deepEqual(
+      engine.listInertEffectFields(
+        toggled,
+        engine.resolveEffectFormLayout('item', toggled),
+      ),
+      [],
     );
   });
 
@@ -1135,11 +1147,11 @@ describe('список «Срабатывания»', () => {
       '«хиты становятся» — только когда хиты упали до 0',
     );
 
-    assert.equal(engine.triggerEventAcceptsDcFormula('damageTaken'), true);
-    assert.equal(engine.triggerEventAcceptsDcFormula('turnEnd'), false);
+    assert.equal(engine.triggerEventAcceptsDamageDc('damageTaken'), true);
+    assert.equal(engine.triggerEventAcceptsDamageDc('turnEnd'), false);
     assert.equal(engine.triggerEventHasOtherParty('damageTaken'), true);
     assert.equal(engine.triggerEventHasOtherParty('hpZero'), false);
-    assert.equal(engine.triggerEventAcceptsDcFormula('applied'), true);
+    assert.equal(engine.triggerEventAcceptsDamageDc('applied'), true);
     assert.equal(engine.triggerEventHasOtherParty('applied'), true);
 
     const zone = layoutOf('zone');
@@ -1207,12 +1219,18 @@ describe('список «Срабатывания»', () => {
 
     const trait = layoutOf('creatureTrait');
 
+    // Черта действует вместе с существом: слышит и его атаку, путь, отдых
     assert.deepEqual(trait.triggerEvents, [
       'turnStart',
       'turnEnd',
+      'attackRoll',
       'damageTaken',
       'hpZero',
       'healed',
+      'conditionLost',
+      'downedOther',
+      'moved',
+      'rest',
     ]);
 
     assert.deepEqual(trait.triggerActions, [
@@ -1246,13 +1264,51 @@ describe('список «Срабатывания»', () => {
       'у черты существа наложившего нет',
     );
 
-    for (const context of ['feature', 'item']) {
-      assert.deepEqual(
-        layoutOf(context).triggerEvents,
-        ['damageTaken', 'hpZero', 'healed'],
-        `${context}: эффект слышит урон по носителю`,
-      );
-    }
+    // Постоянный эффект надетого предмета слышит то же, что эффект умения:
+    // урон по носителю и его поступки — атаку, путь, отдых
+    assert.deepEqual(
+      layoutOf('item').triggerEvents,
+      [
+        'attackRoll',
+        'damageTaken',
+        'hpZero',
+        'healed',
+        'conditionLost',
+        'downedOther',
+        'moved',
+        'rest',
+      ],
+      'item: эффект слышит урон по носителю и его поступки',
+    );
+
+    assert.equal(
+      layoutOf('item').triggerActions.includes('removeSelf'),
+      false,
+      'свойство предмета срабатывание не снимает',
+    );
+
+    // Эффект оружия «на владельце» — такой же эффект предмета в руке
+    assert.deepEqual(
+      layoutOf('weapon', { effectTarget: 'self' }).triggerEvents,
+      ['attackRoll', 'conditionLost', 'downedOther', 'moved', 'rest'],
+    );
+
+    // Эффект умения скопирован на персонажа и слышит его поступки: атаку,
+    // путь, отдых. Снять сам себя он не может — это сняло бы выданную черту
+    const feature = layoutOf('feature');
+
+    assert.deepEqual(feature.triggerEvents, [
+      'attackRoll',
+      'damageTaken',
+      'hpZero',
+      'healed',
+      'conditionLost',
+      'downedOther',
+      'moved',
+      'rest',
+    ]);
+
+    assert.equal(feature.triggerActions.includes('removeSelf'), false);
 
     assert.deepEqual(layoutOf('condition').triggerEvents, []);
   });
@@ -1758,5 +1814,59 @@ describe('живая сводка эффекта', () => {
       `Пока эффект активен: ${engine.describeEffectFlag('attack.advantage')}, `
         + 'снимается после своей атаки.',
     );
+  });
+});
+
+describe('цена ресурсом в окне', () => {
+  it('цена есть там, где эффект кто-то запускает: каст, применение, включение', () => {
+    assert.equal(layoutOf('spell').showPay, true);
+    assert.equal(layoutOf('feature').showPay, false, 'постоянный эффект');
+
+    assert.equal(
+      layoutOf('feature', { activation: { mode: 'use' } }).showPay,
+      true,
+    );
+
+    assert.equal(
+      layoutOf('feature', { activation: { mode: 'toggle' } }).showPay,
+      true,
+    );
+
+    assert.equal(
+      layoutOf('item', { activation: { mode: 'use' } }).showPay,
+      true,
+    );
+
+    assert.equal(layoutOf('creatureTrait').showPay, false);
+  });
+
+  it('цена у постоянного эффекта — неработающее поле, его можно убрать', () => {
+    const effect = createEffect({ pay: [{ kind: 'hitDice' }] });
+    const layout = engine.resolveEffectFormLayout('feature', effect);
+
+    assert.deepEqual(engine.listInertEffectFields(effect, layout), ['pay']);
+
+    assert.equal(
+      engine.clearInertEffectFields(effect, ['pay'], 'feature').pay,
+      undefined,
+    );
+  });
+
+  it('черновик цены: пустые формулы и платёж без ключа счётчика не пишутся', () => {
+    assert.deepEqual(
+      engine.normalizeDraftPay([
+        { kind: 'counter', counter: '  ', amount: '2' },
+        { kind: 'counter', counter: ' grit ', amount: ' 6 ', max: '' },
+        { kind: 'hitDice', amount: '', max: ' @castLevel ' },
+        { kind: 'spellSlot', minLevel: 4 },
+      ]),
+      [
+        { kind: 'counter', counter: 'grit', amount: '6', max: undefined },
+        { kind: 'hitDice', amount: undefined, max: '@castLevel' },
+        { kind: 'spellSlot', minLevel: 4 },
+      ],
+    );
+
+    assert.equal(engine.normalizeDraftPay([]), undefined);
   });
 });

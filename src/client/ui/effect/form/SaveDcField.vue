@@ -1,7 +1,8 @@
 <!--
   Поле Сл спасброска. Где у Сл есть источник (заклинатель, действие, оружие),
   выбирается «Авто» — Сл источника, в данных это 0 — или «Вручную» со своим
-  числом. Где источника нет, остаётся только число.
+  числом. Где источника нет, остаётся число. У Сл эффекта есть ещё «Формулой»
+  — по владельцу эффекта («8 + @prof + @mod.str»); число тогда запасное.
 -->
 <script setup lang="ts">
   import type { SaveDcFieldMode } from '../constants';
@@ -10,9 +11,11 @@
 
   import {
     DEFAULT_EFFECT_SAVE_DC,
+    describeSaveDcFormulaError,
     SOURCE_SAVE_DC,
   } from '@vtt/shared/system/dnd.js';
 
+  import { SAVE_DC_FORMULA_LABELS } from '../constants';
   import {
     SAVE_DC_AUTO_SEPARATOR,
     SAVE_DC_FIELD_MODE_OPTIONS,
@@ -29,15 +32,45 @@
     autoLabel?: string;
     /** Посчитанная Сл источника, если окно её знает */
     autoValue?: number;
+    /** Можно ли «Формулой»: у Сл эффекта есть владелец */
+    formulaAllowed?: boolean;
+    /** Есть ли у события урон — токен `@damage` в формуле */
+    acceptsDamage?: boolean;
   }>();
 
   /** Сл: `SOURCE_SAVE_DC` — «Авто» */
   const dc = defineModel<number>({ required: true });
 
+  /** Сл формулой; `undefined` — формулы нет, пустая строка — её набирают */
+  const formula = defineModel<string | undefined>('formula');
+
+  const modeOptions = computed(() =>
+    SAVE_DC_FIELD_MODE_OPTIONS.filter(
+      (option) =>
+        (option.value !== 'auto' || props.autoAllowed)
+        && (option.value !== 'formula' || props.formulaAllowed),
+    ),
+  );
+
   const mode = computed<SaveDcFieldMode>({
-    get: () =>
-      props.autoAllowed && dc.value === SOURCE_SAVE_DC ? 'auto' : 'manual',
+    get: () => {
+      if (props.formulaAllowed && formula.value !== undefined) {
+        return 'formula';
+      }
+
+      return props.autoAllowed && dc.value === SOURCE_SAVE_DC
+        ? 'auto'
+        : 'manual';
+    },
     set: (nextMode) => {
+      if (nextMode === 'formula') {
+        formula.value = formula.value ?? '';
+
+        return;
+      }
+
+      formula.value = undefined;
+
       if (nextMode === 'auto') {
         dc.value = SOURCE_SAVE_DC;
 
@@ -60,6 +93,13 @@
     },
   });
 
+  const formulaText = computed({
+    get: () => formula.value ?? '',
+    set: (value: string | number) => {
+      formula.value = String(value);
+    },
+  });
+
   /** Что подставится в «Авто»: чья Сл и её число, если известно */
   const autoText = computed(() => {
     const label = props.autoLabel ?? '';
@@ -68,22 +108,40 @@
       ? label
       : `${label}${SAVE_DC_AUTO_SEPARATOR}${props.autoValue}`;
   });
+
+  const formulaError = computed(() => {
+    const text = formula.value?.trim();
+
+    return mode.value === 'formula' && text
+      ? describeSaveDcFormulaError(text, {
+          acceptsDamage: props.acceptsDamage === true,
+        })
+      : undefined;
+  });
+
+  const formulaHelp = computed(() =>
+    mode.value === 'formula'
+      ? `${SAVE_DC_FORMULA_LABELS.hint}${props.acceptsDamage ? SAVE_DC_FORMULA_LABELS.damageHint : ''}`
+      : undefined,
+  );
 </script>
 
 <template>
   <UFormField
     :label="label"
     :description="description"
+    :help="formulaHelp"
+    :error="formulaError"
     class="min-w-56"
   >
     <div class="flex items-center gap-2">
       <USelect
-        v-if="autoAllowed"
+        v-if="modeOptions.length > 1"
         v-model="mode"
-        :items="SAVE_DC_FIELD_MODE_OPTIONS"
+        :items="modeOptions"
         value-key="value"
         size="sm"
-        class="w-28"
+        class="w-32"
         :portal="false"
       />
 
@@ -93,6 +151,14 @@
       >
         {{ autoText }}
       </span>
+
+      <UInput
+        v-else-if="mode === 'formula'"
+        v-model="formulaText"
+        :placeholder="SAVE_DC_FORMULA_LABELS.placeholder"
+        size="sm"
+        class="w-64"
+      />
 
       <UInputNumber
         v-else

@@ -2,23 +2,12 @@
   // Корневой вход `@nuxt/ui` — это Nuxt-модуль, типы компонентов он не отдаёт
   import type { DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue';
 
-  import type { MeasurementTemplate, SceneEntity } from '@vtt/shared';
   import type {
-    AttackRollMode,
-    AttackRollModeReasons,
     CreatureAction,
+    CreatureActionSectionKey,
     DnDCreature,
-    Spell,
   } from '@vtt/shared/system/dnd.js';
 
-  import type { CreatureDamageVariant } from '../../composables/creatureDamageChoice';
-  import type { DamageTypeChoiceRequest } from '../../composables/damageTypeChoice';
-  import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
-  import type {
-    RolledSpellDamagePart,
-    SpellDamagePartInput,
-  } from '../../composables/useSpellResolution';
-  import type { RollDamageVariant } from '../actor/diceRollTypes';
   import type { SheetRowStat } from '../actor/sheetRowTypes';
 
   import { computed, ref } from 'vue';
@@ -26,44 +15,38 @@
   import { startHotbarDrag } from '@/core/utils/hotbarDrag';
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import { useChatStore } from '@/stores/chatStore';
-  import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
-  import { useTargetStore } from '@/stores/targetStore';
   import { useWorldStore } from '@/stores/worldStore';
   import { DISTANCE_UNIT_SHORT } from '@vtt/shared';
   import {
     AREA_SHAPE_LABELS,
-    collectActiveEffects,
     creatureActionHasSave,
     DEFAULT_REACH_FEET,
     describeCreatureDamageCondition,
+    findCreatureActionBlock,
     getActionDescriptionMarkdown,
-    getAttackBonusKey,
-    getAttackFlagCategory,
+    hasCreatureActionRoll,
     isDndCreature,
     listCreatureDamageAlternatives,
     listSourceDamageTypeChoices,
     readAlternativeShownParts,
+    resolveEntityActionBlocks,
     SAVE_TYPE_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
-  import { runCreatureActionChoices } from '../../composables/attackKindChoice';
-  import { resolveTargetedAttackRoll } from '../../composables/attackRollMode';
+  import { refuseAction } from '../../composables/actionRefusal';
+  import { startCreatureAction } from '../../composables/creatureActionRoll';
   import {
-    buildCreatureRollVariants,
     formatDamagePartsText,
-    launchCreatureAction,
-    runWithCreatureDamageChoice,
     summarizeDamageParts,
   } from '../../composables/creatureDamageChoice';
-  import { runWithDamageTypeChoices } from '../../composables/damageTypeChoice';
   import {
-    applyActionSelfEffects,
-    hasActionSelfEffects,
-  } from '../../composables/effectActivationUse';
-  import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
-  import { discardSpellTemplate } from '../../composables/spellResolutionShared';
-  import { useBonusDamageParts } from '../../composables/useBonusDamageParts';
-  import { useSpellResolution } from '../../composables/useSpellResolution';
+    formatDamageBonusLines,
+    formatDamageTileFormula,
+    resolveDamageStatIcon,
+  } from '../../composables/damageTypeChoice';
+  import { hasActionSelfEffects } from '../../composables/effectActivationUse';
+  import { isEntityOwnTurn } from '../../composables/encounterTurn';
+  import { listAmbientEffects } from '../../composables/useResolvedStats';
   import { useSystemDataStore } from '../../stores/systemDataStore';
   import {
     ABILITY_SHORT_LABELS,
@@ -71,15 +54,12 @@
     FILTER_ROW_CONTROL_SIZE,
     MODAL_BUTTON_LABELS,
     SHEET_ROW_MENU_LABELS,
-    SPELL_DAMAGE_ROLL_BUTTON,
   } from '../actor/constants';
-  import DiceRollModal from '../actor/DiceRollModal.vue';
   import {
     formatAttackRange,
     formatMeleeOrRangedDistances,
   } from '../actor/utils/formatAttackDistances';
   import { formatSignedNumber } from '../actor/utils/formatSignedNumber';
-  import { checkCreatureActionRangeOnScene } from './composables/useCreatureRangeCheck';
   import {
     CREATURE_ACTION_MENU_LABELS,
     CREATURE_ACTIONS_BLOCK_LABELS,
@@ -125,6 +105,12 @@
      * кнопка уезжает в общий ряд отбора, а заголовок не нужен вовсе.
      */
     showHeader?: boolean;
+    /**
+     * Раздел статблока: по нему видно, чем существо платит за запись, —
+     * реакции гаснут под «Электрошоком». Нет — трата хода не проверяется
+     * (особенности)
+     */
+    section?: CreatureActionSectionKey;
   }
 
   const props = withDefaults(defineProps<Props>(), {
@@ -137,6 +123,7 @@
     creatureName: undefined,
     search: '',
     showHeader: true,
+    section: undefined,
   });
 
   const emit = defineEmits<{
@@ -144,16 +131,43 @@
     'update:legendaryCount': [count: number];
   }>();
 
+  /** Запреты существа — одним расчётом на весь раздел; `null` — раздела нет */
+  const actionBlocks = computed(() => {
+    const creature = props.section ? getCreatureEntity() : null;
+
+    return creature
+      ? resolveEntityActionBlocks(creature, listAmbientEffects(creature.id))
+      : null;
+  });
+
+  /** Идёт ли ход существа: вне своего хода атака из «Действий» — реакция */
+  const isOwnTurn = computed(
+    () => props.creatureId === undefined || isEntityOwnTurn(props.creatureId),
+  );
+
+  /**
+   * Почему запись раздела сейчас не совершить: запрет траты либо вторая
+   * атака действием под «одной атакой за ход».
+   *
+   * @param action - запись статблока
+   * @returns причина словами либо `null`, если действие доступно
+   */
+  function blockOf(action: CreatureAction): string | null {
+    const { section } = props;
+
+    return section && actionBlocks.value
+      ? findCreatureActionBlock(
+          actionBlocks.value,
+          section,
+          action,
+          isOwnTurn.value,
+        )
+      : null;
+  }
+
   const systemDataStore = useSystemDataStore();
   const chatStore = useChatStore();
-  const targetStore = useTargetStore();
   const worldStore = useWorldStore();
-  const spellTemplateStore = useSpellTemplateStore();
-
-  const { buildCreatureRollSetup, buildTargetHpContext } =
-    useBonusDamageParts();
-
-  const { resolveSpellDamageWithParts } = useSpellResolution();
 
   /**
    * Счётчик легендарных действий за раунд: «3/раунд». Хвост встаёт сразу за
@@ -259,29 +273,38 @@
   /**
    * Сводка урона/лечения действия: формула (без токенов) и локализованные типы.
    * Единая со заклинаниями/оружием система damageParts. Плитка всегда
-   * компактна — в ней формула основного урона, а есть ли варианты (урон «или»,
-   * тип на выбор), говорит значок; сами варианты — в подсказке отдельными
-   * строками: набор и под ним условие. Так строка выглядит одинаково, как бы
-   * ни был записан выбор.
+   * компактна — в ней формула урона, который бросается всегда. Добавки по
+   * условию («+1к8, если атакующий окровавлен») и варианты (урон «или», тип на
+   * выбор) в плитку не пишутся: их может быть сколько угодно. О них говорит
+   * значок, а сами они — в подсказке отдельными строками. Так строка выглядит
+   * одинаково, как бы ни был записан урон.
    *
    * @param action - действие существа
-   * @returns формула, подпись типов и есть ли варианты; null — нет частей урона
+   * @returns формула плитки, строки подсказки и значок; null — нет частей урона
    */
   function actionDamageSummary(
     action: CreatureAction,
-  ): { formula: string; typeLabel: string; hasVariants: boolean } | null {
+  ): { formula: string; tooltip: string; icon?: string } | null {
     const base = summarizeDamageParts(
       action.damageParts ?? [],
       getDamageTypeLabel,
     );
+
+    const bonusLines = formatDamageBonusLines(base?.conditionalFormulas ?? []);
 
     const alternatives = listCreatureDamageAlternatives(action);
 
     if (alternatives.length === 0) {
       return base
         ? {
-            ...base,
-            hasVariants: listSourceDamageTypeChoices(action).length > 0,
+            formula: formatDamageTileFormula(base.baseFormula),
+            tooltip: [base.typeLabel, ...bonusLines]
+              .filter((line) => line.length > 0)
+              .join(CREATURE_DAMAGE_CHOICE_LABELS.hintSeparator),
+            icon: resolveDamageStatIcon(
+              listSourceDamageTypeChoices(action).length > 0,
+              bonusLines.length > 0,
+            ),
           }
         : null;
     }
@@ -297,73 +320,19 @@
     );
 
     return {
-      formula: base?.formula ?? CREATURE_DAMAGE_CHOICE_LABELS.noDamage,
-      typeLabel: [base?.typeLabel ?? '', ...hints]
+      formula: base
+        ? formatDamageTileFormula(base.baseFormula)
+        : CREATURE_DAMAGE_CHOICE_LABELS.noDamage,
+      tooltip: [base?.typeLabel ?? '', ...bonusLines, ...hints]
         .filter((line) => line.length > 0)
         .join(CREATURE_DAMAGE_CHOICE_LABELS.hintSeparator),
-      hasVariants: true,
+      icon: DAMAGE_VARIANTS_STAT_ICON,
     };
-  }
-
-  /**
-   * Проверяет, есть ли у действия боевые параметры (атака, урон или спасбросок)
-   * @param action - действие
-   */
-  function hasAttackParams(action: CreatureAction): boolean {
-    return !!(
-      action.attackBonus !== undefined
-      || (action.damageParts && action.damageParts.length > 0)
-      || creatureActionHasSave(action)
-    );
   }
 
   // ── Броски урона ────────────────────────────────────────────────────────
 
-  const isRollModalOpen = ref(false);
-
-  /** Контекст броска, известный на момент подстановки бонусов */
-  interface RollBonusContext {
-    hasAdvantage: boolean;
-    hasDisadvantage: boolean;
-  }
-
-  /** Настройки окна броска: заполняются перед каждым открытием */
-  interface RollConfig {
-    title: string;
-    name: string;
-    formula: string;
-    rollButtonText: string;
-    attackModifier?: number;
-    evaluateBonusRollFormulas?: RollBonusEvaluator;
-    initialRollMode: AttackRollMode;
-    /** Откуда стартовый режим атаки — показывается в окне броска */
-    rollModeReasons?: AttackRollModeReasons;
-    incomingAttackType?: 'melee' | 'ranged' | 'spell';
-    damageType?: string;
-    damageParts: SpellDamagePartInput[];
-    evaluateBonusDamageParts?: (
-      context: RollBonusContext,
-    ) => SpellDamagePartInput[];
-    onRollParts?: (parts: RolledSpellDamagePart[]) => void;
-    onHit?: () => void;
-    /** Окно закрыли, не бросив: снимает со сцены размещённый AoE-шаблон */
-    onCancel?: () => void;
-    /** Тип урона на выбор действия — окно спрашивает его */
-    damageTypeChoice?: DamageTypeChoiceRequest;
-    /** Наборы урона «или» — окно показывает поле «Урон» */
-    damageVariants?: RollDamageVariant[];
-  }
-
-  const rollConfig = ref<RollConfig>({
-    title: '',
-    name: '',
-    formula: '',
-    rollButtonText: CREATURE_ACTION_MENU_LABELS.attack,
-    initialRollMode: 'normal',
-    damageParts: [],
-  });
-
-  /** Существо-источник действий (для casterId, эффектов, @-переменных) */
+  /** Существо-источник действий (для запретов трат хода) */
   function getCreatureEntity(): DnDCreature | null {
     if (!props.creatureId) {
       return null;
@@ -381,247 +350,24 @@
     return found && isDndCreature(found) ? found : null;
   }
 
-  /** Сущности текущего мира (акторы + существа) — цели применения */
-  function getCurrentWorldEntities(): SceneEntity[] {
-    const worldId = worldStore.connectionState.currentWorldId;
-    const world = worldStore.worlds.find((entry) => entry.id === worldId);
-
-    if (!world) {
-      return [];
-    }
-
-    return [...(world.actors ?? []), ...(world.creatures ?? [])];
-  }
-
   /**
-   * Открывает модалку броска для действия. Атаки идут с броском попадания,
-   * действия со спасброском/областью — без него (цель кидает спас). Перед
-   * прямой атакой проверяется дистанция; для области сначала размещается шаблон.
+   * Совершает действие — общим путём действия существа, тем же, что у
+   * горячей панели: отказ — уведомлением, запись без броска и эффектов —
+   * карточкой в чат.
    *
    * @param sourceAction - действие существа; эффекты — до выбора варианта
    */
   function openRollModal(sourceAction: CreatureAction): void {
-    runCreatureActionChoices(sourceAction, props.creatureId, (action) => {
-      // Действие без броска только накладывает эффекты на само существо;
-      // окна броска нет — тип урона на выбор эффектов спрашивает плашка
-      if (!hasAttackParams(action)) {
-        const creatureId = props.creatureId;
-
-        if (creatureId) {
-          runWithDamageTypeChoices(action, (chosenAction) => {
-            applyActionSelfEffects(chosenAction, creatureId);
-          });
-        }
-
-        return;
-      }
-
-      const creature = getCreatureEntity();
-
-      if (!creature) {
-        return;
-      }
-
-      // Проверка дистанции — только для прямых атак (область таргетится шаблоном)
-      let isDisadvantage = false;
-
-      if (
-        !action.areaOfEffect
-        && targetStore.targetTokenId
-        && props.creatureId
-      ) {
-        const rangeCheck = checkCreatureActionRangeOnScene(
-          action,
-          props.creatureId,
-          targetStore.targetTokenId,
-        );
-
-        if (rangeCheck && !rangeCheck.allowed) {
-          chatStore.sendMessage(
-            `${CREATURE_ACTIONS_BLOCK_LABELS.outOfRangePrefix}${action.name}`
-              + `${CREATURE_ACTIONS_BLOCK_LABELS.outOfRangeMiddle}${rangeCheck.distance} ${rangeCheck.unitLabel}${
-                CREATURE_ACTIONS_BLOCK_LABELS.outOfRangeSuffix
-              }`,
-            'text',
-          );
-
-          return;
-        }
-
-        if (rangeCheck?.disadvantage) {
-          isDisadvantage = true;
-        }
-      }
-
-      // Урон «или» решается после проверки дистанции (не спрашивать о
-      // промахе мимо досягаемости): состояние и случай — сразу, выбор
-      // человека — полем «Урон» в окне броска
-      runWithCreatureDamageChoice(action, creature, (chosen, variants) =>
-        launchCreatureAction(chosen, props.creatureId, (templateId) =>
-          startActionRoll(
-            chosen,
-            creature,
-            isDisadvantage,
-            templateId,
-            variants,
-          ),
-        ),
-      );
-    });
-  }
-
-  /**
-   * Готовит и открывает DiceRollModal для действия (многочастный путь).
-   *
-   * @param action - действие существа
-   * @param creature - существо-источник
-   * @param isDisadvantage - стартовать с помехой (проверка дистанции)
-   * @param templateId - id размещённого AoE-шаблона (если действие с областью)
-   * @param variants - наборы урона «или» на выбор в окне; пусто — набор один
-   */
-  function startActionRoll(
-    action: CreatureAction,
-    creature: DnDCreature,
-    isDisadvantage: boolean,
-    templateId: string | undefined,
-    variants: readonly CreatureDamageVariant[] = [],
-  ): void {
-    const usesSaveOrArea =
-      creatureActionHasSave(action) || !!action.areaOfEffect;
-
-    const effects = collectActiveEffects(creature);
-
-    // Состояние HP цели для @target.* — только у одиночной цели (не у области)
-    const targetHp = action.areaOfEffect ? undefined : buildTargetHpContext();
-
-    const targetIsFull = targetHp
-      ? targetHp.currentHp >= targetHp.maxHp
-      : undefined;
-
-    // Эффекты действия (статус/урон со своим applySave) обрабатывает
-    // оркестратор per-target через `pseudoSpell.activeEffects` (выставлено в
-    // buildCreatureRollSetup) — единый путь со заклинаниями и оружием. У
-    // каждого набора урона «или» свои части, тип урона на выбор и применение
-    const rollVariants = buildCreatureRollVariants(
-      action,
-      variants,
-      (variantAction) =>
-        buildCreatureRollSetup({
-          action: variantAction,
-          creature,
-          effects,
-          targetIsFull,
-          targetType: targetHp?.creatureType,
-        }),
-      (chosenAction, actionSpell, parts) =>
-        applyActionParts(
-          chosenAction,
-          creature,
-          actionSpell,
-          parts,
-          templateId,
-        ),
-    );
-
-    const [primary] = rollVariants;
-
-    if (!primary) {
+    if (!props.creatureId) {
       return;
     }
 
-    const actionAttackRoll = usesSaveOrArea
-      ? undefined
-      : resolveTargetedAttackRoll(
-          creature,
-          getAttackFlagCategory(action.rangeType),
-          { forceDisadvantage: isDisadvantage },
-        );
-
-    rollConfig.value = {
-      title: usesSaveOrArea
-        ? action.name
-        : `${CREATURE_ACTIONS_BLOCK_LABELS.attackRollPrefix}${action.name}`,
-      name: action.name,
-      formula: primary.formula,
-      rollButtonText: usesSaveOrArea
-        ? SPELL_DAMAGE_ROLL_BUTTON
-        : CREATURE_ACTION_MENU_LABELS.attack,
-      attackModifier: usesSaveOrArea ? undefined : action.attackBonus,
-      evaluateBonusRollFormulas: usesSaveOrArea
-        ? undefined
-        : buildRollBonusEvaluator(
-            () => getCreatureEntity() ?? undefined,
-            getAttackBonusKey(action.rangeType),
-          ),
-      initialRollMode: actionAttackRoll?.mode ?? 'normal',
-      rollModeReasons: actionAttackRoll?.reasons,
-      incomingAttackType: getAttackFlagCategory(action.rangeType),
-      damageType: primary.damageType,
-      damageParts: primary.damageParts,
-      evaluateBonusDamageParts: primary.evaluateBonusDamageParts,
-      onRollParts: primary.onRollParts,
-      damageTypeChoice: primary.damageTypeChoice,
-      damageVariants: variants.length > 0 ? rollVariants : undefined,
-      // Сбрасываем явно: `rollConfig` переиспользуется между бросками, и без
-      // этого обработчик от ПРЕДЫДУЩЕГО броска остался бы висеть на текущем.
-      onHit: undefined,
-      // Отмена окна (крестик, Escape, конец сессии) обязана убрать шаблон: он
-      // размещается ДО броска, и без этого отменённое действие оставляло
-      // область висеть на карте до перезагрузки сцены
-      onCancel: templateId ? () => discardSpellTemplate(templateId) : undefined,
-    };
-
-    isRollModalOpen.value = true;
-  }
-
-  /**
-   * Применяет брошенные части урона действия через многочастный оркестратор:
-   * спасброски целей (одиночная цель или AoE-шаблон), защиты по типу, единый
-   * HP-апдейт и одно сообщение в чат.
-   *
-   * @param action - действие существа (источник DC спасброска)
-   * @param creature - существо-источник (casterId для self-частей)
-   * @param pseudoSpell - псевдо-заклинание действия (saveType/saveEffect/эффекты)
-   * @param parts - брошенные части урона
-   * @param templateId - id размещённого AoE-шаблона (если был)
-   */
-  function applyActionParts(
-    action: CreatureAction,
-    creature: DnDCreature,
-    pseudoSpell: Spell,
-    parts: RolledSpellDamagePart[],
-    templateId: string | undefined,
-  ): void {
-    const actors = getCurrentWorldEntities();
-    const socket = chatStore.getSocket();
-
-    let cachedTemplate: MeasurementTemplate | null = null;
-
-    if (templateId) {
-      cachedTemplate = spellTemplateStore.getPlacedTemplate(templateId) ?? null;
-      spellTemplateStore.removePlacedTemplate(templateId);
-    }
-
-    if (actors.length > 0 && socket) {
-      void resolveSpellDamageWithParts(
-        {
-          spell: pseudoSpell,
-          damageTotal: 0,
-          spellSaveDC: action.saveDC ?? 10,
-          actors,
-          socket,
-          casterId: creature.id,
-        },
-        parts,
-        { scene: worldStore.currentScene, cachedTemplate },
-      );
-    }
-
-    if (templateId) {
-      spellTemplateStore.deleteTemplate(templateId);
-    }
-
-    applyActionSelfEffects(action, creature.id);
+    startCreatureAction(sourceAction, {
+      creatureId: props.creatureId,
+      section: props.section,
+      refuse: refuseAction,
+      announce: shareActionToChat,
+    });
   }
 
   /**
@@ -642,21 +388,46 @@
   }
 
   /**
-   * Можно ли запустить бросок действия прямо из строки (есть боевые параметры,
-   * не компендиум, известно существо-источник).
+   * Можно ли совершить запись прямо из строки: не компендиум, известно
+   * существо-источник, и есть что делать — бросок, эффекты на себя или трата
+   * хода раздела статблока. Последнее даёт кнопку и записи без броска
+   * («Ловкий побег»): иначе её бонусное действие не отметить, и «Замедление»
+   * пропустило бы после неё удар.
+   *
    * @param action - действие существа
+   * @returns `true`, если запись можно совершить
    */
   function canUseAction(action: CreatureAction): boolean {
     return (
       !props.isReadOnly
       && !!props.creatureId
-      && (hasAttackParams(action) || hasActionSelfEffects(action))
+      && (hasCreatureActionRoll(action)
+        || hasActionSelfEffects(action)
+        || props.section !== undefined)
     );
+  }
+
+  /**
+   * Подпись применения записи: «Атаковать» — только у атаки; спасбросок и
+   * запись без броска «Используют».
+   *
+   * @param action - действие существа
+   * @returns подпись кнопки или пункта меню
+   */
+  function getUseLabel(action: CreatureAction): string {
+    return hasCreatureActionRoll(action) && !creatureActionHasSave(action)
+      ? CREATURE_ACTION_MENU_LABELS.attack
+      : CREATURE_ACTION_MENU_LABELS.use;
   }
 
   /** Показывать ли кнопку «Атаковать» в модалке просмотра действия */
   const canAttackFromDetail = computed(
     () => !!detailAction.value && canUseAction(detailAction.value),
+  );
+
+  /** Подпись кнопки применения в модалке просмотра */
+  const detailUseLabel = computed(() =>
+    detailAction.value ? getUseLabel(detailAction.value) : undefined,
   );
 
   /**
@@ -821,10 +592,10 @@
         key: 'damage',
         label: CREATURE_ROW_STAT_LABELS.damage,
         value: damage.formula,
-        tooltip: damage.typeLabel,
+        tooltip: damage.tooltip,
         accent: true,
         rollable,
-        icon: damage.hasVariants ? DAMAGE_VARIANTS_STAT_ICON : undefined,
+        icon: damage.icon,
       });
     }
 
@@ -851,9 +622,7 @@
     if (canUseAction(action)) {
       groups.push([
         {
-          label: creatureActionHasSave(action)
-            ? CREATURE_ACTION_MENU_LABELS.use
-            : CREATURE_ACTION_MENU_LABELS.attack,
+          label: getUseLabel(action),
           icon: 'tabler:swords',
           onSelect: () => openRollModal(action),
         },
@@ -923,6 +692,7 @@
         menuItems: getActionMenuItems(action, index),
         canUse: canUseAction(action),
         canDrag: !props.isEditMode && !!props.creatureId,
+        blockedReason: blockOf(action),
       }));
   });
 
@@ -1033,6 +803,7 @@
           :menu-items="row.menuItems"
           :can-use="row.canUse"
           :can-drag="row.canDrag"
+          :blocked-reason="row.blockedReason"
           @open="handleActionClick(row.action, row.index)"
           @use="openRollModal(row.action)"
           @dragstart="handleDragStart($event, row.action)"
@@ -1049,34 +820,13 @@
       @save="handleActionSave"
     />
 
-    <DiceRollModal
-      v-model:open="isRollModalOpen"
-      :formula="rollConfig.formula"
-      :title="rollConfig.title"
-      :roll-label="rollConfig.name"
-      :attack-modifier="rollConfig.attackModifier"
-      :evaluate-bonus-roll-formulas="rollConfig.evaluateBonusRollFormulas"
-      :initial-roll-mode="rollConfig.initialRollMode"
-      :roll-mode-reasons="rollConfig.rollModeReasons"
-      :incoming-attack-type="rollConfig.incomingAttackType"
-      :damage-type="rollConfig.damageType"
-      :roll-button-text="rollConfig.rollButtonText"
-      :damage-parts="rollConfig.damageParts"
-      :evaluate-bonus-damage-parts="rollConfig.evaluateBonusDamageParts"
-      :on-roll-parts="rollConfig.onRollParts"
-      :on-hit="rollConfig.onHit"
-      :on-cancel="rollConfig.onCancel"
-      :damage-type-choice="rollConfig.damageTypeChoice"
-      :damage-variants="rollConfig.damageVariants"
-      :attacker-id="creatureId"
-    />
-
     <!-- Модалка просмотра действия -->
     <CreatureActionDetailModal
       v-model:open="isDetailOpen"
       :action="detailAction ?? null"
       :mode="mode"
       :show-attack-button="canAttackFromDetail"
+      :attack-button-label="detailUseLabel"
       @attack="handleDetailAttack"
     />
   </div>

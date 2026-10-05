@@ -20,7 +20,9 @@ export const fixture = reactive({
 });
 export const worldStore = {
   connectionState: { loggedAsUserId: 'player' },
-  get currentWorld() { return { actors: fixture.entities, creatures: [] }; },
+  get currentWorld() {
+    return { actors: fixture.entities, creatures: [], users: [{ id: 'player', role: 'player' }] };
+  },
 };
 export const diceStore = { parseAndRoll(formula) {
   fixture.formulas.push(formula);
@@ -28,7 +30,10 @@ export const diceStore = { parseAndRoll(formula) {
   if (!result) throw new Error('Unexpected dice roll');
   return { ...result, formula };
 } };
-export const chatStore = { sendMessage: (...message) => fixture.messages.push(message) };
+export const chatStore = {
+  sendMessage: (...message) => fixture.messages.push(message),
+  getSocket: () => null,
+};
 export const modalManager = { openModal(component, props) {
   fixture.prompts.push({ component, props }); return 'save-modal';
 }, closeModal() {} };
@@ -119,6 +124,8 @@ const bundle = await build({
               'import { modalManager } from "test:host"; export const useModalManager = () => modalManager;',
             '@/stores/initiativeStore':
               'export const useInitiativeStore = () => ({ encounter: null });',
+            '@/stores/targetStore':
+              'export const useTargetStore = () => ({ getTargetActor: () => null });',
             '@/stores/spellTemplateStore':
               'export const useSpellTemplateStore = () => ({});',
             '@/stores/projectileStore':
@@ -126,7 +133,7 @@ const bundle = await build({
             '@/stores/auraStore':
               'import { fixture } from "test:host"; export const useAuraStore = () => ({ getAmbientEffectsForActor: () => fixture.ambient });',
             '@/core/entityUtils':
-              'export const collectWorldEntities = world => world?.actors ?? []; export const findEntityInWorld = (world, id) => world?.actors.find(entity => entity.id === id);',
+              'export const emitEntityUpdate = () => {}; export const emitEntityCombatState = () => {}; export const collectWorldEntities = world => world?.actors ?? []; export const findEntityInWorld = (world, id) => world?.actors.find(entity => entity.id === id);',
           };
 
           if (!(request.path in modules)) {
@@ -613,4 +620,88 @@ it('server area entry saves receive Bless and keep advantage dice separate from 
     ],
     [18, 23, true],
   );
+});
+
+it('провал владелец может превратить в успех за «Легендарное сопротивление» — до ответа', async () => {
+  const creature = createEntity('creature', { activeEffects: [] });
+
+  creature.system.traits = [
+    {
+      name: 'Легендарное сопротивление',
+      description: [],
+      saveSuccessPerDay: 3,
+    },
+  ];
+
+  runtime.fixture.rolls.push(rolled(5, [3], [], []));
+
+  const pending = runtime.useSpellSavingThrows().resolveSavingThrowForTarget({
+    entity: creature,
+    ability: 'wisdom',
+    dc: 16,
+  });
+
+  await Promise.resolve();
+
+  const prompt = runtime.fixture.prompts.at(-1);
+
+  assert.equal(prompt.component, 'EffectQuestionPromptModal');
+  // Остаток — в вопросе; кнопок две, и крестика нет: отказ уже среди них
+  assert.match(prompt.props.question, /осталось 3/);
+
+  assert.deepEqual(
+    prompt.props.options.map((option) => option.label),
+    ['Преуспеть', 'Оставить провал'],
+  );
+
+  assert.equal(prompt.props.hideCancel, true);
+
+  prompt.props.onAnswer('accept');
+
+  assert.equal((await pending).passed, true);
+
+  assert.match(
+    runtime.fixture.messages.at(-1)[0],
+    /Легендарное сопротивление — провал спасброска становится успехом \(осталось 2\)/,
+  );
+});
+
+it('отказ оставляет провал, а успешный бросок вопроса не вызывает', async () => {
+  const creature = createEntity('creature', { activeEffects: [] });
+
+  creature.system.traits = [
+    {
+      name: 'Легендарное сопротивление',
+      description: [],
+      saveSuccessPerDay: 1,
+    },
+  ];
+
+  runtime.fixture.rolls.push(rolled(5, [3], [], []));
+
+  const failed = runtime.useSpellSavingThrows().resolveSavingThrowForTarget({
+    entity: creature,
+    ability: 'wisdom',
+    dc: 16,
+  });
+
+  await Promise.resolve();
+  runtime.fixture.prompts.at(-1).props.onAnswer('decline');
+
+  assert.equal((await failed).passed, false);
+
+  const promptsBefore = runtime.fixture.prompts.length;
+
+  runtime.fixture.rolls.push(rolled(20, [18], [], []));
+
+  const passed = await runtime
+    .useSpellSavingThrows()
+    .resolveSavingThrowForTarget({
+      entity: creature,
+      ability: 'wisdom',
+      dc: 16,
+    });
+
+  assert.equal(passed.passed, true);
+  assert.equal(runtime.fixture.prompts.length, promptsBefore);
 });

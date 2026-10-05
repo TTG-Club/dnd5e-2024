@@ -29,6 +29,9 @@ import {
 
 import { useSystemDataStore } from '../stores/systemDataStore';
 import {
+  DAMAGE_BONUS_LINE_PREFIX,
+  DAMAGE_BONUS_STAT_ICON,
+  DAMAGE_NO_CONSTANT_LABEL,
   DAMAGE_PART_LABELS,
   DAMAGE_VARIANTS_STAT_ICON,
   SHEET_ROW_TOOLTIP_LINE_BREAK,
@@ -79,27 +82,91 @@ function describeSourceDamageTypeChoices(
 }
 
 /**
- * Подсказка и значок плитки урона источника с типом на выбор: в плитке
- * формула одна, есть ли выбор — говорит значок, а сами варианты — строки
- * подсказки после основной.
+ * Строки подсказки плитки урона о добавках по условию: «+ 1к8 (атакующий:
+ * Окровавленный)». В самой плитке их нет — там урон, который бросается всегда.
+ *
+ * @param conditionalFormulas - добавки по условию с пометкой условия
+ * @returns строки подсказки
+ */
+export function formatDamageBonusLines(
+  conditionalFormulas: readonly string[],
+): string[] {
+  return conditionalFormulas.map(
+    (formula) => `${DAMAGE_BONUS_LINE_PREFIX}${formula}`,
+  );
+}
+
+/**
+ * Текст плитки урона: урон, который бросается всегда, вместе со статической
+ * прибавкой. У набора целиком под условием постоянных костей нет: тогда в
+ * плитке одна прибавка («+3»), а без неё — короткая заглушка. Полный текст
+ * добавок в плитку не идёт никогда: «2к10 (цель: Исчадие) + 2к10 (цель:
+ * Нежить)» выдавливал название из строки — добавки читают в подсказке.
+ *
+ * @param baseFormula - постоянная часть урона; пусто — её нет
+ * @param modifier - статическая прибавка (характеристика, магический бонус)
+ * @returns текст плитки
+ */
+export function formatDamageTileFormula(
+  baseFormula: string,
+  modifier = 0,
+): string {
+  const signed = modifier > 0 ? `+${modifier}` : `${modifier}`;
+
+  if (baseFormula.length === 0) {
+    return modifier === 0 ? DAMAGE_NO_CONSTANT_LABEL : signed;
+  }
+
+  return modifier === 0 ? baseFormula : `${baseFormula}${signed}`;
+}
+
+/**
+ * Значок плитки урона. Место под значок одно: выбор (урон «или», тип на выбор)
+ * важнее добавки — без него бросок не начать, а добавка придёт сама.
+ *
+ * @param hasVariants - у урона есть выбор
+ * @param hasBonus - у урона есть добавка по условию
+ * @returns значок либо `undefined`, если в плитке сказано всё
+ */
+export function resolveDamageStatIcon(
+  hasVariants: boolean,
+  hasBonus: boolean,
+): string | undefined {
+  if (hasVariants) {
+    return DAMAGE_VARIANTS_STAT_ICON;
+  }
+
+  return hasBonus ? DAMAGE_BONUS_STAT_ICON : undefined;
+}
+
+/**
+ * Подсказка и значок плитки урона источника: в плитке формула одна — урон,
+ * который бросается всегда. Есть ли добавки по условию и тип на выбор, говорит
+ * значок, а сами они — строки подсказки после основной.
  *
  * @param source - заклинание, оружие или действие
  * @param baseTooltip - основная подсказка плитки
  * @param getTypeLabel - название типа урона по ключу
+ * @param conditionalFormulas - добавки по условию; нет — пусто
  * @returns подсказка и значок для плитки урона
  */
 export function describeDamageVariantsStat(
   source: DamageTypeChoiceSource,
   baseTooltip: string,
   getTypeLabel: (typeKey: string) => string,
+  conditionalFormulas: readonly string[] = [],
 ): Pick<SheetRowStat, 'tooltip' | 'icon'> {
   const typeChoiceLines = describeSourceDamageTypeChoices(source, getTypeLabel);
+  const bonusLines = formatDamageBonusLines(conditionalFormulas);
 
   return {
-    tooltip: [baseTooltip, ...typeChoiceLines].join(
+    tooltip: [baseTooltip, ...bonusLines, ...typeChoiceLines].join(
       SHEET_ROW_TOOLTIP_LINE_BREAK,
     ),
-    icon: typeChoiceLines.length > 0 ? DAMAGE_VARIANTS_STAT_ICON : undefined,
+    icon: resolveDamageStatIcon(
+      typeChoiceLines.length > 0,
+      bonusLines.length > 0,
+    ),
   };
 }
 

@@ -10,6 +10,7 @@
 import type {
   AttackKind,
   CreatureAction,
+  CreatureActionSectionKey,
   CreatureRecharge,
   CreatureSpellGroup,
   CreatureSpellRestKind,
@@ -33,9 +34,19 @@ export const CREATURE_PROFICIENCY_RULE_TITLE = 'По опасности';
 /** Подсказка плитки скорости, когда существо не двигается вовсе */
 export const CREATURE_MOVEMENT_EMPTY = 'Существо не двигается';
 
+/** Заголовок плашки, когда запись раздела сейчас не совершить */
+export const CREATURE_ACTION_BLOCKED_TITLE = 'Сейчас не совершить';
+
+/**
+ * Причина отказа, когда существа нет в текущем мире: лист открыт из другого
+ * мира или существо удалили, — бросать некому, и молча ничего не делать
+ * нельзя
+ */
+export const CREATURE_ACTION_MISSING_REASON =
+  'Существа нет в текущем мире — действие не совершить.';
+
 /** Раздел вкладки «Действия»: свой список внутри одной сущности */
-export type CreatureActionSectionKey =
-  'actions' | 'bonusActions' | 'reactions' | 'legendary';
+export type { CreatureActionSectionKey };
 
 /** Раздел вкладки «Действия»: заголовок списка и подпись чипа отбора */
 export interface CreatureActionSection {
@@ -491,10 +502,6 @@ export const CREATURE_ENVIRONMENTS_LABELS = {
 export const CREATURE_ACTIONS_BLOCK_LABELS = {
   /** Заголовок броска атаки — дальше идёт название записи */
   attackRollPrefix: 'Атака — ',
-  /** Сообщение о недосягаемой цели: значок, название и разбор расстояния */
-  outOfRangePrefix: '⛔ ',
-  outOfRangeMiddle: ': цель вне досягаемости (',
-  outOfRangeSuffix: ')',
   /** Приписка досягаемости в подписи под названием */
   reachPrefix: ', досягаемость ',
   /** Хвост счётчика легендарных действий — перед ним идёт их число за раунд */
@@ -712,6 +719,12 @@ export const CREATURE_ACTION_FORM_LABELS = {
   recharge: 'Перезарядка',
   /** Выбор «перезарядки нет»: запись доступна без ограничений */
   rechargeNone: 'Без перезарядки',
+  saveSuccessPerDay: 'Провал спасброска → успех, раз в день',
+  saveSuccessPerDayPlaceholder: 'Нет',
+  saveSuccessPerDayHint:
+    '«Легендарное сопротивление (3/день)»: провалив спасбросок, существо '
+    + 'может преуспеть — ведущий решает в окне после броска. Счёт '
+    + 'восстанавливает долгий отдых.',
   rangeTypeMelee: 'Ближний бой',
   rangeTypeRanged: 'Дальний бой',
   rangeTypeMeleeOrRanged: 'Рукопашная или дальнобойная',

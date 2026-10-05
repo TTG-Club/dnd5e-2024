@@ -28,7 +28,7 @@ import {
   isEffectDormant,
   listLiveEffects,
 } from './activeEffectTypes.js';
-import { bindClassLevels } from './classEffectScope.js';
+import { bindOwnerTokens } from './classEffectScope.js';
 import { INCAPACITATED_CONDITION_KEY } from './conditionKeys.js';
 import { resolveEffectConditionKey } from './conditionTemplates.js';
 import {
@@ -36,6 +36,8 @@ import {
   itemEffectsActive,
   resolveChangeValue,
 } from './effectPipeline.js';
+import { listEffectSaveDcs } from './effectSaveDc.js';
+import { buildOwnerSaveDcContext } from './effectSaveDcOwner.js';
 import {
   hasPresenceTriggers,
   upgradeStaySaveEffect,
@@ -45,7 +47,7 @@ import {
   areaTargetRelation,
 } from './effectTriggerTypes.js';
 import { isDndSceneEntity } from './entityGuards.js';
-import { buildFormulaContext } from './formulaParser.js';
+import { buildResolvedFormulaContext } from './resolvedFormulaContext.js';
 import {
   bindSourceEffectFormulas,
   effectUsesSourceFormulas,
@@ -82,8 +84,8 @@ export interface AuraSourceToken {
  * @returns союзник, враг или нейтральный
  */
 export function getRelativeDisposition(
-  source: Token,
-  target: Token,
+  source: Pick<Token, 'disposition'>,
+  target: Pick<Token, 'disposition'>,
 ): TokenDisposition {
   const sourceDisposition = source.disposition ?? 'neutral';
   const targetDisposition = target.disposition ?? 'neutral';
@@ -159,7 +161,7 @@ export function collectAllAuraEffects(entity: DnDSceneEntity): ActiveEffect[] {
 
   // Уровень класса подставляется по ИСТОЧНИКУ ауры: аура умения класса несёт
   // уровень того, кто её излучает, а не того, кто в неё попал
-  const classBound = bindClassLevels(
+  const classBound = bindOwnerTokens(
     // Старая аура «пока внутри» со спасброском срабатывает на входе: иначе она
     // ложилась бы на каждого в радиусе без броска
     allEffects.map(upgradeStaySaveEffect),
@@ -173,8 +175,12 @@ export function collectAllAuraEffects(entity: DnDSceneEntity): ActiveEffect[] {
   }
 
   // Так же и прочие числа источника: «Аура защиты» даёт союзникам модификатор
-  // Харизмы паладина, а пайплайн получателя прочёл бы в `@mod.cha` свою
-  const sourceContext = buildFormulaContext(entity);
+  // Харизмы паладина, а пайплайн получателя прочёл бы в `@mod.cha` свою; Сл
+  // ауры формулой — Сл носителя («@spellDc»)
+  const sourceContext = buildOwnerSaveDcContext(
+    entity,
+    shaped.flatMap(listEffectSaveDcs).map((save) => save.dcFormula),
+  );
 
   return shaped.map((effect) =>
     bindSourceEffectFormulas(effect, sourceContext),
@@ -199,7 +205,10 @@ function shapeEntityAuras(
   const incapacitated = needsStats && isEntityIncapacitated(entity);
 
   const needsFormulas = auras.some((effect) => effect.aura?.radiusFormula);
-  const formulaContext = needsFormulas ? buildFormulaContext(entity) : null;
+
+  const formulaContext = needsFormulas
+    ? buildResolvedFormulaContext(entity)
+    : null;
 
   return auras.flatMap((effect) => {
     const { aura } = effect;

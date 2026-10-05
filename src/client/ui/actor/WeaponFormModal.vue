@@ -17,7 +17,7 @@
     CURRENCY_OPTIONS,
     describeWeaponAttack,
     describeWeaponDamage,
-    formatWeaponDamageFormula,
+    describeWeaponDamageDisplay,
     getActorAbilityModifiers,
     getEntityProficiencyBonus,
     isThrowableMeleeWeapon,
@@ -26,6 +26,7 @@
     withWeaponAttackKind,
   } from '@vtt/shared/system/dnd.js';
 
+  import { formatDamageTileFormula } from '../../composables/damageTypeChoice';
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import {
     DAMAGE_ABILITY_INHERIT,
@@ -240,14 +241,11 @@
 
   /** Итог урона: кости оружия и статическая прибавка (как в строке листа) */
   const damageTotalLabel = computed(() => {
-    const base = formatWeaponDamageFormula(draftWeapon.value);
-    const modifier = sumWeaponModifierParts(damageModifierParts.value);
-
-    if (modifier === 0) {
-      return base;
-    }
-
-    return `${base}${modifier > 0 ? '+' : ''}${modifier}`;
+    // Добавки по условию в итог не идут: он повторяет плитку строки листа
+    return formatDamageTileFormula(
+      describeWeaponDamageDisplay(draftWeapon.value).baseFormula,
+      sumWeaponModifierParts(damageModifierParts.value),
+    );
   });
 
   /** Расшифровка атаки одной строкой */

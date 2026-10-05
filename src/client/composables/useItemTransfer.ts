@@ -15,13 +15,13 @@
 import type { SceneEntity, TypedWebSocketClient } from '@vtt/shared';
 import type { DnDGameItem } from '@vtt/shared/system/dnd.js';
 
-import { emitEntityUpdate } from '@/core/entityUtils';
 import { useHotbarStore } from '@/stores/hotbarStore';
 import { useWorldStore } from '@/stores/worldStore';
 import { isEntityOwner, isRecord } from '@vtt/shared';
-import { transferItem } from '@vtt/shared/system/dnd.js';
+import { cloneEntityData, transferItem } from '@vtt/shared/system/dnd.js';
 
 import { GAME_ITEM_TRANSFER_MIME } from '../ui/actor/constants';
+import { changeEntitySheet } from './entitySheetWrite';
 import { useWorldEntities } from './useWorldEntities';
 
 /**
@@ -76,6 +76,18 @@ function readTransferPayload(event: DragEvent): ItemTransferPayload | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * Несёт ли событие передачу предмета с другого листа. Листу, который жест
+ * сейчас не принимает (режим правки), этого хватает, чтобы сказать причину,
+ * не трогая отправителя.
+ *
+ * @param event - событие drop
+ * @returns `true`, если нагрузка — передача предмета
+ */
+export function isItemTransferDrop(event: DragEvent): boolean {
+  return readTransferPayload(event) !== null;
 }
 
 /** Что лист получил вместе с предметом */
@@ -176,15 +188,16 @@ export function useItemTransfer() {
 
     // Полной заменой записи, как это делает и ядро при переносе между токенами:
     // узкий боевой канал несёт только хиты и эффекты, инвентарь в него не
-    // входит. Событие по типу сущности разводит ядро — своей развилки не держим.
+    // входит. Отправитель перечитывается, меняется только его инвентарь.
     //
     // Глубокая копия: записи живут в сторе хоста (reactive-прокси), и
     // поверхностная оставила бы прокси во вложенных полях
-    const cleanSource: SceneEntity = JSON.parse(
-      JSON.stringify(transfer.source),
-    );
+    const sourceEquipment = cloneEntityData(transfer.source.equipment);
 
-    emitEntityUpdate(socket, cleanSource);
+    changeEntitySheet(source.id, (current) => ({
+      ...current,
+      equipment: sourceEquipment,
+    }));
 
     // Кнопка отданного предмета на панели быстрого доступа снимается: у
     // получателя копия заводится с новым идентификатором, и прежняя кнопка

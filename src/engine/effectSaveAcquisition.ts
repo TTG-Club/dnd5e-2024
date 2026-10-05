@@ -32,6 +32,11 @@ import {
   collectBonusRollFormulas,
   resolveActorStats,
 } from './effectPipeline.js';
+import { findSaveOverride } from './saveOverride.js';
+import {
+  resolveSaveSourceAdjustments,
+  withExtraFlags,
+} from './saveSourceConditions.js';
 import {
   formatSavingThrowRequestTitle,
   isRollRequestAnswered,
@@ -119,7 +124,12 @@ export function formatEffectRequesterLabel(effectName: string): string {
  *
  * Спрашиваем, когда ядро умеет доставить запрос и сущность не бросает сама
  * («Авто-спасброски» выключены — по умолчанию у персонажей). Существо ГМа с
- * включёнными авто-спасбросками бросает на сервере, как раньше.
+ * включёнными авто-спасбросками бросает на сервере, как раньше, — кроме
+ * существа, которому есть чем превратить провал в успех («Легендарное
+ * сопротивление»): решает владелец, поэтому бросок уходит ему запросом (без
+ * управляющих в сети ядро отдаёт его ведущему). Его клиент бросает сам, как
+ * при авто-спасбросках, и спрашивает «преуспеть вместо провала?» только при
+ * провале (`answerWithSaveOverride`).
  *
  * @param entity - сущность, которая бросает
  * @param requestRoll - запрос броска от ядра, если он есть
@@ -129,7 +139,10 @@ export function shouldRequestEffectSave(
   entity: DnDSceneEntity,
   requestRoll: ServerRollRequester | undefined,
 ): requestRoll is ServerRollRequester {
-  return requestRoll !== undefined && !resolveAutoSaves(entity);
+  return (
+    requestRoll !== undefined
+    && (!resolveAutoSaves(entity) || findSaveOverride(entity) !== null)
+  );
 }
 
 /**
@@ -145,9 +158,17 @@ function buildEffectSaveFallbackFormula(
   spec: EffectSaveSpec,
 ): string | undefined {
   const stats = resolveActorStats(entity);
+  const context = buildEffectSavingThrowContext(entity);
+
+  const sourceAdjustments = resolveSaveSourceAdjustments(
+    context.effects,
+    spec.ability,
+    spec,
+    context.formulaContext,
+  );
 
   const rollMode = resolveSavingThrowRollMode({
-    flags: stats.activeFlags,
+    flags: withExtraFlags(stats.activeFlags, sourceAdjustments.flags),
     ability: spec.ability,
     againstMagic: spec.againstMagic,
     againstSpell: spec.againstSpell,
@@ -156,10 +177,9 @@ function buildEffectSaveFallbackFormula(
     againstConcentration: spec.againstConcentration,
   });
 
-  const context = buildEffectSavingThrowContext(entity);
-
   const formula = buildAttackFormula(
-    resolveSavingThrowModifier(stats, spec.ability, spec),
+    resolveSavingThrowModifier(stats, spec.ability, spec)
+      + sourceAdjustments.bonus,
     rollMode,
     listSavingThrowBonusKeys(spec.ability, spec).flatMap((bonusKey) =>
       collectBonusRollFormulas(
@@ -202,6 +222,9 @@ export function buildEffectSaveRollRequest(
     ...(spec.mode ? { mode: spec.mode } : {}),
     ...(spec.allowWilling ? { allowWilling: true } : {}),
     sourceName: spec.effectName,
+    ...(spec.sourceCreatureType
+      ? { sourceCreatureType: spec.sourceCreatureType }
+      : {}),
   };
 
   return {

@@ -16,12 +16,13 @@
 import type { AbilityType, RollRequestOutcome, SceneEntity } from '@vtt/shared';
 
 import type { ConditionRef } from './conditionKeys.js';
+import type { CreatureCategory } from './creatureTypes.js';
 
 import { z } from 'zod';
 
 import { isCreatureEntity } from '@vtt/shared';
 
-import { isAbilityType } from './consts.js';
+import { isAbilityType, isCreatureCategory } from './consts.js';
 import { EFFECT_TRIGGER_SAVE_MODES } from './effectTriggerTypes.js';
 import { SAVE_TYPE_LABELS } from './spellTypes.js';
 
@@ -170,6 +171,24 @@ export const savingThrowRequestPayloadSchema = z.object({
   allowWilling: z.boolean().optional(),
   /** Чем бьют — «Огненный шар», «Укус»: уходит в заголовок окна у адресата */
   sourceName: z.string().optional(),
+  /**
+   * Тип того, кто вызвал спасбросок: у адресата включает эффекты с условием
+   * `source.creatureType` («Защита от зла и добра»)
+   */
+  sourceCreatureType: z
+    .custom<CreatureCategory>(isCreatureCategory)
+    .optional()
+    .catch(undefined),
+  /**
+   * Школа заклинания, вызвавшего спасбросок: у адресата включает эффекты с
+   * условием `source.spellSchool`
+   */
+  sourceSpellSchool: z.string().optional().catch(undefined),
+  /**
+   * Типы урона того, что вызвало спасбросок: у адресата включают эффекты с
+   * условием `source.damageType`
+   */
+  sourceDamageTypes: z.array(z.string()).optional().catch(undefined),
 });
 
 /** Нагрузка запроса спасброска (форма — `savingThrowRequestPayloadSchema`) */

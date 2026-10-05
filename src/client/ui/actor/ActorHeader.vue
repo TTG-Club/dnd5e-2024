@@ -30,6 +30,7 @@
     CREATURE_SIZE_LABELS,
     CREATURE_TYPE_LABELS,
     EDIT_MODE_TOGGLE_TITLE,
+    HEADER_ROUND_BUTTON_CLASS,
     MISSING_SHEET_SECTIONS,
     MODAL_BUTTON_LABELS,
     NAME_EDIT_LABELS,
@@ -793,7 +794,7 @@
       <!-- Settings Button -->
       <button
         v-if="canEdit && !isCreating"
-        class="flex h-8 w-8 items-center justify-center rounded-full border border-default/50 bg-elevated/30 text-muted transition-colors hover:bg-accented/50 hover:text-highlighted"
+        :class="HEADER_ROUND_BUTTON_CLASS"
         :title="ACTOR_HEADER_LABELS.tokenSettings"
         @click.left.exact.prevent="emit('open-settings')"
       >
@@ -805,7 +806,7 @@
 
       <!-- Minimize Button -->
       <button
-        class="flex h-8 w-8 items-center justify-center rounded-full border border-default/50 bg-elevated/30 text-muted transition-colors hover:bg-accented/50 hover:text-highlighted"
+        :class="HEADER_ROUND_BUTTON_CLASS"
         :title="MODAL_BUTTON_LABELS.minimize"
         @click.left.exact.prevent="emit('minimize')"
       >
@@ -817,7 +818,7 @@
 
       <!-- Close Button -->
       <button
-        class="flex h-8 w-8 items-center justify-center rounded-full border border-default/50 bg-elevated/30 text-muted transition-colors hover:bg-accented/50 hover:text-highlighted"
+        :class="HEADER_ROUND_BUTTON_CLASS"
         :title="MODAL_BUTTON_LABELS.close"
         @click.left.exact.prevent="emit('close')"
       >

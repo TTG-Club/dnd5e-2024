@@ -32,25 +32,24 @@
     DnDSceneEntity,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { EscapeHelpOffer } from '../../composables/effectEscapeAction';
+
   import { useToast } from '@nuxt/ui/composables';
   import { computed, ref } from 'vue';
 
-  import { emitEntityCombatState } from '@/core/entityUtils';
   import { startHotbarDrag } from '@/core/utils/hotbarDrag';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useItemsStore } from '@/stores/itemsStore';
   import { getActiveSocket } from '@/system-runtime/activeSocket';
   import {
     advanceEffectStage,
-    buildEffectGroupUseSpell,
     buildRuntimeConditionRecord,
     canAdvanceEffectStage,
     canPayActivation,
     collectEffectToggleGroup,
     collectEffectUseGroup,
-    describeEscapeUnavailable,
-    dnd5eSystemInstance,
     effectVariantGroupName,
+    formatActionCostBlock,
     formatEffectEscapeLabel,
     formatEffectStageLabel,
     hasEffectActiveAction,
@@ -58,19 +57,25 @@
     isToggleActivatedEffect,
     isUseActivatedEffect,
     listCarriedEffectEntries,
+    listEffectActiveActions,
     listSelectableConditions,
-    payActivation,
-    resolveActorStats,
-    runEffectActiveAction,
+    resolveActionCostBlock,
   } from '@vtt/shared/system/dnd.js';
 
-  import { applyEffectSource } from '../../composables/effectActivationUse';
-  import { runEffectEscape } from '../../composables/effectEscapeAction';
+  import { applyEntityEffectUse } from '../../composables/effectActivationUse';
+  import { runEntityEffectAction } from '../../composables/effectActiveAction';
+  import {
+    listEscapeHelpOffers,
+    runEffectEscape,
+    runEscapeAs,
+  } from '../../composables/effectEscapeAction';
   import { toggleEntityEffect } from '../../composables/effectToggle';
-  import { resolveCombatRound } from '../../composables/encounterTurn';
-  import { requestEndCasts } from '../../composables/spellCasts';
+  import { endEntityConcentration } from '../../composables/spellCasts';
   import { useActiveEffectModal } from '../../composables/useActiveEffectModal';
-  import { useEntityActiveEffects } from '../../composables/useEntityActiveEffects';
+  import {
+    removeEntityCondition,
+    useEntityActiveEffects,
+  } from '../../composables/useEntityActiveEffects';
   import {
     DND_MACRO_TYPES,
     EFFECT_USE_MACRO_ICON,
@@ -85,6 +90,7 @@
     EFFECT_STAGE_LABELS,
     EFFECT_USE_LABELS,
   } from '../effect/constants';
+  import { EFFECT_ESCAPE_HELP_LABELS } from '../effect/escapeLabels';
   import { formatActiveActionLabel } from '../effect/utils/activeActionLabel';
   import {
     ACTIVE_EFFECT_DEFAULTS,
@@ -129,25 +135,24 @@
     /** Новый список эффектов сущности */
     'update:effects': [effects: ActiveEffect[]];
     /** Ресурсы после оплаты применения или включения */
-    'update:counters': [counters: ActorCounterState[]];
   }>();
 
   const effectsRef = computed(() => props.effects);
 
   /**
    * Прерывает концентрацию: сервер закончит каст метки у всех существ и снимет
-   * его зону. Сама метка уходит тем же исходом.
+   * его зону. Правку листа проверяет общий вход, как у остальных кнопок
+   * действий вкладки: кнопка не гаснет, а объясняет отказ.
    *
    * @param effect - метка концентрации
    */
   function endConcentration(effect: ActiveEffect): void {
-    if (effect.concentration && effect.castId && effect.sourceActorId) {
-      requestEndCasts(effect.sourceActorId, [effect.castId]);
-    }
+    endEntityConcentration(props.owner?.id, effect);
   }
 
   const {
     customEffects,
+    conditionEscapeEffects,
     isConditionActive,
     toggleCondition,
     saveEffect,
@@ -161,41 +166,18 @@
   const toast = useToast();
 
   /**
-   * Недоступна ли кнопка «Применить»: правка листа, нет владельца или ресурса.
+   * Недоступна ли кнопка «Применить»: нет владельца или ресурса.
+   *
+   * Режим правки кнопки действий не гасит («Применить», «Вырваться», «При
+   * действии»): погашенная кнопка причины не говорит. Щелчок доходит до
+   * общего входа действия, и тот отказывает с объяснением
+   * (`refuseWhileSheetEditing`) — как каст и удар с листа в правке.
    *
    * @param effect - эффект с применением
    * @returns `true`, если применить нельзя
    */
   function isApplyDisabled(effect: ActiveEffect): boolean {
-    return (
-      props.isEditMode
-      || !props.owner
-      || !canPayActivation(props.counters, effect.activation)
-    );
-  }
-
-  /**
-   * Предупреждает, что ресурса на применение или включение не хватает.
-   *
-   * @param effect - эффект с применением
-   */
-  function warnNoCounter(effect: ActiveEffect): void {
-    toast.add({
-      title: EFFECT_USE_LABELS.noCounterTitle,
-      description: `${EFFECT_USE_LABELS.noCounterPrefix}${effect.activation?.counter ?? ''}${EFFECT_USE_LABELS.noCounterSuffix}`,
-      color: 'warning',
-    });
-  }
-
-  /**
-   * Тратит ресурс применения или включения.
-   *
-   * @param effect - эффект с применением
-   */
-  function payEffectActivation(effect: ActiveEffect): void {
-    if (effect.activation?.counter) {
-      emit('update:counters', payActivation(props.counters, effect.activation));
-    }
+    return !props.owner || !canPayActivation(props.counters, effect.activation);
   }
 
   /**
@@ -223,27 +205,19 @@
    * Применяет эффект листа вместе с вариантами его группы: выбор варианта,
    * затем копия ложится на владельца или цель, ресурс тратится один раз.
    *
+   * Тем же путём мира, что кнопка горячей панели (`applyEntityEffectUse`):
+   * ресурс списывается после выбора цели и вопроса о цене, а панель к этому
+   * времени может быть размонтирована — её `emit` ничего бы не списал. И Сл
+   * спасброска одна на лист и панель — с аурами карты.
+   *
    * @param effect - эффект «при применении»
    */
   function applyUseEffect(effect: ActiveEffect): void {
     const { owner } = props;
 
-    if (!owner) {
-      return;
+    if (owner) {
+      applyEntityEffectUse(owner.id, effect.id);
     }
-
-    if (!canPayActivation(props.counters, effect.activation)) {
-      warnNoCounter(effect);
-
-      return;
-    }
-
-    applyEffectSource(
-      buildEffectGroupUseSpell(collectEffectUseGroup(props.effects, effect)),
-      owner,
-      resolveActorStats(owner).spellSaveDC,
-      () => payEffectActivation(effect),
-    );
   }
 
   /**
@@ -397,22 +371,34 @@
 
   /**
    * Запускает действие действующего эффекта: его срабатывания «При действии»
-   * идут боевым каналом — они меняют и хиты.
+   * идут боевым каналом — они меняют и хиты; цена ресурсом и сводка в чат —
+   * в `runEntityEffectAction`.
    *
    * @param effect - эффект строки
    */
   function runActiveAction(effect: ActiveEffect): void {
     const { owner } = props;
-    const socket = getActiveSocket();
 
-    if (!owner || !socket) {
+    if (!owner) {
       return;
     }
 
-    emitEntityCombatState(
-      socket,
-      runEffectActiveAction(owner, effect.id, resolveCombatRound()),
-    );
+    // Действие ценой «Реакция» под «Электрошоком» не совершить: причину
+    // показывают, а не глотают
+    const [action] = listEffectActiveActions(effect);
+    const block = resolveActionCostBlock(owner, action?.cost);
+
+    if (block) {
+      toast.add({
+        title: formatActiveActionLabel(effect),
+        description: formatActionCostBlock(block),
+        color: 'warning',
+      });
+
+      return;
+    }
+
+    runEntityEffectAction(owner.id, effect.id);
   }
 
   /**
@@ -441,30 +427,69 @@
       return;
     }
 
-    // Причину отказа показывают, а не глотают: иначе кнопка молча не работает
-    const unavailable = describeEscapeUnavailable(effect);
+    // Кто действует, каким навыком и чем кончилось — в `runEffectEscape`:
+    // исход уходит боевым каналом, лист обновится ответом сервера
+    runEffectEscape(owner.id, effect.id);
+  }
 
-    if (unavailable !== null) {
-      toast.add({
-        title: EFFECT_ESCAPE_LABELS.hint,
-        description: `${EFFECT_ESCAPE_LABELS.unavailablePrefix}${unavailable}`,
-        color: 'warning',
-      });
+  /**
+   * Кнопки «вырваться» у эффектов-состояний: строки у «Схваченного» нет — его
+   * показывает плитка, — поэтому кнопка стоит над сеткой состояний. Подпись
+   * начинается с имени эффекта: захватов от разных существ может быть два.
+   */
+  const conditionEscapeRows = computed(() =>
+    conditionEscapeEffects.value.map((effect) => ({
+      effect,
+      label: `${effect.name}${EFFECT_ESCAPE_LABELS.titleSeparator}${formatEffectEscapeLabel(effect)}`,
+    })),
+  );
 
+  /**
+   * Плитка состояния. Снятие в просмотре идёт боевым каналом: сервер будит
+   * срабатывания «когда состояние снимается» — как при «вырваться». В правке
+   * и без сущности мира меняется черновик листа, как раньше.
+   *
+   * @param key - ключ состояния
+   */
+  function handleConditionTile(key: ConditionRef): void {
+    const { owner } = props;
+
+    if (
+      owner
+      && !props.isEditMode
+      && isConditionActive(key)
+      && removeEntityCondition(owner.id, key)
+    ) {
       return;
     }
 
-    runEffectEscape({
-      entity: owner,
-      effect,
-      flags: dnd5eSystemInstance.getEntityActiveFlags(owner),
-      onEscaped: (effectIds) => {
-        emit(
-          'update:effects',
-          props.effects.filter((entry) => !effectIds.includes(entry.id)),
-        );
-      },
-    });
+    toggleCondition(key);
+  }
+
+  /**
+   * Чем владелец листа может помочь тем, кто рядом: помощник действует со
+   * своего листа, не открывая чужой. В правке листа подсказок нет.
+   */
+  const escapeHelpOffers = computed<EscapeHelpOffer[]>(() =>
+    props.owner && !props.isEditMode
+      ? listEscapeHelpOffers(props.owner.id)
+      : [],
+  );
+
+  /**
+   * Помогает соседу вырваться: проверку бросает владелец листа своим навыком.
+   *
+   * @param offer - эффект соседа
+   */
+  function helpEscape(offer: EscapeHelpOffer): void {
+    const { owner } = props;
+
+    if (owner) {
+      runEscapeAs(offer.carrier, offer.effect, {
+        entity: owner,
+        role: 'adjacent',
+      });
+    }
   }
 
   const effectModalId = 'active-effect-form-modal';
@@ -701,7 +726,7 @@
             class="px-1.5"
             :label="formatEffectEscapeLabel(effect)"
             :title="EFFECT_ESCAPE_LABELS.hint"
-            :disabled="isEditMode || !owner"
+            :disabled="!owner"
             @click.left.exact.prevent="escapeEffect(effect)"
           />
 
@@ -726,7 +751,7 @@
             class="px-1.5"
             :label="activeActionLabel"
             :title="EFFECT_ACTIVE_ACTION_LABELS.hint"
-            :disabled="isEditMode || !owner"
+            :disabled="!owner"
             @click.left.exact.prevent="runActiveAction(effect)"
           />
 
@@ -840,6 +865,33 @@
     </div>
   </div>
 
+  <!-- Помочь рядом: эффекты соседей, из которых им можно помочь выбраться -->
+  <div
+    v-if="escapeHelpOffers.length > 0"
+    class="mt-5 flex flex-col"
+  >
+    <h3
+      class="mb-1 text-xs font-semibold tracking-wider text-muted uppercase"
+      :title="EFFECT_ESCAPE_HELP_LABELS.hint"
+    >
+      {{ EFFECT_ESCAPE_HELP_LABELS.title }}
+    </h3>
+
+    <div class="flex flex-wrap gap-1.5">
+      <UButton
+        v-for="offer in escapeHelpOffers"
+        :key="`${offer.carrier.id}-${offer.effect.id}`"
+        :icon="EFFECT_ESCAPE_HELP_LABELS.icon"
+        :label="offer.label"
+        :title="EFFECT_ESCAPE_HELP_LABELS.hint"
+        size="xs"
+        variant="soft"
+        color="warning"
+        @click.left.exact.prevent="helpEscape(offer)"
+      />
+    </div>
+  </div>
+
   <!-- Состояния -->
   <div class="flex flex-col">
     <div class="flex items-center">
@@ -848,6 +900,25 @@
       >
         {{ EFFECTS_TAB_LABELS.conditionsTitle }}
       </h3>
+    </div>
+
+    <!-- Вырваться из состояния: у плитки своей кнопки нет -->
+    <div
+      v-if="conditionEscapeRows.length > 0"
+      class="mb-2 flex flex-wrap gap-1.5"
+    >
+      <UButton
+        v-for="{ effect, label } in conditionEscapeRows"
+        :key="effect.id"
+        icon="tabler:lock-open"
+        size="xs"
+        variant="soft"
+        color="warning"
+        :label="label"
+        :title="EFFECT_ESCAPE_LABELS.hint"
+        :disabled="!owner"
+        @click.left.exact.prevent="escapeEffect(effect)"
+      />
     </div>
 
     <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
@@ -862,7 +933,7 @@
           <button
             type="button"
             class="flex min-w-0 flex-1 cursor-pointer items-center gap-2 text-left"
-            @click.left.exact.prevent="toggleCondition(condition.key)"
+            @click.left.exact.prevent="handleConditionTile(condition.key)"
           >
             <span
               v-if="condition.customImage"

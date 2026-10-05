@@ -20,20 +20,11 @@ import type {
 import type {
   ActorClassEntry,
   CounterRecovery,
+  CounterRecoveryRule,
   ManualHitDieGroup,
 } from './classTypes.js';
 import type { DeathSavesState } from './deathSaves.js';
 import type { EffectTriggerUsageLedger } from './effectTriggerUsage.js';
-
-/** Сколько зарядов возвращает отдых: ничего, все или заданное число */
-export type CounterRecoveryMode = 'none' | 'all' | 'amount';
-
-/** Восстановление счётчика на одном виде отдыха */
-export interface CounterRecoveryRule {
-  mode: CounterRecoveryMode;
-  /** Число возвращаемых зарядов; учитывается только при режиме `amount` */
-  amount: number;
-}
 
 /**
  * Текущее состояние счётчика классового ресурса на акторе

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+  import type { CompendiumAuthoringTarget } from '@/core/compendiumAuthoringClient';
   import type { PackKindEntries } from '@/core/compendiumDataClient';
   import type { DraggedCompendiumEntry } from '@/core/entityDragState';
   import type {
@@ -29,6 +30,7 @@
     setActorDragPayload,
   } from '@/core/actorDragState';
   import { getChatService } from '@/core/api/chatService';
+  import { ClientHooks } from '@/core/clientHooks';
   import {
     loadCompendiumKindByPack,
     loadCompendiumManifests,
@@ -44,9 +46,13 @@
     isRecord,
     systemRegistry,
   } from '@vtt/shared';
-  import { rememberCompendiumClassLabels } from '@vtt/shared/system/dnd.js';
+  import {
+    COMPENDIUM_CREATURE_KIND,
+    rememberCompendiumClassLabels,
+  } from '@vtt/shared/system/dnd.js';
 
   import { flattenPreferringBy } from '../../composables/useCompendiumCatalog';
+  import { useCompendiumEntryAuthoring } from '../../composables/useCompendiumEntryAuthoring';
   import { useProgressiveList } from '../../composables/useProgressiveList';
   import {
     buildEquipmentItems,
@@ -62,10 +68,12 @@
     COMPENDIUM_PACK_BUTTON_SELECTED_CLASS,
     COMPENDIUM_SPELL_KIND,
     GRANTED_SPELL_FEATURE_PREFIX,
+    HEADER_ROUND_BUTTON_CLASS,
     PINNED_SPELL_FEATURE_PREFIX,
     SHEET_FILTER_LABELS,
   } from '../actor/constants';
   import PickerSkeletonRows from '../actor/PickerSkeletonRows.vue';
+  import { COMPENDIUM_AUTHORING_LABELS } from './constants';
 
   /** Запись существа в компендиуме */
   interface CompendiumCreatureEntry {
@@ -87,7 +95,7 @@
   }
 
   /** Канонический тип записей существ в компендиуме */
-  const CREATURE_KIND = 'creature';
+  const CREATURE_KIND = COMPENDIUM_CREATURE_KIND;
 
   /**
    * Настройка показа по типу записей, узнанная из манифеста. Общая на все окна
@@ -198,6 +206,12 @@
      * Пусто — побеждает первая по порядку паков хоста.
      */
     preferredPackId?: string;
+    /**
+     * Раздел своего компендиума мира, открытого для правки. Приложение задаёт
+     * его, когда мастер открыл раздел незаблокированного компендиума: тогда
+     * записи можно создавать, править и удалять прямо в этом окне.
+     */
+    authoring?: CompendiumAuthoringTarget;
   }>();
 
   const emit = defineEmits<{
@@ -208,6 +222,16 @@
   }>();
 
   const items = ref<CompendiumDataItem[]>([]);
+
+  /** Запись, удаление которой ждёт подтверждения */
+  const entryPendingDelete = ref<CompendiumDataItem | null>(null);
+
+  const { canAuthor, createEntry, editEntry, removeEntry } =
+    useCompendiumEntryAuthoring({
+      getSocket: () => props.socket,
+      getTarget: () => props.authoring,
+      getKind: () => props.dataKind,
+    });
 
   /**
    * Записи типа по компендиумам — для выбора компендиума в левой колонке. Пусто,
@@ -255,6 +279,13 @@
   const kindView = ref<CompendiumView | undefined>(
     props.dataKind ? kindViewCache.get(props.dataKind) : undefined,
   );
+
+  /**
+   * Настройка показа узла, перечитанная после правки. Проп `view` — снимок на
+   * момент открытия окна: мастер меняет вид раздела своего компендиума, не
+   * закрывая окна, и без перечитывания оно осталось бы в старом макете.
+   */
+  const refreshedView = ref<CompendiumView | undefined>();
 
   const isLoading = ref(false);
   const loadedFile = ref('');
@@ -585,7 +616,7 @@
     resetFilters,
     setEnumSelection,
   } = useCompendiumView({
-    view: () => props.view ?? kindView.value,
+    view: () => refreshedView.value ?? props.view ?? kindView.value,
     items,
     searchQuery,
   });
@@ -947,6 +978,34 @@
   }
 
   /**
+   * Узел дерева манифеста с таким ключом.
+   *
+   * @param nodes - узлы дерева
+   * @param dataFile - искомый ключ узла
+   * @returns узел либо `undefined`, если его нет в дереве
+   */
+  function findNodeByDataFile(
+    nodes: ReadonlyArray<CompendiumTreeNode>,
+    dataFile: string,
+  ): CompendiumTreeNode | undefined {
+    for (const node of nodes) {
+      if (node.dataFile === dataFile) {
+        return node;
+      }
+
+      const nested = node.children
+        ? findNodeByDataFile(node.children, dataFile)
+        : undefined;
+
+      if (nested) {
+        return nested;
+      }
+    }
+
+    return undefined;
+  }
+
+  /**
    * Есть ли в дереве манифеста узел с таким ключом.
    *
    * @param nodes - узлы дерева
@@ -956,11 +1015,79 @@
     nodes: ReadonlyArray<CompendiumTreeNode>,
     dataFile: string,
   ): boolean {
-    return nodes.some(
-      (node) =>
-        node.dataFile === dataFile
-        || (node.children ? treeHasDataFile(node.children, dataFile) : false),
-    );
+    return findNodeByDataFile(nodes, dataFile) !== undefined;
+  }
+
+  /**
+   * Перечитывает настройку показа раздела своего компендиума: её меняют окном
+   * «Вид раздела», пока это окно открыто. У остальных паков вид за сессию не
+   * меняется, и перечитывать его незачем.
+   */
+  async function refreshSectionView(): Promise<void> {
+    const socket = props.socket;
+    const dataFile = props.dataFile;
+
+    if (!socket || !dataFile || !props.authoring) {
+      return;
+    }
+
+    const manifests = await loadCompendiumManifests(socket);
+
+    // Пока ждали манифесты, узел могли сменить — ответ уже не про этот раздел
+    if (dataFile !== props.dataFile) {
+      return;
+    }
+
+    for (const manifest of manifests) {
+      const node = findNodeByDataFile(manifest.tree, dataFile);
+
+      if (node) {
+        refreshedView.value = node.view;
+
+        return;
+      }
+    }
+  }
+
+  /** Просит приложение открыть настройку вида этого раздела */
+  function configureSectionView(): void {
+    if (props.authoring) {
+      ClientHooks.callAll('compendium:configure-section-view', props.authoring);
+    }
+  }
+
+  /**
+   * Перечитывает записи раздела после правки: сервер уже сохранил изменение,
+   * и показанный список устарел.
+   */
+  function reloadEntries(): void {
+    loadedFile.value = '';
+    requestData();
+  }
+
+  /**
+   * Спрашивает подтверждение удаления записи.
+   *
+   * @param entry - запись компендиума
+   */
+  function askDeleteEntry(entry: CompendiumDataItem): void {
+    entryPendingDelete.value = entry;
+  }
+
+  /** Закрывает подтверждение удаления без удаления */
+  function cancelDeleteEntry(): void {
+    entryPendingDelete.value = null;
+  }
+
+  /** Удаляет запись после подтверждения */
+  function confirmDeleteEntry(): void {
+    const entry = entryPendingDelete.value;
+
+    entryPendingDelete.value = null;
+
+    if (entry) {
+      void removeEntry(entry);
+    }
   }
 
   /** Запрашивает данные из data-файла */
@@ -1882,15 +2009,29 @@
     });
   }
 
+  /**
+   * Компендиум изменился на сервере: другой мастер или другое окно поправили
+   * записи. Раздел узла перечитываем, только пока окно открыто на нём — список
+   * по типу со всех паков живёт в общем кэше приложения, и его сбрасывает оно.
+   */
+  function handleCompendiumUpdated(): void {
+    if (props.open && props.dataFile) {
+      reloadEntries();
+      void refreshSectionView();
+    }
+  }
+
   onMounted(() => {
     if (props.socket) {
       props.socket.on('compendium:data', handleCompendiumData);
+      props.socket.on('compendium:updated', handleCompendiumUpdated);
     }
   });
 
   onUnmounted(() => {
     if (props.socket) {
       props.socket.off('compendium:data', handleCompendiumData);
+      props.socket.off('compendium:updated', handleCompendiumUpdated);
     }
   });
 
@@ -1900,6 +2041,7 @@
     ([isOpen, currentFile], oldValue) => {
       // Если файл сменился — сбрасываем кеш и данные
       if (oldValue && currentFile !== oldValue[1]) {
+        refreshedView.value = undefined;
         loadedFile.value = '';
         items.value = [];
         kindPacks.value = [];
@@ -1948,6 +2090,27 @@
     @update:open="emit('update:open', $event)"
     @bring-to-front="emit('bring-to-front')"
   >
+    <!-- Свой компендиум, открытый для правки: настройка вида раздела -->
+    <template
+      v-if="authoring"
+      #header-actions
+    >
+      <!-- Та же круглая кнопка-шестерёнка, что в шапке листа персонажа и
+        существа: действие одно — «настроить», и выглядеть оно должно одинаково -->
+      <button
+        type="button"
+        :class="HEADER_ROUND_BUTTON_CLASS"
+        :title="COMPENDIUM_AUTHORING_LABELS.configureView"
+        :aria-label="COMPENDIUM_AUTHORING_LABELS.configureView"
+        @click.left.exact.prevent="configureSectionView"
+      >
+        <UIcon
+          name="tabler:settings-filled"
+          class="h-4 w-4"
+        />
+      </button>
+    </template>
+
     <template #body>
       <!-- Layout: сайдбар + контент для заклинаний и существ, обычный для остального -->
       <div
@@ -2110,6 +2273,22 @@
             />
           </div>
 
+          <!-- Свой компендиум, открытый для правки: новая запись раздела -->
+          <div
+            v-if="canAuthor"
+            class="flex shrink-0 justify-end px-4 pt-2 pb-1"
+          >
+            <UButton
+              size="xs"
+              color="primary"
+              variant="soft"
+              icon="tabler:plus"
+              :label="COMPENDIUM_AUTHORING_LABELS.create"
+              :title="COMPENDIUM_AUTHORING_LABELS.createTooltip"
+              @click.left.exact.prevent="createEntry"
+            />
+          </div>
+
           <!-- Прокручиваемая область списка -->
           <div class="min-h-0 flex-1 overflow-y-auto px-4 pb-4">
             <!-- Загрузка: очертания строк на их месте -->
@@ -2167,8 +2346,12 @@
                         :entry="toCardEntry(entry)"
                         :pack-id="packIdOf(entry)"
                         show-copy
+                        :show-edit="canAuthor"
+                        :show-delete="canAuthor"
                         @click="openSpeciesDetail(entry)"
                         @copy="copySpeciesToItems(entry)"
+                        @edit="editEntry(entry)"
+                        @delete="askDeleteEntry(entry)"
                       />
 
                       <UBadge
@@ -2196,8 +2379,12 @@
                         :entry="toCardEntry(entry)"
                         :pack-id="packIdOf(entry)"
                         show-copy
+                        :show-edit="canAuthor"
+                        :show-delete="canAuthor"
                         @click="openBackgroundDetail(entry)"
                         @copy="copyToItems(backgroundCopyId(entry))"
+                        @edit="editEntry(entry)"
+                        @delete="askDeleteEntry(entry)"
                       />
 
                       <UBadge
@@ -2221,8 +2408,12 @@
                         :entry="toCardEntry(entry)"
                         :pack-id="packIdOf(entry)"
                         show-copy
+                        :show-edit="canAuthor"
+                        :show-delete="canAuthor"
                         @click="openClassDetail(entry)"
                         @copy="copyClassToItems(entry)"
+                        @edit="editEntry(entry)"
+                        @delete="askDeleteEntry(entry)"
                       />
 
                       <UBadge
@@ -2243,8 +2434,12 @@
                       entity-type="feat"
                       :entry="toCardEntry(entry)"
                       show-copy
+                      :show-edit="canAuthor"
+                      :show-delete="canAuthor"
                       @click="openFeatDetail(entry)"
                       @copy="copyToItems(entry.id)"
+                      @edit="editEntry(entry)"
+                      @delete="askDeleteEntry(entry)"
                     />
                   </template>
 
@@ -2256,8 +2451,12 @@
                       :entity-type="entry.type"
                       :entry="toCardEntry(entry)"
                       show-copy
+                      :show-edit="canAuthor"
+                      :show-delete="canAuthor"
                       @click="openDetail(entry)"
                       @copy="copyToItems(entry.id)"
+                      @edit="editEntry(entry)"
+                      @delete="askDeleteEntry(entry)"
                     />
                   </template>
 
@@ -2268,8 +2467,12 @@
                       entity-type="creature"
                       :entry="toCardEntry(entry)"
                       show-copy
+                      :show-edit="canAuthor"
+                      :show-delete="canAuthor"
                       @click="openCreatureDetail(entry)"
                       @copy="copyCreature(entry)"
+                      @edit="editEntry(entry)"
+                      @delete="askDeleteEntry(entry)"
                     />
                   </template>
 
@@ -2310,9 +2513,13 @@
                         entity-type="spell"
                         :entry="toCardEntry(entry)"
                         :show-copy="!isSelectionMode"
+                        :show-edit="canAuthor"
+                        :show-delete="canAuthor"
                         @click="handleSpellClick(entry)"
                         @copy="copySpellToItems(entry)"
                         @share="shareSpell(entry)"
+                        @edit="editEntry(entry)"
+                        @delete="askDeleteEntry(entry)"
                       />
 
                       <UBadge
@@ -2464,6 +2671,42 @@
           </div>
         </div>
       </div>
+
+      <!-- Подтверждение удаления записи своего компендиума. Внутри окна раздела:
+           оно задаёт цель портала вложенным оверлеям, и вопрос встаёт поверх
+           него, а не под ним -->
+      <UModal
+        :open="entryPendingDelete !== null"
+        :title="COMPENDIUM_AUTHORING_LABELS.deleteTitle"
+        @update:open="cancelDeleteEntry"
+      >
+        <template #body>
+          <p class="text-sm text-toned">
+            {{ COMPENDIUM_AUTHORING_LABELS.deleteText }}
+          </p>
+
+          <p class="mt-2 text-sm font-medium text-highlighted">
+            {{ entryPendingDelete?.name }}
+          </p>
+        </template>
+
+        <template #footer>
+          <div class="flex w-full justify-end gap-3">
+            <UButton
+              variant="ghost"
+              color="neutral"
+              :label="COMPENDIUM_AUTHORING_LABELS.deleteCancel"
+              @click.left.exact.prevent="cancelDeleteEntry"
+            />
+
+            <UButton
+              color="error"
+              :label="COMPENDIUM_AUTHORING_LABELS.deleteConfirm"
+              @click.left.exact.prevent="confirmDeleteEntry"
+            />
+          </div>
+        </template>
+      </UModal>
     </template>
   </UDraggableModal>
 </template>

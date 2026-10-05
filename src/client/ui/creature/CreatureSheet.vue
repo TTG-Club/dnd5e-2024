@@ -12,6 +12,7 @@
     DnDCustomBonusContext,
     DnDSavingThrowSettings,
     DnDSkillSettings,
+    RestTriggerOptions,
     RestType,
     Spell,
   } from '@vtt/shared/system/dnd.js';
@@ -53,10 +54,12 @@
     getSkillSetting,
     getSkillSettingAbility,
     isDndCreature,
+    isDndCreatureRecord,
     isDnDGameItem,
     isProficiencyLevel,
     isSpell,
     listConditions,
+    mergeEntityDraft,
     normalizeCreature,
     PASSIVE_SKILL_BASE,
     resolveAbilityCheckRollMode,
@@ -66,10 +69,19 @@
     withExhaustionLevel,
   } from '@vtt/shared/system/dnd.js';
 
+  import { runRestWithTriggers } from '../../composables/restTriggerPrompt';
   import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
-  import { useItemTransfer } from '../../composables/useItemTransfer';
+  import {
+    refuseWhileSheetEditing,
+    useSheetEditLock,
+  } from '../../composables/sheetEditLock';
+  import {
+    isItemTransferDrop,
+    useItemTransfer,
+  } from '../../composables/useItemTransfer';
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
+  import { useWorldSheetSync } from '../../composables/useWorldSheetSync';
   import { useSystemDataStore } from '../../stores/systemDataStore';
   import {
     ABILITY_CHECK_ROLL_LABELS,
@@ -147,15 +159,27 @@
       activeEffects?: DnDCreature['activeEffects'];
       [key: string]: unknown;
     };
+    /**
+     * Лист правит не существо мира, а черновик: каждое сохранение уходит сюда,
+     * а в мир не пишется ничего. Так правят запись существа в своём
+     * компендиуме: `initialData` — запись (у новой её нет), `creatureId` и
+     * `creatures` не задаются.
+     */
+    draftSave?: (creature: DnDCreature) => void;
   }
 
   const props = defineProps<Props>();
 
   const worldStore = useWorldStore();
 
-  /** Режим только просмотр (компендиум, без сокета) */
+  /**
+   * Режим только просмотр (компендиум, без сокета). Черновик своего
+   * компендиума — не просмотр: его правят, просто сохранение идёт в `draftSave`.
+   */
   const isReadOnly = computed(
-    () => !props.socket || (!props.creatures && !!props.initialData),
+    () =>
+      !props.socket
+      || (!props.creatures && !!props.initialData && !props.draftSave),
   );
 
   const emit = defineEmits<{
@@ -218,6 +242,18 @@
   const isDirty = ref(false);
   const isSaving = ref(false);
   const isCreated = ref(false);
+
+  /**
+   * Лист создаёт новое существо, а не правит готовое. Черновик записи
+   * компендиума с данными (`initialData`) — уже готовое существо, хотя
+   * идентификатора мира у него нет.
+   */
+  const isCreating = computed(
+    () =>
+      !props.creatureId
+      && !isCreated.value
+      && !(props.draftSave && props.initialData),
+  );
 
   /** Актуальное существо из хоста: локальный черновик не определяет права. */
   const storeCreature = computed(() => {
@@ -446,52 +482,44 @@
   );
 
   /**
-   * Синхронизация system из store в localCreature.
+   * Разделы, которые система пишет в мир во время игры (ресурсы листа,
+   * предметы, заклинания, эффекты, хиты), подтягиваются из стора в
+   * localCreature — тем же помощником, что у листа персонажа. Пока лист
+   * открыт, их меняют снаружи: каст списывает заряд «N/день», бой накладывает
+   * и снимает эффекты, передача предмета правит инвентарь. Без этого лист
+   * показывал бы прежнее, а следующая его правка отправила бы на сервер
+   * устаревший раздел и затёрла бы списанное.
    */
-  watch(
-    () => storeCreature.value?.system,
-    (newSystem) => {
-      if (localCreature.value && newSystem && !isEditMode.value) {
-        localCreature.value.system = JSON.parse(JSON.stringify(newSystem));
-      }
-    },
-    { deep: true },
+  const { pullFromWorld } = useWorldSheetSync({
+    readWorld: () => storeCreature.value,
+    draft: localCreature,
+    isPaused: () => isEditMode.value,
+  });
+
+  // Пока лист в правке, существо не действует ни с листа, ни с панелей.
+  // Отметка — на id черновика, как у листа персонажа: с ним действуют блоки
+  // листа, а у нового, ещё не сохранённого существа `props.creatureId` пуст
+  useSheetEditLock(
+    () => localCreature.value?.id,
+    () => isEditMode.value,
   );
 
   /**
-   * Синхронизация activeEffects из store в localCreature: наложенные в бою
-   * эффекты (статус/DoT по цели) и снятые повторным спасом должны появляться
-   * в списке существа сразу, без перезагрузки страницы.
+   * Что уходит на сервер по «Сохранить». Черновик правки сливается с миром:
+   * правки владельца — из черновика, всё, что он не трогал, — из мира. Иначе
+   * сохранение вернуло бы то, что мир изменил за время правки (урон, снятый
+   * эффект, списанный заряд).
+   *
+   * @param draft - черновик листа
+   * @returns существо для записи
    */
-  watch(
-    () => storeCreature.value?.activeEffects,
-    (newActiveEffects) => {
-      if (localCreature.value && newActiveEffects && !isEditMode.value) {
-        localCreature.value.activeEffects = JSON.parse(
-          JSON.stringify(newActiveEffects),
-        );
-      }
-    },
-    { deep: true },
-  );
+  function resolveCreatureToSave(draft: DnDCreature): DnDCreature {
+    const world = storeCreature.value;
 
-  /**
-   * Синхронизация инвентаря из store в localCreature. Нужна по той же причине,
-   * что и у эффектов: пока лист открыт, инвентарь могли поменять снаружи —
-   * передачей предмета или списанием заряда. Без этого следующая правка листа
-   * отправила бы на сервер устаревший инвентарь и затёрла бы чужую.
-   */
-  watch(
-    () => storeCreature.value?.equipment,
-    (newEquipment) => {
-      if (localCreature.value && newEquipment && !isEditMode.value) {
-        localCreature.value.equipment = JSON.parse(
-          JSON.stringify(newEquipment),
-        );
-      }
-    },
-    { deep: true },
-  );
+    return isEditMode.value && savedSnapshot.value && world
+      ? mergeEntityDraft(savedSnapshot.value, draft, world, isDndCreatureRecord)
+      : draft;
+  }
 
   function handleImmediateSave() {
     if (
@@ -505,7 +533,9 @@
 
     emit('update:creature', localCreature.value);
 
-    if (props.socket && props.creatureId) {
+    if (props.draftSave) {
+      props.draftSave(JSON.parse(JSON.stringify(localCreature.value)));
+    } else if (props.socket && props.creatureId) {
       props.socket.emit(
         'creature:updated',
         withoutEntityOwnership(localCreature.value),
@@ -996,6 +1026,9 @@
 
       isEditMode.value = false;
       savedSnapshot.value = null;
+
+      // Правок нет — черновик догоняет мир: за время правки он мог измениться
+      pullFromWorld();
     }
   }
 
@@ -1019,11 +1052,16 @@
     try {
       requireSocket(props.socket);
 
-      if (props.creatureId) {
-        props.socket!.emit(
-          'creature:updated',
-          withoutEntityOwnership(localCreature.value),
-        );
+      const wasCreating = isCreating.value;
+
+      if (props.draftSave) {
+        props.draftSave(JSON.parse(JSON.stringify(localCreature.value)));
+        isCreated.value = true;
+      } else if (props.creatureId) {
+        const saved = resolveCreatureToSave(localCreature.value);
+
+        localCreature.value = saved;
+        props.socket!.emit('creature:updated', withoutEntityOwnership(saved));
       } else {
         const cleanCreature = JSON.parse(JSON.stringify(localCreature.value));
 
@@ -1038,10 +1076,9 @@
 
       toast.add({
         title: CREATURE_SHEET_LABELS.savedTitle,
-        description:
-          props.creatureId || isCreated.value
-            ? CREATURE_SHEET_LABELS.savedUpdated
-            : CREATURE_SHEET_LABELS.savedCreated,
+        description: wasCreating
+          ? CREATURE_SHEET_LABELS.savedCreated
+          : CREATURE_SHEET_LABELS.savedUpdated,
         color: 'success',
       });
 
@@ -1202,15 +1239,23 @@
 
   /**
    * Применяет отдых к существу: восстанавливает заряды заклинаний (долгий
-   * отдых — также хиты), затем сохраняет.
+   * отдых — также хиты), выполняет срабатывания «после отдыха» по ответам
+   * владельца, затем сохраняет.
    * @param restType - тип отдыха
+   * @param triggerOptions - ответы владельца и сбор сводки срабатываний
    */
-  function handleRest(restType: RestType): void {
+  function finishRest(
+    restType: RestType,
+    triggerOptions: RestTriggerOptions,
+  ): void {
+    // Лист перечитывается: пока владелец отвечал на вопросы, он мог измениться
     if (!localCreature.value) {
       return;
     }
 
-    handleCreatureUpdate(applyCreatureRest(localCreature.value, restType));
+    handleCreatureUpdate(
+      applyCreatureRest(localCreature.value, restType, triggerOptions),
+    );
 
     toast.add({
       title: restType === 'long' ? REST_LABELS.long : REST_LABELS.short,
@@ -1220,6 +1265,29 @@
           : CREATURE_SHEET_LABELS.shortRestDone,
       color: 'success',
     });
+  }
+
+  /**
+   * Отдых существа: сперва владельца спрашивают о срабатываниях «после
+   * отдыха» с ценой или согласием, затем идёт сам отдых.
+   * @param restType - тип отдыха
+   */
+  function handleRest(restType: RestType): void {
+    // Отдых в режиме правки ждёт «Сохранить» или отмены, как и действия
+    if (refuseWhileSheetEditing(localCreature.value?.id)) {
+      return;
+    }
+
+    if (!localCreature.value) {
+      return;
+    }
+
+    void runRestWithTriggers(
+      localCreature.value,
+      restType,
+      {},
+      (triggerOptions) => finishRest(restType, triggerOptions),
+    );
   }
 
   /** Тащат ли на лист предмет — для подсветки зоны приёма во вкладке */
@@ -1287,8 +1355,18 @@
     // В режиме правки жест не принимается: у отправителя предмет уходит сразу и
     // на сервер, а здесь правки копятся до «Сохранить» — «Отмена» стёрла бы
     // предмет уже после того, как его отдали, и он пропал бы у обоих
-    if (isEditMode.value || !localCreature.value) {
+    // Черновик своего компендиума предмет не принимает: у отправителя он ушёл бы
+    // из мира насовсем — в запись компендиума, а не к существу на столе
+    if (!localCreature.value || props.draftSave) {
       return false;
+    }
+
+    // Причину говорим: молчаливый отказ выглядел поломкой жеста
+    if (isEditMode.value) {
+      return (
+        isItemTransferDrop(event)
+        && refuseWhileSheetEditing(localCreature.value.id)
+      );
     }
 
     const received = receiveTransferredItem(
@@ -1639,7 +1717,7 @@
         <CreatureHeader
           :creature="localCreature"
           :is-edit-mode="isEditMode"
-          :is-creating="!props.creatureId && !isCreated"
+          :is-creating="isCreating"
           :can-edit="canControl && !isReadOnly"
           @update="handleCreatureUpdate"
           @update:system="handleSystemUpdate"

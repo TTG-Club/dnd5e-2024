@@ -5,25 +5,36 @@
  * кнопки окна) живут в `ui/actor/constants.ts` и берутся оттуда.
  */
 
-import type { SkillType } from '@vtt/shared';
 import type {
   AreaEffectTrigger,
   ConditionKey,
-  EffectActionCost,
+  CreatureCategory,
+  EffectActivationCost,
   EffectActivationMode,
   EffectChangeModeChoice,
   EffectChangeStepPeriod,
   EffectDelivery,
   EffectFormContext,
   EffectFormStep,
+  EffectLight,
+  EffectLightAnimation,
+  EffectSaveOverride,
   EffectSaveUnavailableReason,
   EffectSuccessOutcome,
   EffectTriggerEvent,
+  EffectUseAreaShape,
   EffectVariantPick,
   InertEffectField,
+  SaveOverridePeriod,
 } from '@vtt/shared/system/dnd.js';
 
-import { SUBTRACT_MODE_CHOICE } from '@vtt/shared/system/dnd.js';
+import {
+  AREA_SHAPE_LABELS,
+  EFFECT_ACTION_COST_LABELS,
+  EFFECT_ACTIVATION_COSTS,
+  EFFECT_USE_AREA_SHAPES,
+  SUBTRACT_MODE_CHOICE,
+} from '@vtt/shared/system/dnd.js';
 
 import {
   ACTIVE_EFFECT_DEFAULTS,
@@ -266,6 +277,13 @@ export const EFFECT_SAVE_STEP_LABELS = {
     'Обычно хватает спасброска самого заклинания или действия. Включите, если '
     + 'эффект требует свой — например, другой характеристики.',
   successTitle: 'Если спасбросок успешен',
+  altAbilities: 'Или характеристика',
+  altAbilitiesHint:
+    '«Спасбросок Силы или Ловкости»: цель бросает лучшей из названных. Пусто — характеристика одна.',
+  dcSkill: 'Сл — итог проверки навыка',
+  dcSkillNone: 'Нет — обычная Сл',
+  dcSkillHint:
+    '«Совершите проверку Харизмы (Запугивание); спасбросок со Сл, равной результату проверки». Применивший бросает проверку при применении, её итог и есть Сл; число выше — запасное.',
   /** Согласная цель не бросает спасбросок */
   allowWilling: 'Согласная цель не бросает',
   /** Подсказка галочки: кто решает и что увидит */
@@ -283,14 +301,32 @@ export const EFFECT_SOURCE_DC_LABELS: Partial<
   generic: 'Сл источника',
 };
 
-/** Режим поля Сл: подставить Сл источника или задать своё число */
-export type SaveDcFieldMode = 'auto' | 'manual';
+/**
+ * Режим поля Сл: подставить Сл источника, задать своё число или формулу по
+ * владельцу эффекта
+ */
+export type SaveDcFieldMode = 'auto' | 'manual' | 'formula';
+
+/** Тип, с которого начинается новое условие броска о типе существа */
+export const DEFAULT_CONDITION_CREATURE_TYPE: CreatureCategory = 'humanoid';
 
 /** Подписи режимов поля Сл */
 export const SAVE_DC_FIELD_MODE_LABELS: Record<SaveDcFieldMode, string> = {
   auto: 'Авто',
   manual: 'Вручную',
+  formula: 'Формулой',
 };
+
+/** Подписи поля Сл формулой */
+export const SAVE_DC_FORMULA_LABELS = {
+  placeholder: '8 + @prof + @mod.str',
+  /** Какие токены считаются и по кому */
+  hint:
+    'По владельцу эффекта: @prof, @mod.str … @mod.cha, @spellDc — Сл его '
+    + 'заклинаний. Кому эффект достаётся, числа не меняет.',
+  /** Добавка подсказки у события урона */
+  damageHint: ' @damage — урон события.',
+} as const;
 
 /** Заголовок выбора «при успехе» спасброска самого заклинания или действия */
 export const EFFECT_ACTION_SAVE_SUCCESS_TITLES: Partial<
@@ -416,6 +452,23 @@ export const EFFECT_MODIFIERS_STEP_LABELS = {
     'Кость бросается ОДИН раз — когда эффект ложится. Результат подставляется '
     + 'вместо @roll во все формулы эффекта и дальше не меняется: урон каждый '
     + 'ход будет одним и тем же числом, а не новой костью при каждом тике.',
+  creatureTypesTitle: 'Типы существ',
+  creatureTypesHint:
+    'Условие выполняется, если тип любой из выбранных: «Защита от зла и '
+    + 'добра» — аберрация, небожитель, элементаль, фея, исчадие, нежить.',
+  creatureTypesExcept: 'Кроме этих типов',
+  creatureTypesChoice: 'или ключ выбора владельца',
+  creatureTypesChoiceHint:
+    'Типы берутся из выбора, сделанного на листе владельца эффекта: «существа '
+    + 'из вашего Гримуара» — ключ выбора умения (monster-manual). Пока выбор '
+    + 'не сделан, условие не выполняется.',
+  /** Пункты списка «Действует»: тип существа выбирается вторым полем */
+  creatureTypeConditionLabels: {
+    'self.creatureType': 'Носитель — существо типа…',
+    'target.creatureType': 'Цель — существо типа…',
+    'incoming.attackerCreatureType': 'Защита: атакующий — существо типа…',
+    'source.creatureType': 'Спасбросок вызвало существо типа…',
+  },
   adjacentAllyTitle: 'Какой союзник',
   adjacentAllyHint:
     'По правилам 2024 «Тактика стаи» не считает недееспособного союзника: '
@@ -429,6 +482,111 @@ export const EFFECT_MODIFIERS_STEP_LABELS = {
     'Состояние остаётся на носителе, но не действует, пока эффект жив: «Свобода перемещения» гасит Опутанного.',
   suppressPlaceholder: 'Выберите состояния',
   immunitiesPlaceholder: 'Состояния...',
+} as const;
+
+/** Значение «ход не тратится» в выборе траты хода применения */
+export const NO_ACTIVATION_COST = 'none';
+
+/** Трата хода применения в выборе: настоящая либо «ход не тратится» */
+export type EffectActivationCostChoice =
+  EffectActivationCost | typeof NO_ACTIVATION_COST;
+
+/** Варианты траты хода на применение и включение */
+export const EFFECT_ACTIVATION_COST_OPTIONS: Array<{
+  value: EffectActivationCostChoice;
+  label: string;
+}> = [
+  { value: NO_ACTIVATION_COST, label: 'Не тратит ход' },
+  ...EFFECT_ACTIVATION_COSTS.map((value) => ({
+    value,
+    label: EFFECT_ACTION_COST_LABELS[value],
+  })),
+];
+
+/** Значение «одна цель» в выборе области применения */
+export const NO_USE_AREA = 'none';
+
+/** Форма области применения в выборе: настоящая либо «одна цель» */
+export type EffectUseAreaChoice = EffectUseAreaShape | typeof NO_USE_AREA;
+
+/** Формы области применения пунктами выбора — подписи общие с заклинаниями */
+const USE_AREA_SHAPE_OPTIONS: ReadonlyArray<{
+  value: EffectUseAreaChoice;
+  label: string;
+}> = EFFECT_USE_AREA_SHAPES.map((value) => ({
+  value,
+  label: AREA_SHAPE_LABELS[value],
+}));
+
+/** Варианты области применения */
+export const EFFECT_USE_AREA_OPTIONS: Array<{
+  value: EffectUseAreaChoice;
+  label: string;
+}> = [
+  { value: NO_USE_AREA, label: 'Нет — одна цель' },
+  ...USE_AREA_SHAPE_OPTIONS,
+];
+
+/** Варианты области получателей у кнопки «При действии» */
+export const EFFECT_TRIGGER_TEMPLATE_OPTIONS: Array<{
+  value: EffectUseAreaChoice;
+  label: string;
+}> = [
+  { value: NO_USE_AREA, label: 'Радиус от носителя' },
+  ...USE_AREA_SHAPE_OPTIONS,
+];
+
+/** Значение «обычная Сл» в выборе навыка для Сл от проверки */
+export const NO_DC_SKILL = 'none';
+
+/** Значки пунктов меню предмета с переключателем: включён и выключен */
+export const ITEM_TOGGLE_ICONS = {
+  on: 'tabler:toggle-right',
+  off: 'tabler:toggle-left',
+} as const;
+
+/** Размер новой области применения, фт */
+export const DEFAULT_USE_AREA_SIZE = 15;
+
+/** Подписи полей траты хода и области применения */
+export const EFFECT_ACTIVATION_EXTRA_LABELS = {
+  cost: 'Трата хода',
+  costHint:
+    '«Бонусным действием произнесите командное слово». Запрещённая трата '
+    + '(«нет бонусных действий») кнопку не пускает; сделанная идёт в счёт хода.',
+  area: 'Область',
+  areaHint:
+    'Шаблон на карте вместо выбора одной цели: эффекты «на цели» получают '
+    + 'все, кого он накрыл, эффект «в зону» остаётся зоной на его месте.',
+  areaSize: 'Размер, фт',
+  areaWidth: 'Ширина, фт',
+  concentration: 'Требует концентрации',
+  concentrationHint:
+    'Как у заклинания: применивший получает метку концентрации, прежняя '
+    + 'концентрация кончается, а с концом этой снимается всё наложенное.',
+} as const;
+
+/** Подписи предупреждения об ударе вне своего хода */
+export const OPPORTUNITY_ATTACK_WARNING_LABELS = {
+  title: 'Удар вне своего хода',
+  suffix: '. Если это не провоцированная атака — продолжайте.',
+} as const;
+
+/** Подписи вопроса «чем совершается удар» под «одной атакой за ход» */
+export const WEAPON_ATTACK_COST_PROMPT_LABELS = {
+  /** Конец вопроса — после причины запрета второй атаки */
+  questionSuffix: '. Чем совершается этот удар?',
+  /** Ответ: удар — бонусное действие */
+  bonus: 'Бонусным действием',
+  /** Строка чата: «Кинжал: удар бонусным действием» */
+  chatSuffix: ': удар бонусным действием',
+} as const;
+
+/** Подписи пунктов меню предмета с переключателем */
+export const ITEM_TOGGLE_LABELS = {
+  switchOn: 'Включить: ',
+  switchOff: 'Выключить: ',
+  blockedTitle: 'Нельзя включить',
 } as const;
 
 /** Подписи строки модификатора */
@@ -484,6 +642,12 @@ export const EFFECT_FLAG_ROW_LABELS = {
 
 /** Подписи шага «Длительность» */
 export const EFFECT_DURATION_STEP_LABELS = {
+  stackable: 'Складывается с одноимёнными',
+  stackableHint:
+    'Обычно повторное наложение одноимённого эффекта заменяет прежнее. Включите — и каждое наложение ляжет рядом («урон кумулятивный»).',
+  turnCurrent: 'До конца текущего хода',
+  turnCurrentHint:
+    'Эффект, наложенный в ход того, по чьему ходу считается срок, обычно живёт до конца его СЛЕДУЮЩЕГО хода. Включите — и он кончится с концом этого же хода («скорость 0 до конца текущего хода»).',
   durationTitle: 'Сколько держится',
   valuePlaceholder: 'Сколько',
   formulaToggle: 'Формулой',
@@ -526,6 +690,7 @@ export const EFFECT_INERT_FIELDS_LABELS = {
 /** Названия неработающих настроек — заголовки строк плашки */
 export const EFFECT_INERT_FIELD_NAMES: Record<InertEffectField, string> = {
   charges: 'Заряды',
+  saveOverride: 'Провал в успех',
   activation: 'Применение или включение',
   landingCondition: 'Условие наложения',
   variant: 'Вариант',
@@ -540,6 +705,7 @@ export const EFFECT_INERT_FIELD_NAMES: Record<InertEffectField, string> = {
   consumeOn: 'Снятие после атаки',
   duration: 'Длительность',
   conditionImmunities: 'Иммунитет к состояниям',
+  pay: 'Цена ресурсом',
   triggers: 'Срабатывания',
 };
 
@@ -549,6 +715,9 @@ export const EFFECT_INERT_FIELD_NAMES: Record<InertEffectField, string> = {
  */
 export const EFFECT_INERT_FIELD_REASONS: Record<InertEffectField, string> = {
   charges: 'Заряды тратят срабатывания, а здесь эффект их не выполняет.',
+  saveOverride:
+    'Провал превращает в успех носитель эффекта, а здесь эффект на носителе '
+    + 'не лежит.',
   activation: 'Такого способа включения здесь нет.',
   landingCondition:
     'Условие проверяется, когда эффект накладывают, а отсюда его не '
@@ -573,6 +742,9 @@ export const EFFECT_INERT_FIELD_REASONS: Record<InertEffectField, string> = {
     + 'сам.',
   consumeOn:
     'Снимается после атаки только эффект, который лежит на существе сам.',
+  pay:
+    'Цену платит тот, кто применяет, включает или колдует, а этот эффект '
+    + 'действует постоянно — платить некому.',
   duration:
     'Здесь эффект действует, пока есть источник: срок не отсчитывается.',
   conditionImmunities: 'Иммунитет отсюда не действует.',
@@ -629,6 +801,67 @@ export const EFFECT_ACTIVATION_CHOICE_HINTS: Record<
     'Лежит на листе выключенным и включается переключателем. Включение '
     + 'запускает срабатывания «При включении»; по истечении длительности '
     + 'эффект выключается.',
+};
+
+/** Подписи раздела «Свет» */
+export const EFFECT_LIGHT_LABELS = {
+  toggle: 'Носитель излучает свет',
+  toggleHint:
+    'Пока эффект действует: «Корона света», светящееся оружие. Несколько '
+    + 'эффектов света не складываются — светит сильнейший.',
+  bright: 'Яркий, фт',
+  dim: 'Тусклый ещё, фт',
+  dimHint:
+    'Тусклый свет за ярким — как в тексте правил: «и тусклый ещё на 20 фт».',
+  color: 'Цвет',
+  animation: 'Анимация',
+  sceneHint:
+    'Свет фишки, который поставил ведущий, не меняется: эффект светит поверх, '
+    + 'если он сильнее. Сцена рисует его с VTTG 0.9.580.',
+} as const;
+
+/** Свет нового эффекта: яркий 20 фт и тусклый ещё 20 — как у факела */
+export const DEFAULT_EFFECT_LIGHT: EffectLight = { bright: 20, dim: 20 };
+
+/** Подписи анимаций света эффекта */
+export const EFFECT_LIGHT_ANIMATION_LABELS: Record<
+  EffectLightAnimation,
+  string
+> = {
+  none: 'Ровный',
+  pulse: 'Пульсирует',
+  flicker: 'Мерцает',
+  torch: 'Как факел',
+  strobe: 'Вспышки',
+};
+
+/**
+ * Новый блок «провал в успех»: три раза до долгого отдыха — как у
+ * «Легендарного сопротивления»
+ */
+export const DEFAULT_SAVE_OVERRIDE: EffectSaveOverride = {
+  limit: { max: 3, per: 'longRest' },
+};
+
+/** Подписи раздела «Провал в успех» */
+export const EFFECT_SAVE_OVERRIDE_LABELS = {
+  toggle: 'Провал спасброска — вместо этого успех',
+  toggleHint:
+    'После проваленного спасброска владельцу носителя предлагают преуспеть '
+    + '(«Легендарное сопротивление»), пока есть чем заплатить.',
+  times: 'Раз',
+  per: 'До',
+  counter: 'Или тратит ресурс',
+  counterPlaceholder: 'Ключ ресурса листа',
+  counterHint:
+    'Ключ ресурса листа персонажа, например luck. Задан — тратится он по '
+    + 'единице, а счёт «раз до отдыха» не ведётся.',
+} as const;
+
+/** Подписи периода своего счётчика «провал в успех» */
+export const SAVE_OVERRIDE_PERIOD_LABELS: Record<SaveOverridePeriod, string> = {
+  shortRest: 'короткого отдыха',
+  longRest: 'долгого отдыха (день)',
 };
 
 /** Подписи ресурса применения */
@@ -694,6 +927,15 @@ export const EFFECT_VARIANT_MODAL_KEY_PREFIX = 'effect-variant';
  * эффектов, и урон «или» существа.
  */
 export const EFFECT_VARIANT_PROMPT_MODAL = 'EffectVariantPromptModal';
+
+/** Имя плашки вопроса человеку с закрытым списком ответов */
+export const EFFECT_QUESTION_PROMPT_MODAL = 'EffectQuestionPromptModal';
+
+/**
+ * Имя плашки выбора цели: получатели срабатывания «по выбору» и цели области
+ * «на выбор из тех, кто в области»
+ */
+export const EFFECT_TARGET_PROMPT_MODAL = 'EffectTargetPromptModal';
 
 /** Подписи плашки выбора варианта и строки чата */
 export const EFFECT_VARIANT_PROMPT_LABELS = {
@@ -765,6 +1007,7 @@ export const EFFECT_TARGET_PROMPT_LABELS = {
 export const EFFECT_VARIANT_PICK_LABELS: Record<EffectVariantPick, string> = {
   choose: 'Выбирает бросающий',
   random: 'Случайно',
+  multi: 'Бросающий выбирает один или несколько',
 };
 
 /** Подписи сворачиваемого раздела «Описание» */
@@ -786,10 +1029,16 @@ export const EFFECT_ADVANCED_LABELS = {
 
 /** Размеры окна библиотеки подсказок эффекта */
 export const EFFECT_TEMPLATES_MODAL_SIZE = {
-  width: 400,
-  height: 500,
+  width: 460,
+  height: 560,
   minWidth: 300,
   minHeight: 400,
+} as const;
+
+/** Вид кнопки раздела в библиотеке подсказок: выбранный и нет */
+export const SUGGESTION_SECTION_BUTTON = {
+  active: { color: 'primary', variant: 'soft' },
+  idle: { color: 'neutral', variant: 'ghost' },
 } as const;
 
 /** Ключи окон библиотек подсказок в менеджере окон хоста */
@@ -821,6 +1070,8 @@ export const ACTIVE_EFFECT_TEMPLATES_LABELS = {
   conditionTitle: EFFECT_CHANGE_ROW_LABELS.conditionLibrary,
   conditionSearchPlaceholder: 'Поиск по шаблонам...',
   conditionEmpty: 'Шаблоны не найдены',
+  /** Кнопка «все разделы» над списком */
+  allSections: 'Все',
 } as const;
 
 /** Подписи применения эффектов, предметов и боеприпасов */
@@ -831,11 +1082,18 @@ export const EFFECT_USE_LABELS = {
   noUsesTitle: 'Нечего применить',
   noUsesText: 'Заряды или количество кончились.',
   noCounterTitle: 'Не хватает ресурса',
+  /** Заголовок отказа: трата хода под запретом */
+  blockedTitle: 'Нельзя применить',
+  /** Разделитель названия эффекта и навыка в окне проверки для Сл */
+  skillDcTitleSeparator: ' — проверка для Сл: ',
+  /** Кнопка броска проверки, итог которой станет Сл */
+  skillDcRollButton: 'Бросить проверку',
   noCounterPrefix: 'Ресурс «',
   noCounterSuffix: '» исчерпан.',
-  blockedPrefix: '⛔ ',
-  noAmmunitionSuffix: ': нет боеприпасов',
-  depletedSuffix: ': закончились',
+  /** Отказ удара: у оружия с боеприпасами их нет */
+  noAmmunition: 'Нет боеприпасов.',
+  /** Отказ удара: заряды или количество оружия кончились */
+  depleted: 'Закончились.',
   /** Подпись кнопки применения на панели быстрого доступа */
   hotbarPrefix: 'Использовать: ',
 } as const;
@@ -899,12 +1157,6 @@ export const EFFECT_USE_GM_VERDICT_TOASTS = {
 
 /** Сколько получателей у применения предмета или эффекта: один */
 export const EFFECT_USE_TARGET_COUNT = 1;
-
-/** Цена нового действия «вырваться»: правила обычно просят действие */
-export const NEW_ESCAPE_COST: EffectActionCost = 'action';
-
-/** Навык проверки нового действия «вырваться» */
-export const NEW_ESCAPE_CHECK_SKILL: SkillType = 'athletics';
 
 /** Приставка ключа окна броска «вырваться»: дальше идёт идентификатор эффекта */
 export const EFFECT_ESCAPE_MODAL_KEY_PREFIX = 'effect-escape:';

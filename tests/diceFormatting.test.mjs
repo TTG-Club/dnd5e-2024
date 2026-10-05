@@ -19,7 +19,7 @@ import { loadEngineBundle } from './helpers/engineBundle.mjs';
 
 const engine = await loadEngineBundle(`
   export * from './src/engine/index.ts';
-  export { formatSpellDamageDisplay } from './src/client/ui/actor/utils/formatSpellDamageDisplay.ts';
+  export { describeSpellDamageDisplay, formatSpellDamageDisplay } from './src/client/ui/actor/utils/formatSpellDamageDisplay.ts';
 `);
 
 /** Формула с взаимоисключающими ветками по хитам цели */
@@ -106,6 +106,80 @@ describe('показ урона зовёт общую замену', () => {
   it('урон заклинания в списке: ветки через «или»', () => {
     assert.equal(spellDisplay(CONDITIONAL_FORMULA), CONDITIONAL_DISPLAY);
     assert.equal(spellDisplay('1d8+2'), '1к8+2');
+  });
+});
+
+describe('плитка урона заклинания: добавка по условию — отдельно', () => {
+  /**
+   * Показ урона заклинания, разложенный для плитки.
+   *
+   * @param {string[]} formulas - формулы частей
+   * @param {object} [extra] - остальные поля заклинания
+   * @param {number} [castLevel] - круг наложения
+   * @returns {object} показ урона
+   */
+  function describeSpell(formulas, extra = {}, castLevel = undefined) {
+    return engine.describeSpellDamageDisplay(
+      {
+        name: 'Проверка',
+        level: 1,
+        school: 'evocation',
+        damageParts: formulas.map((formula) => ({
+          formula,
+          target: 'selected',
+        })),
+        ...extra,
+      },
+      { castLevel },
+    );
+  }
+
+  it('в плитке — урон, который бросается всегда, добавка — в подсказке', () => {
+    const display = describeSpell([
+      '1d8@dmg.cold + 2d6@dmg.cold@target.status.prone',
+    ]);
+
+    assert.equal(display.baseFormula, '1к8');
+
+    assert.deepEqual(display.conditionalFormulas, [
+      '2к6 (цель: Лежащий ничком)',
+    ]);
+
+    assert.equal(display.formula, '1к8 + 2к6 (цель: Лежащий ничком)');
+  });
+
+  it('без условий добавок нет, плитка — вся формула', () => {
+    const display = describeSpell(['1d8+2']);
+
+    assert.equal(display.baseFormula, '1к8+2');
+    assert.deepEqual(display.conditionalFormulas, []);
+  });
+
+  it('урон целиком под условием: постоянной части нет, добавка — в подсказке', () => {
+    const display = describeSpell(['2d6@dmg.cold@target.status.prone']);
+
+    // Плитка ставит короткую заглушку (formatDamageTileFormula), а не текст
+    // добавки: длинный он выдавливал бы название из строки
+    assert.equal(display.baseFormula, '');
+    assert.equal(display.formula, '2к6 (цель: Лежащий ничком)');
+
+    assert.deepEqual(display.conditionalFormulas, [
+      '2к6 (цель: Лежащий ничком)',
+    ]);
+  });
+
+  it('усиление круга дописывается к постоянной части, а не к добавке', () => {
+    const display = describeSpell(
+      ['1d8@dmg.cold + 2d6@dmg.cold@target.status.prone'],
+      { scaling: { additionalDice: '1d8' } },
+      3,
+    );
+
+    assert.equal(display.baseFormula, '1к8+2к8');
+
+    assert.deepEqual(display.conditionalFormulas, [
+      '2к6 (цель: Лежащий ничком)',
+    ]);
   });
 });
 

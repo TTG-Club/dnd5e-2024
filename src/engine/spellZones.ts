@@ -12,6 +12,7 @@
 import type { EntityAreaDraft, MeasurementTemplate } from '@vtt/shared';
 
 import type { ActiveEffect } from './activeEffectTypes.js';
+import type { CreatureCategory } from './creatureTypes.js';
 import type { Spell } from './dndEntities.js';
 import type { FormulaContext } from './formulaParser.js';
 
@@ -95,13 +96,19 @@ function templateColorToHex(color: number): string {
  * @param sourceEffect - эффект заклинания с доставкой «в зону»
  * @param options - заклинатель
  * @param options.casterId - заклинатель
+ * @param options.casterCreatureType - тип заклинателя
  * @param options.saveDc - Сл заклинателя
  * @param options.formulaContext - формулы заклинателя (с `spellMod`)
  * @returns эффект зоны
  */
 function buildZoneEffect(
   sourceEffect: ActiveEffect,
-  options: { casterId: string; saveDc: number; formulaContext: FormulaContext },
+  options: {
+    casterId: string;
+    casterCreatureType?: CreatureCategory;
+    saveDc: number;
+    formulaContext: FormulaContext;
+  },
 ): ActiveEffect {
   // Старый «пока в зоне» со спасброском уходит на сцену уже входом: так он
   // сохраняет свою длительность и не висит на стоящих в зоне без броска
@@ -113,12 +120,18 @@ function buildZoneEffect(
     id: generateId('effect'),
     origin: 'spell',
     sourceActorId: options.casterId,
+    ...(options.casterCreatureType
+      ? { sourceCreatureType: options.casterCreatureType }
+      : {}),
     magical: true,
     duration: isStay ? { type: 'permanent' } : { ...effect.duration },
   };
 
   return stampSourceSaveDcs(
-    bindSourceEffectFormulas(prepared, options.formulaContext),
+    bindSourceEffectFormulas(prepared, {
+      ...options.formulaContext,
+      spellSaveDc: options.saveDc,
+    }),
     options.saveDc,
   );
 }
@@ -138,6 +151,8 @@ export interface SpellZoneDraftInput {
   template: MeasurementTemplate;
   /** Заклинатель */
   casterId: string;
+  /** Тип заклинателя: спасбросок в зоне знает, кто её создал */
+  casterCreatureType?: CreatureCategory;
   /** Сл спасброска заклинателя для этого заклинания */
   saveDc: number;
   /** Формулы заклинателя (`@mod.spell` уже в контексте) */
@@ -185,6 +200,7 @@ export function buildSpellZoneDraft(
     effects: zoneEffects.map((effect) =>
       buildZoneEffect(effect, {
         casterId: input.casterId,
+        casterCreatureType: input.casterCreatureType,
         saveDc: input.saveDc,
         formulaContext: input.formulaContext,
       }),

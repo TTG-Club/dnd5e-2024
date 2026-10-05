@@ -6,7 +6,7 @@ import { loadEngineBundle } from './helpers/engineBundle.mjs';
 import { loadHandler } from './helpers/sourceHandler.mjs';
 
 const engine = await loadEngineBundle(
-  "export * from './src/engine/effectActivation.ts'; export * from './src/engine/spellUtils.ts';",
+  "export * from './src/engine/effectActivation.ts'; export * from './src/engine/spellUtils.ts'; export * from './src/engine/effectPay.ts'; export * from './src/engine/effectPayTypes.ts';",
 );
 
 const helperPath = 'src/client/composables/effectActivationUse.ts';
@@ -38,13 +38,33 @@ function usableEffect(name, overrides = {}) {
  * @param {object} options - кого выберут получателем
  * @param {string | null} options.chosenTargetId - выбранный; `null` — плашку
  *   закрыли или рядом никого
+ * @param {object | null} options.unresolvedSaveDc - Сл спасброска эффекта «на
+ *   цель», которую не из чего посчитать; нет — Сл считается
  * @returns {Promise<object>} хелпер и журнал
  */
-async function loadApply({ chosenTargetId }) {
+async function loadApply({ chosenTargetId, unresolvedSaveDc = null }) {
   const steps = [];
 
   const apply = await loadHandler(helperPath, 'applyEffectSource', {
+    findUnresolvedTargetSaveDc: () => unresolvedSaveDc,
+    warnUnresolvedSaveDc: (sourceName, problem, outcomeSuffix) =>
+      steps.push(['warn', sourceName, problem.formula, outcomeSuffix]),
+    UNRESOLVED_SAVE_DC_LABELS: { notAppliedSuffix: ' — отменено' },
     getTargetSpellEffects: engine.getTargetSpellEffects,
+    settleUseSpellArea: engine.settleUseSpellArea,
+    collectSourcePay: engine.collectSourcePay,
+    hasItemUsesPrice: engine.hasItemUsesPrice,
+    // Запрета траты хода и области у фикстур нет
+    warnActionCostBlocked: () => false,
+    EFFECT_USE_LABELS: { blockedTitle: 'Нельзя применить' },
+    listAmbientEffects: () => [],
+    recordEntityActionSpend: () => {},
+    // Сл от проверки навыка у фикстур нет: применение идёт сразу
+    runWithSkillCheckDc: (source, _user, _hasTarget, proceed) =>
+      proceed(source),
+    // Цены у фикстур нет: оплата проходная, расход идёт прежним путём
+    runWithSourcePay: (source, payer, _options, proceed) =>
+      proceed(source, false, payer),
     chooseUseTarget: (spell, user, proceed) => {
       steps.push(['choose', user.id]);
 
@@ -55,8 +75,13 @@ async function loadApply({ chosenTargetId }) {
     createChosenEffectTargets: (spell, casterId, entityIds) => ({
       entityIds,
     }),
-    applyCasterSpellEffectsToEntity: (spell) =>
-      steps.push(['self', engine.getCasterSpellEffects(spell).length]),
+    // Финал — общий путь каста: эффекты на себя, затем цели после ожидания
+    completeSpellCast: ({ spell }) => {
+      steps.push(['self', engine.getCasterSpellEffects(spell).length]);
+
+      return Promise.resolve();
+    },
+    afterSpellCast: (_completion, proceed) => proceed(),
     applySpellTargetEffects: (spell, source, targets) =>
       steps.push([
         'target',
@@ -115,6 +140,27 @@ it('эффект на цель уходит выбранному получат�
     ['spend'],
     ['self', 0],
     ['target', 'hero', 15, ['goblin']],
+  ]);
+});
+
+it('сл не посчитана: ни выбора цели, ни расхода — только предупреждение', async () => {
+  const { apply, steps } = await loadApply({
+    chosenTargetId: 'goblin',
+    unresolvedSaveDc: {
+      problem: { formula: '8 + 2 + @mod.feat', tokens: ['@mod.feat'] },
+    },
+  });
+
+  const shove = engine.buildItemUseSpell({
+    id: 'shove',
+    name: 'Shove',
+    activeEffects: [usableEffect('Shoved', { effectTarget: 'target' })],
+  });
+
+  apply(shove, hero, 0, () => steps.push(['spend']));
+
+  assert.deepEqual(steps, [
+    ['warn', 'Shove', '8 + 2 + @mod.feat', ' — отменено'],
   ]);
 });
 
@@ -367,13 +413,26 @@ it('кнопка панели применяет предмет владельц
 
   const owner = { id: 'hero', name: 'Hero', equipment: [potion] };
 
+  const buildItemUseSpend = await loadHandler(helperPath, 'buildItemUseSpend', {
+    spendItemUse: engine.spendItemUse,
+  });
+
+  // Цена «заряды предмета» заменяет обычный расход, любая другая — нет
+  const spendWithPay = buildItemUseSpend('potion');
+
+  assert.equal(spendWithPay.itemId, 'potion');
+  assert.equal(spendWithPay.spendOn(owner, true), owner);
+  assert.equal(spendWithPay.spendOn(owner, false).equipment[0].quantity, 0);
+
   const useItem = await loadHandler(helperPath, 'applyEntityItemUse', {
+    buildItemUseSpend,
     useWorldEntities: () => ({
       findCurrentDndEntity: (entityId) =>
         entityId === owner.id ? owner : undefined,
     }),
     canUseItem: engine.canUseItem,
     buildItemUseSpell: engine.buildItemUseSpell,
+    resolveEffectUseCost: engine.resolveEffectUseCost,
     spendItemUse: engine.spendItemUse,
     resolveActorStats: () => ({ spellSaveDC: 14 }),
     listAmbientEffects: () => [],
@@ -479,4 +538,57 @@ it('в список наложенного не входят эффекты, к�
   );
 
   assert.deepEqual(sent, ['Dust: Invisible']);
+});
+
+it('цена ресурсом: оплата и прежний расход идут одним сохранением', async () => {
+  const steps = [];
+  const paidUser = { id: 'hero', name: 'Hero', paid: true };
+
+  const apply = await loadHandler(helperPath, 'applyEffectSource', {
+    getTargetSpellEffects: engine.getTargetSpellEffects,
+    settleUseSpellArea: engine.settleUseSpellArea,
+    collectSourcePay: engine.collectSourcePay,
+    hasItemUsesPrice: engine.hasItemUsesPrice,
+    // Запрета траты хода и области у фикстур нет
+    warnActionCostBlocked: () => false,
+    EFFECT_USE_LABELS: { blockedTitle: 'Нельзя применить' },
+    listAmbientEffects: () => [],
+    recordEntityActionSpend: () => {},
+    // Сл от проверки навыка у фикстур нет: применение идёт сразу
+    runWithSkillCheckDc: (source, _user, _hasTarget, proceed) =>
+      proceed(source),
+    runWithSourcePay: (source, payer, options, proceed) => {
+      options.commit(paidUser);
+      proceed(source, true, paidUser);
+    },
+    // Запись листа перечитывает сущность и переносит на неё ресурсы
+    // оплаченной копии; у фикстуры перенос — сама копия
+    changeEntitySheet: (entityId, change) =>
+      steps.push(['save', entityId, change(hero)]),
+    withSheetResources: (_current, spent) => spent,
+    completeSpellCast: () => {
+      steps.push(['self']);
+
+      return Promise.resolve();
+    },
+    afterSpellCast: (_completion, proceed) => proceed(),
+  });
+
+  const gem = engine.buildItemUseSpell({
+    id: 'gem',
+    name: 'Gem',
+    activeEffects: [
+      usableEffect('Flash', { pay: [{ kind: 'itemUses', amount: '5' }] }),
+    ],
+  });
+
+  apply(gem, hero, 13, () => steps.push(['spend']), {
+    itemId: 'gem',
+    spendOn: (user, itemUsesPaid) => ({ ...user, itemUsesPaid }),
+  });
+
+  assert.deepEqual(steps, [
+    ['save', 'hero', { ...paidUser, itemUsesPaid: true }],
+    ['self'],
+  ]);
 });

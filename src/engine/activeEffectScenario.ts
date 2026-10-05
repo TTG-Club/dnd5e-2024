@@ -14,6 +14,7 @@ import type {
   EffectFormContext,
   EffectFormLayout,
 } from './effectFormLayout.js';
+import type { SaveDcSource } from './effectSaveDc.js';
 import type { EffectTrigger } from './effectTriggerTypes.js';
 
 import {
@@ -23,6 +24,8 @@ import {
   describeEffectDamageParts,
   describeEffectDuration,
   describeEffectFlag,
+  describeEffectLight,
+  describeSaveOverride,
   formatEffectSaveDc,
 } from './activeEffectDescribe.js';
 import {
@@ -30,18 +33,20 @@ import {
   isToggleActivatedEffect,
 } from './activeEffectTypes.js';
 import { buildConditionActiveEffect } from './conditionTemplates.js';
-import { ABILITY_GENITIVE_LABELS } from './consts.js';
+import { SKILLS_LABELS } from './consts.js';
 import {
   isEffectTriggerSupported,
   readEffectSuccessOutcome,
   resolveEffectFormLayout,
 } from './effectFormLayout.js';
+import { describeEffectPay, EFFECT_PRICE_LABELS } from './effectPayTypes.js';
 import {
   describeEffectTrigger,
   describeTriggerCondition,
 } from './effectTriggerDescribe.js';
 import { listEffectListTriggers } from './effectTriggers.js';
 import { LEGACY_TRIGGER_IDS } from './effectTriggerTypes.js';
+import { describeSaveAbilitiesGenitive } from './saveAbilityChoice.js';
 
 /** Подписи цели ауры в сводке */
 const AURA_TARGET_SCENARIO_LABELS = {
@@ -110,6 +115,8 @@ const AURA_MOMENT_PREFIXES = {
 
 /** Части фраз сводки */
 const SCENARIO_LABELS = {
+  dcSkillPrefix: ' (при применении — итог проверки: ',
+  dcSkillSuffix: ')',
   variantPrefix: 'Вариант ',
   variantSuffix: '. ',
   landingConditionPrefix: ', если ',
@@ -150,14 +157,19 @@ const MAX_NAMED_MODIFIERS = 3;
 /**
  * Подпись Сл спасброска в сводке.
  *
- * @param dc - сложность из эффекта
+ * @param save - Сл из эффекта
  * @param context - место окна
  * @returns подпись сложности
  */
-function formatScenarioSaveDc(dc: number, context: EffectFormContext): string {
+function formatScenarioSaveDc(
+  save: SaveDcSource,
+  context: EffectFormContext,
+): string {
   const sourceLabel = SOURCE_SAVE_DC_LABELS[context];
 
-  return dc === 0 && sourceLabel ? sourceLabel : formatEffectSaveDc(dc);
+  return save.dc === 0 && !save.dcFormula && sourceLabel
+    ? sourceLabel
+    : formatEffectSaveDc(save);
 }
 
 /**
@@ -174,7 +186,7 @@ export function describeEffectTriggerInPlace(
   context: EffectFormContext,
 ): string {
   return describeEffectTrigger(trigger, {
-    formatDc: (dc) => formatScenarioSaveDc(dc, context),
+    formatDc: (save) => formatScenarioSaveDc(save, context),
   });
 }
 
@@ -404,6 +416,14 @@ function describeLastingPayload(
     );
   }
 
+  if (layout.showSaveOverride && effect.saveOverride) {
+    parts.push(describeSaveOverride(effect.saveOverride));
+  }
+
+  if (effect.light) {
+    parts.push(describeEffectLight(effect.light));
+  }
+
   for (const trigger of listEffectListTriggers(effect)) {
     if (!isTriggerShown(trigger, layout)) {
       continue;
@@ -418,7 +438,7 @@ function describeLastingPayload(
 
   const duration =
     layout.showDuration && effect.duration.type !== 'permanent'
-      ? describeEffectDuration(effect.duration)
+      ? describeEffectDuration(effect.duration, effect.turnCurrent === true)
       : null;
 
   if (duration && parts.length > 0) {
@@ -497,11 +517,16 @@ export function describeEffectScenario(
     ? `${describeActivationCounter(effect)}${describeActivationExclusive(effect)}`
     : '';
 
+  const pay =
+    layout.showPay && effect.pay
+      ? `${EFFECT_PRICE_LABELS.payClausePrefix}${describeEffectPay(effect.pay)}`
+      : '';
+
   const rollCondition = effect.rollCondition
     ? `${SCENARIO_LABELS.rollConditionPrefix}${describeEffectChangeCondition(effect.rollCondition).toLowerCase()}`
     : '';
 
-  const moment = `${variant}${describeMoment(effect, layout)}${counter}${condition}${rollCondition}`;
+  const moment = `${variant}${describeMoment(effect, layout)}${counter}${pay}${condition}${rollCondition}`;
   const lasting = describeLastingPayload(effect, layout);
 
   const damage =
@@ -512,7 +537,7 @@ export function describeEffectScenario(
   const everything = damage ? [damage, ...lasting] : lasting;
 
   if (layout.showSave && effect.applySave) {
-    const { ability, dc } = effect.applySave;
+    const abilities = describeSaveAbilitiesGenitive(effect.applySave);
     const outcome = readEffectSuccessOutcome(effect);
 
     const failure =
@@ -521,7 +546,7 @@ export function describeEffectScenario(
         : joinParts(everything);
 
     return [
-      `${moment}: ${SCENARIO_LABELS.savePrefix}${ABILITY_GENITIVE_LABELS[ability]}, ${formatScenarioSaveDc(dc, context)}.`,
+      `${moment}: ${SCENARIO_LABELS.savePrefix}${abilities}, ${formatScenarioSaveDc(effect.applySave, context)}${effect.applySave.dcSkill ? `${SCENARIO_LABELS.dcSkillPrefix}${SKILLS_LABELS[effect.applySave.dcSkill]}${SCENARIO_LABELS.dcSkillSuffix}` : ''}.`,
       `${SCENARIO_LABELS.failurePrefix}${failure}.`,
       `${SCENARIO_LABELS.successPrefix}${describeSuccess(effect, damage, lasting)}.`,
     ].join(' ');

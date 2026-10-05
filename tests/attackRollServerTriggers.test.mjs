@@ -11,6 +11,7 @@ import {
   createEffect,
   createRequestRoll,
   engine,
+  MAX_ROLL,
   MIN_ROLL,
   withHp,
   withRandom,
@@ -213,5 +214,192 @@ describe('бросок атаки на сервере', () => {
       1,
       'урон по ответу спрашивает спасбросок концентрации',
     );
+  });
+});
+
+/**
+ * Срабатывание атакующего «при попадании»: действие достаётся цели атаки.
+ *
+ * @param {object[]} parts - части урона или лечения
+ * @returns {object} эффект
+ */
+function onHitEffect(parts) {
+  return createEffect('Кара', {
+    triggers: [
+      {
+        id: 'trigger_on_hit',
+        event: 'attackRoll',
+        role: 'attacker',
+        recipient: 'other',
+        condition: 'attack.landed === true',
+        actions: [{ type: 'damage', parts }],
+      },
+    ],
+  });
+}
+
+/**
+ * Прогоняет событие атаки существа по цели и отдаёт хиты сторон.
+ *
+ * @param {object} sides - эффекты сторон
+ * @param {object} event - событие броска атаки
+ * @returns {{ attackerHp: number, targetHp: number }} хиты после события
+ */
+function settleAttack(sides, event) {
+  const { attacker, target, getEntity } = createSides(sides);
+
+  withRandom([MAX_ROLL], () =>
+    new engine.Dnd5eVttSystem().handleClientEvent(event, {
+      getEntity,
+      canControl: () => true,
+    }),
+  );
+
+  return {
+    attackerHp: engine.resolveEntityCurrentHp(attacker),
+    targetHp: engine.resolveEntityCurrentHp(target),
+  };
+}
+
+describe('бросок атаки: критическое попадание', () => {
+  /** Попавшая атака существа по цели */
+  const hit = engine.buildAttackRollEvent(
+    ATTACKER_ID,
+    [TARGET_ID],
+    'normal',
+    true,
+  );
+
+  /** Она же, попавшая критически */
+  const critical = engine.buildAttackRollEvent(
+    ATTACKER_ID,
+    [TARGET_ID],
+    'normal',
+    true,
+    true,
+  );
+
+  it('событие несёт крит только у попавшего броска', () => {
+    assert.equal(hit.critical, undefined);
+    assert.equal(critical.critical, true);
+
+    assert.equal(
+      engine.buildAttackRollEvent(
+        ATTACKER_ID,
+        [TARGET_ID],
+        'normal',
+        false,
+        true,
+      ).critical,
+      undefined,
+      'промах критом не бывает',
+    );
+
+    assert.deepEqual(engine.parseSystemClientEvent(critical), critical);
+  });
+
+  it('урон срабатывания цели атаки удваивает кости, плоскую прибавку — нет', () => {
+    const smite = [{ formula: '2к6 + 3', type: 'radiant' }];
+
+    assert.equal(
+      settleAttack({ attackerEffects: [onHitEffect(smite)] }, hit).targetHp,
+      30 - 15,
+    );
+
+    assert.equal(
+      settleAttack({ attackerEffects: [onHitEffect(smite)] }, critical)
+        .targetHp,
+      30 - 27,
+      '4к6 + 3',
+    );
+  });
+
+  it('число костей выражением удваивается после подсчёта', () => {
+    const smite = [{ formula: '(1 + 2)к4', type: 'force' }];
+
+    assert.equal(
+      settleAttack({ attackerEffects: [onHitEffect(smite)] }, critical)
+        .targetHp,
+      30 - 24,
+      '(1 + 2)к4 — это 6к4',
+    );
+  });
+
+  it('урон не цели атаки и лечение крит не удваивает', () => {
+    // «Адское возмездие» цели бьёт атакующего: он не цель этой атаки
+    const rebuke = createEffect('Ответный огонь', {
+      triggers: [
+        {
+          id: 'trigger_back',
+          event: 'attackRoll',
+          role: 'target',
+          recipient: 'other',
+          actions: [
+            { type: 'damage', parts: [{ formula: '2к6', type: 'fire' }] },
+          ],
+        },
+      ],
+    });
+
+    assert.equal(
+      settleAttack({ targetEffects: [rebuke] }, critical).attackerHp,
+      40 - 12,
+    );
+
+    // Лечение цели атаки — не урон атаки
+    const mercy = withHp(
+      createActor,
+      10,
+      { id: TARGET_ID, activeEffects: [] },
+      60,
+    );
+
+    const healer = createCreature({
+      id: ATTACKER_ID,
+      activeEffects: [onHitEffect([{ formula: '2к6@heal' }])],
+    });
+
+    const entities = new Map([
+      [healer.id, healer],
+      [mercy.id, mercy],
+    ]);
+
+    withRandom([MAX_ROLL], () =>
+      new engine.Dnd5eVttSystem().handleClientEvent(critical, {
+        getEntity: (entityId) => entities.get(entityId),
+        canControl: () => true,
+      }),
+    );
+
+    assert.equal(engine.resolveEntityCurrentHp(mercy), 10 + 12);
+  });
+
+  it('срабатывание цели, бьющее её саму при попадании, тоже удваивает кости', () => {
+    const brand = createEffect('Клеймо', {
+      triggers: [
+        {
+          id: 'trigger_brand',
+          event: 'attackRoll',
+          role: 'target',
+          condition: 'attack.landed === true',
+          save: DEXTERITY_SAVE,
+          actions: [
+            { type: 'damage', parts: [{ formula: '1к6', type: 'fire' }] },
+          ],
+        },
+      ],
+    });
+
+    const { target, getEntity } = createSides({ targetEffects: [brand] });
+
+    // Спасбросок провален (единица), урон — максимум костей
+    withRandom([MIN_ROLL, MAX_ROLL], () =>
+      new engine.Dnd5eVttSystem().handleClientEvent(critical, {
+        getEntity,
+        canControl: () => true,
+      }),
+    );
+
+    assert.equal(engine.resolveEntityCurrentHp(target), 30 - 12, '2к6');
   });
 });

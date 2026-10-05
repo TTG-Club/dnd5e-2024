@@ -16,7 +16,7 @@
 
   import {
     describeEffectFlag,
-    EFFECT_FLAG_LABELS,
+    EFFECT_FLAG_LIBRARY,
     EFFECT_FLAG_MENU,
     isEffectFlagKey,
   } from '@vtt/shared/system/dnd.js';
@@ -46,11 +46,6 @@
   const flags = defineModel<EffectFlagKey[]>('flags', { required: true });
 
   const isSearchOpen = ref(false);
-
-  /** Список флагов для поиска: подписи те же, что у строк */
-  const flagSuggestions = Object.entries(EFFECT_FLAG_LABELS).map(
-    ([flagKey, flagLabel]) => ({ value: flagKey, label: flagLabel }),
-  );
 
   /** Поставленные правила с подписями */
   const rows = computed(() =>
@@ -223,7 +218,7 @@
     :title="ACTIVE_EFFECT_TEMPLATES_LABELS.flagTitle"
     :search-placeholder="ACTIVE_EFFECT_TEMPLATES_LABELS.flagSearchPlaceholder"
     :empty-label="ACTIVE_EFFECT_TEMPLATES_LABELS.flagEmpty"
-    :items="flagSuggestions"
+    :items="EFFECT_FLAG_LIBRARY"
     :modal-id="EFFECT_TEMPLATES_MODAL_IDS.flag"
     @select="applySearchResult"
   />

@@ -12,6 +12,8 @@ import type {
   ManualHitDieGroup,
 } from './classTypes.js';
 
+import { HIT_DICE_FORMULA_LETTER } from './consts.js';
+
 /** Сводная группа костей хитов одного размера (для отображения и траты) */
 export interface HitDiceGroup {
   /** Размер кости (к6/к8/к10/к12) */
@@ -267,4 +269,56 @@ export function recoverHitDice(
   }
 
   return { classes: recoveredClasses, manualHitDice: recoveredManualHitDice };
+}
+
+/** Сколько костей одной грани выбрано к трате */
+export interface HitDicePick {
+  /** Грань кости */
+  die: HitDie;
+  /** Сколько костей этой грани */
+  count: number;
+}
+
+/**
+ * Слагаемое броска костей одной грани на коротком отдыхе: «2к10» либо, под
+ * правилом «максимум вместо броска», готовое число — кости не бросаются.
+ *
+ * @param pick - грань и число костей
+ * @param maximize - кости не бросаются: берётся максимум
+ * @returns слагаемое формулы броска
+ */
+export function formatHitDiceRollTerm(
+  pick: HitDicePick,
+  maximize: boolean,
+): string {
+  return maximize
+    ? String(pick.count * pick.die)
+    : `${pick.count}${HIT_DICE_FORMULA_LETTER}${pick.die}`;
+}
+
+/** Сколько костей не списывается под правилом «первая кость бесплатна» */
+const FREE_HIT_DICE = 1;
+
+/**
+ * Какие кости списать за отдых: бесплатная кость («первая кость после отдыха
+ * не тратится») лечит, но не списывается — она вычитается из выбранных по
+ * порядку граней.
+ *
+ * @param picks - выбранные кости по граням
+ * @param freeDie - первая кость бесплатна
+ * @returns кости к списанию; грани без списания опущены
+ */
+export function listHitDiceCharges(
+  picks: readonly HitDicePick[],
+  freeDie: boolean,
+): HitDicePick[] {
+  let free = freeDie ? FREE_HIT_DICE : 0;
+
+  return picks.flatMap((pick) => {
+    const count = Math.max(0, pick.count - free);
+
+    free = Math.max(0, free - pick.count);
+
+    return count > 0 ? [{ die: pick.die, count }] : [];
+  });
 }
