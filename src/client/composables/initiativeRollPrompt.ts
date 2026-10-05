@@ -48,13 +48,26 @@ export function promptInitiativeRoll(
   // кого открыто окно, ни за кого ушёл бросок в чат
   const nameSuffix = `${INITIATIVE_ROLL_LABELS.nameSeparator}${entity.name}`;
 
+  // Окно видит только бросающий, а чат читают все: имя существа, скрытое от
+  // игроков, в сообщение о броске не попадает — иначе бросок выдал бы то, что
+  // ядро прячет в трекере. Правило то же, что у ядра: существо без явно
+  // включённого «Показывать имя».
+  const isNameHidden =
+    entity.entityType === 'creature' && entity.token?.showName !== true;
+
+  const announcedName = isNameHidden
+    ? INITIATIVE_ROLL_LABELS.hiddenName
+    : entity.name;
+
+  const rollLabel = `${INITIATIVE_ROLL_LABELS.rollLabel}${INITIATIVE_ROLL_LABELS.nameSeparator}${announcedName}`;
+
   // Ключ окна — по участнику: мастер бросает за нескольких подряд, и окна
   // должны стоять рядом, а повторный клик по тому же участнику — поднимать
   // уже открытое окно, а не плодить второе
   const modalId = openDiceRollWindow(
     {
       title: `${INITIATIVE_ROLL_LABELS.title}${nameSuffix}`,
-      rollLabel: `${INITIATIVE_ROLL_LABELS.rollLabel}${nameSuffix}`,
+      rollLabel,
       rollButtonText: INITIATIVE_ROLL_LABELS.button,
       modifier,
       initialRollMode,
