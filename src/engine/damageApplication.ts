@@ -191,6 +191,9 @@ function buildEffectForTarget(
     conditionImmunities:
       effect.conditionImmunities ?? conditionEffect.conditionImmunities,
     exhaustionLevel: effect.exhaustionLevel ?? conditionEffect.exhaustionLevel,
+    // Автор выхода не описал — действует выход самого состояния: из захвата
+    // вырываются по правилам, чем бы его ни наложили
+    escape: effect.escape ?? conditionEffect.escape,
   });
 }
 

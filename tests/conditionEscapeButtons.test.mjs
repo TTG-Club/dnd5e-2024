@@ -55,6 +55,8 @@ async function loadHelpers(entity) {
 
   const ports = {
     resolveEffectConditionKey: engine.resolveEffectConditionKey,
+    canEscapeEffect: engine.canEscapeEffect,
+    isEffectDormant: engine.isEffectDormant,
     changeEntityCombatState: await loadChangeEntityCombatState({
       findEntity: () => entity,
       emitted,
@@ -77,6 +79,11 @@ async function loadHelpers(entity) {
       'listConditionEscapeEffects',
       ports,
     ),
+    listSelfEscapeEffects: await loadHandler(
+      helperPath,
+      'listSelfEscapeEffects',
+      ports,
+    ),
     removeEntityCondition: await loadHandler(
       helperPath,
       'removeEntityCondition',
@@ -84,6 +91,39 @@ async function loadHelpers(entity) {
     ),
   };
 }
+
+it('кнопку над хотбаром получает то, из чего носитель вырывается сам', async () => {
+  const { listSelfEscapeEffects } = await loadHelpers();
+
+  const manual = engine.buildConditionActiveEffect('grappled');
+
+  const helperOnly = {
+    ...GRAPPLE,
+    id: 'effect_pod',
+    escape: { by: 'adjacent' },
+  };
+
+  const switchedOff = { ...GRAPPLE, id: 'effect_off', disabled: true };
+
+  const givenToOthers = {
+    ...GRAPPLE,
+    id: 'effect_aura',
+    aura: { applyToSelf: false },
+  };
+
+  assert.deepEqual(
+    listSelfEscapeEffects([
+      GRAPPLE,
+      STUN,
+      manual,
+      helperOnly,
+      switchedOff,
+      givenToOthers,
+    ]).map((effect) => effect.id),
+    [GRAPPLE.id, manual.id],
+    'захват атакой и захват, повешенный плиткой; чужая помощь, выключенный и аура для других — нет',
+  );
+});
 
 it('кнопку «вырваться» получает эффект-состояние, у которого нет строки', async () => {
   const { listConditionEscapeEffects } = await loadHelpers();

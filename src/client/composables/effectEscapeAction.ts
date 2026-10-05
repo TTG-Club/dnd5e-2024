@@ -4,7 +4,9 @@
  * Вырываться может сам носитель, существо рядом с ним или любой из них
  * (`escape.by`). Помощник бросает СВОЙ навык со своими флагами — поэтому, когда
  * действовать могут несколько существ, сначала спрашивают «кто действует», а
- * при нескольких навыках («Атлетика или Акробатика») — «каким навыком».
+ * при нескольких навыках («Атлетика или Акробатика») плашка «вырваться» пишет
+ * Сл и даёт навыки кнопками. В той же плашке Сл называет бросающий, когда
+ * взять её неоткуда: «Схваченный», повешенный рукой ведущего.
  *
  * Исход уходит боевым каналом: снять эффект с чужого носителя помощник вправе
  * только им, а урон «при провале» должен разбудить события урона на сервере.
@@ -16,6 +18,7 @@ import type {
   DnDSceneEntity,
   EffectEscapeRole,
   EscapeCheckOption,
+  EscapeSkillChoice,
 } from '@vtt/shared/system/dnd.js';
 
 import type { CheckRollResult } from '../ui/actor/diceRollTypes';
@@ -30,12 +33,17 @@ import {
   buildEscapeAftermath,
   canEscapeEffect,
   canHelpEscapeEffect,
+  DEFAULT_ESCAPE_LABEL,
   DEFAULT_REACH_FEET,
+  describeEscapeChecks,
   describeEscapeUnavailable,
   escapeAllowsRole,
+  escapeAsksDc,
+  escapeNeedsOwnTurn,
   formatEffectEscapeLabel,
   listEffectEscapeRemovals,
   listEscapeChecks,
+  listEscapeSkillChoices,
   mergeAppliedEffects,
   resolveEscapeRollMode,
 } from '@vtt/shared/system/dnd.js';
@@ -45,10 +53,12 @@ import { formatSignedNumber } from '../ui/actor/utils/formatSignedNumber';
 import {
   EFFECT_ESCAPE_LABELS,
   EFFECT_ESCAPE_MODAL_KEY_PREFIX,
+  EFFECT_ESCAPE_PROMPT_MODAL,
   EFFECT_QUESTION_PROMPT_MODAL,
 } from '../ui/effect/constants';
 import { EFFECT_ESCAPE_PROMPT_LABELS } from '../ui/effect/escapeLabels';
 import { recordEntityActionSpend } from './actionSpend';
+import { isEntityOwnTurn } from './encounterTurn';
 import { changeEntityCombatState } from './entityCombatWrite';
 import { controlsEntityAsUser } from './gmApprovalRequest';
 import { refuseWhileSheetEditing } from './sheetEditLock';
@@ -76,6 +86,36 @@ function warnEscapeUnavailable(reason: string): void {
     description: `${EFFECT_ESCAPE_LABELS.unavailablePrefix}${reason}`,
     color: 'warning',
   });
+}
+
+/**
+ * Останавливает «вырваться» в чужой ход и говорит об этом: в идущем бою
+ * существо вырывается только в свой ход. Вне боя и у существа, которого в
+ * бою нет, хода нет — там действуют, когда хотят.
+ *
+ * @param effect - эффект с блоком «вырваться»
+ * @param actor - кто действует
+ * @returns `true`, если действие остановлено
+ */
+function refuseOutsideOwnTurn(
+  effect: ActiveEffect,
+  actor: EscapeActor,
+): boolean {
+  const { escape } = effect;
+
+  if (
+    !escape
+    || !escapeNeedsOwnTurn(escape)
+    || isEntityOwnTurn(actor.entity.id)
+  ) {
+    return false;
+  }
+
+  warnEscapeUnavailable(
+    `${actor.entity.name}${EFFECT_ESCAPE_PROMPT_LABELS.notOwnTurnSuffix}`,
+  );
+
+  return true;
 }
 
 /**
@@ -220,6 +260,46 @@ function chooseOne<Option>(
 }
 
 /**
+ * Название действия с именем эффекта — заголовок плашки и кнопка над
+ * хотбаром: «Вырваться — Схваченный». Имя эффекта обязательно: захватов от
+ * разных существ может быть два.
+ *
+ * @param effect - эффект с блоком «вырваться»
+ * @returns название действия
+ */
+export function formatEscapeTitle(effect: ActiveEffect): string {
+  return `${effect.escape?.label ?? DEFAULT_ESCAPE_LABEL}${EFFECT_ESCAPE_LABELS.titleSeparator}${effect.name}`;
+}
+
+/**
+ * Сл проверки словами для плашки: одна на все навыки — «Сложность, чтобы
+ * вырваться: 12», разная — «Сложность: Ловкость рук Сл 20 или Атлетика Сл 25».
+ *
+ * @param checks - навыки с известной Сл
+ * @returns строка плашки либо `null`, если известной Сл нет
+ */
+export function describeEscapeDifficulty(
+  checks: readonly EscapeCheckOption[],
+): string | null {
+  const [first] = checks;
+
+  if (!first) {
+    return null;
+  }
+
+  return checks.every((check) => check.dc === first.dc)
+    ? `${EFFECT_ESCAPE_PROMPT_LABELS.difficultyPrefix}${first.dc}`
+    : `${EFFECT_ESCAPE_PROMPT_LABELS.difficultyMixedPrefix}${describeEscapeChecks(checks)}`;
+}
+
+/**
+ * Сл, названные при броске, по эффектам: вторая попытка вырваться из того же
+ * захвата не спрашивает число заново. Память окна, не данные мира — после
+ * перезагрузки страницы Сл назовут ещё раз.
+ */
+const askedEscapeDcs = new Map<string, number>();
+
+/**
  * Записывает исход «вырваться» носителю боевым каналом: успех снимает эффект
  * (и кладёт состояние «после освобождения»), провал наносит урон «при
  * провале». Носитель перечитывается — пока бросали, лист мог измениться.
@@ -298,7 +378,7 @@ function rollEscapeCheck(
   carrier: DnDSceneEntity,
   effect: ActiveEffect,
   actor: EscapeActor,
-  check: EscapeCheckOption,
+  check: Pick<EscapeCheckOption, 'dc' | 'skill'>,
 ): void {
   const { entity } = actor;
   const { skill, dc } = check;
@@ -365,6 +445,10 @@ export function runEscapeAs(
     return false;
   }
 
+  if (refuseOutsideOwnTurn(effect, actor)) {
+    return false;
+  }
+
   if (!escape.check) {
     // «Замедление»: вырваться действием — значит бонусного в этот ход уже нет
     recordEntityActionSpend(actor.entity.id, escape.cost);
@@ -373,20 +457,71 @@ export function runEscapeAs(
     return true;
   }
 
+  const asksDc = escapeAsksDc(escape, actor.role);
+
+  // Навык без Сл остаётся в списке, только если Сл назовёт бросающий
+  const choices = listEscapeSkillChoices(escape, actor.role).filter(
+    (choice) => asksDc || choice.dc !== null,
+  );
+
+  const [only] = choices;
+
+  if (!only) {
+    return false;
+  }
+
+  /**
+   * Тратит цену действия и бросает проверку выбранным навыком.
+   *
+   * @param choice - выбранный навык
+   * @param askedDc - Сл, названная в плашке
+   */
+  const rollWith = (choice: EscapeSkillChoice, askedDc?: number): void => {
+    const dc = choice.dc ?? askedDc;
+
+    // Плашка могла провисеть через конец хода — ход сверяется и на ответе
+    if (dc === undefined || refuseOutsideOwnTurn(effect, actor)) {
+      return;
+    }
+
+    if (choice.dc === null) {
+      askedEscapeDcs.set(effect.id, dc);
+    }
+
+    recordEntityActionSpend(actor.entity.id, escape.cost);
+    rollEscapeCheck(carrier, effect, actor, { skill: choice.skill, dc });
+  };
+
+  // Один навык с известной Сл спрашивать не о чем: Сл покажет окно броска
+  if (choices.length === 1 && only.dc !== null) {
+    rollWith(only);
+
+    return true;
+  }
+
   const stats = resolveEntityStats(actor.entity);
 
-  chooseOne(
-    EFFECT_ESCAPE_PROMPT_LABELS.skillQuestion,
-    effect.name,
-    listEscapeChecks(escape, actor.role).map((check) => ({
-      label: `${check.label}${EFFECT_ESCAPE_PROMPT_LABELS.modifierPrefix}${formatSignedNumber(stats.skills[check.skill])}${EFFECT_ESCAPE_PROMPT_LABELS.modifierSuffix}`,
-      value: check,
+  useModalManager().openModal(EFFECT_ESCAPE_PROMPT_MODAL, {
+    // Повторное нажатие кнопки вторую плашку того же действия не плодит
+    _modalKey: `${effect.id}:${actor.entity.id}`,
+    title: formatEscapeTitle(effect),
+    actorName: actor.entity.name,
+    difficulty: describeEscapeDifficulty(listEscapeChecks(escape, actor.role)),
+    asksDc,
+    initialDc: askedEscapeDcs.get(effect.id),
+    options: choices.map((choice, index) => ({
+      id: String(index),
+      label: `${choice.name}${EFFECT_ESCAPE_PROMPT_LABELS.modifierPrefix}${formatSignedNumber(stats.skills[choice.skill])}${EFFECT_ESCAPE_PROMPT_LABELS.modifierSuffix}`,
+      needsDc: choice.dc === null,
     })),
-    (check) => {
-      recordEntityActionSpend(actor.entity.id, escape.cost);
-      rollEscapeCheck(carrier, effect, actor, check);
+    onAnswer: (optionId: string, askedDc?: number) => {
+      const chosen = choices[Number(optionId)];
+
+      if (chosen) {
+        rollWith(chosen, askedDc);
+      }
     },
-  );
+  });
 
   return true;
 }

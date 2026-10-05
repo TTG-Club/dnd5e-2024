@@ -90,7 +90,10 @@
     EFFECT_STAGE_LABELS,
     EFFECT_USE_LABELS,
   } from '../effect/constants';
-  import { EFFECT_ESCAPE_HELP_LABELS } from '../effect/escapeLabels';
+  import {
+    EFFECT_ESCAPE_HELP_LABELS,
+    EFFECT_ESCAPE_ICON,
+  } from '../effect/escapeLabels';
   import { formatActiveActionLabel } from '../effect/utils/activeActionLabel';
   import {
     ACTIVE_EFFECT_DEFAULTS,
@@ -719,7 +722,7 @@
 
           <UButton
             v-if="effect.escape"
-            icon="tabler:lock-open"
+            :icon="EFFECT_ESCAPE_ICON"
             size="xs"
             variant="soft"
             color="warning"
@@ -910,7 +913,7 @@
       <UButton
         v-for="{ effect, label } in conditionEscapeRows"
         :key="effect.id"
-        icon="tabler:lock-open"
+        :icon="EFFECT_ESCAPE_ICON"
         size="xs"
         variant="soft"
         color="warning"

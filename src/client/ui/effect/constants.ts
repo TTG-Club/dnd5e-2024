@@ -1161,6 +1161,9 @@ export const EFFECT_USE_TARGET_COUNT = 1;
 /** Приставка ключа окна броска «вырваться»: дальше идёт идентификатор эффекта */
 export const EFFECT_ESCAPE_MODAL_KEY_PREFIX = 'effect-escape:';
 
+/** Имя плашки «вырваться»: Сл словами и навыки кнопками в одну строку */
+export const EFFECT_ESCAPE_PROMPT_MODAL = 'EffectEscapePromptModal';
+
 /** Подписи действия «вырваться» на вкладке «Эффекты» */
 export const EFFECT_ESCAPE_LABELS = {
   /** Разделитель подписи и имени носителя */

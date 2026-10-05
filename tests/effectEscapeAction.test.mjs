@@ -15,12 +15,21 @@ const helperPath = 'src/client/composables/effectEscapeAction.ts';
  * @param {object} options - что подменить
  * @param {Set<string>} options.flags - действующие флаги бросающего
  * @param {Set<string>} options.holderFlags - действующие флаги наложившего
- * @param {number} options.pick - какой вариант выбрать в вопросе
+ * @param {number} options.pick - какой навык выбрать в плашке
+ * @param {number} options.askedDc - какую Сл назвать в плашке
+ * @param {string[]} options.offTurn - кто в бою и сейчас не ходит
  * @returns {Promise<object>} действие и журналы
  */
-async function loadEscape({ flags = new Set(), holderFlags, pick = 0 } = {}) {
+async function loadEscape({
+  flags = new Set(),
+  holderFlags,
+  pick = 0,
+  askedDc,
+  offTurn = [],
+} = {}) {
   const opened = [];
   const questions = [];
+  const prompts = [];
   const settled = [];
   const bonusKeys = [];
   const toasts = [];
@@ -33,6 +42,13 @@ async function loadEscape({ flags = new Set(), holderFlags, pick = 0 } = {}) {
     describeEscapeUnavailable: engine.describeEscapeUnavailable,
     escapeAllowsRole: engine.escapeAllowsRole,
     listEscapeChecks: engine.listEscapeChecks,
+    listEscapeSkillChoices: engine.listEscapeSkillChoices,
+    escapeAsksDc: engine.escapeAsksDc,
+    escapeNeedsOwnTurn: engine.escapeNeedsOwnTurn,
+    isEntityOwnTurn: (entityId) => !offTurn.includes(entityId),
+    describeEscapeChecks: engine.describeEscapeChecks,
+    DEFAULT_ESCAPE_LABEL: engine.DEFAULT_ESCAPE_LABEL,
+    askedEscapeDcs: new Map(),
     resolveEscapeRollMode: engine.resolveEscapeRollMode,
     // Вне боя трата хода не пишется
     recordEntityActionSpend: () => {},
@@ -42,6 +58,7 @@ async function loadEscape({ flags = new Set(), holderFlags, pick = 0 } = {}) {
     resolveAbilityCheckRollMode: engine.resolveAbilityCheckRollMode,
     SKILLS_LABELS: engine.SKILLS_LABELS,
     EFFECT_QUESTION_PROMPT_MODAL: 'EffectQuestionPromptModal',
+    EFFECT_ESCAPE_PROMPT_MODAL: 'EffectEscapePromptModal',
     listAmbientEffects: () => [],
     resolveActorStats: (entity) => ({
       skills: { athletics: 3, acrobatics: 5, medicine: 1 },
@@ -57,6 +74,13 @@ async function loadEscape({ flags = new Set(), holderFlags, pick = 0 } = {}) {
         if (name === 'EffectQuestionPromptModal') {
           questions.push(props);
           props.onAnswer(String(pick));
+
+          return;
+        }
+
+        if (name === 'EffectEscapePromptModal') {
+          prompts.push(props);
+          props.onAnswer(String(pick), askedDc);
 
           return;
         }
@@ -80,9 +104,11 @@ async function loadEscape({ flags = new Set(), holderFlags, pick = 0 } = {}) {
       unavailablePrefix: 'нельзя: ',
     },
     EFFECT_ESCAPE_PROMPT_LABELS: {
-      skillQuestion: 'Каким навыком?',
       modifierPrefix: ' (',
       modifierSuffix: ')',
+      difficultyPrefix: 'Сложность, чтобы вырваться: ',
+      difficultyMixedPrefix: 'Сложность: ',
+      notOwnTurnSuffix: ' — не его ход',
     },
     EFFECT_ESCAPE_MODAL_KEY_PREFIX: 'effect-escape:',
   };
@@ -108,9 +134,35 @@ async function loadEscape({ flags = new Set(), holderFlags, pick = 0 } = {}) {
     ports,
   );
 
+  ports.refuseOutsideOwnTurn = await loadHandler(
+    helperPath,
+    'refuseOutsideOwnTurn',
+    ports,
+  );
+
+  ports.formatEscapeTitle = await loadHandler(
+    helperPath,
+    'formatEscapeTitle',
+    ports,
+  );
+
+  ports.describeEscapeDifficulty = await loadHandler(
+    helperPath,
+    'describeEscapeDifficulty',
+    ports,
+  );
+
   const runEscapeAs = await loadHandler(helperPath, 'runEscapeAs', ports);
 
-  return { runEscapeAs, opened, questions, settled, bonusKeys, toasts };
+  return {
+    runEscapeAs,
+    opened,
+    questions,
+    prompts,
+    settled,
+    bonusKeys,
+    toasts,
+  };
 }
 
 /**
@@ -279,8 +331,8 @@ it('кость к навыку («Наставление» на Атлетику
   assert.deepEqual(bonusKeys, [['abilityCheck', 'skill.athletics']]);
 });
 
-it('два навыка на выбор: спрашивают, каким бросать, и бросают выбранным', async () => {
-  const { runEscapeAs, opened, questions } = await loadEscape({ pick: 1 });
+it('два навыка на выбор: Сл — строкой плашки, навыки — кнопками с бонусом', async () => {
+  const { runEscapeAs, opened, prompts } = await loadEscape({ pick: 1 });
 
   runEscapeAs(
     hero,
@@ -296,13 +348,108 @@ it('два навыка на выбор: спрашивают, каким бро
     AS_SELF,
   );
 
+  assert.equal(prompts[0].difficulty, 'Сложность, чтобы вырваться: 14');
+  assert.equal(prompts[0].asksDc, false);
+  assert.equal(prompts[0].title, 'Вырваться — Схвачен');
+
   assert.deepEqual(
-    questions[0].options.map((option) => option.label),
-    ['Атлетика Сл 14 (+3)', 'Акробатика Сл 14 (+5)'],
+    prompts[0].options.map((option) => option.label),
+    ['Атлетика (+3)', 'Акробатика (+5)'],
   );
 
   assert.equal(opened[0].props.modifier, 5, 'бросок — Акробатикой');
   assert.deepEqual(opened[0].props.rollLabel, 'Акробатика — Hero');
+  assert.equal(opened[0].props.targetDc, 14);
+});
+
+it('у навыков разная Сл: плашка называет каждую', async () => {
+  const { runEscapeAs, prompts } = await loadEscape();
+
+  runEscapeAs(
+    hero,
+    grappled({
+      escape: {
+        check: {
+          skill: 'sleightOfHand',
+          dc: 20,
+          skills: [{ skill: 'sleightOfHand' }, { skill: 'athletics', dc: 25 }],
+        },
+      },
+    }),
+    AS_SELF,
+  );
+
+  assert.equal(
+    prompts[0].difficulty,
+    'Сложность: Ловкость рук Сл 20 или Атлетика Сл 25',
+  );
+});
+
+/**
+ * «Схваченный», повешенный плиткой листа. Цена действия снята: её запрет
+ * считается по настоящему листу, а герой теста — заглушка без характеристик.
+ *
+ * @returns {object} эффект состояния
+ */
+function manualGrapple() {
+  const built = engine.buildConditionActiveEffect('grappled');
+
+  assert.equal(built.escape.cost, 'action', 'вырываются действием');
+
+  return { ...built, escape: { check: built.escape.check } };
+}
+
+it('«Схваченный», повешенный рукой: кнопка есть, Сл называет бросающий', async () => {
+  const manual = manualGrapple();
+
+  assert.equal(engine.canEscapeEffect(manual, 'self'), true);
+
+  assert.equal(
+    engine.formatEffectEscapeLabel(manual),
+    'Вырваться: Атлетика или Акробатика',
+  );
+
+  const { runEscapeAs, opened, prompts, settled } = await loadEscape({
+    pick: 0,
+    askedDc: 12,
+  });
+
+  assert.equal(runEscapeAs(hero, manual, AS_SELF), true);
+
+  assert.equal(prompts[0].asksDc, true);
+  assert.equal(prompts[0].difficulty, null, 'известной Сл нет');
+
+  assert.deepEqual(
+    prompts[0].options.map((option) => [option.label, option.needsDc]),
+    [
+      ['Атлетика (+3)', true],
+      ['Акробатика (+5)', true],
+    ],
+  );
+
+  assert.equal(opened[0].props.targetDc, 12, 'бросок — против названной Сл');
+
+  opened[0].props.onCheckRoll({ total: 12 });
+
+  assert.deepEqual(settled, [['hero', manual.id, true]]);
+});
+
+it('сл не названа — броска нет', async () => {
+  const manual = manualGrapple();
+  const { runEscapeAs, opened } = await loadEscape();
+
+  runEscapeAs(hero, manual, AS_SELF);
+
+  assert.equal(opened.length, 0);
+});
+
+it('без отметки «спросить Сл» неизвестная Сл остаётся отказом', () => {
+  const sourceless = grappled({
+    escape: { check: { skill: 'athletics', dc: 0 } },
+  });
+
+  assert.equal(engine.canEscapeEffect(sourceless), false);
+  assert.equal(engine.escapeAsksDc(sourceless.escape), false);
 });
 
 it('помощник бросает свой навык, а исход достаётся носителю', async () => {
@@ -378,6 +525,35 @@ it('режим из эффекта, флаг вырывающегося и фл�
   );
 
   assert.equal(ironGrip.opened[0].props.initialRollMode, 'disadvantage');
+});
+
+it('в бою вырываются только в свой ход — отказ с уведомлением', async () => {
+  const { runEscapeAs, opened, prompts, settled, toasts } = await loadEscape({
+    offTurn: [hero.id],
+  });
+
+  assert.equal(runEscapeAs(hero, grappled(), AS_SELF), false);
+  assert.equal(runEscapeAs(hero, grappled({ escape: {} }), AS_SELF), false);
+
+  assert.equal(opened.length + prompts.length + settled.length, 0);
+  assert.match(toasts[0].description, /Hero — не его ход/);
+
+  // Помощник действует в СВОЙ ход: чужой ход носителя ему не мешает
+  assert.equal(
+    runEscapeAs(
+      hero,
+      grappled({
+        escape: { by: 'any', check: { skill: 'athletics', dc: 10 } },
+      }),
+      { entity: friend, role: 'adjacent' },
+    ),
+    true,
+  );
+
+  // Реакцией вырываются как раз в чужой ход
+  assert.equal(engine.escapeNeedsOwnTurn({ cost: 'reaction' }), false);
+  assert.equal(engine.escapeNeedsOwnTurn({ cost: 'action' }), true);
+  assert.equal(engine.escapeNeedsOwnTurn({}), true);
 });
 
 it('действие без проверки снимает эффект сразу', async () => {

@@ -167,6 +167,8 @@ const UNGUARDED_REASONS = {
   hasActionSelfEffects: 'ничего не пишет',
   isItemTransferDrop: 'ничего не пишет: только читает нагрузку события',
   listEscapeHelpOffers: 'ничего не пишет',
+  formatEscapeTitle: 'ничего не пишет',
+  listSelfEscapeEffects: 'ничего не пишет',
   readEntityCounters: 'ничего не пишет',
   runRestWithTriggers:
     'отдых останавливают входы листа (handleRest и «Применить» окна отдыха); тест ниже',

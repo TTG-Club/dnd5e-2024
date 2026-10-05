@@ -2165,6 +2165,12 @@ export interface EffectEscapeCheck {
    * бросающего по обычному правилу — преимущество и помеха гасятся
    */
   mode?: EffectEscapeRollMode;
+  /**
+   * Сл, которую взять неоткуда, называет тот, кто бросает: «Схваченный»,
+   * повешенный рукой ведущего, — того, кто держит, у него нет. Без отметки
+   * неизвестная Сл остаётся отказом (`resolveEffectEscapeDc`)
+   */
+  askDc?: true;
 }
 
 /** Самая длинная подпись ступени */
@@ -3660,6 +3666,7 @@ const EffectEscapeCheckSchema = z.object({
   dcFormula: SaveDcFormulaSchema,
   skills: EffectEscapeSkillsSchema,
   mode: z.enum(EFFECT_ESCAPE_ROLL_MODES).optional().catch(undefined),
+  askDc: z.literal(true).optional().catch(undefined),
 });
 
 /** Zod-схема действия «вырваться» */
