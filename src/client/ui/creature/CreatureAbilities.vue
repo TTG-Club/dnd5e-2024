@@ -34,6 +34,7 @@
   import {
     ABILITY_CHECK_ROLL_LABELS,
     ABILITY_SHORT_LABELS,
+    ABILITY_TILES_GRID_CLASS,
     CUSTOM_BONUS_LABELS,
   } from '../actor/constants';
   import DiceRollModal from '../actor/DiceRollModal.vue';
@@ -333,23 +334,29 @@
 </script>
 
 <template>
-  <div class="grid grid-cols-6 gap-2">
-    <AbilityScore
-      v-for="tile in abilityTiles"
-      :key="tile.key"
-      :label="tile.label"
-      :short-label="tile.shortLabel"
-      :value="tile.value"
-      :base-value="tile.baseValue"
-      :total-value="tile.totalValue"
-      :modifier="tile.modifier"
-      :is-edit-mode="isEditMode"
-      with-settings
-      :bonus-sources="tile.bonusSources"
-      @update:value="handleAbilityChange(tile.key, $event)"
-      @roll="(modifier, label) => handleAbilityRoll(modifier, label, tile.key)"
-      @open-settings="openAbilitySettings(tile.key)"
-    />
+  <!-- Свой `@container`: колонки считаются по ширине самого ряда, а не экрана —
+    на узком листе плитки встают в два ряда по три -->
+  <div class="@container">
+    <div :class="ABILITY_TILES_GRID_CLASS">
+      <AbilityScore
+        v-for="tile in abilityTiles"
+        :key="tile.key"
+        :label="tile.label"
+        :short-label="tile.shortLabel"
+        :value="tile.value"
+        :base-value="tile.baseValue"
+        :total-value="tile.totalValue"
+        :modifier="tile.modifier"
+        :is-edit-mode="isEditMode"
+        with-settings
+        :bonus-sources="tile.bonusSources"
+        @update:value="handleAbilityChange(tile.key, $event)"
+        @roll="
+          (modifier, label) => handleAbilityRoll(modifier, label, tile.key)
+        "
+        @open-settings="openAbilitySettings(tile.key)"
+      />
+    </div>
   </div>
 
   <DiceRollModal

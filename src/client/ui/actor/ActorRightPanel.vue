@@ -35,6 +35,7 @@
     ABILITY_CHECK_ROLL_LABELS,
     ABILITY_LABELS,
     ABILITY_SHORT_LABELS,
+    ABILITY_TILES_GRID_CLASS,
     CUSTOM_BONUS_LABELS,
     DICE_ROLL_DEFAULT_BUTTON,
   } from './constants';
@@ -354,25 +355,30 @@
 <template>
   <div class="flex flex-col gap-4">
     <!-- Плитки характеристик: шесть одинаковых блоков, свои у них только
-      числа — поэтому список, а не шесть повторов разметки -->
-    <div class="grid grid-cols-6 gap-x-2 gap-y-3 lg:gap-x-3">
-      <AbilityScore
-        v-for="tile in abilityTiles"
-        :key="tile.key"
-        :label="tile.label"
-        :short-label="tile.shortLabel"
-        :value="tile.value"
-        :base-value="tile.baseValue"
-        :total-value="tile.totalValue"
-        :modifier="tile.modifier"
-        :is-edit-mode="isEditMode"
-        with-settings
-        :bonus-sources="tile.bonusSources"
-        @update:value="updateAbility(tile.key, $event)"
-        @roll="(mod, label) => handleAbilityRoll(mod, label, tile.key)"
-        @highlight="handleAbilityHighlight(tile.key, $event)"
-        @open-settings="openAbilitySettings(tile.key)"
-      />
+      числа — поэтому список, а не шесть повторов разметки.
+
+      Свой `@container`: колонки считаются по ширине самого ряда, а не экрана —
+      на узком листе плитки встают в два ряда по три -->
+    <div class="@container">
+      <div :class="ABILITY_TILES_GRID_CLASS">
+        <AbilityScore
+          v-for="tile in abilityTiles"
+          :key="tile.key"
+          :label="tile.label"
+          :short-label="tile.shortLabel"
+          :value="tile.value"
+          :base-value="tile.baseValue"
+          :total-value="tile.totalValue"
+          :modifier="tile.modifier"
+          :is-edit-mode="isEditMode"
+          with-settings
+          :bonus-sources="tile.bonusSources"
+          @update:value="updateAbility(tile.key, $event)"
+          @roll="(mod, label) => handleAbilityRoll(mod, label, tile.key)"
+          @highlight="handleAbilityHighlight(tile.key, $event)"
+          @open-settings="openAbilitySettings(tile.key)"
+        />
+      </div>
     </div>
 
     <!-- Модалка броска проверки характеристики -->

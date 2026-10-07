@@ -22,6 +22,7 @@
     MODAL_BUTTON_LABELS,
     NAME_EDIT_LABELS,
     REST_LABELS,
+    SHEET_HEADER_CLASSES,
     SHEET_INLINE_EDITABLE_CLASS,
   } from '../actor/constants';
   import NameEditModal from '../actor/NameEditModal.vue';
@@ -193,14 +194,12 @@
 
 <template>
   <header
-    class="relative overflow-hidden rounded-t-2xl"
+    :class="SHEET_HEADER_CLASSES.root"
     :style="{ cursor: canEdit ? 'move' : 'default', userSelect: 'none' }"
   >
-    <div class="relative z-10 flex w-full items-center gap-6 px-6 pt-8 pb-10">
+    <div :class="SHEET_HEADER_CLASSES.body">
       <!-- Аватар и Рамка -->
-      <div
-        class="relative -my-2 flex h-28 w-28 shrink-0 items-center justify-center"
-      >
+      <div :class="SHEET_HEADER_CLASSES.avatar">
         <div
           class="relative h-full w-full bg-elevated"
           style="clip-path: circle(44% at 50% 50%); overflow: hidden"
@@ -237,185 +236,186 @@
       </div>
 
       <!-- Основная информация -->
-      <div class="flex min-w-0 flex-1 items-center justify-between">
-        <div class="w-full min-w-0 flex-1 space-y-1 pr-4">
-          <!-- Имя: в режиме правки подчёркнуто пунктиром и открывает окно -->
-          <div class="flex min-h-11 items-center">
-            <h2 class="font-serif text-3xl tracking-wide text-highlighted">
-              <component
-                :is="editableTag"
-                :class="nameClass"
-                :title="editableTitle(NAME_EDIT_LABELS.editHint)"
-                @click.left.exact.prevent="openEditor('name')"
-              >
-                {{ displayName }}
-                <span
-                  v-if="creature.nameEn"
-                  class="text-2xl text-muted"
-                >
-                  / {{ creature.nameEn }}
-                </span>
-              </component>
-            </h2>
-          </div>
-
-          <!-- Размер, вид и мировоззрение: в правке открывают своё окно -->
-          <div class="flex min-h-7 flex-wrap items-center text-toned">
+      <div :class="SHEET_HEADER_CLASSES.info">
+        <!-- Имя: в режиме правки подчёркнуто пунктиром и открывает окно -->
+        <div :class="SHEET_HEADER_CLASSES.nameRow">
+          <h2 :class="SHEET_HEADER_CLASSES.name">
             <component
               :is="editableTag"
-              :class="rowClass"
-              :title="editableTitle(CREATURE_HEADER_LABELS.editKind)"
-              @click.left.exact.prevent="openEditor('kind')"
+              :class="nameClass"
+              :title="editableTitle(NAME_EDIT_LABELS.editHint)"
+              @click.left.exact.prevent="openEditor('name')"
             >
-              <span class="text-toned">{{ sizeLabel }}</span>
-
-              <span class="mx-2 text-dimmed">—</span>
-
-              <span class="text-toned">{{ typeLabel }}</span>
-
-              <span class="mx-2 text-dimmed">—</span>
-
-              <span class="text-toned">{{ alignmentLabel }}</span>
+              {{ displayName }}
+              <span
+                v-if="creature.nameEn"
+                class="text-xl text-muted @2xl:text-2xl"
+              >
+                / {{ creature.nameEn }}
+              </span>
             </component>
+          </h2>
+        </div>
+
+        <!-- Размер, вид и мировоззрение: в правке открывают своё окно -->
+        <div
+          class="flex min-h-7 flex-wrap items-center justify-center text-center text-toned @2xl:justify-start @2xl:text-left"
+        >
+          <component
+            :is="editableTag"
+            :class="rowClass"
+            :title="editableTitle(CREATURE_HEADER_LABELS.editKind)"
+            @click.left.exact.prevent="openEditor('kind')"
+          >
+            <span class="text-toned">{{ sizeLabel }}</span>
+
+            <span class="mx-2 text-dimmed">—</span>
+
+            <span class="text-toned">{{ typeLabel }}</span>
+
+            <span class="mx-2 text-dimmed">—</span>
+
+            <span class="text-toned">{{ alignmentLabel }}</span>
+          </component>
+        </div>
+
+        <!-- Уровень опасности: в правке открывает своё окно -->
+        <div
+          class="flex items-center justify-center gap-2 pt-1 text-xs font-medium text-muted @2xl:justify-start"
+        >
+          <div class="whitespace-nowrap">
+            {{ CREATURE_HEADER_LABELS.challengeRating }}
           </div>
 
-          <!-- Уровень опасности: в правке открывает своё окно -->
-          <div
-            class="flex items-center gap-2 pt-1 text-xs font-medium text-muted"
-          >
-            <div class="whitespace-nowrap">
-              {{ CREATURE_HEADER_LABELS.challengeRating }}
-            </div>
-
-            <div class="flex items-center whitespace-nowrap">
-              <component
-                :is="editableTag"
-                class="font-bold text-highlighted"
-                :class="rowClass"
-                :title="
-                  editableTitle(CREATURE_HEADER_LABELS.editChallengeRating)
-                "
-                @click.left.exact.prevent="openEditor('challenge')"
-              >
-                {{ challengeRatingLabel }}
-              </component>
-            </div>
+          <div class="flex items-center whitespace-nowrap">
+            <component
+              :is="editableTag"
+              class="font-bold text-highlighted"
+              :class="rowClass"
+              :title="editableTitle(CREATURE_HEADER_LABELS.editChallengeRating)"
+              @click.left.exact.prevent="openEditor('challenge')"
+            >
+              {{ challengeRatingLabel }}
+            </component>
           </div>
         </div>
       </div>
-    </div>
 
-    <!-- Кнопки управления (правый верхний угол) -->
-    <div class="absolute top-4 right-4 z-20 flex items-center gap-2">
-      <!-- Кнопка Создать (только при создании нового существа) -->
-      <button
-        v-if="isCreating"
-        class="flex h-8 items-center gap-1.5 rounded-full border border-success/50 bg-success/80 px-3 text-sm font-medium text-highlighted transition-colors hover:bg-success/70"
-        :title="CREATURE_HEADER_LABELS.create"
-        @click.left.exact.prevent="emit('save')"
-      >
-        <UIcon
-          name="tabler:check"
-          class="h-4 w-4"
-        />
-        {{ MODAL_BUTTON_LABELS.create }}
-      </button>
+      <!-- Кнопки шапки: на узкой — верхним рядом, на широкой — по углам -->
+      <div :class="SHEET_HEADER_CLASSES.actions">
+        <!-- Кнопки отдыха (на широкой шапке — у золотой линии) -->
+        <div
+          v-if="canEdit && !isCreating"
+          :class="SHEET_HEADER_CLASSES.rest"
+        >
+          <UTooltip :text="REST_LABELS.short">
+            <UButton
+              icon="tabler:campfire"
+              color="neutral"
+              variant="ghost"
+              size="md"
+              square
+              class="border border-default/50 bg-elevated/30 text-muted hover:bg-accented/50 hover:text-highlighted"
+              @click.left.exact.prevent="emit('short-rest')"
+            />
+          </UTooltip>
 
-      <!-- Toggle Edit Mode -->
-      <button
-        v-else-if="canEdit"
-        class="flex h-8 w-8 items-center justify-center rounded-full border border-default/50 bg-elevated/30 transition-colors hover:bg-accented/50"
-        :class="
-          isEditMode ? 'text-primary' : 'text-muted hover:text-highlighted'
-        "
-        :title="EDIT_MODE_TOGGLE_TITLE"
-        @click.left.exact.prevent="emit('toggle-edit-mode')"
-      >
-        <UIcon
-          :name="isEditMode ? 'tabler:lock-open' : 'tabler:lock-filled'"
-          class="h-4 w-4"
-        />
-      </button>
+          <UTooltip :text="REST_LABELS.long">
+            <UButton
+              icon="tabler:moon"
+              color="neutral"
+              variant="ghost"
+              size="md"
+              square
+              class="border border-default/50 bg-elevated/30 text-muted hover:bg-accented/50 hover:text-highlighted"
+              @click.left.exact.prevent="emit('long-rest')"
+            />
+          </UTooltip>
+        </div>
 
-      <!-- Вернуть скрытый экземпляр в список существ -->
-      <button
-        v-if="canEdit && !isCreating && creature.isInstance"
-        :class="HEADER_ROUND_BUTTON_CLASS"
-        :title="CREATURE_HEADER_LABELS.backToList"
-        @click.left.exact.prevent="restoreInstanceToList"
-      >
-        <UIcon
-          name="tabler:list-search"
-          class="h-4 w-4"
-        />
-      </button>
+        <!-- Кнопки управления (правый верхний угол) -->
+        <div :class="SHEET_HEADER_CLASSES.controls">
+          <!-- Кнопка Создать (только при создании нового существа) -->
+          <button
+            v-if="isCreating"
+            class="flex h-8 items-center gap-1.5 rounded-full border border-success/50 bg-success/80 px-3 text-sm font-medium text-highlighted transition-colors hover:bg-success/70"
+            :title="CREATURE_HEADER_LABELS.create"
+            @click.left.exact.prevent="emit('save')"
+          >
+            <UIcon
+              name="tabler:check"
+              class="h-4 w-4"
+            />
+            {{ MODAL_BUTTON_LABELS.create }}
+          </button>
 
-      <!-- Settings Button -->
-      <button
-        v-if="canEdit && !isCreating"
-        :class="HEADER_ROUND_BUTTON_CLASS"
-        :title="CREATURE_HEADER_LABELS.tokenSettings"
-        @click.left.exact.prevent="emit('open-settings')"
-      >
-        <UIcon
-          name="tabler:settings-filled"
-          class="h-4 w-4"
-        />
-      </button>
+          <!-- Toggle Edit Mode -->
+          <button
+            v-else-if="canEdit"
+            class="flex h-8 w-8 items-center justify-center rounded-full border border-default/50 bg-elevated/30 transition-colors hover:bg-accented/50"
+            :class="
+              isEditMode ? 'text-primary' : 'text-muted hover:text-highlighted'
+            "
+            :title="EDIT_MODE_TOGGLE_TITLE"
+            @click.left.exact.prevent="emit('toggle-edit-mode')"
+          >
+            <UIcon
+              :name="isEditMode ? 'tabler:lock-open' : 'tabler:lock-filled'"
+              class="h-4 w-4"
+            />
+          </button>
 
-      <!-- Minimize Button -->
-      <button
-        :class="HEADER_ROUND_BUTTON_CLASS"
-        :title="MODAL_BUTTON_LABELS.minimize"
-        @click.left.exact.prevent="emit('minimize')"
-      >
-        <UIcon
-          name="tabler:chevron-up"
-          class="h-5 w-5"
-        />
-      </button>
+          <!-- Вернуть скрытый экземпляр в список существ -->
+          <button
+            v-if="canEdit && !isCreating && creature.isInstance"
+            :class="HEADER_ROUND_BUTTON_CLASS"
+            :title="CREATURE_HEADER_LABELS.backToList"
+            @click.left.exact.prevent="restoreInstanceToList"
+          >
+            <UIcon
+              name="tabler:list-search"
+              class="h-4 w-4"
+            />
+          </button>
 
-      <!-- Close Button -->
-      <button
-        :class="HEADER_ROUND_BUTTON_CLASS"
-        :title="MODAL_BUTTON_LABELS.close"
-        @click.left.exact.prevent="emit('close')"
-      >
-        <UIcon
-          name="tabler:x"
-          class="h-5 w-5"
-        />
-      </button>
-    </div>
+          <!-- Settings Button -->
+          <button
+            v-if="canEdit && !isCreating"
+            :class="HEADER_ROUND_BUTTON_CLASS"
+            :title="CREATURE_HEADER_LABELS.tokenSettings"
+            @click.left.exact.prevent="emit('open-settings')"
+          >
+            <UIcon
+              name="tabler:settings-filled"
+              class="h-4 w-4"
+            />
+          </button>
 
-    <!-- Кнопки отдыха (второй ряд, у золотой линии) -->
-    <div
-      v-if="canEdit && !isCreating"
-      class="absolute right-4 bottom-10 z-20 flex items-center gap-2"
-    >
-      <UTooltip :text="REST_LABELS.short">
-        <UButton
-          icon="tabler:campfire"
-          color="neutral"
-          variant="ghost"
-          size="md"
-          square
-          class="border border-default/50 bg-elevated/30 text-muted hover:bg-accented/50 hover:text-highlighted"
-          @click.left.exact.prevent="emit('short-rest')"
-        />
-      </UTooltip>
+          <!-- Minimize Button -->
+          <button
+            :class="HEADER_ROUND_BUTTON_CLASS"
+            :title="MODAL_BUTTON_LABELS.minimize"
+            @click.left.exact.prevent="emit('minimize')"
+          >
+            <UIcon
+              name="tabler:chevron-up"
+              class="h-5 w-5"
+            />
+          </button>
 
-      <UTooltip :text="REST_LABELS.long">
-        <UButton
-          icon="tabler:moon"
-          color="neutral"
-          variant="ghost"
-          size="md"
-          square
-          class="border border-default/50 bg-elevated/30 text-muted hover:bg-accented/50 hover:text-highlighted"
-          @click.left.exact.prevent="emit('long-rest')"
-        />
-      </UTooltip>
+          <!-- Close Button -->
+          <button
+            :class="HEADER_ROUND_BUTTON_CLASS"
+            :title="MODAL_BUTTON_LABELS.close"
+            @click.left.exact.prevent="emit('close')"
+          >
+            <UIcon
+              name="tabler:x"
+              class="h-5 w-5"
+            />
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Декоративный разделитель шапки: цвет акцента приложения -->

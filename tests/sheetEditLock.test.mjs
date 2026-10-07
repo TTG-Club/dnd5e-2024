@@ -649,7 +649,7 @@ describe('входы действий проверяют лист первым �
 
     assert.match(
       sheet,
-      /<ActorTabs\s+v-if="localActor"\s+:actor="localActor"/u,
+      /<ActorTabs\s+(?:v-if="localActor"\s+)?:actor="localActor"/u,
       'вкладки получают черновик листа',
     );
 

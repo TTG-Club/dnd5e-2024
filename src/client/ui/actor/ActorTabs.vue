@@ -8,6 +8,8 @@
     DnDGameItem,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { SheetTabEntry, SheetTabTone } from './sheetTabsModel';
+
   import { computed, toRef } from 'vue';
 
   import { getExtensions } from '@/core/extensionRegistry';
@@ -17,10 +19,14 @@
   import { useCarryingCapacity } from '../../composables/useCarryingCapacity';
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import {
+    ACTOR_SHEET_DEFAULT_TAB_ID,
     ACTOR_TAB_LABELS,
     FORM_TAB_LABELS,
     GRANT_SECTION_LABELS,
+    SHEET_MAIN_TAB_ID,
+    SHEET_TABS_LABELS,
   } from './constants';
+  import SheetTabs from './SheetTabs.vue';
   import ActorEffectsTab from './tabs/ActorEffectsTab.vue';
   import ActorEquipmentTab from './tabs/ActorEquipmentTab.vue';
   import ActorFeaturesTab from './tabs/ActorFeaturesTab.vue';
@@ -38,6 +44,11 @@
     isSpellDragOver?: boolean;
     isEquipmentDragOver?: boolean;
     isFeatureDragOver?: boolean;
+    /**
+     * Узкий лист: сводка (здоровье, навыки, спасброски, владения) не стоит
+     * колонками слева, а приходит слотом `main` и встаёт первой вкладкой.
+     */
+    hasMainTab?: boolean;
   }
 
   const props = withDefaults(defineProps<Props>(), {
@@ -45,6 +56,7 @@
     isSpellDragOver: false,
     isEquipmentDragOver: false,
     isFeatureDragOver: false,
+    hasMainTab: false,
   });
 
   const emit = defineEmits<{
@@ -52,25 +64,39 @@
     'immediate-save': [];
   }>();
 
-  /**
-   * Подсветка вкладки, над которой держат перетаскиваемую сущность.
-   *
-   * Свечение берёт цвет из `currentColor`, а не из `rgba(var(--color-primary-400), .8)`:
-   * токены темы хранят цвет в `oklch()`, и подстановка давала `rgba(oklch(…), .8)` —
-   * невалидный CSS, объявление отбрасывалось целиком и подсветки не было вовсе.
-   * Здесь же цвет всегда совпадает с текстом вкладки.
-   */
-  const DRAG_OVER_TAB_CLASS =
-    'border-b-2 border-primary text-primary drop-shadow-[0_0_8px_currentColor] transition-all duration-300';
-
   const { resolvedStats } = useResolvedStats(toRef(() => props.actor));
 
-  // Состояние активной вкладки (сохраняется per-actor между переоткрытиями)
-  const { activeTab, setActiveTab } = useActiveTab(
+  // Выбор вкладки хранится по персонажу между переоткрытиями листа. Вкладки по
+  // умолчанию у хранилища нет намеренно: пустое значение значит «пользователь
+  // ещё не выбирал», и тогда вкладку называет раскладка.
+  const { activeTab: storedTab, setActiveTab } = useActiveTab(
     'actor-sheet',
     toRef(() => props.actor.id),
-    'equipment',
   );
+
+  /**
+   * Показанная вкладка. Вкладка «Основное» появляется и пропадает вместе с
+   * раскладкой: пока вкладку не выбирали, узкий лист открывается на ней, а
+   * широкий — на снаряжении. Выбранное «Основное» на широком листе показать
+   * негде, и там встаёт снаряжение — сам выбор при этом не затирается и
+   * вернётся, когда окно снова сузят.
+   */
+  const activeTab = computed<string>({
+    get: () => {
+      if (!storedTab.value) {
+        return props.hasMainTab
+          ? SHEET_MAIN_TAB_ID
+          : ACTOR_SHEET_DEFAULT_TAB_ID;
+      }
+
+      if (storedTab.value === SHEET_MAIN_TAB_ID && !props.hasMainTab) {
+        return ACTOR_SHEET_DEFAULT_TAB_ID;
+      }
+
+      return storedTab.value;
+    },
+    set: setActiveTab,
+  });
 
   /**
    * Перегрузка: сам переносимый вес показывает вкладка снаряжения, вкладке
@@ -81,28 +107,45 @@
     resolvedStats,
   );
 
-  // Базовые вкладки
-  const baseTabs = computed(() => {
-    return [
+  /** Вкладки от модулей (зарегистрированные через registerExtension) */
+  const extensionTabs = computed(() => getExtensions('actor-sheet:tabs'));
+
+  /**
+   * Особое выделение вкладок: над какой держат перетаскиваемую запись и
+   * перегружен ли персонаж. Сам переносимый вес показывает вкладка снаряжения,
+   * ленте остаётся только красная подпись как сигнал.
+   */
+  const tabTones = computed<Record<string, SheetTabTone | undefined>>(() => {
+    const equipmentOverweightTone = isOverweight.value ? 'danger' : undefined;
+
+    return {
+      spells: props.isSpellDragOver ? 'drop' : undefined,
+      equipment: props.isEquipmentDragOver ? 'drop' : equipmentOverweightTone,
+      features: props.isFeatureDragOver ? 'drop' : undefined,
+    };
+  });
+
+  /** Все вкладки: «Основное» узкого листа, базовые и вкладки модулей */
+  const allTabs = computed<SheetTabEntry[]>(() => {
+    const mainTabs = props.hasMainTab
+      ? [{ id: SHEET_MAIN_TAB_ID, label: SHEET_TABS_LABELS.main }]
+      : [];
+
+    const baseTabs = [
       { id: 'equipment', label: GRANT_SECTION_LABELS.equipment },
       { id: 'spells', label: GRANT_SECTION_LABELS.spells },
       { id: 'features', label: GRANT_SECTION_LABELS.features },
       { id: 'effects', label: FORM_TAB_LABELS.effects },
       { id: 'notes', label: ACTOR_TAB_LABELS.notes },
-    ];
-  });
+    ].map((tab) => ({ ...tab, tone: tabTones.value[tab.id] }));
 
-  /** Вкладки от модулей (зарегистрированные через registerExtension) */
-  const extensionTabs = computed(() => getExtensions('actor-sheet:tabs'));
-
-  /** Все вкладки: базовые + от модулей */
-  const allTabs = computed(() => [
-    ...baseTabs.value,
-    ...extensionTabs.value.map((ext) => ({
+    const moduleTabs = extensionTabs.value.map((ext) => ({
       id: `ext:${ext.moduleId}`,
       label: ext.label ?? ext.moduleId,
-    })),
-  ]);
+    }));
+
+    return [...mainTabs, ...baseTabs, ...moduleTabs];
+  });
 
   /** Активное расширение (если выбрана вкладка модуля) */
   const activeExtension = computed(() => {
@@ -150,32 +193,6 @@
     handleUpdate({ system: { ...props.actor.system, carryingCapacity } });
   }
 
-  function getTabClass(tabId: string): string {
-    const isActive = activeTab.value === tabId;
-
-    if (tabId === 'spells' && props.isSpellDragOver) {
-      return DRAG_OVER_TAB_CLASS;
-    }
-
-    if (tabId === 'equipment' && props.isEquipmentDragOver) {
-      return DRAG_OVER_TAB_CLASS;
-    }
-
-    if (tabId === 'features' && props.isFeatureDragOver) {
-      return DRAG_OVER_TAB_CLASS;
-    }
-
-    if (tabId === 'equipment' && isOverweight.value) {
-      return isActive
-        ? 'border-b-2 border-danger text-danger'
-        : 'border-b-2 border-transparent text-danger hover:text-danger-muted';
-    }
-
-    return isActive
-      ? 'border-b-2 border-primary text-primary'
-      : 'border-b-2 border-transparent text-muted hover:text-highlighted';
-  }
-
   function getExtensionProps(
     ext: ExtensionRegistration,
   ): Record<string, unknown> {
@@ -196,85 +213,72 @@
 </script>
 
 <template>
-  <div class="relative flex flex-1 flex-col space-y-4">
-    <!-- Overlay удален, вместо этого подсвечиваем кнопку вкладки Заклинания -->
-    <!-- Кнопки вкладок -->
-    <!-- Линия под вкладками — тем же токеном, что и остальные линии листа
-      (`default`): у `muted` свой, более светлый оттенок, и полоска выбивалась
-      из рамок карточек и разделителей под ней -->
-    <div class="mb-4 flex gap-4 border-b border-default">
-      <button
-        v-for="tab in allTabs"
-        :key="tab.id"
-        :class="[
-          'relative pb-2 text-xs font-bold tracking-wider uppercase transition-colors',
-          getTabClass(tab.id),
-        ]"
-        @click.left.exact.prevent="setActiveTab(tab.id)"
-      >
-        {{ tab.label }}
-      </button>
-    </div>
+  <SheetTabs
+    v-model="activeTab"
+    :tabs="allTabs"
+  >
+    <!-- Сводка узкого листа: её собирает сам лист и отдаёт слотом -->
+    <slot
+      v-if="activeTab === SHEET_MAIN_TAB_ID"
+      name="main"
+    />
 
-    <!-- Содержимое вкладок -->
-    <div class="flex flex-1 flex-col">
-      <ActorEquipmentTab
-        v-if="activeTab === 'equipment'"
-        :entity="actor"
-        :is-edit-mode="isEditMode"
-        :is-drag-over="props.isEquipmentDragOver"
-        show-currency
-        show-carrying-capacity
-        show-add-button
-        allow-hotbar-drag
-        @update:equipment="handleEquipmentUpdate"
-        @update:currency="handleCurrencyUpdate"
-        @update:carrying-capacity="handleCarryingCapacityUpdate"
-        @immediate-save="emit('immediate-save')"
-      />
+    <ActorEquipmentTab
+      v-if="activeTab === 'equipment'"
+      :entity="actor"
+      :is-edit-mode="isEditMode"
+      :is-drag-over="props.isEquipmentDragOver"
+      show-currency
+      show-carrying-capacity
+      show-add-button
+      allow-hotbar-drag
+      @update:equipment="handleEquipmentUpdate"
+      @update:currency="handleCurrencyUpdate"
+      @update:carrying-capacity="handleCarryingCapacityUpdate"
+      @immediate-save="emit('immediate-save')"
+    />
 
-      <ActorSpellsTab
-        v-if="activeTab === 'spells'"
-        :actor="actor"
-        :is-edit-mode="isEditMode"
-        :is-drag-over="props.isSpellDragOver"
-        @update:actor="handleUpdate"
-        @immediate-save="emit('immediate-save')"
-      />
+    <ActorSpellsTab
+      v-if="activeTab === 'spells'"
+      :actor="actor"
+      :is-edit-mode="isEditMode"
+      :is-drag-over="props.isSpellDragOver"
+      @update:actor="handleUpdate"
+      @immediate-save="emit('immediate-save')"
+    />
 
-      <ActorFeaturesTab
-        v-if="activeTab === 'features'"
-        :actor="actor"
-        :is-edit-mode="isEditMode"
-        :socket="socket"
-        :is-drag-over="props.isFeatureDragOver"
-        allow-hotbar-drag
-        @update:actor="handleUpdate"
-        @immediate-save="emit('immediate-save')"
-      />
+    <ActorFeaturesTab
+      v-if="activeTab === 'features'"
+      :actor="actor"
+      :is-edit-mode="isEditMode"
+      :socket="socket"
+      :is-drag-over="props.isFeatureDragOver"
+      allow-hotbar-drag
+      @update:actor="handleUpdate"
+      @immediate-save="emit('immediate-save')"
+    />
 
-      <ActorEffectsTab
-        v-if="activeTab === 'effects'"
-        :actor="actor"
-        :is-edit-mode="isEditMode"
-        @update:actor="handleUpdate"
-        @immediate-save="emit('immediate-save')"
-      />
+    <ActorEffectsTab
+      v-if="activeTab === 'effects'"
+      :actor="actor"
+      :is-edit-mode="isEditMode"
+      @update:actor="handleUpdate"
+      @immediate-save="emit('immediate-save')"
+    />
 
-      <ActorNotesTab
-        v-if="activeTab === 'notes'"
-        :actor="actor"
-        :is-edit-mode="isEditMode"
-        @update:actor="handleUpdate"
-      />
+    <ActorNotesTab
+      v-if="activeTab === 'notes'"
+      :actor="actor"
+      :is-edit-mode="isEditMode"
+      @update:actor="handleUpdate"
+    />
 
-      <!-- Вкладки от модулей -->
-      <component
-        :is="activeExtension.component"
-        v-if="activeExtension"
-        v-bind="getExtensionProps(activeExtension)"
-        @update:actor="handleUpdate"
-      />
-    </div>
-  </div>
+    <!-- Вкладки от модулей -->
+    <component
+      :is="activeExtension.component"
+      v-if="activeExtension"
+      v-bind="getExtensionProps(activeExtension)"
+      @update:actor="handleUpdate"
+    />
+  </SheetTabs>
 </template>

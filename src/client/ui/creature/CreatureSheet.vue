@@ -18,9 +18,11 @@
   } from '@vtt/shared/system/dnd.js';
 
   import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
+  import type { SheetTabEntry } from '../actor/sheetTabsModel';
 
   import { useToast } from '@nuxt/ui/composables';
-  import { computed, ref, toRef, watch } from 'vue';
+  import { createReusableTemplate } from '@vueuse/core';
+  import { computed, ref, toRef, useTemplateRef, watch } from 'vue';
 
   import { generateEntityId, requireSocket } from '@/core/entityUtils';
   import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
@@ -80,11 +82,13 @@
     useItemTransfer,
   } from '../../composables/useItemTransfer';
   import { useResolvedStats } from '../../composables/useResolvedStats';
+  import { useSheetLayout } from '../../composables/useSheetLayout';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
   import { useWorldSheetSync } from '../../composables/useWorldSheetSync';
   import { useSystemDataStore } from '../../stores/systemDataStore';
   import {
     ABILITY_CHECK_ROLL_LABELS,
+    CREATURE_SHEET_WIDE_MIN_WIDTH_REM,
     DICE_ROLL_DEFAULT_BUTTON,
     DRAG_OVER_RESET_DELAY_MS,
     FEET_UNIT_LABEL,
@@ -101,6 +105,10 @@
     SAVING_THROW_ROLL_LABELS,
     SAVING_THROW_SETTINGS_LABELS,
     SHEET_BLOCK_VIEW_BORDER_CLASS,
+    SHEET_FRAME_CLASSES,
+    SHEET_MAIN_TAB_ID,
+    SHEET_TABS_LABELS,
+    SHEET_WINDOW_MIN_WIDTH,
     SKILL_SETTINGS_LABELS,
     SPELL_MIME,
     UNSAVED_CHANGES_LABELS,
@@ -110,12 +118,15 @@
   import LanguageProficiencyModal from '../actor/LanguageProficiencyModal.vue';
   import SavingThrowSettingsModal from '../actor/SavingThrowSettingsModal.vue';
   import SheetSettingsGear from '../actor/SheetSettingsGear.vue';
+  import SheetTabs from '../actor/SheetTabs.vue';
   import SkillSettingsModal from '../actor/SkillSettingsModal.vue';
   import { formatSignedNumber } from '../actor/utils/formatSignedNumber';
   import { getSheetBlockClass } from '../actor/utils/sheetBlockClass';
   import { withoutEntityOwnership } from '../entity-ownership/utils';
   import {
+    CREATURE_SHEET_DEFAULT_TAB_ID,
     CREATURE_SHEET_LABELS,
+    CREATURE_SHEET_LAYOUT_CLASSES,
     CREATURE_SHEET_LOG_PREFIX,
   } from './constants';
   import CreatureAbilities from './CreatureAbilities.vue';
@@ -291,17 +302,70 @@
   const isConfirmOpen = ref(false);
   const pendingAction = ref<'close' | null>(null);
 
-  // Вкладки
-  const tabs = [
-    { id: 'actions', label: CREATURE_SHEET_LABELS.tabActions },
-    { id: 'equipment', label: CREATURE_SHEET_LABELS.tabEquipment },
-    { id: 'traits', label: GRANT_SECTION_LABELS.features },
-    { id: 'spells', label: GRANT_SECTION_LABELS.spells },
-    { id: 'effects', label: FORM_TAB_LABELS.effects },
-    { id: 'description', label: FORM_FIELD_LABELS.description },
-  ];
+  // Раскладку выбирает ширина самого листа, а не экрана: окно листа сужают и
+  // на большом экране, и тогда он обязан перестроиться так же, как на телефоне.
+  const sheetBodyRef = useTemplateRef<HTMLElement>('sheetBody');
 
-  const activeTab = ref('actions');
+  const { isMeasured, isWide } = useSheetLayout(
+    sheetBodyRef,
+    CREATURE_SHEET_WIDE_MIN_WIDTH_REM,
+  );
+
+  const [DefineSummary, ReuseSummary] = createReusableTemplate();
+
+  /** Классы раскладки листа: колонками на широком, столбцом на узком */
+  const sheetLayoutClasses = computed(() =>
+    isWide.value
+      ? CREATURE_SHEET_LAYOUT_CLASSES.wide
+      : CREATURE_SHEET_LAYOUT_CLASSES.compact,
+  );
+
+  const sheetFrameClass = computed(() =>
+    isWide.value ? SHEET_FRAME_CLASSES.wide : SHEET_FRAME_CLASSES.compact,
+  );
+
+  // Вкладки: «Основное» есть только у узкого листа — в ней живёт сводка
+  const tabs = computed<SheetTabEntry[]>(() => {
+    const mainTabs = isWide.value
+      ? []
+      : [{ id: SHEET_MAIN_TAB_ID, label: SHEET_TABS_LABELS.main }];
+
+    return [
+      ...mainTabs,
+      { id: 'actions', label: CREATURE_SHEET_LABELS.tabActions },
+      { id: 'equipment', label: CREATURE_SHEET_LABELS.tabEquipment },
+      { id: 'traits', label: GRANT_SECTION_LABELS.features },
+      { id: 'spells', label: GRANT_SECTION_LABELS.spells },
+      { id: 'effects', label: FORM_TAB_LABELS.effects },
+      { id: 'description', label: FORM_FIELD_LABELS.description },
+    ];
+  });
+
+  /** Вкладка, выбранная пользователем или листом; `null` — ещё не выбирали */
+  const pickedTab = ref<string | null>(null);
+
+  /**
+   * Показанная вкладка. Пока её не выбирали, узкий лист открывается на
+   * «Основном», а широкий — на действиях. Выбранное «Основное» на широком
+   * листе показать негде, и там встают действия — сам выбор не затирается и
+   * вернётся, когда окно снова сузят.
+   */
+  const activeTab = computed<string>({
+    get: () => {
+      if (pickedTab.value === null) {
+        return isWide.value ? CREATURE_SHEET_DEFAULT_TAB_ID : SHEET_MAIN_TAB_ID;
+      }
+
+      if (pickedTab.value === SHEET_MAIN_TAB_ID && isWide.value) {
+        return CREATURE_SHEET_DEFAULT_TAB_ID;
+      }
+
+      return pickedTab.value;
+    },
+    set: (tabId) => {
+      pickedTab.value = tabId;
+    },
+  });
 
   const { resolvedStats, combinedEffects } = useResolvedStats(
     toRef(() => localCreature.value),
@@ -1674,6 +1738,467 @@
 </script>
 
 <template>
+  <!-- Сводка существа — боевой блок, защиты, спасброски, навыки, чувства,
+    языки — нужна в двух местах: на широком листе она стоит левой колонкой, на
+    узком уходит во вкладку «Основное». Одно определение держит обработчики
+    здесь и не плодит дубли разметки -->
+  <DefineSummary>
+    <!-- Свой `@container` у сводки узкого листа: в две колонки она встаёт по
+      собственной ширине. На широком листе обёртка — сама левая колонка -->
+    <div
+      v-if="localCreature"
+      :class="sheetLayoutClasses.summary"
+    >
+      <div :class="sheetLayoutClasses.summaryBlocks">
+        <!-- Боевой блок: КД, ХП, Скорость -->
+        <CreatureCombatBlock
+          :system="localCreature.system"
+          :is-edit-mode="isEditMode"
+          :ability-mods="skillAbilityMods"
+          :proficiency-bonus="creatureProficiencyBonus"
+          :armor-class="resolvedStats?.armorClass"
+          :resolved-movement="resolvedStats?.movement"
+          :active-effects="combinedEffects"
+          :hit-dice-bonus-context="hitDiceBonusContext"
+          @update:system="handleSystemUpdate"
+        />
+
+        <!-- Истощение: сразу под здоровьем — степень штрафует все тесты
+                к20 и скорость, и читается она вместе с хитами -->
+        <ExhaustionPanel
+          v-if="visibleBlocks.exhaustion"
+          :level="exhaustionLevel"
+          :is-edit-mode="isEditMode"
+          @select="handleExhaustionSelect"
+        />
+
+        <!-- Защиты -->
+        <FieldsetLabel
+          v-if="visibleBlocks.vulnerabilities"
+          :label="CREATURE_SHEET_LABELS.vulnerabilities"
+          class="bg-default/20 transition-colors"
+          :class="blockClasses.vulnerabilities"
+          @click.left.exact.prevent="openDefensesModal('vulnerabilities')"
+        >
+          <!-- Шестерёнка ведёт в то же окно, что и клик по блоку: значок
+                  называет настройку, а не прячет её за догадкой -->
+          <template
+            v-if="isEditMode"
+            #actions
+          >
+            <SheetSettingsGear
+              :label="CREATURE_SHEET_LABELS.vulnerabilitiesOpen"
+              @open="openDefensesModal('vulnerabilities')"
+            />
+          </template>
+
+          <div class="flex flex-wrap gap-1.5 p-2 pt-1">
+            <UBadge
+              v-for="key in localCreature.system.defenses.vulnerabilities"
+              :key="key"
+              :label="getDefenseLabel(key)"
+              color="error"
+              variant="subtle"
+              :ui="{
+                base: 'h-auto max-w-full',
+                label:
+                  'whitespace-normal wrap-break-word text-left leading-tight',
+              }"
+            />
+
+            <span
+              v-if="localCreature.system.defenses.vulnerabilities.length === 0"
+              class="text-xs text-dimmed italic"
+            >
+              {{ CREATURE_SHEET_LABELS.empty }}
+            </span>
+          </div>
+
+          <p
+            v-if="localCreature.system.defenses.vulnerabilitiesText"
+            class="px-2 pb-2 text-xs wrap-break-word text-toned"
+          >
+            {{ localCreature.system.defenses.vulnerabilitiesText }}
+          </p>
+        </FieldsetLabel>
+
+        <FieldsetLabel
+          v-if="visibleBlocks.resistances"
+          :label="CREATURE_SHEET_LABELS.resistances"
+          class="bg-default/20 transition-colors"
+          :class="blockClasses.resistances"
+          @click.left.exact.prevent="openDefensesModal('resistances')"
+        >
+          <template
+            v-if="isEditMode"
+            #actions
+          >
+            <SheetSettingsGear
+              :label="CREATURE_SHEET_LABELS.resistancesOpen"
+              @open="openDefensesModal('resistances')"
+            />
+          </template>
+
+          <div class="flex flex-wrap gap-1.5 p-2 pt-1">
+            <UBadge
+              v-for="key in localCreature.system.defenses.resistances"
+              :key="key"
+              :label="getDefenseLabel(key)"
+              color="info"
+              variant="subtle"
+              :ui="{
+                base: 'h-auto max-w-full',
+                label:
+                  'whitespace-normal wrap-break-word text-left leading-tight',
+              }"
+            />
+
+            <span
+              v-if="localCreature.system.defenses.resistances.length === 0"
+              class="text-xs text-dimmed italic"
+            >
+              {{ CREATURE_SHEET_LABELS.empty }}
+            </span>
+          </div>
+
+          <p
+            v-if="localCreature.system.defenses.resistancesText"
+            class="px-2 pb-2 text-xs wrap-break-word text-toned"
+          >
+            {{ localCreature.system.defenses.resistancesText }}
+          </p>
+        </FieldsetLabel>
+
+        <FieldsetLabel
+          v-if="visibleBlocks.immunities"
+          :label="CREATURE_SHEET_LABELS.immunities"
+          class="bg-default/20 transition-colors"
+          :class="blockClasses.immunities"
+          @click.left.exact.prevent="openDefensesModal('immunities')"
+        >
+          <template
+            v-if="isEditMode"
+            #actions
+          >
+            <SheetSettingsGear
+              :label="CREATURE_SHEET_LABELS.immunitiesOpen"
+              @open="openDefensesModal('immunities')"
+            />
+          </template>
+
+          <div class="flex flex-wrap gap-1.5 p-2 pt-1">
+            <UBadge
+              v-for="key in localCreature.system.defenses.immunities"
+              :key="key"
+              :label="getDefenseLabel(key)"
+              color="warning"
+              variant="subtle"
+              :ui="{
+                base: 'h-auto max-w-full',
+                label:
+                  'whitespace-normal wrap-break-word text-left leading-tight',
+              }"
+            />
+
+            <span
+              v-if="localCreature.system.defenses.immunities.length === 0"
+              class="text-xs text-dimmed italic"
+            >
+              {{ CREATURE_SHEET_LABELS.empty }}
+            </span>
+          </div>
+
+          <p
+            v-if="localCreature.system.defenses.immunitiesText"
+            class="px-2 pb-2 text-xs wrap-break-word text-toned"
+          >
+            {{ localCreature.system.defenses.immunitiesText }}
+          </p>
+        </FieldsetLabel>
+
+        <FieldsetLabel
+          v-if="visibleBlocks.conditionImmunities"
+          :label="GRANT_FIELD_LABELS.conditionImmunities"
+          class="bg-default/20 transition-colors"
+          :class="blockClasses.editable"
+          @click.left.exact.prevent="openConditionImmunitiesModal"
+        >
+          <template
+            v-if="isEditMode"
+            #actions
+          >
+            <SheetSettingsGear
+              :label="CREATURE_SHEET_LABELS.conditionImmunitiesOpen"
+              @open="openConditionImmunitiesModal"
+            />
+          </template>
+
+          <div class="flex flex-wrap gap-1.5 p-2 pt-1">
+            <UBadge
+              v-for="key in localCreature.system.defenses.conditionImmunities"
+              :key="key"
+              :label="getDefenseLabel(key)"
+              color="neutral"
+              variant="subtle"
+              :ui="{
+                base: 'h-auto max-w-full',
+                label:
+                  'whitespace-normal wrap-break-word text-left leading-tight',
+              }"
+            />
+
+            <span
+              v-if="
+                localCreature.system.defenses.conditionImmunities.length === 0
+              "
+              class="text-xs text-dimmed italic"
+            >
+              {{ CREATURE_SHEET_LABELS.empty }}
+            </span>
+          </div>
+        </FieldsetLabel>
+        <!-- Навыки, Чувства и Языки -->
+        <!-- Спасброски -->
+        <FieldsetLabel
+          :label="GRANT_SECTION_LABELS.savingThrows"
+          class="bg-default/20 transition-colors"
+          :class="blockClasses.plain"
+        >
+          <!-- Шестерёнка ведёт в настройку расчёта: кружки в самом блоке
+                  ставят только владение, а характеристику спасброска и свои
+                  бонусы правят в окне -->
+          <template
+            v-if="isEditMode"
+            #actions
+          >
+            <SheetSettingsGear
+              :label="SAVING_THROW_SETTINGS_LABELS.open"
+              @open="openSavingThrowSettings"
+            />
+          </template>
+
+          <div class="px-2 pb-1">
+            <div class="grid grid-cols-2 gap-x-2 gap-y-1">
+              <div
+                v-for="ability in SAVING_THROW_ABILITIES"
+                :key="ability.key"
+                class="flex cursor-pointer items-center gap-2 rounded p-1.5 transition-colors hover:bg-elevated"
+                @click.left.exact.prevent="handleSavingThrowClick(ability)"
+              >
+                <button
+                  class="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border"
+                  :class="
+                    creatureSavingThrows.includes(ability.key)
+                      ? 'border-primary bg-primary'
+                      : 'border-accented bg-transparent'
+                  "
+                  @click.left.exact.prevent.stop="
+                    toggleSavingThrow(ability.key)
+                  "
+                />
+
+                <span class="flex-1 truncate text-sm font-medium text-toned">{{
+                  ability.shortLabel
+                }}</span>
+
+                <span
+                  class="rounded border border-default bg-elevated px-2 py-0.5 text-sm font-bold text-highlighted shadow-sm"
+                >
+                  {{ formatSignedNumber(calculateSavingThrow(ability.key)) }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </FieldsetLabel>
+
+        <!-- Навыки — бейджами, как в стат-блоке: у существа отмечены
+                считанные навыки, и полный список правил занимал бы всю колонку
+                ради трёх строк. Владения правят в своём окне, а нажатие по
+                бейджу вне правки катит проверку этого навыка -->
+        <FieldsetLabel
+          v-if="visibleBlocks.skills"
+          :label="GRANT_SECTION_LABELS.skills"
+          class="bg-default/20 transition-colors"
+          :class="blockClasses.editable"
+          @click.left.exact.prevent="openSkillsModal"
+        >
+          <template
+            v-if="isEditMode"
+            #actions
+          >
+            <SheetSettingsGear
+              :label="SKILL_SETTINGS_LABELS.open"
+              @open="openSkillsModal"
+            />
+          </template>
+
+          <div class="flex flex-wrap gap-1.5 p-2 pt-1">
+            <UBadge
+              v-for="badge in skillBadges"
+              :key="badge.id"
+              :label="badge.label"
+              color="neutral"
+              variant="subtle"
+              class="cursor-pointer transition-colors hover:bg-accented"
+              @click.left.exact.stop.prevent="handleSkillBadgeClick(badge)"
+            />
+
+            <span
+              v-if="skillBadges.length === 0"
+              class="text-xs text-dimmed italic"
+            >
+              {{ CREATURE_SHEET_LABELS.empty }}
+            </span>
+          </div>
+        </FieldsetLabel>
+
+        <!-- Восприятие только считает: зрение существа правят в его
+                настройках токена, поэтому блок не настраивается и в правке -->
+        <FieldsetLabel
+          :label="CREATURE_SHEET_LABELS.perception"
+          class="bg-default/20"
+          :class="SHEET_BLOCK_VIEW_BORDER_CLASS"
+        >
+          <div class="flex flex-col gap-1 p-2 pt-1 text-sm text-default">
+            <div class="flex items-center justify-between">
+              <span class="text-dimmed">
+                {{ CREATURE_SHEET_LABELS.visionPrefix }}
+              </span>
+
+              <span>{{ creatureVisionRangeLabel }}</span>
+            </div>
+
+            <div
+              v-if="localCreature.token?.vision?.darkvision"
+              class="flex items-center justify-between"
+            >
+              <span class="text-dimmed">
+                {{ CREATURE_SHEET_LABELS.darkvisionPrefix }}
+              </span>
+
+              <span>
+                {{ localCreature.token.vision.darkvision }}
+                {{ FEET_UNIT_LABEL }}
+              </span>
+            </div>
+
+            <div class="flex items-center justify-between">
+              <span class="text-dimmed">
+                {{ CREATURE_SHEET_LABELS.passivePerceptionPrefix }}
+              </span>
+
+              <span class="font-bold text-highlighted">{{
+                passivePerception
+              }}</span>
+            </div>
+          </div>
+        </FieldsetLabel>
+
+        <FieldsetLabel
+          v-if="visibleBlocks.languages"
+          :label="GRANT_SECTION_LABELS.languages"
+          class="bg-default/20 transition-colors"
+          :class="blockClasses.editable"
+          @click.left.exact.prevent="openLanguagesModal"
+        >
+          <template
+            v-if="isEditMode"
+            #actions
+          >
+            <SheetSettingsGear
+              :label="PROFICIENCY_MODAL_LABELS.languagesOpen"
+              @open="openLanguagesModal"
+            />
+          </template>
+
+          <div class="flex flex-wrap gap-1.5 p-2 pt-1">
+            <UBadge
+              v-for="language in localCreature.system.languages"
+              :key="language"
+              :label="language"
+              color="neutral"
+              variant="subtle"
+              :ui="{
+                base: 'h-auto max-w-full',
+                label:
+                  'whitespace-normal wrap-break-word text-left leading-tight',
+              }"
+            />
+
+            <span
+              v-if="
+                !localCreature.system.languages
+                || localCreature.system.languages.length === 0
+              "
+              class="text-xs text-dimmed italic"
+            >
+              {{ CREATURE_SHEET_LABELS.empty }}
+            </span>
+          </div>
+        </FieldsetLabel>
+
+        <FieldsetLabel
+          v-if="visibleBlocks.environments"
+          :label="CREATURE_SHEET_LABELS.environments"
+          class="bg-default/20 transition-colors"
+          :class="blockClasses.environments"
+          @click.left.exact.prevent="openEnvironmentsModal"
+        >
+          <template
+            v-if="isEditMode"
+            #actions
+          >
+            <SheetSettingsGear
+              :label="CREATURE_SHEET_LABELS.environmentsOpen"
+              @open="openEnvironmentsModal"
+            />
+          </template>
+
+          <div class="flex flex-col gap-1 p-2 pt-1">
+            <div class="flex flex-wrap gap-1.5">
+              <UBadge
+                v-for="env in localCreature.system.environments"
+                :key="env"
+                :label="
+                  CREATURE_ENVIRONMENTS.find((entry) => entry.key === env)
+                    ?.label || env
+                "
+                color="neutral"
+                variant="subtle"
+                :ui="{
+                  base: 'h-auto max-w-full',
+                  label:
+                    'whitespace-normal wrap-break-word text-left leading-tight',
+                }"
+              />
+
+              <span
+                v-if="
+                  (!localCreature.system.environments
+                    || localCreature.system.environments.length === 0)
+                  && !localCreature.system.customEnvironments
+                "
+                class="text-xs text-dimmed italic"
+              >
+                {{ CREATURE_SHEET_LABELS.empty }}
+              </span>
+            </div>
+
+            <div
+              v-if="localCreature.system.customEnvironments"
+              class="mt-1 text-sm text-toned"
+            >
+              <span class="mb-0.5 block text-xs text-dimmed">
+                {{ CREATURE_SHEET_LABELS.environmentSpecialPrefix }}
+              </span>
+              {{ localCreature.system.customEnvironments }}
+            </div>
+          </div>
+        </FieldsetLabel>
+      </div>
+    </div>
+  </DefineSummary>
+
   <!--
     `max-h-[100%]` в `ui.body` снимает дефолтный потолок тела окна в 90vh —
     тот же приём, что в листе персонажа: без него на полной высоте под
@@ -1686,7 +2211,7 @@
     hide-header
     :initial-width="940"
     :initial-height="780"
-    :min-width="400"
+    :min-width="SHEET_WINDOW_MIN_WIDTH"
     :min-height="300"
     :z-index="zIndex"
     :modal-id="modalId"
@@ -1702,6 +2227,7 @@
     <template #body>
       <div
         v-if="localCreature"
+        ref="sheetBody"
         class="relative flex h-full flex-col"
         @dragover="handleSheetDragOver"
         @dragleave="handleSheetDragLeave"
@@ -1713,520 +2239,56 @@
           alt=""
           class="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-8"
         />
-        <!-- Шапка существа (Full bleed) -->
-        <CreatureHeader
-          :creature="localCreature"
-          :is-edit-mode="isEditMode"
-          :is-creating="isCreating"
-          :can-edit="canControl && !isReadOnly"
-          @update="handleCreatureUpdate"
-          @update:system="handleSystemUpdate"
-          @toggle-edit-mode="toggleEditMode"
-          @open-settings="openSettings"
-          @short-rest="handleRest('short')"
-          @long-rest="handleRest('long')"
-          @close="handleCancel"
-          @minimize="minimizeSheet"
-          @save="handleSave"
-        />
 
-        <div class="custom-scrollbar flex-1 overflow-y-auto p-4">
-          <div class="flex gap-6">
-            <!-- Левая колонка -->
-            <div class="flex w-62.5 shrink-0 flex-col gap-3">
-              <!-- Боевой блок: КД, ХП, Скорость -->
-              <CreatureCombatBlock
-                :system="localCreature.system"
-                :is-edit-mode="isEditMode"
-                :ability-mods="skillAbilityMods"
-                :proficiency-bonus="creatureProficiencyBonus"
-                :armor-class="resolvedStats?.armorClass"
-                :resolved-movement="resolvedStats?.movement"
-                :active-effects="combinedEffects"
-                :hit-dice-bonus-context="hitDiceBonusContext"
-                @update:system="handleSystemUpdate"
-              />
+        <div :class="sheetFrameClass">
+          <!-- Шапка существа (Full bleed) -->
+          <CreatureHeader
+            :creature="localCreature"
+            :is-edit-mode="isEditMode"
+            :is-creating="isCreating"
+            :can-edit="canControl && !isReadOnly"
+            @update="handleCreatureUpdate"
+            @update:system="handleSystemUpdate"
+            @toggle-edit-mode="toggleEditMode"
+            @open-settings="openSettings"
+            @short-rest="handleRest('short')"
+            @long-rest="handleRest('long')"
+            @close="handleCancel"
+            @minimize="minimizeSheet"
+            @save="handleSave"
+          />
 
-              <!-- Истощение: сразу под здоровьем — степень штрафует все тесты
-                к20 и скорость, и читается она вместе с хитами -->
-              <ExhaustionPanel
-                v-if="visibleBlocks.exhaustion"
-                :level="exhaustionLevel"
-                :is-edit-mode="isEditMode"
-                @select="handleExhaustionSelect"
-              />
+          <!-- Пока ширина листа не замерена, раскладка неизвестна, и рисовать
+          содержимое рано: угаданная раскладка на телефоне неверна, и лист
+          перестроился бы на глазах -->
+          <div :class="sheetLayoutClasses.content">
+            <div
+              v-if="isMeasured"
+              :class="sheetLayoutClasses.columns"
+            >
+              <!-- Широкий лист: сводка — левой колонкой -->
+              <ReuseSummary v-if="isWide" />
 
-              <!-- Защиты -->
-              <FieldsetLabel
-                v-if="visibleBlocks.vulnerabilities"
-                :label="CREATURE_SHEET_LABELS.vulnerabilities"
-                class="bg-default/20 transition-colors"
-                :class="blockClasses.vulnerabilities"
-                @click.left.exact.prevent="openDefensesModal('vulnerabilities')"
-              >
-                <!-- Шестерёнка ведёт в то же окно, что и клик по блоку: значок
-                  называет настройку, а не прячет её за догадкой -->
-                <template
-                  v-if="isEditMode"
-                  #actions
-                >
-                  <SheetSettingsGear
-                    :label="CREATURE_SHEET_LABELS.vulnerabilitiesOpen"
-                    @open="openDefensesModal('vulnerabilities')"
-                  />
-                </template>
+              <!-- Правая колонка -->
+              <div class="flex min-w-0 flex-1 flex-col gap-4">
+                <!-- Характеристики: 6 ячеек -->
+                <CreatureAbilities
+                  :creature="localCreature"
+                  :is-edit-mode="isEditMode"
+                  @update:system="handleSystemUpdate"
+                />
 
-                <div class="flex flex-wrap gap-1.5 p-2 pt-1">
-                  <UBadge
-                    v-for="key in localCreature.system.defenses.vulnerabilities"
-                    :key="key"
-                    :label="getDefenseLabel(key)"
-                    color="error"
-                    variant="subtle"
-                    :ui="{
-                      base: 'h-auto max-w-full',
-                      label:
-                        'whitespace-normal wrap-break-word text-left leading-tight',
-                    }"
-                  />
-
-                  <span
-                    v-if="
-                      localCreature.system.defenses.vulnerabilities.length === 0
-                    "
-                    class="text-xs text-dimmed italic"
-                  >
-                    {{ CREATURE_SHEET_LABELS.empty }}
-                  </span>
-                </div>
-
-                <p
-                  v-if="localCreature.system.defenses.vulnerabilitiesText"
-                  class="px-2 pb-2 text-xs wrap-break-word text-toned"
-                >
-                  {{ localCreature.system.defenses.vulnerabilitiesText }}
-                </p>
-              </FieldsetLabel>
-
-              <FieldsetLabel
-                v-if="visibleBlocks.resistances"
-                :label="CREATURE_SHEET_LABELS.resistances"
-                class="bg-default/20 transition-colors"
-                :class="blockClasses.resistances"
-                @click.left.exact.prevent="openDefensesModal('resistances')"
-              >
-                <template
-                  v-if="isEditMode"
-                  #actions
-                >
-                  <SheetSettingsGear
-                    :label="CREATURE_SHEET_LABELS.resistancesOpen"
-                    @open="openDefensesModal('resistances')"
-                  />
-                </template>
-
-                <div class="flex flex-wrap gap-1.5 p-2 pt-1">
-                  <UBadge
-                    v-for="key in localCreature.system.defenses.resistances"
-                    :key="key"
-                    :label="getDefenseLabel(key)"
-                    color="info"
-                    variant="subtle"
-                    :ui="{
-                      base: 'h-auto max-w-full',
-                      label:
-                        'whitespace-normal wrap-break-word text-left leading-tight',
-                    }"
-                  />
-
-                  <span
-                    v-if="
-                      localCreature.system.defenses.resistances.length === 0
-                    "
-                    class="text-xs text-dimmed italic"
-                  >
-                    {{ CREATURE_SHEET_LABELS.empty }}
-                  </span>
-                </div>
-
-                <p
-                  v-if="localCreature.system.defenses.resistancesText"
-                  class="px-2 pb-2 text-xs wrap-break-word text-toned"
-                >
-                  {{ localCreature.system.defenses.resistancesText }}
-                </p>
-              </FieldsetLabel>
-
-              <FieldsetLabel
-                v-if="visibleBlocks.immunities"
-                :label="CREATURE_SHEET_LABELS.immunities"
-                class="bg-default/20 transition-colors"
-                :class="blockClasses.immunities"
-                @click.left.exact.prevent="openDefensesModal('immunities')"
-              >
-                <template
-                  v-if="isEditMode"
-                  #actions
-                >
-                  <SheetSettingsGear
-                    :label="CREATURE_SHEET_LABELS.immunitiesOpen"
-                    @open="openDefensesModal('immunities')"
-                  />
-                </template>
-
-                <div class="flex flex-wrap gap-1.5 p-2 pt-1">
-                  <UBadge
-                    v-for="key in localCreature.system.defenses.immunities"
-                    :key="key"
-                    :label="getDefenseLabel(key)"
-                    color="warning"
-                    variant="subtle"
-                    :ui="{
-                      base: 'h-auto max-w-full',
-                      label:
-                        'whitespace-normal wrap-break-word text-left leading-tight',
-                    }"
-                  />
-
-                  <span
-                    v-if="localCreature.system.defenses.immunities.length === 0"
-                    class="text-xs text-dimmed italic"
-                  >
-                    {{ CREATURE_SHEET_LABELS.empty }}
-                  </span>
-                </div>
-
-                <p
-                  v-if="localCreature.system.defenses.immunitiesText"
-                  class="px-2 pb-2 text-xs wrap-break-word text-toned"
-                >
-                  {{ localCreature.system.defenses.immunitiesText }}
-                </p>
-              </FieldsetLabel>
-
-              <FieldsetLabel
-                v-if="visibleBlocks.conditionImmunities"
-                :label="GRANT_FIELD_LABELS.conditionImmunities"
-                class="bg-default/20 transition-colors"
-                :class="blockClasses.editable"
-                @click.left.exact.prevent="openConditionImmunitiesModal"
-              >
-                <template
-                  v-if="isEditMode"
-                  #actions
-                >
-                  <SheetSettingsGear
-                    :label="CREATURE_SHEET_LABELS.conditionImmunitiesOpen"
-                    @open="openConditionImmunitiesModal"
-                  />
-                </template>
-
-                <div class="flex flex-wrap gap-1.5 p-2 pt-1">
-                  <UBadge
-                    v-for="key in localCreature.system.defenses
-                      .conditionImmunities"
-                    :key="key"
-                    :label="getDefenseLabel(key)"
-                    color="neutral"
-                    variant="subtle"
-                    :ui="{
-                      base: 'h-auto max-w-full',
-                      label:
-                        'whitespace-normal wrap-break-word text-left leading-tight',
-                    }"
-                  />
-
-                  <span
-                    v-if="
-                      localCreature.system.defenses.conditionImmunities.length
-                      === 0
-                    "
-                    class="text-xs text-dimmed italic"
-                  >
-                    {{ CREATURE_SHEET_LABELS.empty }}
-                  </span>
-                </div>
-              </FieldsetLabel>
-              <!-- Навыки, Чувства и Языки -->
-              <!-- Спасброски -->
-              <FieldsetLabel
-                :label="GRANT_SECTION_LABELS.savingThrows"
-                class="bg-default/20 transition-colors"
-                :class="blockClasses.plain"
-              >
-                <!-- Шестерёнка ведёт в настройку расчёта: кружки в самом блоке
-                  ставят только владение, а характеристику спасброска и свои
-                  бонусы правят в окне -->
-                <template
-                  v-if="isEditMode"
-                  #actions
-                >
-                  <SheetSettingsGear
-                    :label="SAVING_THROW_SETTINGS_LABELS.open"
-                    @open="openSavingThrowSettings"
-                  />
-                </template>
-
-                <div class="px-2 pb-1">
-                  <div class="grid grid-cols-2 gap-x-2 gap-y-1">
-                    <div
-                      v-for="ability in SAVING_THROW_ABILITIES"
-                      :key="ability.key"
-                      class="flex cursor-pointer items-center gap-2 rounded p-1.5 transition-colors hover:bg-elevated"
-                      @click.left.exact.prevent="
-                        handleSavingThrowClick(ability)
-                      "
-                    >
-                      <button
-                        class="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full border"
-                        :class="
-                          creatureSavingThrows.includes(ability.key)
-                            ? 'border-primary bg-primary'
-                            : 'border-accented bg-transparent'
-                        "
-                        @click.left.exact.prevent.stop="
-                          toggleSavingThrow(ability.key)
-                        "
-                      />
-
-                      <span
-                        class="flex-1 truncate text-sm font-medium text-toned"
-                        >{{ ability.shortLabel }}</span
-                      >
-
-                      <span
-                        class="rounded border border-default bg-elevated px-2 py-0.5 text-sm font-bold text-highlighted shadow-sm"
-                      >
-                        {{
-                          formatSignedNumber(calculateSavingThrow(ability.key))
-                        }}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              </FieldsetLabel>
-
-              <!-- Навыки — бейджами, как в стат-блоке: у существа отмечены
-                считанные навыки, и полный список правил занимал бы всю колонку
-                ради трёх строк. Владения правят в своём окне, а нажатие по
-                бейджу вне правки катит проверку этого навыка -->
-              <FieldsetLabel
-                v-if="visibleBlocks.skills"
-                :label="GRANT_SECTION_LABELS.skills"
-                class="bg-default/20 transition-colors"
-                :class="blockClasses.editable"
-                @click.left.exact.prevent="openSkillsModal"
-              >
-                <template
-                  v-if="isEditMode"
-                  #actions
-                >
-                  <SheetSettingsGear
-                    :label="SKILL_SETTINGS_LABELS.open"
-                    @open="openSkillsModal"
-                  />
-                </template>
-
-                <div class="flex flex-wrap gap-1.5 p-2 pt-1">
-                  <UBadge
-                    v-for="badge in skillBadges"
-                    :key="badge.id"
-                    :label="badge.label"
-                    color="neutral"
-                    variant="subtle"
-                    class="cursor-pointer transition-colors hover:bg-accented"
-                    @click.left.exact.stop.prevent="
-                      handleSkillBadgeClick(badge)
-                    "
-                  />
-
-                  <span
-                    v-if="skillBadges.length === 0"
-                    class="text-xs text-dimmed italic"
-                  >
-                    {{ CREATURE_SHEET_LABELS.empty }}
-                  </span>
-                </div>
-              </FieldsetLabel>
-
-              <!-- Восприятие только считает: зрение существа правят в его
-                настройках токена, поэтому блок не настраивается и в правке -->
-              <FieldsetLabel
-                :label="CREATURE_SHEET_LABELS.perception"
-                class="bg-default/20"
-                :class="SHEET_BLOCK_VIEW_BORDER_CLASS"
-              >
-                <div class="flex flex-col gap-1 p-2 pt-1 text-sm text-default">
-                  <div class="flex items-center justify-between">
-                    <span class="text-dimmed">
-                      {{ CREATURE_SHEET_LABELS.visionPrefix }}
-                    </span>
-
-                    <span>{{ creatureVisionRangeLabel }}</span>
-                  </div>
-
-                  <div
-                    v-if="localCreature.token?.vision?.darkvision"
-                    class="flex items-center justify-between"
-                  >
-                    <span class="text-dimmed">
-                      {{ CREATURE_SHEET_LABELS.darkvisionPrefix }}
-                    </span>
-
-                    <span>
-                      {{ localCreature.token.vision.darkvision }}
-                      {{ FEET_UNIT_LABEL }}
-                    </span>
-                  </div>
-
-                  <div class="flex items-center justify-between">
-                    <span class="text-dimmed">
-                      {{ CREATURE_SHEET_LABELS.passivePerceptionPrefix }}
-                    </span>
-
-                    <span class="font-bold text-highlighted">{{
-                      passivePerception
-                    }}</span>
-                  </div>
-                </div>
-              </FieldsetLabel>
-
-              <FieldsetLabel
-                v-if="visibleBlocks.languages"
-                :label="GRANT_SECTION_LABELS.languages"
-                class="bg-default/20 transition-colors"
-                :class="blockClasses.editable"
-                @click.left.exact.prevent="openLanguagesModal"
-              >
-                <template
-                  v-if="isEditMode"
-                  #actions
-                >
-                  <SheetSettingsGear
-                    :label="PROFICIENCY_MODAL_LABELS.languagesOpen"
-                    @open="openLanguagesModal"
-                  />
-                </template>
-
-                <div class="flex flex-wrap gap-1.5 p-2 pt-1">
-                  <UBadge
-                    v-for="language in localCreature.system.languages"
-                    :key="language"
-                    :label="language"
-                    color="neutral"
-                    variant="subtle"
-                    :ui="{
-                      base: 'h-auto max-w-full',
-                      label:
-                        'whitespace-normal wrap-break-word text-left leading-tight',
-                    }"
-                  />
-
-                  <span
-                    v-if="
-                      !localCreature.system.languages
-                      || localCreature.system.languages.length === 0
-                    "
-                    class="text-xs text-dimmed italic"
-                  >
-                    {{ CREATURE_SHEET_LABELS.empty }}
-                  </span>
-                </div>
-              </FieldsetLabel>
-
-              <FieldsetLabel
-                v-if="visibleBlocks.environments"
-                :label="CREATURE_SHEET_LABELS.environments"
-                class="bg-default/20 transition-colors"
-                :class="blockClasses.environments"
-                @click.left.exact.prevent="openEnvironmentsModal"
-              >
-                <template
-                  v-if="isEditMode"
-                  #actions
-                >
-                  <SheetSettingsGear
-                    :label="CREATURE_SHEET_LABELS.environmentsOpen"
-                    @open="openEnvironmentsModal"
-                  />
-                </template>
-
-                <div class="flex flex-col gap-1 p-2 pt-1">
-                  <div class="flex flex-wrap gap-1.5">
-                    <UBadge
-                      v-for="env in localCreature.system.environments"
-                      :key="env"
-                      :label="
-                        CREATURE_ENVIRONMENTS.find((entry) => entry.key === env)
-                          ?.label || env
-                      "
-                      color="neutral"
-                      variant="subtle"
-                      :ui="{
-                        base: 'h-auto max-w-full',
-                        label:
-                          'whitespace-normal wrap-break-word text-left leading-tight',
-                      }"
-                    />
-
-                    <span
-                      v-if="
-                        (!localCreature.system.environments
-                          || localCreature.system.environments.length === 0)
-                        && !localCreature.system.customEnvironments
-                      "
-                      class="text-xs text-dimmed italic"
-                    >
-                      {{ CREATURE_SHEET_LABELS.empty }}
-                    </span>
-                  </div>
-
-                  <div
-                    v-if="localCreature.system.customEnvironments"
-                    class="mt-1 text-sm text-toned"
-                  >
-                    <span class="mb-0.5 block text-xs text-dimmed">
-                      {{ CREATURE_SHEET_LABELS.environmentSpecialPrefix }}
-                    </span>
-                    {{ localCreature.system.customEnvironments }}
-                  </div>
-                </div>
-              </FieldsetLabel>
-            </div>
-
-            <!-- Правая колонка -->
-            <div class="flex min-w-0 flex-1 flex-col gap-4">
-              <!-- Характеристики: 6 ячеек -->
-              <CreatureAbilities
-                :creature="localCreature"
-                :is-edit-mode="isEditMode"
-                @update:system="handleSystemUpdate"
-              />
-
-              <!-- Вкладки. Промежутки те же, что и у вкладок листа персонажа:
+                <!-- Вкладки. Промежутки те же, что и у вкладок листа персонажа:
                 строка вкладок у обоих листов одна и та же, и отступ до
                 содержимого не должен расходиться -->
-              <div class="relative mt-2 flex flex-1 flex-col space-y-4">
-                <!-- Линия под вкладками — тем же токеном, что и на листе
-                  персонажа -->
-                <div class="mb-4 flex gap-4 border-b border-default">
-                  <button
-                    v-for="tab in tabs"
-                    :key="tab.id"
-                    :class="[
-                      'relative pb-2 text-xs font-bold tracking-wider uppercase transition-colors',
-                      activeTab === tab.id
-                        ? 'border-b-2 border-primary text-primary'
-                        : 'border-b-2 border-transparent text-muted hover:text-highlighted',
-                    ]"
-                    @click.left.exact.prevent="activeTab = tab.id"
-                  >
-                    {{ tab.label }}
-                  </button>
-                </div>
+                <SheetTabs
+                  v-model="activeTab"
+                  :tabs="tabs"
+                  class="mt-2"
+                >
+                  <!-- Узкий лист: сводка — первой вкладкой -->
+                  <ReuseSummary v-if="activeTab === SHEET_MAIN_TAB_ID" />
 
-                <!-- Содержимое вкладок -->
-                <div class="flex flex-1 flex-col">
                   <!-- Действия -->
                   <CreatureActionsTab
                     v-if="activeTab === 'actions'"
@@ -2317,7 +2379,7 @@
                       </p>
                     </div>
                   </template>
-                </div>
+                </SheetTabs>
               </div>
             </div>
           </div>

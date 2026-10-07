@@ -58,6 +58,8 @@
     INITIATIVE_ROLL_LABELS,
     INITIATIVE_SETTINGS_LABELS,
     MOVEMENT_SETTINGS_LABELS,
+    SHEET_SUMMARY_COMPACT_CLASSES,
+    SHEET_SUMMARY_WIDE_CLASSES,
     SHEET_TILE_LABELS,
     SKILL_GROUP_LABEL_CLASS,
     SKILL_SETTINGS_LABELS,
@@ -81,11 +83,23 @@
      * подсвечивать нечего.
      */
     highlightedAbility?: AbilityType | null;
+    /**
+     * Узкий лист: панель стоит не колонкой, а растворяется в общей сетке
+     * сводки — её блоки встают туда по порядку чтения с телефона.
+     */
+    isCompact?: boolean;
   }
 
   defineOptions({ inheritAttrs: false });
 
   const props = defineProps<Props>();
+
+  /** Классы раскладки блоков: колонкой на широком листе, сеткой на узком */
+  const layoutClasses = computed(() =>
+    props.isCompact
+      ? SHEET_SUMMARY_COMPACT_CLASSES
+      : SHEET_SUMMARY_WIDE_CLASSES,
+  );
 
   const emit = defineEmits<{
     'update:actor': [updates: Partial<DnDActor>];
@@ -702,10 +716,10 @@
 <template>
   <div
     v-bind="$attrs"
-    class="flex h-full flex-col gap-3"
+    :class="layoutClasses.panel"
   >
     <!-- Ходьба + Инициатива -->
-    <div class="grid grid-cols-2 gap-3">
+    <div :class="layoutClasses.tiles">
       <!-- Ходьба -->
       <FieldsetLabel
         :label="displayMovement.label"
@@ -799,19 +813,23 @@
       </FieldsetLabel>
     </div>
 
-    <!-- Счётчики классовых ресурсов -->
-    <ClassCounters
-      :actor="actor"
-      :counter-definitions="counterDefinitions"
-      :is-edit-mode="isEditMode"
-      @update:actor="emit('update:actor', $event)"
-    />
+    <!-- Счётчики классовых ресурсов. Обёртка несёт место блока в сетке узкого
+      листа: у самого блока корней два (рамка и окно настройки), и класс до
+      рамки не дошёл бы -->
+    <div :class="layoutClasses.counters">
+      <ClassCounters
+        :actor="actor"
+        :counter-definitions="counterDefinitions"
+        :is-edit-mode="isEditMode"
+        @update:actor="emit('update:actor', $event)"
+      />
+    </div>
 
     <!-- Навыки -->
     <FieldsetLabel
       :label="GRANT_SECTION_LABELS.skills"
       class="flex flex-col overflow-hidden transition-colors"
-      :class="blockClass"
+      :class="[blockClass, layoutClasses.skills]"
     >
       <!-- Шестерёнка ведёт в настройку расчёта: значок в самом списке ставит
         только владение, а характеристику навыка, свои бонусы и свои навыки

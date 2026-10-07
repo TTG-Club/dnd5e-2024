@@ -35,6 +35,7 @@
     MODAL_BUTTON_LABELS,
     NAME_EDIT_LABELS,
     REST_LABELS,
+    SHEET_HEADER_CLASSES,
     SHEET_INLINE_EDITABLE_CLASS,
   } from './constants';
   import LevelUpModal from './LevelUpModal.vue';
@@ -522,14 +523,12 @@
 
 <template>
   <header
-    class="relative overflow-hidden rounded-t-2xl"
+    :class="SHEET_HEADER_CLASSES.root"
     :style="headerStyle"
   >
-    <div class="relative z-10 flex w-full items-center gap-6 px-6 pt-8 pb-10">
+    <div :class="SHEET_HEADER_CLASSES.body">
       <!-- Аватар и Рамка -->
-      <div
-        class="relative -my-2 flex h-28 w-28 shrink-0 items-center justify-center"
-      >
+      <div :class="SHEET_HEADER_CLASSES.avatar">
         <!-- Маска аватара под рамку (как в ActorSettingsModal) -->
         <div
           class="relative h-full w-full bg-elevated"
@@ -624,262 +623,269 @@
       </div>
 
       <!-- Основная информация -->
-      <div class="flex min-w-0 flex-1 items-center justify-between">
-        <div class="w-full min-w-0 flex-1 space-y-1 pr-4">
-          <!-- Имя: в режиме правки подчёркнуто пунктиром и открывает окно -->
-          <div class="flex min-h-11 items-center">
-            <h2 class="font-serif text-3xl tracking-wide text-highlighted">
-              <component
-                :is="nameTag"
-                :class="nameClass"
-                :title="nameTitle"
-                @click.left.exact.prevent="openNameEdit"
-              >
-                {{ displayName }}
-              </component>
-            </h2>
-          </div>
-
-          <!-- Раса и класс -->
-          <div
-            class="flex min-h-7 flex-wrap items-center gap-x-2 gap-y-1 text-sm text-toned"
-          >
-            <span class="flex items-center gap-1">
-              <ActorHeaderSection
-                :label="speciesLabel"
-                :title="MISSING_SHEET_SECTIONS.species.title"
-                :is-filled="Boolean(speciesLabelValue)"
-                :can-edit="canEdit"
-                @open="openCompendiumPicker('species')"
-              />
-
-              <span
-                v-if="speciesDetails"
-                class="text-dimmed"
-              >
-                ({{ speciesDetails }})
-              </span>
-            </span>
-
-            <span class="text-dimmed">—</span>
-
-            <span class="flex items-center gap-1.5">
-              <ActorHeaderSection
-                :label="classLabel"
-                :title="MISSING_SHEET_SECTIONS.class.title"
-                :is-filled="Boolean(mainClassLabel)"
-                :can-edit="canEdit"
-                @open="openCompendiumPicker('class')"
-              />
-
-              <!-- Значок подкласса: название видно по наведению -->
-              <UTooltip
-                v-if="subclassEntries.length > 0"
-                :delay-duration="150"
-                :content="{ side: 'bottom' }"
-              >
-                <span
-                  class="flex h-5 w-5 cursor-help items-center justify-center rounded-full border border-primary/40 bg-elevated/95 text-primary transition-colors hover:border-primary/80"
-                  :aria-label="ACTOR_HEADER_LABELS.subclassTitle"
-                >
-                  <UIcon
-                    :name="ACTOR_HEADER_SUBCLASS_ICON"
-                    class="h-3.5 w-3.5"
-                  />
-                </span>
-
-                <template #content>
-                  <div class="flex flex-col gap-1 px-1 py-0.5 text-[11px]">
-                    <span class="text-dimmed">
-                      {{ ACTOR_HEADER_LABELS.subclassTitle }}
-                    </span>
-
-                    <div
-                      v-for="entry in subclassEntries"
-                      :key="entry.classKey"
-                      class="flex items-center gap-1.5 whitespace-nowrap"
-                    >
-                      <span class="font-medium">{{ entry.className }}:</span>
-
-                      <span>{{ entry.subclassName }}</span>
-                    </div>
-                  </div>
-                </template>
-              </UTooltip>
-            </span>
-
-            <span class="text-dimmed">—</span>
-
-            <ActorHeaderSection
-              :label="backgroundSectionLabel"
-              :title="MISSING_SHEET_SECTIONS.background.title"
-              :is-filled="Boolean(backgroundLabel)"
-              :can-edit="canEdit"
-              @open="openCompendiumPicker('background')"
-            />
-          </div>
-
-          <!-- Уровень и опыт: клик по всей полосе открывает окно уровня -->
-          <button
-            type="button"
-            :disabled="!canEdit"
-            class="-mx-2 flex w-full max-w-xl items-center gap-3 rounded-lg px-2 py-1 text-xs font-medium text-muted transition-colors"
-            :class="experienceRowClass"
-            :title="experienceRowTitle"
-            @click.left.exact.prevent="openLevelUp"
-          >
-            <span class="whitespace-nowrap"
-              >{{ ACTOR_HEADER_LABELS.nextLevelPrefix }}{{ totalLevel }}</span
+      <div :class="SHEET_HEADER_CLASSES.info">
+        <!-- Имя: в режиме правки подчёркнуто пунктиром и открывает окно -->
+        <div :class="SHEET_HEADER_CLASSES.nameRow">
+          <h2 :class="SHEET_HEADER_CLASSES.name">
+            <component
+              :is="nameTag"
+              :class="nameClass"
+              :title="nameTitle"
+              @click.left.exact.prevent="openNameEdit"
             >
+              {{ displayName }}
+            </component>
+          </h2>
+        </div>
 
-            <!-- Полоса опыта: подпись разрывает её посередине -->
-            <span class="flex flex-1 items-center gap-2">
-              <span class="h-1 flex-1 overflow-hidden rounded-full bg-elevated">
-                <span
-                  class="block h-full rounded-full bg-linear-to-r from-primary/60 to-primary transition-all duration-300"
-                  :style="{ width: `${xpBarLeftWidth}%` }"
-                />
-              </span>
+        <!-- Раса и класс -->
+        <div
+          class="flex min-h-7 flex-wrap items-center justify-center gap-x-2 gap-y-1 text-sm text-toned @2xl:justify-start"
+        >
+          <span class="flex items-center gap-1">
+            <ActorHeaderSection
+              :label="speciesLabel"
+              :title="MISSING_SHEET_SECTIONS.species.title"
+              :is-filled="Boolean(speciesLabelValue)"
+              :can-edit="canEdit"
+              @open="openCompendiumPicker('species')"
+            />
 
+            <span
+              v-if="speciesDetails"
+              class="text-dimmed"
+            >
+              ({{ speciesDetails }})
+            </span>
+          </span>
+
+          <span class="text-dimmed">—</span>
+
+          <span class="flex items-center gap-1.5">
+            <ActorHeaderSection
+              :label="classLabel"
+              :title="MISSING_SHEET_SECTIONS.class.title"
+              :is-filled="Boolean(mainClassLabel)"
+              :can-edit="canEdit"
+              @open="openCompendiumPicker('class')"
+            />
+
+            <!-- Значок подкласса: название видно по наведению -->
+            <UTooltip
+              v-if="subclassEntries.length > 0"
+              :delay-duration="150"
+              :content="{ side: 'bottom' }"
+            >
               <span
-                class="text-[11px] tracking-widest whitespace-nowrap text-dimmed"
+                class="flex h-5 w-5 cursor-help items-center justify-center rounded-full border border-primary/40 bg-elevated/95 text-primary transition-colors hover:border-primary/80"
+                :aria-label="ACTOR_HEADER_LABELS.subclassTitle"
               >
-                {{ actor.system.experience }} / {{ nextLevelXP }} XP
-              </span>
-
-              <span class="h-1 flex-1 overflow-hidden rounded-full bg-elevated">
-                <span
-                  class="block h-full rounded-full bg-primary transition-all duration-300"
-                  :style="{ width: `${xpBarRightWidth}%` }"
+                <UIcon
+                  :name="ACTOR_HEADER_SUBCLASS_ICON"
+                  class="h-3.5 w-3.5"
                 />
               </span>
+
+              <template #content>
+                <div class="flex flex-col gap-1 px-1 py-0.5 text-[11px]">
+                  <span class="text-dimmed">
+                    {{ ACTOR_HEADER_LABELS.subclassTitle }}
+                  </span>
+
+                  <div
+                    v-for="entry in subclassEntries"
+                    :key="entry.classKey"
+                    class="flex items-center gap-1.5 whitespace-nowrap"
+                  >
+                    <span class="font-medium">{{ entry.className }}:</span>
+
+                    <span>{{ entry.subclassName }}</span>
+                  </div>
+                </div>
+              </template>
+            </UTooltip>
+          </span>
+
+          <span class="text-dimmed">—</span>
+
+          <ActorHeaderSection
+            :label="backgroundSectionLabel"
+            :title="MISSING_SHEET_SECTIONS.background.title"
+            :is-filled="Boolean(backgroundLabel)"
+            :can-edit="canEdit"
+            @open="openCompendiumPicker('background')"
+          />
+        </div>
+
+        <!-- Уровень и опыт: клик по всей полосе открывает окно уровня. На
+          широкой шапке полоса уступает место кнопкам отдыха справа от неё:
+          они стоят на той же высоте, и без запаса полоса заходила под них -->
+        <button
+          type="button"
+          :disabled="!canEdit"
+          class="mx-auto flex w-full max-w-xl items-center gap-3 rounded-lg px-2 py-1 text-xs font-medium text-muted transition-colors @2xl:-mx-2 @2xl:max-w-[min(36rem,calc(100%-14rem))]"
+          :class="experienceRowClass"
+          :title="experienceRowTitle"
+          @click.left.exact.prevent="openLevelUp"
+        >
+          <span class="whitespace-nowrap"
+            >{{ ACTOR_HEADER_LABELS.nextLevelPrefix }}{{ totalLevel }}</span
+          >
+
+          <!-- Полоса опыта: подпись разрывает её посередине -->
+          <span class="flex flex-1 items-center gap-2">
+            <span class="h-1 flex-1 overflow-hidden rounded-full bg-elevated">
+              <span
+                class="block h-full rounded-full bg-linear-to-r from-primary/60 to-primary transition-all duration-300"
+                :style="{ width: `${xpBarLeftWidth}%` }"
+              />
             </span>
 
-            <span class="whitespace-nowrap">{{ nextLevelLabel }}</span>
+            <span
+              class="text-[11px] tracking-widest whitespace-nowrap text-dimmed"
+            >
+              {{ actor.system.experience }} / {{ nextLevelXP }} XP
+            </span>
+
+            <span class="h-1 flex-1 overflow-hidden rounded-full bg-elevated">
+              <span
+                class="block h-full rounded-full bg-primary transition-all duration-300"
+                :style="{ width: `${xpBarRightWidth}%` }"
+              />
+            </span>
+          </span>
+
+          <span class="whitespace-nowrap">{{ nextLevelLabel }}</span>
+        </button>
+      </div>
+
+      <!-- Кнопки шапки: на узкой — верхним рядом, на широкой — по углам -->
+      <div :class="SHEET_HEADER_CLASSES.actions">
+        <!-- Кнопки отдыха и вдохновение (на широкой шапке — у золотой линии) -->
+        <div
+          v-if="!isCreating"
+          :class="SHEET_HEADER_CLASSES.rest"
+        >
+          <!-- Вдохновение: есть/нет, переключают ГМ и владелец персонажа -->
+          <UTooltip :text="inspirationTooltip">
+            <component
+              :is="inspirationTag"
+              class="flex h-9 items-center gap-1.5 rounded-full border px-2.5 text-sm font-medium transition-colors @2xl:px-3"
+              :class="inspirationClass"
+              @click.left.exact.prevent="toggleInspiration"
+            >
+              <UIcon
+                name="tabler:sparkles"
+                class="h-4 w-4"
+              />
+
+              <!-- На узкой шапке подписи не остаётся: ряд кнопок и без неё
+            занимает всю ширину, а название есть в подсказке -->
+              <span class="hidden @2xl:inline">
+                {{ ACTOR_HEADER_LABELS.inspiration }}
+              </span>
+            </component>
+          </UTooltip>
+
+          <UTooltip
+            v-if="canEdit"
+            :text="REST_LABELS.short"
+          >
+            <UButton
+              icon="tabler:campfire"
+              color="neutral"
+              variant="ghost"
+              size="md"
+              square
+              class="border border-default/50 bg-elevated/30 text-muted hover:bg-accented/50 hover:text-highlighted"
+              @click.left.exact.prevent="emit('short-rest')"
+            />
+          </UTooltip>
+
+          <UTooltip
+            v-if="canEdit"
+            :text="REST_LABELS.long"
+          >
+            <UButton
+              icon="tabler:moon"
+              color="neutral"
+              variant="ghost"
+              size="md"
+              square
+              class="border border-default/50 bg-elevated/30 text-muted hover:bg-accented/50 hover:text-highlighted"
+              @click.left.exact.prevent="emit('long-rest')"
+            />
+          </UTooltip>
+        </div>
+
+        <!-- Кнопки управления (правый верхний угол) -->
+        <div :class="SHEET_HEADER_CLASSES.controls">
+          <!-- Кнопка Создать (при создании нового персонажа) -->
+          <button
+            v-if="isCreating"
+            class="flex h-8 items-center gap-1.5 rounded-full border border-success/50 bg-success/80 px-3 text-sm font-medium text-highlighted transition-colors hover:bg-success/70"
+            :title="ACTOR_HEADER_LABELS.createActor"
+            @click.left.exact.prevent="emit('save')"
+          >
+            <UIcon
+              name="tabler:check"
+              class="h-4 w-4"
+            />
+            {{ MODAL_BUTTON_LABELS.create }}
+          </button>
+
+          <!-- Toggle Edit Mode (только для существующих персонажей) -->
+          <button
+            v-else-if="canEdit"
+            class="flex h-8 w-8 items-center justify-center rounded-full border border-default/50 bg-elevated/30 transition-colors hover:bg-accented/50"
+            :class="editModeClass"
+            :title="EDIT_MODE_TOGGLE_TITLE"
+            @click.left.exact.prevent="emit('toggle-edit-mode')"
+          >
+            <UIcon
+              :name="editModeIcon"
+              class="h-4 w-4"
+            />
+          </button>
+
+          <!-- Settings Button -->
+          <button
+            v-if="canEdit && !isCreating"
+            :class="HEADER_ROUND_BUTTON_CLASS"
+            :title="ACTOR_HEADER_LABELS.tokenSettings"
+            @click.left.exact.prevent="emit('open-settings')"
+          >
+            <UIcon
+              name="tabler:settings-filled"
+              class="h-4 w-4"
+            />
+          </button>
+
+          <!-- Minimize Button -->
+          <button
+            :class="HEADER_ROUND_BUTTON_CLASS"
+            :title="MODAL_BUTTON_LABELS.minimize"
+            @click.left.exact.prevent="emit('minimize')"
+          >
+            <UIcon
+              name="tabler:chevron-up"
+              class="h-5 w-5"
+            />
+          </button>
+
+          <!-- Close Button -->
+          <button
+            :class="HEADER_ROUND_BUTTON_CLASS"
+            :title="MODAL_BUTTON_LABELS.close"
+            @click.left.exact.prevent="emit('close')"
+          >
+            <UIcon
+              name="tabler:x"
+              class="h-5 w-5"
+            />
           </button>
         </div>
       </div>
-    </div>
-
-    <!-- Кнопки управления (правый верхний угол) -->
-    <div class="absolute top-4 right-4 z-20 flex items-center gap-2">
-      <!-- Кнопка Создать (при создании нового персонажа) -->
-      <button
-        v-if="isCreating"
-        class="flex h-8 items-center gap-1.5 rounded-full border border-success/50 bg-success/80 px-3 text-sm font-medium text-highlighted transition-colors hover:bg-success/70"
-        :title="ACTOR_HEADER_LABELS.createActor"
-        @click.left.exact.prevent="emit('save')"
-      >
-        <UIcon
-          name="tabler:check"
-          class="h-4 w-4"
-        />
-        {{ MODAL_BUTTON_LABELS.create }}
-      </button>
-
-      <!-- Toggle Edit Mode (только для существующих персонажей) -->
-      <button
-        v-else-if="canEdit"
-        class="flex h-8 w-8 items-center justify-center rounded-full border border-default/50 bg-elevated/30 transition-colors hover:bg-accented/50"
-        :class="editModeClass"
-        :title="EDIT_MODE_TOGGLE_TITLE"
-        @click.left.exact.prevent="emit('toggle-edit-mode')"
-      >
-        <UIcon
-          :name="editModeIcon"
-          class="h-4 w-4"
-        />
-      </button>
-
-      <!-- Settings Button -->
-      <button
-        v-if="canEdit && !isCreating"
-        :class="HEADER_ROUND_BUTTON_CLASS"
-        :title="ACTOR_HEADER_LABELS.tokenSettings"
-        @click.left.exact.prevent="emit('open-settings')"
-      >
-        <UIcon
-          name="tabler:settings-filled"
-          class="h-4 w-4"
-        />
-      </button>
-
-      <!-- Minimize Button -->
-      <button
-        :class="HEADER_ROUND_BUTTON_CLASS"
-        :title="MODAL_BUTTON_LABELS.minimize"
-        @click.left.exact.prevent="emit('minimize')"
-      >
-        <UIcon
-          name="tabler:chevron-up"
-          class="h-5 w-5"
-        />
-      </button>
-
-      <!-- Close Button -->
-      <button
-        :class="HEADER_ROUND_BUTTON_CLASS"
-        :title="MODAL_BUTTON_LABELS.close"
-        @click.left.exact.prevent="emit('close')"
-      >
-        <UIcon
-          name="tabler:x"
-          class="h-5 w-5"
-        />
-      </button>
-    </div>
-
-    <!-- Кнопки отдыха и вдохновение (второй ряд, у золотой линии) -->
-    <div
-      v-if="!isCreating"
-      class="absolute right-4 bottom-10 z-20 flex items-center gap-2"
-    >
-      <!-- Вдохновение: есть/нет, переключают ГМ и владелец персонажа -->
-      <UTooltip :text="inspirationTooltip">
-        <component
-          :is="inspirationTag"
-          class="flex h-9 items-center gap-1.5 rounded-full border px-3 text-sm font-medium transition-colors"
-          :class="inspirationClass"
-          @click.left.exact.prevent="toggleInspiration"
-        >
-          <UIcon
-            name="tabler:sparkles"
-            class="h-4 w-4"
-          />
-
-          {{ ACTOR_HEADER_LABELS.inspiration }}
-        </component>
-      </UTooltip>
-
-      <UTooltip
-        v-if="canEdit"
-        :text="REST_LABELS.short"
-      >
-        <UButton
-          icon="tabler:campfire"
-          color="neutral"
-          variant="ghost"
-          size="md"
-          square
-          class="border border-default/50 bg-elevated/30 text-muted hover:bg-accented/50 hover:text-highlighted"
-          @click.left.exact.prevent="emit('short-rest')"
-        />
-      </UTooltip>
-
-      <UTooltip
-        v-if="canEdit"
-        :text="REST_LABELS.long"
-      >
-        <UButton
-          icon="tabler:moon"
-          color="neutral"
-          variant="ghost"
-          size="md"
-          square
-          class="border border-default/50 bg-elevated/30 text-muted hover:bg-accented/50 hover:text-highlighted"
-          @click.left.exact.prevent="emit('long-rest')"
-        />
-      </UTooltip>
     </div>
 
     <!-- Декоративный разделитель шапки: цвет акцента приложения -->

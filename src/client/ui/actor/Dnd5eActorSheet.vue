@@ -27,7 +27,8 @@
   import type { WizardQueueStep } from './levelUpTypes';
 
   import { useToast } from '@nuxt/ui/composables';
-  import { computed, ref, toRef, watch } from 'vue';
+  import { createReusableTemplate } from '@vueuse/core';
+  import { computed, ref, toRef, useTemplateRef, watch } from 'vue';
 
   import { ClientHooks } from '@/core/clientHooks';
   import { generateEntityId, requireSocket } from '@/core/entityUtils';
@@ -85,6 +86,7 @@
     isItemTransferDrop,
     useItemTransfer,
   } from '../../composables/useItemTransfer';
+  import { useSheetLayout } from '../../composables/useSheetLayout';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
   import { useWorldSheetSync } from '../../composables/useWorldSheetSync';
   import { useSystemDataStore } from '../../stores/systemDataStore';
@@ -101,7 +103,9 @@
   import CompendiumPickerModal from './CompendiumPickerModal.vue';
   import {
     ACTOR_SHEET_LABELS,
+    ACTOR_SHEET_LAYOUT_CLASSES,
     ACTOR_SHEET_LOG_PREFIX,
+    ACTOR_SHEET_WIDE_MIN_WIDTH_REM,
     BACKGROUND_DEFINITION_MIME,
     CLASS_DEFINITION_MIME,
     CLASS_WIZARD_LABELS,
@@ -115,6 +119,10 @@
     GAME_ITEM_MIME,
     MODAL_BUTTON_LABELS,
     REST_LABELS,
+    SHEET_FRAME_CLASSES,
+    SHEET_SUMMARY_COMPACT_CLASSES,
+    SHEET_SUMMARY_WIDE_CLASSES,
+    SHEET_WINDOW_MIN_WIDTH,
     SPECIES_DEFINITION_MIME,
     SPECIES_WIZARD_LABELS,
     SPELL_MIME,
@@ -236,6 +244,32 @@
 
   // Очередь для последовательного повышения уровней (Wizard)
   const wizardQueue = ref<WizardQueueStep[]>([]);
+
+  // Раскладку выбирает ширина самого листа, а не экрана: окно листа сужают и
+  // на большом экране, и тогда он обязан перестроиться так же, как на телефоне.
+  const sheetBodyRef = useTemplateRef<HTMLElement>('sheetBody');
+
+  const { isMeasured, isWide } = useSheetLayout(
+    sheetBodyRef,
+    ACTOR_SHEET_WIDE_MIN_WIDTH_REM,
+  );
+
+  const [DefineSummary, ReuseSummary] = createReusableTemplate();
+
+  /** Классы раскладки листа: колонками на широком, столбцом на узком */
+  const sheetLayoutClasses = computed(() =>
+    isWide.value
+      ? ACTOR_SHEET_LAYOUT_CLASSES.wide
+      : ACTOR_SHEET_LAYOUT_CLASSES.compact,
+  );
+
+  const sheetFrameClass = computed(() =>
+    isWide.value ? SHEET_FRAME_CLASSES.wide : SHEET_FRAME_CLASSES.compact,
+  );
+
+  const summaryLayoutClasses = computed(() =>
+    isWide.value ? SHEET_SUMMARY_WIDE_CLASSES : SHEET_SUMMARY_COMPACT_CLASSES,
+  );
 
   // Drag and Drop refs
   const isSpellDragOver = ref(false);
@@ -2548,6 +2582,39 @@
 </script>
 
 <template>
+  <!-- Сводка листа — здоровье, навыки, спасброски, владения — нужна в двух
+    местах: на широком листе она стоит колонками слева от вкладок, на узком
+    уходит во вкладку «Основное». Одно определение держит обработчики здесь и
+    не плодит дубли разметки -->
+  <DefineSummary>
+    <!-- Свой `@container` у сводки узкого листа: её сетка считает колонки по
+      ширине самой сводки. На широком листе обе обёртки растворяются, и панели
+      встают колонками общей сетки листа -->
+    <div
+      v-if="localActor"
+      :class="sheetLayoutClasses.summary"
+    >
+      <div :class="summaryLayoutClasses.grid">
+        <ActorLeftPanel
+          :actor="localActor"
+          :is-edit-mode="isEditMode"
+          :is-compact="!isWide"
+          @update:actor="handleActorUpdate"
+        />
+
+        <!-- Центральная панель с навыками -->
+        <ActorCenterPanel
+          :actor="localActor"
+          :is-edit-mode="isEditMode"
+          :is-compact="!isWide"
+          :counter-definitions="counterDefinitions"
+          :highlighted-ability="highlightedAbility"
+          @update:actor="handleActorUpdate"
+        />
+      </div>
+    </div>
+  </DefineSummary>
+
   <!--
     `max-h-[100%]` в `ui.body` снимает дефолтный потолок тела окна в 90vh:
     окно тянется почти на весь экран, и на полной высоте под содержимым
@@ -2560,7 +2627,7 @@
     :title="minimizedTitle"
     :draggable="true"
     :resizable="true"
-    :min-width="800"
+    :min-width="SHEET_WINDOW_MIN_WIDTH"
     :min-height="600"
     :initial-width="1200"
     initial-height="85vh"
@@ -2577,6 +2644,7 @@
   >
     <template #body>
       <div
+        ref="sheetBody"
         class="relative flex h-full flex-col"
         @dragenter.prevent
         @dragover.prevent="handleDragOver"
@@ -2589,73 +2657,68 @@
           alt=""
           class="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-8"
         />
-        <!-- Шапка с информацией о персонаже -->
-        <ActorHeader
-          v-if="localActor"
-          :actor="localActor"
-          :is-edit-mode="isEditMode"
-          :is-creating="!actorId && !isCreated"
-          :can-edit="canEdit"
-          :world-port="worldPort"
-          :subclass-entries="subclassBadgeEntries"
-          @update:actor="handleActorUpdate"
-          @toggle-edit-mode="toggleEditMode"
-          @open-settings="openSettings"
-          @short-rest="handleRest('short')"
-          @long-rest="handleRest('long')"
-          @save="handleSave"
-          @close="handleCancel"
-          @minimize="minimizeSheet"
-          @start-wizard="handleStartWizardSequence"
-          @remove-class="handleRemoveClass"
-          @open-compendium-picker="openCompendiumPicker"
-        />
-        <!-- Основной контент (3 колонки) -->
-        <div class="custom-scrollbar flex-1 overflow-y-auto px-2 pt-4 pb-2">
-          <div class="grid grid-cols-[250px_280px_1fr] gap-4">
-            <ActorLeftPanel
-              v-if="localActor"
-              :actor="localActor"
-              :is-edit-mode="isEditMode"
-              class="flex flex-col"
-              @update:actor="handleActorUpdate"
-            />
 
-            <!-- Центральная панель с навыками -->
-            <ActorCenterPanel
-              v-if="localActor"
-              :actor="localActor"
-              :is-edit-mode="isEditMode"
-              :counter-definitions="counterDefinitions"
-              :highlighted-ability="highlightedAbility"
-              class="flex h-full flex-col"
-              @update:actor="handleActorUpdate"
-            />
+        <div :class="sheetFrameClass">
+          <!-- Шапка с информацией о персонаже -->
+          <ActorHeader
+            v-if="localActor"
+            :actor="localActor"
+            :is-edit-mode="isEditMode"
+            :is-creating="!actorId && !isCreated"
+            :can-edit="canEdit"
+            :world-port="worldPort"
+            :subclass-entries="subclassBadgeEntries"
+            @update:actor="handleActorUpdate"
+            @toggle-edit-mode="toggleEditMode"
+            @open-settings="openSettings"
+            @short-rest="handleRest('short')"
+            @long-rest="handleRest('long')"
+            @save="handleSave"
+            @close="handleCancel"
+            @minimize="minimizeSheet"
+            @start-wizard="handleStartWizardSequence"
+            @remove-class="handleRemoveClass"
+            @open-compendium-picker="openCompendiumPicker"
+          />
+          <!-- Основной контент. Пока ширина листа не замерена, раскладка
+          неизвестна, и рисовать его рано: угаданная раскладка на телефоне
+          неверна, и лист перестроился бы на глазах -->
+          <div :class="sheetLayoutClasses.content">
+            <div
+              v-if="localActor && isMeasured"
+              :class="sheetLayoutClasses.grid"
+            >
+              <!-- Широкий лист: сводка — двумя левыми колонками -->
+              <ReuseSummary v-if="isWide" />
 
-            <!-- Правая панель с характеристиками -->
-            <div class="flex h-full flex-col">
-              <ActorRightPanel
-                v-if="localActor"
-                :actor="localActor"
-                :is-edit-mode="isEditMode"
-                class="mb-6"
-                @update:actor="handleActorUpdate"
-                @highlight="handleAbilityHighlight"
-              />
+              <!-- Правая колонка: характеристики и вкладки -->
+              <div class="flex h-full min-w-0 flex-col">
+                <ActorRightPanel
+                  :actor="localActor"
+                  :is-edit-mode="isEditMode"
+                  class="mb-6"
+                  @update:actor="handleActorUpdate"
+                  @highlight="handleAbilityHighlight"
+                />
 
-              <!-- Вкладки с дополнительной информацией (теперь внутри правой колонки) -->
-              <ActorTabs
-                v-if="localActor"
-                :actor="localActor"
-                :is-edit-mode="isEditMode"
-                :socket="socket"
-                :is-spell-drag-over="isSpellDragOver"
-                :is-equipment-drag-over="isEquipmentDragOver"
-                :is-feature-drag-over="isFeatureDragOver"
-                class="flex-1"
-                @update:actor="handleActorUpdate"
-                @immediate-save="handleImmediateSave"
-              />
+                <ActorTabs
+                  :actor="localActor"
+                  :is-edit-mode="isEditMode"
+                  :socket="socket"
+                  :is-spell-drag-over="isSpellDragOver"
+                  :is-equipment-drag-over="isEquipmentDragOver"
+                  :is-feature-drag-over="isFeatureDragOver"
+                  :has-main-tab="!isWide"
+                  class="flex-1"
+                  @update:actor="handleActorUpdate"
+                  @immediate-save="handleImmediateSave"
+                >
+                  <!-- Узкий лист: сводка — первой вкладкой -->
+                  <template #main>
+                    <ReuseSummary />
+                  </template>
+                </ActorTabs>
+              </div>
             </div>
           </div>
         </div>
