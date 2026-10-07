@@ -2895,15 +2895,160 @@ export function resolveMaxHitPointsDelta(
     return effectsDelta;
   }
 
+  return effectsDelta + resolveConstitutionHitPointsDelta(entity, stats);
+}
+
+/**
+ * Хиты персонажа от Телосложения сверх листа: разница модификаторов (итог с
+ * эффектами против числа листа) за каждый уровень.
+ *
+ * @param actor - персонаж
+ * @param stats - его разрешённые статы
+ * @returns прибавка к максимуму хитов (может быть отрицательной)
+ */
+function resolveConstitutionHitPointsDelta(
+  actor: DnDActor,
+  stats: ResolvedActorStats,
+): number {
   const sheetConstitutionMod = calculateAbilityModifier(
-    entity.system.abilities?.constitution ?? 10,
+    actor.system.abilities?.constitution ?? 10,
   );
 
-  const constitutionDelta =
+  return (
     (stats.abilityMods.constitution - sheetConstitutionMod)
-    * getTotalLevel(entity.system.classes);
+    * getTotalLevel(actor.system.classes)
+  );
+}
 
-  return effectsDelta + constitutionDelta;
+/** Виды источников прибавки к максимуму хитов */
+export const MAX_HIT_POINTS_SOURCE_KIND = {
+  /** Эффект: черта, предмет, заклинание */
+  effect: 'effect',
+  /** Телосложение, поднятое эффектами сверх числа листа */
+  constitution: 'constitution',
+} as const;
+
+/** Откуда взялась одна часть прибавки к максимуму хитов */
+export type MaxHitPointsSource =
+  | {
+      kind: typeof MAX_HIT_POINTS_SOURCE_KIND.effect;
+      /** Название эффекта */
+      name: string;
+      /** Насколько источник сдвинул максимум хитов */
+      delta: number;
+    }
+  | {
+      kind: typeof MAX_HIT_POINTS_SOURCE_KIND.constitution;
+      /** Насколько источник сдвинул максимум хитов */
+      delta: number;
+    };
+
+/**
+ * Вклад эффектов в максимум хитов построчно. Считается тем же порядком и теми
+ * же числами, что и Фаза 2 пайплайна: строки, которые лист не применяет
+ * (условие броска, условие носителя), сюда не попадают.
+ *
+ * @param entity - актор или существо
+ * @returns эффекты с ненулевым вкладом в порядке применения
+ */
+function resolveEffectHitPointsSources(
+  entity: DnDActor | DnDCreature,
+): MaxHitPointsSource[] {
+  const baseStats = prepareBaseData(entity);
+  const formulaContext = buildFormulaContext(entity);
+  const carrier = buildCarrierContext(entity);
+
+  const sheetEffects = collectActiveEffects(entity).filter((effect) =>
+    effectAppliesOnSheet(effect, carrier),
+  );
+
+  // Формулы хитов читают характеристики уже с эффектами — как второй проход
+  // Фазы 2
+  const modifiedStats = applyActiveEffects(
+    baseStats,
+    sheetEffects,
+    formulaContext,
+    carrier,
+  );
+
+  const passContext = withResolvedSheetNumbers(formulaContext, {
+    abilities: modifiedStats.abilities,
+    abilityMods: modifiedStats.abilityMods,
+    proficiencyBonus: formulaContext.prof,
+  });
+
+  const hitPointChanges = sheetEffects
+    .flatMap((effect) => effect.changes.map((change) => ({ change, effect })))
+    .filter(
+      ({ change }) =>
+        change.key === 'hitPoints.max'
+        && !skipChangeOnSheet(change, carrier)
+        && !isRollTimeDiceChange(change),
+    )
+    .sort((left, right) => left.change.priority - right.change.priority);
+
+  const sources: MaxHitPointsSource[] = [];
+
+  let currentMax = baseStats.hitPointsMax;
+
+  for (const { change, effect } of hitPointChanges) {
+    const resolvedValue = resolveChangeValue(change.value, passContext);
+
+    if (resolvedValue === undefined) {
+      continue;
+    }
+
+    const nextMax = applyMode(currentMax, resolvedValue, change.mode);
+
+    if (nextMax !== currentMax) {
+      sources.push({
+        kind: MAX_HIT_POINTS_SOURCE_KIND.effect,
+        name: effect.name,
+        delta: nextMax - currentMax,
+      });
+    }
+
+    currentMax = nextMax;
+  }
+
+  return sources;
+}
+
+/**
+ * Разбор прибавки к максимуму хитов по источникам — то же число, что отдаёт
+ * {@link resolveMaxHitPointsDelta}, но поимённо.
+ *
+ * Игрок видит в плитке хитов число больше набранного в окне и не знает, откуда
+ * оно: «Дварфская стойкость» и Телосложение из предыстории лежат эффектами.
+ * Вклад формулы («+1 за уровень») приходит готовым числом.
+ *
+ * @param entity - актор или существо
+ * @returns источники с ненулевым вкладом в порядке применения
+ */
+export function resolveMaxHitPointsBreakdown(
+  entity: DnDActor | DnDCreature,
+): MaxHitPointsSource[] {
+  const effectSources = resolveEffectHitPointsSources(entity);
+
+  // Хиты существа заданы статблоком целиком, уровней у него нет
+  if (isCreatureEntity(entity)) {
+    return effectSources;
+  }
+
+  const constitutionDelta = resolveConstitutionHitPointsDelta(
+    entity,
+    resolveActorStats(entity),
+  );
+
+  return constitutionDelta === 0
+    ? effectSources
+    : [
+        ...effectSources,
+        {
+          kind: MAX_HIT_POINTS_SOURCE_KIND.constitution,
+          delta: constitutionDelta,
+        },
+      ];
 }
 
 /**

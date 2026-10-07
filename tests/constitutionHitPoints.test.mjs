@@ -82,6 +82,35 @@ describe('телосложение из эффектов в максимуме �
     assert.equal(engine.resolveEntityMaxHp(hero), 22 + 5);
   });
 
+  it('разбор называет каждый источник числом и сходится с потолком', () => {
+    const hero = wizardAtFifthLevel([
+      createEffect('background', {
+        changes: [change('ability.constitution', '2')],
+      }),
+      createEffect('toughness', {
+        name: 'Дварфская стойкость',
+        changes: [change('hitPoints.max', '1 * @level')],
+      }),
+      createEffect('conditional', {
+        changes: [
+          change('hitPoints.max', '10', { condition: 'target.hp.full' }),
+        ],
+      }),
+    ]);
+
+    const sources = engine.resolveMaxHitPointsBreakdown(hero);
+
+    assert.deepEqual(sources, [
+      { kind: 'effect', name: 'Дварфская стойкость', delta: 5 },
+      { kind: 'constitution', delta: 5 },
+    ]);
+
+    assert.equal(
+      sources.reduce((total, source) => total + source.delta, 0),
+      engine.resolveEntityMaxHp(hero) - engine.resolveBaseMaxHp(hero),
+    );
+  });
+
   it('существо по Телосложению из эффекта хитов не набирает', () => {
     const creature = createCreature({
       activeEffects: [

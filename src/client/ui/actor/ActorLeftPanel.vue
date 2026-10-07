@@ -36,6 +36,7 @@
     resolveDeathSave,
     resolveDeathSaveRollMode,
     resolveEntityMaxHp,
+    resolveMaxHitPointsBreakdown,
     resolveSavingThrowRollMode,
     WEAPON_MASTERY_MAP,
     withExhaustionLevel,
@@ -133,6 +134,11 @@
    * с каждым «Применить».
    */
   const maxHitPoints = computed(() => resolveEntityMaxHp(props.actor));
+
+  /** Из чего сложилась прибавка к максимуму — окно хитов называет источники */
+  const maxHitPointsSources = computed(() =>
+    resolveMaxHitPointsBreakdown(props.actor),
+  );
 
   /** Текущая степень Истощения — её несёт эффект-состояние */
   const exhaustionLevel = computed(() =>
@@ -1418,7 +1424,7 @@
     :current-hit-points="actor.system.hitPoints?.current ?? 0"
     :max-hit-points="actor.system.hitPoints?.max ?? 0"
     :resolved-max-hit-points="maxHitPoints"
-    :active-effects="combinedEffects"
+    :max-hit-points-sources="maxHitPointsSources"
     :temp-hit-points="actor.system.hitPoints?.temp ?? 0"
     :classes="actor.system.classes ?? []"
     :manual-hit-dice="actor.system.manualHitDice ?? []"
