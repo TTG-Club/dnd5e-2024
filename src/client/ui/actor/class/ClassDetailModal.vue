@@ -38,6 +38,7 @@
     TOOL_PROF_LABELS,
     WEAPON_PROF_SHORT_LABELS,
   } from '../constants';
+  import EffectsBySubscriptionBadge from '../EffectsBySubscriptionBadge.vue';
   import ItemEffectsView from '../ItemEffectsView.vue';
   import SourceBadge from '../SourceBadge.vue';
   import StartingEquipmentOptionBody from '../StartingEquipmentOptionBody.vue';
@@ -528,6 +529,8 @@
         variant="subtle"
         size="sm"
       />
+
+      <EffectsBySubscriptionBadge :automation="displayedClass?.automation" />
 
       <UTooltip
         v-if="showSelectButton"

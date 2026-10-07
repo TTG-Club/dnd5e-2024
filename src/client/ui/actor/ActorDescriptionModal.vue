@@ -14,6 +14,7 @@
     FORM_FIELD_LABELS,
     FORM_TAB_LABELS,
   } from './constants';
+  import EffectsBySubscriptionBadge from './EffectsBySubscriptionBadge.vue';
   import ItemEffectsView from './ItemEffectsView.vue';
   import SourceBadge from './SourceBadge.vue';
 
@@ -73,6 +74,11 @@
     source?: SourceDefinition;
     /** Принадлежит ли к SRD — показывает бейдж в header */
     isSRD?: boolean;
+    /**
+     * Поле `automation` записи: `false` — эффекты доступны только по подписке.
+     * Имя не `automation`: его уже носит текст вкладки «Автоматизация».
+     */
+    recordAutomation?: boolean;
     /** Данные для кнопки отправки в чат */
     shareCard?: {
       cardType: ChatCardType;
@@ -100,6 +106,7 @@
     sourceKey: undefined,
     source: undefined,
     isSRD: false,
+    recordAutomation: undefined,
     shareCard: undefined,
     showCopyButton: false,
     alert: undefined,
@@ -187,6 +194,8 @@
       >
         SRD
       </UBadge>
+
+      <EffectsBySubscriptionBadge :automation="recordAutomation" />
 
       <UTooltip
         v-if="showCopyButton"

@@ -113,6 +113,7 @@
     :source-key="item?.sourceKey"
     :source="item?.source"
     :is-srd="item?.isSRD"
+    :automation="item?.automation"
     card-type="tool"
     :chat-payload="chatPayload"
     :z-index="zIndex"

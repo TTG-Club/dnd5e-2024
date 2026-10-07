@@ -3393,6 +3393,12 @@ export const ITEM_DETAIL_SHELL_LABELS = {
   copyFallback: COPY_LABEL,
 } as const;
 
+/** Метка записи вне SRD, скачанной без подписки: эффекты у неё вырезаны */
+export const EFFECTS_BY_SUBSCRIPTION_LABELS = {
+  badge: 'Эффекты по подписке',
+  hint: 'Запись скачана без подписки TTG — эффектов у неё нет. Урон, спасброски и счётчики на месте.',
+} as const;
+
 /** Подписи списка эффектов в карточке записи — он только показывает */
 export const ITEM_EFFECTS_VIEW_LABELS = {
   empty: 'Нет эффектов',

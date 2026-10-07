@@ -23,6 +23,7 @@
     GRANT_SECTION_LABELS,
     SELECT_FOR_ACTOR_LABEL,
   } from '../constants';
+  import EffectsBySubscriptionBadge from '../EffectsBySubscriptionBadge.vue';
   import ItemDetailTabs from '../ItemDetailTabs.vue';
   import ItemEffectsView from '../ItemEffectsView.vue';
   import SourceBadge from '../SourceBadge.vue';
@@ -185,6 +186,8 @@
         variant="subtle"
         size="sm"
       />
+
+      <EffectsBySubscriptionBadge :automation="data?.automation" />
 
       <UTooltip
         v-if="showCopyButton"

@@ -65,6 +65,7 @@ export function useFeatModal() {
       effects: activeEffects,
       sourceKey: feat.sourceKey,
       isSRD: feat.isSRD ?? false,
+      recordAutomation: 'automation' in feat ? feat.automation : undefined,
       fields: badges.length > 0 ? [{ badges }] : [],
       alert: alertConfig,
       showCopyButton: options?.showCopyButton,

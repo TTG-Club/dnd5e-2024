@@ -522,6 +522,11 @@ export interface ClassDefinition {
   source?: SourceDefinition;
   /** Принадлежит ли классу к System Reference Document (SRD) */
   isSRD?: boolean;
+  /**
+   * `false` — запись вне SRD скачана без подписки TTG, и источник вырезал её
+   * эффекты (остальное на месте). У полных записей поля нет.
+   */
+  automation?: boolean;
 
   /**
    * Ключ родительского класса: запись — не самостоятельный класс, а его

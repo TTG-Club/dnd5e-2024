@@ -172,6 +172,7 @@
     :source-key="item?.sourceKey"
     :source="item?.source"
     :is-srd="item?.isSRD"
+    :automation="item?.automation"
     card-type="equipment"
     :chat-payload="chatPayload"
     :z-index="zIndex"

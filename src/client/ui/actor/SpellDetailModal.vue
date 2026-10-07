@@ -158,6 +158,7 @@
     :source-key="spell?.sourceKey"
     :source="spell?.source"
     :is-srd="spell?.isSRD"
+    :automation="spell?.automation"
     card-type="spell"
     :chat-payload="chatPayload"
     :z-index="zIndex"
