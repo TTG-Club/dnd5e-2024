@@ -919,6 +919,11 @@ it('the actual modal manager keeps a new Bless cast independent from an unfinish
     getNextZIndex: () => modals.value.length + 1,
     bringToFront: () => {},
     clearTimeout,
+    // Шаг лесенки окон хост берёт из своих констант. Здесь важен не сам
+    // сдвиг, а то, что второе окно открывается отдельным
+    UI_SIZES: { MODAL_CASCADE_STEP: 30 },
+    // Отметка «за кого действует пользователь» к независимости окон не относится
+    noteSheetSpeaker: () => {},
   });
 
   openModal('DiceRollModal', { beforeRoll: () => false });
