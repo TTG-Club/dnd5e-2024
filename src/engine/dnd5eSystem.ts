@@ -752,18 +752,20 @@ function toCastEnder(
 
 /**
  * Снимает истёкшие эффекты и заканчивает касты меток концентрации, которые
- * истекли вместе с ними.
+ * истекли вместе с ними. Состояние, кончившееся по сроку, запускает
+ * срабатывания «когда с носителя снимается состояние» — их исход уходит ядру
+ * целиком.
  *
  * @param entity - сущность
  * @param context - контекст срабатывания от ядра
  * @param expire - снятие истёкших эффектов
- * @returns изменилась ли сущность
+ * @returns исход для ядра: изменилась ли сущность и что сделали срабатывания
  */
 function expireWithConcentration(
   entity: DnDSceneEntity,
   context: SystemTriggerContext | undefined,
   expire: (entity: DnDSceneEntity) => boolean,
-): boolean {
+): SystemDeferredTriggerResult {
   const before = listConcentrationEffects(entity.activeEffects);
   const effectsBefore = entity.activeEffects ?? [];
   const changed = expire(entity);
@@ -781,21 +783,23 @@ function expireWithConcentration(
   }
 
   if (!changed) {
-    return false;
+    return { changed: false, chatSummary: null };
   }
 
   // «Состояние снялось» — и когда оно кончилось по сроку: «после окончания
-  // испуга невосприимчив к Ужасающему облику на 24 часа». Граница срока
-  // отдаёт ядру только «изменилось ли», поэтому срабатывание делает то, что
-  // остаётся на самом носителе (отметка, снятие, эффект); спасбросок бросает
-  // сервер, строки в чат и действия другим сторонам здесь не уходят
-  settleConditionLostEvents(
+  // испуга невосприимчив к Ужасающему облику на 24 часа». Граница срока отдаёт
+  // ядру полный исход, как остальные срабатывания: строка в чат, спасбросок по
+  // запросу владельцу и действия другим сторонам («урон тому, кто наложил»)
+  const events = settleConditionLostEvents(
     entity,
     listLostConditions(effectsBefore, entity.activeEffects ?? []),
-    { ...buildTriggerEventOptions(entity, context), requestRoll: undefined },
+    buildTriggerEventOptions(entity, context),
   );
 
-  return true;
+  return mergeTriggerResults(
+    { changed: true, chatSummary: null },
+    toDamageEventsTriggerResult(entity, events, CONDITION_LOST_SUMMARY_LABEL),
+  );
 }
 
 /**
@@ -1610,7 +1614,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.254';
+  readonly version = '0.8.255';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -1832,9 +1836,9 @@ export class Dnd5eVttSystem implements VttSystem {
     timing: 'start' | 'end',
     participantIds: ReadonlySet<string>,
     context?: SystemTriggerContext,
-  ): boolean {
+  ): SystemDeferredTriggerResult {
     if (!isDndSceneEntity(entity)) {
-      return false;
+      return { changed: false, chatSummary: null };
     }
 
     // Ядро принесло границу хода сущности вне боя — значит, разносит их всем:
@@ -1861,9 +1865,9 @@ export class Dnd5eVttSystem implements VttSystem {
   decrementEffectDurations(
     entity: SceneEntity,
     context?: SystemTriggerContext,
-  ): boolean {
+  ): SystemDeferredTriggerResult {
     if (!isDndSceneEntity(entity)) {
-      return false;
+      return { changed: false, chatSummary: null };
     }
 
     // Без ответа ядра «в бою ли сущность» границу раунда за ход не считаем:

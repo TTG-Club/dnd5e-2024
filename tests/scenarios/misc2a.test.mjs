@@ -694,7 +694,7 @@ describe('каталог: мелочи этапа 2A', () => {
       activeEffects: [aftermath, frightened],
     });
 
-    assert.equal(system.decrementEffectDurations(hero, {}), true);
+    assert.equal(system.decrementEffectDurations(hero, {}).changed, true);
 
     assert.equal(
       hero.activeEffects.some((effect) => effect.conditionKey === 'frightened'),

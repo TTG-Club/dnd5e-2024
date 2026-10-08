@@ -110,7 +110,11 @@ describe('метка концентрации', () => {
       remaining: 1,
     };
 
-    assert.equal(system.decrementEffectDurations(caster, context), true);
+    assert.equal(
+      system.decrementEffectDurations(caster, context).changed,
+      true,
+    );
+
     assert.deepEqual(ended, [[CLERIC_ID, [BLESS_CAST_ID]]]);
   });
 });
