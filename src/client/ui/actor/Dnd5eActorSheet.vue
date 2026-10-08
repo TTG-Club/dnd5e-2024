@@ -1060,7 +1060,14 @@
 
   const { receiveTransferredItem } = useItemTransfer();
 
-  const { sheetModalRef, minimizedTitle, minimizeSheet } = useSheetMinimize(
+  const {
+    sheetModalRef,
+    minimizedTitle,
+    minimizeSheet,
+    canPopOutSheet,
+    isSheetPoppedOut,
+    togglePopOutSheet,
+  } = useSheetMinimize(
     () => localActor.value?.name,
     ACTOR_SHEET_LABELS.untitled,
   );
@@ -2639,6 +2646,7 @@
       body: 'p-0 max-h-[100%]',
     }"
     :hide-header="true"
+    poppable
     @update:open="handleModalClose"
     @bring-to-front="emit('bring-to-front')"
   >
@@ -2668,6 +2676,8 @@
             :can-edit="canEdit"
             :world-port="worldPort"
             :subclass-entries="subclassBadgeEntries"
+            :can-pop-out="canPopOutSheet"
+            :is-popped-out="isSheetPoppedOut"
             @update:actor="handleActorUpdate"
             @toggle-edit-mode="toggleEditMode"
             @open-settings="openSettings"
@@ -2676,6 +2686,7 @@
             @save="handleSave"
             @close="handleCancel"
             @minimize="minimizeSheet"
+            @toggle-pop-out="togglePopOutSheet"
             @start-wizard="handleStartWizardSequence"
             @remove-class="handleRemoveClass"
             @open-compendium-picker="openCompendiumPicker"

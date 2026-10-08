@@ -14,6 +14,7 @@
   import { getAssetUrl } from '@vtt/shared';
   import { CR_OPTIONS, getAlignmentLabel } from '@vtt/shared/system/dnd.js';
 
+  import { resolveSheetPopOutButton } from '../../composables/useSheetMinimize';
   import {
     CREATURE_SIZE_LABELS,
     CREATURE_TYPE_LABELS,
@@ -36,11 +37,17 @@
     isCreating?: boolean;
     canEdit?: boolean;
     worldPort?: number;
+    /** Показывать ли кнопку выноса листа в отдельное окно */
+    canPopOut?: boolean;
+    /** Вынесен ли лист в отдельное окно браузера */
+    isPoppedOut?: boolean;
   }
 
   const props = withDefaults(defineProps<Props>(), {
     isCreating: false,
     canEdit: true,
+    canPopOut: false,
+    isPoppedOut: false,
     worldPort: undefined,
   });
 
@@ -54,8 +61,15 @@
     'close': [];
     /** Свернуть лист в шторку — окно остаётся открытым */
     'minimize': [];
+    /** Вынести лист в отдельное окно браузера или вернуть на стол */
+    'toggle-pop-out': [];
     'save': [];
   }>();
+
+  /** Подпись и иконка кнопки выноса: вынести лист или вернуть его на стол */
+  const popOutButton = computed(() =>
+    resolveSheetPopOutButton(props.isPoppedOut),
+  );
 
   // Вычисляемые свойства для аватара/токена
   const tokenFrame = computed(() => {
@@ -391,8 +405,22 @@
             />
           </button>
 
-          <!-- Minimize Button -->
+          <!-- Вынести в отдельное окно / вернуть на стол -->
           <button
+            v-if="canPopOut"
+            :class="HEADER_ROUND_BUTTON_CLASS"
+            :title="popOutButton.label"
+            @click.left.exact.prevent="emit('toggle-pop-out')"
+          >
+            <UIcon
+              :name="popOutButton.icon"
+              class="h-4 w-4"
+            />
+          </button>
+
+          <!-- Minimize Button: вынесенный лист сворачивает сам браузер -->
+          <button
+            v-if="!isPoppedOut"
             :class="HEADER_ROUND_BUTTON_CLASS"
             :title="MODAL_BUTTON_LABELS.minimize"
             @click.left.exact.prevent="emit('minimize')"

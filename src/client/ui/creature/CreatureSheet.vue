@@ -1178,7 +1178,14 @@
     isOpen.value = false;
   }
 
-  const { sheetModalRef, minimizedTitle, minimizeSheet } = useSheetMinimize(
+  const {
+    sheetModalRef,
+    minimizedTitle,
+    minimizeSheet,
+    canPopOutSheet,
+    isSheetPoppedOut,
+    togglePopOutSheet,
+  } = useSheetMinimize(
     () => localCreature.value?.name,
     CREATURE_SHEET_LABELS.untitled,
   );
@@ -2209,6 +2216,7 @@
     :open="isOpen"
     :title="minimizedTitle"
     hide-header
+    poppable
     :initial-width="940"
     :initial-height="780"
     :min-width="SHEET_WINDOW_MIN_WIDTH"
@@ -2247,6 +2255,8 @@
             :is-edit-mode="isEditMode"
             :is-creating="isCreating"
             :can-edit="canControl && !isReadOnly"
+            :can-pop-out="canPopOutSheet"
+            :is-popped-out="isSheetPoppedOut"
             @update="handleCreatureUpdate"
             @update:system="handleSystemUpdate"
             @toggle-edit-mode="toggleEditMode"
@@ -2255,6 +2265,7 @@
             @long-rest="handleRest('long')"
             @close="handleCancel"
             @minimize="minimizeSheet"
+            @toggle-pop-out="togglePopOutSheet"
             @save="handleSave"
           />
 

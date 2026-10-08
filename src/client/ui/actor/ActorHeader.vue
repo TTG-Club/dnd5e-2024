@@ -23,6 +23,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { useResolvedStats } from '../../composables/useResolvedStats';
+  import { resolveSheetPopOutButton } from '../../composables/useSheetMinimize';
   import ActorHeaderSection from './ActorHeaderSection.vue';
   import {
     ACTOR_HEADER_LABELS,
@@ -64,11 +65,17 @@
      * записи актора лежат одни ключи — поэтому список приходит готовым.
      */
     subclassEntries?: ActorSubclassBadgeEntry[];
+    /** Показывать ли кнопку выноса листа в отдельное окно */
+    canPopOut?: boolean;
+    /** Вынесен ли лист в отдельное окно браузера */
+    isPoppedOut?: boolean;
   }
 
   const props = withDefaults(defineProps<Props>(), {
     isCreating: false,
     canEdit: true,
+    canPopOut: false,
+    isPoppedOut: false,
     worldPort: undefined,
     subclassEntries: () => [],
   });
@@ -101,6 +108,8 @@
     'close': [];
     /** Свернуть лист в шторку — окно остаётся открытым */
     'minimize': [];
+    /** Вынести лист в отдельное окно браузера или вернуть на стол */
+    'toggle-pop-out': [];
     'start-wizard': [payload: LevelUpWizardPayload];
     'remove-class': [classKey: string];
     /** Открыть окно выбора вида/класса/предыстории из компендиума */
@@ -352,6 +361,11 @@
 
   /** Правится ли имя: только при снятом замке и правах на лист */
   const isNameEditable = computed(() => props.isEditMode && props.canEdit);
+
+  /** Подпись и иконка кнопки выноса: вынести лист или вернуть его на стол */
+  const popOutButton = computed(() =>
+    resolveSheetPopOutButton(props.isPoppedOut),
+  );
 
   /** Тег имени: в режиме правки — кнопка, открывающая окно названия */
   const nameTag = computed(() => (isNameEditable.value ? 'button' : 'span'));
@@ -861,8 +875,22 @@
             />
           </button>
 
-          <!-- Minimize Button -->
+          <!-- Вынести в отдельное окно / вернуть на стол -->
           <button
+            v-if="canPopOut"
+            :class="HEADER_ROUND_BUTTON_CLASS"
+            :title="popOutButton.label"
+            @click.left.exact.prevent="emit('toggle-pop-out')"
+          >
+            <UIcon
+              :name="popOutButton.icon"
+              class="h-4 w-4"
+            />
+          </button>
+
+          <!-- Minimize Button: вынесенный лист сворачивает сам браузер -->
+          <button
+            v-if="!isPoppedOut"
             :class="HEADER_ROUND_BUTTON_CLASS"
             :title="MODAL_BUTTON_LABELS.minimize"
             @click.left.exact.prevent="emit('minimize')"
