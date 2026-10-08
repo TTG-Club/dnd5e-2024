@@ -58,6 +58,7 @@ import {
   hasTargetToken,
   isDndActor,
   isDndSceneEntity,
+  isSpellAreaPlacedAtRange,
   isTargetAtFullHp,
   limitCastLevels,
   MAX_SPELL_SLOT_LEVEL,
@@ -681,6 +682,7 @@ function proceedWithPaidSpellCast(
         lockedLevel,
       }),
     getSpellMaxRangeOnScene(spell),
+    isSpellAreaPlacedAtRange(spell),
   );
 }
 

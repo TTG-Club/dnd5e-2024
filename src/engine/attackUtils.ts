@@ -1075,6 +1075,29 @@ export function getSpellMaxRange(
 }
 
 /**
+ * Ставится ли линия или конус заклинания отдельно от заклинателя.
+ *
+ * «Молния» бьёт от самого заклинателя — её дистанция «на себя». У «Стены
+ * огня» дистанция своя (120 футов): стена встаёт в любом месте в её пределах,
+ * и начинать её от фишки заклинателя нельзя. Круг и прямоугольник сюда не
+ * относятся: их и так ставят в точку.
+ *
+ * @param spell - заклинание
+ * @returns `true`, если начало линии/конуса выбирают на карте
+ */
+export function isSpellAreaPlacedAtRange(
+  spell: Pick<Spell, 'areaOfEffect' | 'deliveryType' | 'range'>,
+): boolean {
+  const shape = spell.areaOfEffect?.shape;
+
+  return (
+    (shape === 'ray' || shape === 'cone')
+    && (spell.deliveryType === 'ranged' || spell.deliveryType === 'none')
+    && spell.range > 0
+  );
+}
+
+/**
  * Проверяет, находится ли цель в пределах дистанции заклинания.
  *
  * Предел дистанции считается по правилам `getSpellMaxRange`.

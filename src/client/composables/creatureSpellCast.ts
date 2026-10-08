@@ -44,6 +44,7 @@ import {
   isCreatureSpellPoolMode,
   isDndCreature,
   isDndSceneEntity,
+  isSpellAreaPlacedAtRange,
   isTargetAtFullHp,
   resolveCreatureSpellSaveDC,
   resolveEntityCreatureType,
@@ -347,6 +348,7 @@ export function startCreatureSpellCast(
             creature.id,
             openRoll,
             null,
+            isSpellAreaPlacedAtRange(spell),
           );
         },
       );
