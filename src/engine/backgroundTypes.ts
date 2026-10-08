@@ -88,6 +88,11 @@ export interface BackgroundDefinition {
   source?: SourceDefinition;
   /** Принадлежит ли к SRD */
   isSRD?: boolean;
+  /**
+   * `false` — запись вне SRD скачана без подписки TTG, и источник вырезал её
+   * эффекты (остальное на месте). У полных записей поля нет.
+   */
+  automation?: boolean;
 
   /** Повышение характеристик */
   abilityGrant: BackgroundAbilityGrant;

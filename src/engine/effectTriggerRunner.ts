@@ -1235,9 +1235,14 @@ function buildActionStatus(
     return null;
   }
 
+  // Выход самого состояния (захват) уступает выходу автора, а запертому
+  // состоянию не положен вовсе: его снимает только то, что наложило
+  const { escape: conditionEscape, ...conditionBase } = condition;
+  const escape = action.escape ?? (action.locked ? undefined : conditionEscape);
+
   return bindStatusToSource(
     withInitializedDuration({
-      ...condition,
+      ...conditionBase,
       // Собственные срабатывания состояния: «Сон» кладёт «Бессознательного»,
       // который снимает сам себя от урона. Заканчивать каст нельзя — он снял
       // бы сон со всех целей сразу
@@ -1250,7 +1255,7 @@ function buildActionStatus(
       // Запертое состояние снимает только то, что его наложило
       ...(action.locked ? { conditionLocked: true as const } : {}),
       // «Вырваться» у состояния, которое кладёт срабатывание: кнопка — на нём
-      ...(action.escape ? { escape: action.escape } : {}),
+      ...(escape ? { escape } : {}),
       // Флаги сверх самого состояния: «пока отравлена — без реакций»
       ...(action.flags?.length
         ? { flags: [...new Set([...condition.flags, ...action.flags])] }

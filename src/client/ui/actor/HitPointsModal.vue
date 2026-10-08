@@ -1,8 +1,8 @@
 <script setup lang="ts">
   import type {
-    ActiveEffect,
     ActorClassEntry,
     ManualHitDieGroup,
+    MaxHitPointsSource,
   } from '@vtt/shared/system/dnd.js';
 
   import { computed, reactive, ref, watch } from 'vue';
@@ -10,9 +10,9 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { Z_INDEX } from '@/shared_ui/consts';
   import {
-    describeChangeValue,
     getHitDiceGroups,
     isHitDie,
+    MAX_HIT_POINTS_SOURCE_KIND,
   } from '@vtt/shared/system/dnd.js';
 
   import {
@@ -22,6 +22,7 @@
     HIT_POINTS_LABELS,
     MODAL_BUTTON_LABELS,
   } from './constants';
+  import { formatSignedNumber } from './utils/formatSignedNumber';
 
   interface HitPointsData {
     current: number;
@@ -52,14 +53,17 @@
      * считает, что эффекты максимум не трогают.
      */
     resolvedMaxHitPoints?: number;
-    /** Действующие эффекты листа: по ним окно называет причину расхождения */
-    activeEffects?: readonly ActiveEffect[];
+    /**
+     * Из чего сложилась прибавка к максимуму: по этому списку окно называет
+     * каждый источник и его число
+     */
+    maxHitPointsSources?: readonly MaxHitPointsSource[];
   }
 
   const props = withDefaults(defineProps<Props>(), {
     classes: () => [],
     manualHitDice: () => [],
-    activeEffects: () => [],
+    maxHitPointsSources: () => [],
     // Итога может не быть: лист его считает не всегда, и тогда сверять не с чем
     resolvedMaxHitPoints: undefined,
   });
@@ -157,30 +161,19 @@
     editHp.current = boundedCurrentHitPoints.value;
   }
 
-  /** Разбор итога: какие эффекты двигают максимум хитов и насколько */
-  const sheetTotalTooltip = computed(() => {
-    const lines: string[] = [HIT_POINTS_LABELS.sheetTotalHint];
-
-    for (const effect of props.activeEffects) {
-      for (const change of effect.changes) {
-        if (change.key !== 'hitPoints.max') {
-          continue;
-        }
-
-        const value = describeChangeValue(change);
-
-        lines.push(
-          `${effect.name}: ${
-            change.condition
-              ? `${value} (${HIT_POINTS_LABELS.conditionalMark})`
-              : value
-          }`,
-        );
-      }
-    }
-
-    return lines.join('\n');
-  });
+  /**
+   * Разбор итога строками: кто и на сколько двигает максимум хитов. Виден сразу,
+   * а не в подсказке по наведению — её не находили и спрашивали, откуда число.
+   */
+  const sheetTotalSources = computed(() =>
+    props.maxHitPointsSources.map((source) => ({
+      label:
+        source.kind === MAX_HIT_POINTS_SOURCE_KIND.effect
+          ? source.name
+          : HIT_POINTS_LABELS.constitutionSource,
+      value: formatSignedNumber(source.delta),
+    })),
+  );
 
   // Группируем только классовые кости — ручные показываются отдельным блоком
   const hitDiceGroups = computed(() => getHitDiceGroups(editClasses.value));
@@ -344,16 +337,27 @@
         <!-- Итог листа: появляется, когда максимум двигают эффекты -->
         <div
           v-if="hasSheetTotal"
-          class="text-center"
+          class="flex flex-col gap-1 rounded bg-elevated/40 p-2 text-xs"
         >
-          <UTooltip
-            :text="sheetTotalTooltip"
-            :ui="{ content: 'h-auto whitespace-pre-line' }"
-          >
-            <p class="text-xs font-medium text-toned">
-              {{ HIT_POINTS_LABELS.sheetTotal }}: {{ sheetMaxTotal }}
+          <UTooltip :text="HIT_POINTS_LABELS.sheetTotalHint">
+            <p class="flex justify-between font-medium text-toned">
+              <span>{{ HIT_POINTS_LABELS.sheetTotal }}</span>
+
+              <span class="font-bold text-highlighted">{{
+                sheetMaxTotal
+              }}</span>
             </p>
           </UTooltip>
+
+          <p
+            v-for="(source, sourceIndex) in sheetTotalSources"
+            :key="sourceIndex"
+            class="flex justify-between gap-2 text-muted"
+          >
+            <span class="min-w-0 truncate">{{ source.label }}</span>
+
+            <span class="shrink-0">{{ source.value }}</span>
+          </p>
         </div>
 
         <div class="border-t border-muted" />

@@ -27,6 +27,7 @@
     SPECIES_DETAIL_LABELS,
     SPECIES_FORM_LABELS,
   } from '../constants';
+  import EffectsBySubscriptionBadge from '../EffectsBySubscriptionBadge.vue';
   import ItemEffectsView from '../ItemEffectsView.vue';
   import SourceBadge from '../SourceBadge.vue';
 
@@ -330,6 +331,8 @@
         variant="subtle"
         size="sm"
       />
+
+      <EffectsBySubscriptionBadge :automation="speciesDefinition?.automation" />
 
       <UTooltip
         v-if="showSelectButton"

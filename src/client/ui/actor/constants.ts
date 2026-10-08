@@ -698,6 +698,17 @@ export const SHEET_INLINE_EDITABLE_CLASS =
  * сохраняет саму запись, а у ещё не созданной записи то же действие называется
  * созданием. Сводить их в одну подпись нельзя — окна перестанут различаться.
  */
+/**
+ * Иконки кнопки выноса листа в отдельное окно браузера. Кнопка одна на листе
+ * актёра и листе существа и меняет вид, пока лист вынесен.
+ */
+export const SHEET_POP_OUT_ICONS = {
+  /** Лист на столе: кнопка выносит его в отдельное окно */
+  popOut: 'tabler:external-link',
+  /** Лист вынесен: кнопка возвращает его на стол */
+  popIn: 'tabler:arrow-back-up',
+} as const;
+
 export const MODAL_BUTTON_LABELS = {
   /** Подтверждение окна настройки: посчитанное значение уходит на лист */
   apply: 'Применить',
@@ -721,6 +732,10 @@ export const MODAL_BUTTON_LABELS = {
   close: 'Закрыть',
   /** Свернуть лист в шторку: окно остаётся открытым, видна одна шапка */
   minimize: 'Свернуть',
+  /** Перенести лист в отдельное окно браузера */
+  popOut: 'Вынести в отдельное окно',
+  /** Вернуть вынесенный лист обратно в приложение */
+  popIn: 'Вернуть на стол',
   /** Единственная кнопка окна, которое только показывает: «прочитал» */
   done: 'Готово',
   /** Шаг назад в мастере создания */
@@ -3039,6 +3054,222 @@ export const ACTOR_TAB_LABELS = {
 } as const;
 
 /**
+ * Вкладка «Основное». Есть только у узкого листа (телефон, суженное окно): на
+ * широком сводка — здоровье, навыки, спасброски, владения — стоит колонками
+ * слева от вкладок, а на узком уезжает в эту вкладку и встаёт первой.
+ */
+export const SHEET_MAIN_TAB_ID = 'main';
+
+/** Подписи ленты вкладок листа: общие у листа персонажа и листа существа */
+export const SHEET_TABS_LABELS = {
+  main: 'Основное',
+  scrollLeft: 'Прокрутить вкладки влево',
+  scrollRight: 'Прокрутить вкладки вправо',
+} as const;
+
+/**
+ * Ширина листа персонажа (rem), с которой он раскладывается колонками. В rem,
+ * а не в пикселях: масштаб интерфейса меняет размер шрифта страницы, и вместе с
+ * ним растут все колонки листа — порог обязан расти так же.
+ */
+export const ACTOR_SHEET_WIDE_MIN_WIDTH_REM = 64;
+
+/**
+ * То же для листа существа. Порог ниже: колонок у него две, а не три, и они
+ * помещаются в более узкое окно.
+ */
+export const CREATURE_SHEET_WIDE_MIN_WIDTH_REM = 48;
+
+/**
+ * Наименьшая ширина окна листа (px). Хост и сам не даёт окну стать шире экрана,
+ * но на большом экране окно сужают руками — узкая раскладка рассчитана на
+ * телефон, и уже него сужать незачем.
+ */
+export const SHEET_WINDOW_MIN_WIDTH = 340;
+
+/** Шаг прокрутки ленты вкладок стрелками — доля её видимой ширины */
+export const SHEET_TABS_SCROLL_STEP_RATIO = 0.6;
+
+/**
+ * Допуск позиции ленты вкладок (px). Прокрутка оставляет доли пикселя, и без
+ * допуска лента у самого края считается «недокрученной»: стрелка не гаснет и
+ * накрывает крайнюю вкладку.
+ */
+export const SHEET_TABS_SCROLL_EPSILON = 2;
+
+/**
+ * Зазор у краёв ленты (px) — место под кнопку-стрелку. На столько же ленту
+ * доводят дальше нужной вкладки, чтобы стрелка не легла на её подпись.
+ */
+export const SHEET_TABS_SCROLL_EDGE_GAP = 32;
+
+/**
+ * Запас (px) при проверке, прокручивается ли элемент по горизонтали: при
+ * `overflow-y: auto` браузер считает прокручиваемой и вторую ось, а ширина
+ * содержимого расходится с шириной блока на округлении.
+ */
+export const SHEET_TABS_OVERFLOW_EPSILON = 1;
+
+/**
+ * Наименьшая длина свайпа по содержимому вкладки (px), после которой жест
+ * листает вкладки. Короткие смахивания остаются случайными касаниями.
+ */
+export const SHEET_TABS_SWIPE_THRESHOLD = 60;
+
+/** Мёртвая зона жеста (px): пока палец не ушёл дальше, вкладка стоит на месте */
+export const SHEET_TABS_DRAG_DEADZONE = 8;
+
+/**
+ * Сопротивление у края ленты: листать дальше некуда, поэтому вкладка отходит за
+ * пальцем лишь на четверть пути — жест виден, но переключения он не обещает.
+ */
+export const SHEET_TABS_DRAG_RESISTANCE = 0.25;
+
+/** Доля ширины вкладки, на которой затухание под пальцем доходит до предела */
+export const SHEET_TABS_DRAG_FADE_SPAN = 0.5;
+
+/** Предел затухания вкладки под пальцем (1 — до полной прозрачности) */
+export const SHEET_TABS_DRAG_MAX_FADE = 0.7;
+
+/**
+ * Путь пальца (px), на котором выбирается ось жеста: горизонталь листает
+ * вкладки, вертикаль отдаётся прокрутке листа. Порог намеренно мал — браузер
+ * решает, начинать ли прокрутку, на первых же пикселях, и после его решения
+ * жест уже не отменить.
+ */
+export const SHEET_TABS_AXIS_LOCK_THRESHOLD = 4;
+
+/**
+ * Запас над длительностью перехода, которым вкладка возвращается на место
+ * после недотянутого свайпа (200 мс в стилях ленты): если событие конца
+ * перехода не пришло, сдвиг снимает таймер.
+ */
+export const SHEET_TABS_SETTLE_TIMEOUT_MS = 260;
+
+/**
+ * Оформление кнопки вкладки в ленте листа.
+ *
+ * `drop` — над листом держат запись, которая ляжет в эту вкладку. Свечение
+ * берёт цвет из `currentColor`, а не из переменной темы: токены темы хранят
+ * цвет в `oklch()`, и подстановка в `rgba()` давала невалидный CSS — подсветки
+ * не было вовсе.
+ */
+export const SHEET_TAB_CLASSES = {
+  base: 'relative shrink-0 border-b-2 pb-2 text-xs font-bold tracking-wider whitespace-nowrap uppercase transition-colors',
+  active: 'border-primary text-primary',
+  idle: 'border-transparent text-muted hover:text-highlighted',
+  drop: 'border-primary text-primary drop-shadow-[0_0_8px_currentColor] duration-300',
+  dangerActive: 'border-danger text-danger',
+  dangerIdle: 'border-transparent text-danger hover:text-danger-muted',
+} as const;
+
+/**
+ * Рамка шапки и содержимого листа — одна у персонажа и существа. На широком
+ * листе шапка стоит на месте, а прокручивается только содержимое под ней. На
+ * узком шапка занимала бы почти пол-экрана телефона, поэтому там прокручивается
+ * всё вместе с ней.
+ */
+export const SHEET_FRAME_CLASSES = {
+  wide: 'flex min-h-0 flex-1 flex-col',
+  compact: 'custom-scrollbar min-h-0 flex-1 overflow-y-auto',
+} as const;
+
+/**
+ * Раскладка листа персонажа. `content` — поле содержимого: на широком листе
+ * оно же и прокручивается. `grid` — сетка листа: три колонки на широком, один
+ * столбец на узком. `summary` — обёртка сводки: на узком листе она опора для
+ * подсчёта колонок сводки, на широком её как бы нет.
+ */
+export const ACTOR_SHEET_LAYOUT_CLASSES = {
+  wide: {
+    content: 'custom-scrollbar flex-1 overflow-y-auto px-2 pt-4 pb-2',
+    grid: 'grid grid-cols-[250px_280px_1fr] gap-4',
+    summary: 'contents',
+  },
+  compact: {
+    content: 'px-2 pt-4 pb-2',
+    grid: 'flex flex-col',
+    summary: '@container',
+  },
+} as const;
+
+/** Вкладка, на которой широкий лист персонажа открывается впервые */
+export const ACTOR_SHEET_DEFAULT_TAB_ID = 'equipment';
+
+/**
+ * Раскладка шапки листа — одна у персонажа и существа. Ширину считают по самой
+ * шапке (`@container`), а не по экрану: окно листа сужают и на большом экране.
+ * На узкой шапке всё встаёт столбцом по центру, а кнопки уходят верхним рядом;
+ * с `@2xl` возвращается строка с кнопками в правом углу.
+ */
+export const SHEET_HEADER_CLASSES = {
+  root: '@container relative overflow-hidden rounded-t-2xl',
+  body: 'relative z-10 flex w-full flex-col items-center gap-3 px-4 pt-3 pb-8 @2xl:flex-row @2xl:gap-6 @2xl:px-6 @2xl:pt-8 @2xl:pb-10',
+  avatar:
+    'relative flex h-24 w-24 shrink-0 items-center justify-center @2xl:-my-2 @2xl:h-28 @2xl:w-28',
+  info: 'w-full min-w-0 space-y-1 @2xl:w-auto @2xl:flex-1 @2xl:pr-4',
+  nameRow:
+    'flex min-h-9 items-center justify-center @2xl:min-h-11 @2xl:justify-start',
+  name: 'text-center font-serif text-2xl tracking-wide text-highlighted @2xl:text-left @2xl:text-3xl',
+  /**
+   * Обёртка кнопок: на узкой шапке — верхний ряд, на широкой её как бы нет
+   * (`contents`), и обе группы встают по углам сами.
+   */
+  actions:
+    'order-first flex w-full items-center justify-between gap-2 @2xl:contents',
+  /** Кнопки окна: правка, настройки, свернуть, закрыть */
+  controls:
+    'ml-auto flex items-center gap-1.5 @2xl:absolute @2xl:top-4 @2xl:right-4 @2xl:z-20 @2xl:gap-2',
+  /** Отдых и вдохновение: второй ряд у золотой линии */
+  rest: 'flex items-center gap-1.5 @2xl:absolute @2xl:right-4 @2xl:bottom-10 @2xl:z-20 @2xl:gap-2',
+} as const;
+
+/**
+ * Ряд плиток характеристик — один у листа персонажа и листа существа. На узком
+ * листе шесть плиток встают в два ряда по три; промежуток между рядами больше,
+ * чем между плитками: овал со значением свисает под плитку.
+ */
+export const ABILITY_TILES_GRID_CLASS =
+  'grid grid-cols-3 gap-x-2 gap-y-5 @xl:grid-cols-6 @xl:gap-y-3';
+
+/**
+ * Сетка сводки на узком листе персонажа. Колонки-панели в ней растворяются
+ * (`contents`), и блоки встают прямо в сетку: четыре плитки показателей — 2×2,
+ * а с `@md` одной строкой, остальные блоки — во всю ширину по порядку `order`.
+ * С `@2xl` панели снова становятся двумя колонками, как на сайте.
+ */
+export const SHEET_SUMMARY_COMPACT_CLASSES = {
+  grid: 'grid grid-cols-2 gap-3 @md:grid-cols-4 @2xl:grid-cols-2 @2xl:items-start',
+  panel: 'contents @2xl:flex @2xl:flex-col @2xl:gap-3',
+  tiles: 'contents @2xl:grid @2xl:grid-cols-2 @2xl:gap-3',
+  health: 'order-1 col-span-full @2xl:order-none',
+  exhaustion: 'order-2 col-span-full @2xl:order-none',
+  counters: 'order-3 col-span-full @2xl:order-none',
+  skills: 'order-4 col-span-full @2xl:order-none',
+  savingThrows: 'order-5 col-span-full @2xl:order-none',
+  proficiencies: 'order-6 col-span-full @2xl:order-none',
+} as const;
+
+/**
+ * Те же места сводки на широком листе: панели стоят колонками листа, плитки —
+ * парой, а блокам порядок не нужен — они идут как в разметке.
+ */
+export const SHEET_SUMMARY_WIDE_CLASSES: Record<
+  keyof typeof SHEET_SUMMARY_COMPACT_CLASSES,
+  string
+> = {
+  grid: 'contents',
+  panel: 'flex h-full flex-col gap-3',
+  tiles: 'grid grid-cols-2 gap-3',
+  health: '',
+  exhaustion: '',
+  counters: '',
+  skills: '',
+  savingThrows: '',
+  proficiencies: '',
+};
+
+/**
  * Подписи вкладки эффектов. Вкладка одна и та же у листа персонажа и блока
  * эффектов существа: свои эффекты, эффекты от снаряжения и особенностей и
  * состояния у них собраны одинаково.
@@ -3175,6 +3406,12 @@ export const ITEM_DETAIL_SHELL_LABELS = {
   cast: 'Применить заклинание',
   /** Подсказка кнопки копирования, когда своей ей не задали */
   copyFallback: COPY_LABEL,
+} as const;
+
+/** Метка записи вне SRD, скачанной без подписки: эффекты у неё вырезаны */
+export const EFFECTS_BY_SUBSCRIPTION_LABELS = {
+  badge: 'Эффекты по подписке',
+  hint: 'Запись скачана без подписки TTG — эффектов у неё нет. Урон, спасброски и счётчики на месте.',
 } as const;
 
 /** Подписи списка эффектов в карточке записи — он только показывает */
@@ -4082,7 +4319,11 @@ export const HIT_POINTS_LABELS = {
   sheetTotal: SHEET_TOTAL_LABEL,
   /** Шапка разбора итога */
   sheetTotalHint: 'В окне правится запас листа, эффекты идут сверху',
-  conditionalMark: CONDITIONAL_CHANGE_MARK,
+  /**
+   * Строка разбора итога: Телосложение, поднятое предысторией или эффектом
+   * сверх числа листа, даёт хиты за каждый уровень
+   */
+  constitutionSource: 'Телосложение (прибавки сверх листа)',
 } as const;
 
 /** Подписи окна предела подготовленных заклинаний */

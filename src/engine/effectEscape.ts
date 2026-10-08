@@ -150,6 +150,18 @@ export function escapeAllowsRole(
   return by === 'any' || by === role;
 }
 
+/**
+ * Ждёт ли действие «вырваться» хода того, кто действует. В бою вырываются в
+ * свой ход — чем бы ни платили; исключение одно — цена «реакция»: реакцию
+ * совершают как раз в чужой ход.
+ *
+ * @param escape - блок действия
+ * @returns `true`, если в бою действие доступно только в свой ход
+ */
+export function escapeNeedsOwnTurn(escape: EffectEscape): boolean {
+  return escape.cost !== 'reaction';
+}
+
 /** Навык проверки «вырваться» с его сложностью */
 export interface EscapeCheckOption {
   /** Навык */
@@ -160,19 +172,28 @@ export interface EscapeCheckOption {
   label: string;
 }
 
+/** Навык проверки «вырваться», как его видит выбирающий */
+export interface EscapeSkillChoice {
+  /** Навык */
+  skill: SkillType;
+  /** Название с пометкой: «Атлетика», «Ловкость рук (воровскими инструментами)» */
+  name: string;
+  /** Сложность навыка; `null` — её взять неоткуда */
+  dc: number | null;
+}
+
 /**
- * Навыки, которыми можно вырываться: все — или только доступные роли. У
- * навыка своя Сл либо Сл проверки; навык, чью Сл взять неоткуда (Сл источника
- * не проставлена), в список не входит.
+ * Навыки проверки «вырваться» с тем, что известно об их Сл: все — или только
+ * доступные роли. У навыка своя Сл либо Сл проверки.
  *
  * @param escape - блок действия
  * @param role - роль действующего; нет — навыки всех ролей
- * @returns навыки со сложностью; пусто — проверки нет или бросать не против чего
+ * @returns навыки; пусто — проверки нет
  */
-export function listEscapeChecks(
+export function listEscapeSkillChoices(
   escape: EffectEscape,
   role?: EffectEscapeRole,
-): EscapeCheckOption[] {
+): EscapeSkillChoice[] {
   const { check } = escape;
 
   if (!check) {
@@ -187,25 +208,51 @@ export function listEscapeChecks(
       (option) =>
         role === undefined || option.by === undefined || option.by === role,
     )
-    .flatMap((option) => {
-      const dc = option.dc ?? baseDc;
-
-      if (dc === null) {
-        return [];
-      }
-
-      const name = option.label
+    .map((option) => ({
+      skill: option.skill,
+      name: option.label
         ? `${SKILLS_LABELS[option.skill]} (${option.label})`
-        : SKILLS_LABELS[option.skill];
+        : SKILLS_LABELS[option.skill],
+      dc: option.dc ?? baseDc,
+    }));
+}
 
-      return [
-        {
-          skill: option.skill,
-          dc,
-          label: `${name}${ESCAPE_LABEL_PARTS.dcPrefix}${dc}`,
-        },
-      ];
-    });
+/**
+ * Навыки, которыми можно вырываться: все — или только доступные роли. Навык,
+ * чью Сл взять неоткуда (Сл источника не проставлена), в список не входит.
+ *
+ * @param escape - блок действия
+ * @param role - роль действующего; нет — навыки всех ролей
+ * @returns навыки со сложностью; пусто — проверки нет или бросать не против чего
+ */
+export function listEscapeChecks(
+  escape: EffectEscape,
+  role?: EffectEscapeRole,
+): EscapeCheckOption[] {
+  return listEscapeSkillChoices(escape, role).flatMap(({ skill, name, dc }) =>
+    dc === null
+      ? []
+      : [{ skill, dc, label: `${name}${ESCAPE_LABEL_PARTS.dcPrefix}${dc}` }],
+  );
+}
+
+/**
+ * Называет ли Сл проверки тот, кто бросает: проверка это разрешает (`askDc`),
+ * и хоть у одного навыка Сл взять неоткуда. Так «Схваченный», повешенный рукой
+ * ведущего, не остаётся без выхода: того, кто держит, нет, и Сл спрашивают.
+ *
+ * @param escape - блок действия
+ * @param role - роль действующего; нет — навыки всех ролей
+ * @returns `true`, если перед броском нужно назвать Сл
+ */
+export function escapeAsksDc(
+  escape: EffectEscape,
+  role?: EffectEscapeRole,
+): boolean {
+  return (
+    escape.check?.askDc === true
+    && listEscapeSkillChoices(escape, role).some((choice) => choice.dc === null)
+  );
 }
 
 /**
@@ -230,9 +277,12 @@ export function canEscapeEffect(
     return false;
   }
 
-  // Действие без проверки снимает эффект просто так — Сл ему не нужна
+  // Действие без проверки снимает эффект просто так — Сл ему не нужна; Сл,
+  // которую назовёт бросающий, кнопку тоже не гасит
   return (
-    escape.check === undefined || listEscapeChecks(escape, role).length > 0
+    escape.check === undefined
+    || listEscapeChecks(escape, role).length > 0
+    || escapeAsksDc(escape, role)
   );
 }
 
@@ -366,6 +416,13 @@ export function formatEffectEscapeLabel(effect: ActiveEffect): string {
 
   if (escape.label) {
     return escape.label;
+  }
+
+  // Сл назовут при броске — в подписи только навыки
+  if (escapeAsksDc(escape)) {
+    const names = listEscapeSkillChoices(escape).map((choice) => choice.name);
+
+    return `${DEFAULT_ESCAPE_LABEL}: ${names.join(ESCAPE_LABEL_PARTS.skillsJoiner)}`;
   }
 
   const checks = listEscapeChecks(escape);

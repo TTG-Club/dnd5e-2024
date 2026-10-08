@@ -6,6 +6,7 @@ import { computed } from 'vue';
 
 import {
   buildConditionActiveEffect,
+  canEscapeEffect,
   isEffectDormant,
   resolveEffectConditionKey,
   withInitializedDuration,
@@ -59,6 +60,25 @@ export function listConditionEscapeEffects(
       effect.escape !== undefined
       && !effect.disabled
       && !isCustomEffect(effect),
+  );
+}
+
+/**
+ * Эффекты, из которых сущность может вырваться сама, — кнопками над хотбаром
+ * у выделенной фишки. Аура, которая раздаёт эффект другим, и спящий шаблон
+ * применения носителя не держат — из них вырываться не из чего.
+ *
+ * @param effects - эффекты сущности
+ * @returns действующие на носителя эффекты, выход из которых доступен ему
+ */
+export function listSelfEscapeEffects(
+  effects: readonly ActiveEffect[],
+): ActiveEffect[] {
+  return effects.filter(
+    (effect) =>
+      canEscapeEffect(effect, 'self')
+      && !(effect.aura && !effect.aura.applyToSelf)
+      && !(effect.activation !== undefined && isEffectDormant(effect)),
   );
 }
 

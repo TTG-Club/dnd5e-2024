@@ -36,6 +36,7 @@
     resolveDeathSave,
     resolveDeathSaveRollMode,
     resolveEntityMaxHp,
+    resolveMaxHitPointsBreakdown,
     resolveSavingThrowRollMode,
     WEAPON_MASTERY_MAP,
     withExhaustionLevel,
@@ -63,6 +64,8 @@
     SAVING_THROW_ABILITIES,
     SAVING_THROW_ROLL_LABELS,
     SAVING_THROW_SETTINGS_LABELS,
+    SHEET_SUMMARY_COMPACT_CLASSES,
+    SHEET_SUMMARY_WIDE_CLASSES,
     SHEET_TILE_LABELS,
     SHEET_TILE_SHORT_LABELS,
   } from './constants';
@@ -81,7 +84,14 @@
 
   defineOptions({ inheritAttrs: false });
 
-  const props = defineProps<Props>();
+  const props = withDefaults(defineProps<Props>(), { isCompact: false });
+
+  /** Классы раскладки блоков: колонкой на широком листе, сеткой на узком */
+  const layoutClasses = computed(() =>
+    props.isCompact
+      ? SHEET_SUMMARY_COMPACT_CLASSES
+      : SHEET_SUMMARY_WIDE_CLASSES,
+  );
 
   const emit = defineEmits<{
     'update:actor': [updates: Partial<DnDActor>];
@@ -90,6 +100,11 @@
   interface Props {
     actor: DnDActor;
     isEditMode: boolean;
+    /**
+     * Узкий лист: панель стоит не колонкой, а растворяется в общей сетке
+     * сводки — её блоки встают туда по порядку чтения с телефона.
+     */
+    isCompact?: boolean;
   }
 
   /**
@@ -119,6 +134,11 @@
    * с каждым «Применить».
    */
   const maxHitPoints = computed(() => resolveEntityMaxHp(props.actor));
+
+  /** Из чего сложилась прибавка к максимуму — окно хитов называет источники */
+  const maxHitPointsSources = computed(() =>
+    resolveMaxHitPointsBreakdown(props.actor),
+  );
 
   /** Текущая степень Истощения — её несёт эффект-состояние */
   const exhaustionLevel = computed(() =>
@@ -951,10 +971,11 @@
 <template>
   <div
     v-bind="$attrs"
-    class="flex flex-col gap-3 text-toned"
+    class="text-toned"
+    :class="layoutClasses.panel"
   >
-    <!-- Top Stats Grid -->
-    <div class="mb-0 grid grid-cols-2 gap-x-3 gap-y-3">
+    <!-- Плитки показателей -->
+    <div :class="layoutClasses.tiles">
       <!-- Mastery -->
       <FieldsetLabel
         :label="SHEET_TILE_LABELS.proficiency"
@@ -1027,7 +1048,7 @@
     <FieldsetLabel
       :label="SHEET_TILE_LABELS.hitPoints"
       class="group bg-default/20 transition-colors"
-      :class="hitPointsBlockClass"
+      :class="[hitPointsBlockClass, layoutClasses.health]"
       @click.left.exact.prevent="openHitPoints()"
     >
       <template
@@ -1132,6 +1153,7 @@
       :state="deathSaves"
       :is-dead="isDead"
       :is-edit-mode="isEditMode"
+      :class="layoutClasses.health"
       @roll="rollDeathSave"
       @update="updateDeathSaves"
     />
@@ -1141,6 +1163,7 @@
     <ExhaustionPanel
       :level="exhaustionLevel"
       :is-edit-mode="isEditMode"
+      :class="layoutClasses.exhaustion"
       @select="handleExhaustionSelect"
     />
 
@@ -1148,7 +1171,7 @@
     <FieldsetLabel
       :label="GRANT_SECTION_LABELS.savingThrows"
       class="bg-default/20 transition-colors"
-      :class="blockClass"
+      :class="[blockClass, layoutClasses.savingThrows]"
     >
       <!-- Шестерёнка ведёт в настройку расчёта: кружки в самом блоке ставят
         только владение, а характеристику спасброска и свои бонусы правят в
@@ -1200,7 +1223,7 @@
     <!-- Владения & Прочее (Броня, Оружие, Инструменты, Языки) -->
     <div
       class="space-y-5 rounded-lg border bg-default/20 p-2 transition-colors"
-      :class="blockClass"
+      :class="[blockClass, layoutClasses.proficiencies]"
     >
       <!-- Броня -->
       <div>
@@ -1401,7 +1424,7 @@
     :current-hit-points="actor.system.hitPoints?.current ?? 0"
     :max-hit-points="actor.system.hitPoints?.max ?? 0"
     :resolved-max-hit-points="maxHitPoints"
-    :active-effects="combinedEffects"
+    :max-hit-points-sources="maxHitPointsSources"
     :temp-hit-points="actor.system.hitPoints?.temp ?? 0"
     :classes="actor.system.classes ?? []"
     :manual-hit-dice="actor.system.manualHitDice ?? []"

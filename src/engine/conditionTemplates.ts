@@ -17,6 +17,7 @@ import type {
   ActiveEffect,
   EffectChange,
   EffectDuration,
+  EffectEscape,
   EffectFlagKey,
   EffectOrigin,
 } from './activeEffectTypes.js';
@@ -82,7 +83,29 @@ export interface ConditionEffectTemplate {
   hasLevels?: boolean;
   /** Максимальный уровень (для Exhaustion) */
   maxLevel?: number;
+  /**
+   * Действие «вырваться», которое состояние несёт само по правилам. Получает
+   * его любое наложение без своего блока — и плитка на листе, и атака, чей
+   * автор выхода не описал.
+   */
+  escape?: EffectEscape;
 }
+
+/**
+ * Выход из захвата (PHB 2024): действием — проверка Силы (Атлетика) или
+ * Ловкости (Акробатика) против Сл того, кто держит. Сл тут «источника», а у
+ * состояния, повешенного рукой, источника нет — поэтому её называет бросающий
+ * (`askDc`), а не кнопка молчит.
+ */
+const GRAPPLED_ESCAPE: EffectEscape = {
+  cost: 'action',
+  check: {
+    skill: 'athletics',
+    dc: 0,
+    skills: [{ skill: 'athletics' }, { skill: 'acrobatics' }],
+    askDc: true,
+  },
+};
 
 // ── Шаблоны Conditions ────────────────────────────────────────
 
@@ -141,6 +164,7 @@ export const CONDITION_EFFECT_TEMPLATES: Record<
   grappled: {
     changes: [],
     flags: ['speed.zero'],
+    escape: GRAPPLED_ESCAPE,
   },
 
   incapacitated: {
@@ -383,9 +407,11 @@ export function listRuntimeConditions(): RuntimeCondition[] {
             ...override.template,
             // Степени — свойство самого состояния, а не его шаблона: их знает
             // только код (шкала Истощения на листе), и правка из мира их не
-            // заводит и не отменяет.
+            // заводит и не отменяет. Выход из захвата — то же самое: правило
+            // состояния, которого в записи мира нет.
             hasLevels: canonTemplate.hasLevels,
             maxLevel: canonTemplate.maxLevel,
+            escape: canonTemplate.escape,
           },
       isCanon: true,
       isOverridden: true,
@@ -806,6 +832,10 @@ export function buildConditionActiveEffect(
 
   if (template.conditionImmunities && template.conditionImmunities.length > 0) {
     effect.conditionImmunities = [...template.conditionImmunities];
+  }
+
+  if (template.escape) {
+    effect.escape = template.escape;
   }
 
   return effect;

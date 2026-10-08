@@ -827,3 +827,34 @@ export const CREATURE_SETTINGS_LABELS = {
   /** Что показать игроку: владельца он не менял, менялся только токен */
   savedForPlayer: 'Токен и настройки существа обновлены',
 } as const;
+
+/**
+ * Раскладка листа существа. `content` — поле содержимого: на широком листе оно
+ * же и прокручивается, на узком поля меньше — ширина там на счету. `columns` —
+ * колонки листа: сводка слева на широком, один столбец на узком. `summary` —
+ * обёртка сводки: левая колонка широкого листа или опора для её колонок.
+ *
+ * `summaryBlocks` — сами блоки сводки. На узком листе они идут столбцом, а с
+ * `@xl` — двумя колонками «кладкой»: блоки разной высоты, и сетка оставляла бы
+ * под короткими пустоты. Отступ и запрет разрыва стоят на самих блоках (`*:`):
+ * колонки CSS не знают промежутка между строками и без запрета режут блок
+ * пополам.
+ */
+export const CREATURE_SHEET_LAYOUT_CLASSES = {
+  wide: {
+    content: 'custom-scrollbar flex-1 overflow-y-auto p-4',
+    columns: 'flex gap-6',
+    summary: 'w-62.5 shrink-0',
+    summaryBlocks: 'flex flex-col gap-3',
+  },
+  compact: {
+    content: 'px-2 pt-4 pb-2',
+    columns: 'flex flex-col',
+    summary: '@container',
+    summaryBlocks:
+      'flex flex-col gap-3 @xl:block @xl:columns-2 @xl:gap-3 @xl:*:mb-3 @xl:*:break-inside-avoid',
+  },
+} as const;
+
+/** Вкладка, на которой широкий лист существа открывается впервые */
+export const CREATURE_SHEET_DEFAULT_TAB_ID = 'actions';

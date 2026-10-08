@@ -7,6 +7,7 @@
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
 
   import { ITEM_DETAIL_SHELL_LABELS } from './constants';
+  import EffectsBySubscriptionBadge from './EffectsBySubscriptionBadge.vue';
   import SourceBadge from './SourceBadge.vue';
 
   const props = defineProps<{
@@ -26,6 +27,8 @@
      * заглавными подряд (`isSRD`) проп не сопоставился бы и бейдж не появлялся.
      */
     isSrd?: boolean;
+    /** Поле `automation` записи: `false` — эффекты доступны только по подписке */
+    automation?: boolean;
     /** Тип карточки для кнопки «Поделиться в чат» */
     cardType: ChatCardType;
     /** JSON-payload для кнопки «Поделиться в чат» */
@@ -88,6 +91,8 @@
         variant="subtle"
         size="sm"
       />
+
+      <EffectsBySubscriptionBadge :automation="automation" />
 
       <!-- Доп. действия конкретной модалки (напр. «Атаковать» у действий существ) -->
       <slot name="header-extra" />

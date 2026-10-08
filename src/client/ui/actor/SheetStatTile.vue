@@ -46,8 +46,10 @@
   /** Нажимаемая плитка — кнопка, остальные просто показывают числа */
   const tileTag = computed(() => (props.clickable ? 'button' : 'div'));
 
+  // Высота задана `min-h`, а не `h`: на узком листе ячейки не помещаются в ряд
+  // и переносятся — плитке нужно вырасти, а не обрезать последнюю ячейку.
   const tileClass = computed(() => [
-    'flex h-7 items-center gap-3 rounded-lg border px-3 transition-colors',
+    'flex min-h-7 max-w-full flex-wrap items-center gap-x-3 rounded-lg border px-3 transition-colors',
     props.danger
       ? 'border-error/50 bg-error/10'
       : 'border-default/50 bg-elevated/20',

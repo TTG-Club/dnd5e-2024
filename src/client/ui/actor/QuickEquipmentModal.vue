@@ -23,6 +23,7 @@
     isDndSceneEntity,
   } from '@vtt/shared/system/dnd.js';
 
+  import SelectedEntityEscapeBar from '../effect/SelectedEntityEscapeBar.vue';
   import {
     GAME_ITEM_MIME,
     QUICK_PANEL_LABELS,
@@ -271,4 +272,9 @@
       </div>
     </template>
   </UDraggableModal>
+
+  <!-- Кнопки «Вырваться» над хотбаром. Живут здесь, потому что это окно ядро
+       держит смонтированным всё время, пока фишка выделена (даже закрытым), а
+       отдельного слота «панель выделенной сущности» у системы нет -->
+  <SelectedEntityEscapeBar :entity-id="actorId" />
 </template>
