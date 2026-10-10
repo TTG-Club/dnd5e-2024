@@ -1,11 +1,18 @@
 <!--
-  Кнопки «Вырваться» над хотбаром для выделенной фишки: схваченным нельзя
-  пойти, и выход должен быть под рукой, а не на вкладке «Эффекты» листа.
+  Кнопки «Вырваться» в панели выделенной фишки: схваченным нельзя пойти, и
+  выход должен быть под рукой, а не на вкладке «Эффекты» листа.
+
+  Стоит в слоте системы `selectedEntityActions` (VTTG 0.9.645): ядро монтирует
+  компонент внутри панели, пока фишка выделена, и передаёт `entityId`. Нет
+  эффектов, из которых можно вырваться, — компонент ничего не рисует, и слот
+  места не занимает.
 
   Кнопка открывает ту же плашку, что и лист (`runEffectEscape`). Показывается
   тому, кто существом управляет: ведущему — у любой фишки, игроку — у своей.
 -->
 <script setup lang="ts">
+  import type { TypedWebSocketClient } from '@vtt/shared';
+
   import { computed } from 'vue';
 
   import { formatEffectEscapeLabel } from '@vtt/shared/system/dnd.js';
@@ -17,12 +24,15 @@
   import { controlsEntityAsUser } from '../../composables/gmApprovalRequest';
   import { listSelfEscapeEffects } from '../../composables/useEntityActiveEffects';
   import { useWorldEntities } from '../../composables/useWorldEntities';
-  import { HUD_PROMPTS_TELEPORT_TARGET } from '../actor/constants';
   import { EFFECT_ESCAPE_ICON } from './escapeLabels';
 
   const props = defineProps<{
     /** Выделенная сущность — актёр или существо */
     entityId: string;
+    /** Мир выделенной сущности — проп слота ядра, кнопкам не нужен */
+    worldId?: string;
+    /** Сокет мира — проп слота ядра, кнопкам не нужен */
+    socket?: TypedWebSocketClient | null;
   }>();
 
   const { findCurrentDndEntity } = useWorldEntities();
@@ -56,25 +66,15 @@
 </script>
 
 <template>
-  <Teleport
-    defer
-    :to="HUD_PROMPTS_TELEPORT_TARGET"
-  >
-    <div
-      v-if="escapeRows.length > 0"
-      class="pointer-events-auto flex max-w-full flex-wrap justify-center gap-1.5 rounded-xl border border-default/50 bg-default/90 p-1.5 shadow-xl backdrop-blur-sm"
-    >
-      <UButton
-        v-for="row in escapeRows"
-        :key="row.id"
-        :icon="EFFECT_ESCAPE_ICON"
-        :label="row.label"
-        :title="row.title"
-        color="warning"
-        variant="soft"
-        size="sm"
-        @click.left.exact.prevent="handleEscape(row.id)"
-      />
-    </div>
-  </Teleport>
+  <UButton
+    v-for="row in escapeRows"
+    :key="row.id"
+    :icon="EFFECT_ESCAPE_ICON"
+    :label="row.label"
+    :title="row.title"
+    color="warning"
+    variant="soft"
+    size="xs"
+    @click.left.exact.prevent="handleEscape(row.id)"
+  />
 </template>

@@ -16,6 +16,7 @@ import QuickSpellsModal from './ui/actor/QuickSpellsModal.vue';
 import CreatureDeleteConfirmModal from './ui/creature/CreatureDeleteConfirmModal.vue';
 import QuickCreatureActionsModal from './ui/creature/QuickCreatureActionsModal.vue';
 import ActiveEffectFormModal from './ui/effect/ActiveEffectFormModal.vue';
+import SelectedEntityEscapeBar from './ui/effect/SelectedEntityEscapeBar.vue';
 
 /**
  * Ленивая карта ВСЕХ модалок и листов системы D&D 5e (по имени файла). Glob
@@ -111,6 +112,7 @@ export function registerClientSystem(api: ClientSystemAPI) {
     quickSpellsModal: QuickSpellsModal,
     quickEquipmentModal: QuickEquipmentModal,
     quickActionsModal: QuickCreatureActionsModal,
+    selectedEntityActions: SelectedEntityEscapeBar,
     promptInitiativeRoll,
     promptRequestedRoll,
   });
