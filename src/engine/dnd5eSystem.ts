@@ -1615,7 +1615,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.266';
+  readonly version = '0.8.267';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -2278,8 +2278,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * «Рывок» даёт прибавку, равную Скорости, — отсюда удвоение предела.
    *
    * Ауры с карты приходят отдельным списком по той же причине, что и у
-   * {@link getTotalMovementSpeed}, и с той же оговоркой: хост их пока не
-   * передаёт, правка контракта — его.
+   * {@link getTotalMovementSpeed}; хост передаёт их с VTTG 0.9.637.
    *
    * @param entity - сущность токена
    * @param ambientEffects - эффекты аур, накрывающих токен
