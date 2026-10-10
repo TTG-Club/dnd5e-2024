@@ -124,6 +124,15 @@ function handleSocketSetup(socket: TypedWebSocketClient): void {
 }
 
 /**
+ * Обработчик `world:closed`: пользователь ушёл из мира — данные мира
+ * отпускаются. Ядро зовёт хук до выгрузки системы, один раз на уход; на
+ * переподключении сокета он не срабатывает.
+ */
+function handleWorldClosed(): void {
+  useSystemDataStore().releaseWorldData();
+}
+
+/**
  * Включает синхронизацию справочных данных D&D. Вызывается при регистрации
  * клиентской системы. Покрывает оба порядка загрузки: если сокет уже создан —
  * подписывается сразу; на будущие подключения (реконнект/поздний коннект) —
@@ -140,5 +149,6 @@ export function registerSystemDataSync(): void {
   if (!hookInstalled) {
     hookInstalled = true;
     ClientHooks.on('socket:setup', handleSocketSetup);
+    ClientHooks.on('world:closed', handleWorldClosed);
   }
 }

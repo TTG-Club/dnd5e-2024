@@ -215,6 +215,30 @@ export const useSystemDataStore = defineStore('dnd5e-2024:system-data', () => {
     speciesDefinitions.value = speciesList;
   }
 
+  /**
+   * Отпускает всё, что собрано за сессию мира: справочники сервера, источники
+   * паков и вписанные пользователем, виды из компендиума. Зовётся, когда
+   * пользователь ушёл из мира (`world:closed`): следующий мир может быть с
+   * другими паками и другим автором, и его данные не должны смешаться с
+   * прежними. На обрыв связи не зовётся — справочники приедут заново сами, а
+   * вписанный источник пропал бы на первом моргании сети.
+   */
+  function releaseWorldData(): void {
+    weaponProperties.value = [];
+    weaponBaseTypes.value = [];
+    damageTypes.value = [];
+    weaponCategories.value = [];
+    ammunitionTypes.value = [];
+    builtinSources.value = [];
+    packSources.value = [];
+    customSources.value = [];
+    armorCategories.value = [];
+    armorBaseTypes.value = [];
+    equipmentProperties.value = [];
+    toolProperties.value = [];
+    speciesDefinitions.value = [];
+  }
+
   return {
     // Списки — через `computed`: снаружи их видно, но не переписать целиком
     weaponProperties: computed(() => weaponProperties.value),
@@ -242,5 +266,6 @@ export const useSystemDataStore = defineStore('dnd5e-2024:system-data', () => {
     setToolProperties,
     rememberSource,
     rememberSpeciesDefinitions,
+    releaseWorldData,
   };
 });
