@@ -19,7 +19,6 @@ import type {
   CompendiumSeparator,
   DamagePart,
   DistanceUnit,
-  EquipmentCategory,
   Feature,
   SourceDefinition,
   SpellAreaOfEffect,
@@ -87,14 +86,27 @@ export interface DnDCreature extends BaseCreature {
  */
 export type Creature = DnDCreature;
 /**
- * Категория снаряжения D&D 2024 — нейтральный список ядра плюс категории,
- * которые знает только система.
+ * Категория снаряжения D&D 2024 — список системы, единственный его источник.
  *
- * «Зелье» своё: ядро категорию не проверяет и хранит строкой, а список в
- * `@vtt/shared` — наследие встроенной системы, не контракт. Поэтому новая
- * категория добавляется здесь, без правки ядра.
+ * Ядро категорию не проверяет и хранит строкой: его тип `EquipmentCategory`
+ * открыт для любых ключей (VTTG 0.9.641), а перечисленные там литералы —
+ * подсказки редактора, не контракт. Поэтому список живёт здесь, и новая
+ * категория («Зелье») добавляется без оглядки на ядро.
  */
-export type DnDEquipmentCategory = EquipmentCategory | 'potion';
+export type DnDEquipmentCategory =
+  | 'light'
+  | 'medium'
+  | 'heavy'
+  | 'shield'
+  | 'trinket'
+  | 'ring'
+  | 'clothing'
+  | 'wand'
+  | 'wondrous'
+  | 'vehicle-equipment'
+  | 'food'
+  | 'adventurer-equipment'
+  | 'potion';
 
 /**
  * Предмет D&D 5e — наследует нейтральную базу `BaseGameItem` и добавляет
