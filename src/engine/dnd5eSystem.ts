@@ -1615,7 +1615,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.267';
+  readonly version = '0.8.268';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -2360,8 +2360,9 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Свет сущности по правилам D&D — самый сильный свет действующих эффектов
    * поверх света фишки. Хук для сцены приложения по образцу
-   * `resolveEntityVision`: ядро его пока не зовёт (README § «Чего не хватает»,
-   * п. 33), и сцена видит только свет фишки.
+   * `resolveEntityVision`: ядро зовёт его при расчёте света фишки с VTTG 0.9.580
+   * (README § «Чего не хватает», п. 33); на хосте старше сцена видит только
+   * свет фишки.
    */
   // eslint-disable-next-line class-methods-use-this -- хук для ядра: вызывается на экземпляре системы
   resolveEntityLight(entity: SceneEntity): DndEntityLight | undefined {

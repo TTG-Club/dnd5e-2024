@@ -585,6 +585,27 @@ export const POTION_EQUIPMENT_CATEGORY: DnDEquipmentCategory = 'potion';
 export const DEFAULT_EQUIPMENT_ICON = 'tabler:shirt';
 
 /**
+ * Ключи категорий снаряжения D&D 2024 — единственный список системы: из него
+ * выводится тип {@link DnDEquipmentCategory}, а совпадение со справочником
+ * `equipment-categories.json` стережёт тест.
+ */
+export const DND_EQUIPMENT_CATEGORIES = [
+  'light',
+  'medium',
+  'heavy',
+  'shield',
+  'trinket',
+  'ring',
+  'clothing',
+  'wand',
+  'wondrous',
+  'vehicle-equipment',
+  'food',
+  'adventurer-equipment',
+  'potion',
+] as const;
+
+/**
  * Иконки (Iconify `tabler:*`) для категорий экипировки.
  *
  * Содержит щит и не-бронные категории. Для брони

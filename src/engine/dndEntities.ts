@@ -47,6 +47,7 @@ import type {
   BackgroundToolGrant,
 } from './backgroundTypes.js';
 import type { ClassDefinition, ClassKey } from './classTypes.js';
+import type { DND_EQUIPMENT_CATEGORIES } from './consts.js';
 import type { CreatureSystem } from './creatureTypes.js';
 import type { FeatData } from './featTypes.js';
 import type { SpeciesDefinition } from './speciesTypes.js';
@@ -90,23 +91,11 @@ export type Creature = DnDCreature;
  *
  * Ядро категорию не проверяет и хранит строкой: его тип `EquipmentCategory`
  * открыт для любых ключей (VTTG 0.9.641), а перечисленные там литералы —
- * подсказки редактора, не контракт. Поэтому список живёт здесь, и новая
- * категория («Зелье») добавляется без оглядки на ядро.
+ * подсказки редактора, не контракт. Поэтому список свой
+ * (`DND_EQUIPMENT_CATEGORIES`), и новая категория («Зелье») добавляется без
+ * оглядки на ядро.
  */
-export type DnDEquipmentCategory =
-  | 'light'
-  | 'medium'
-  | 'heavy'
-  | 'shield'
-  | 'trinket'
-  | 'ring'
-  | 'clothing'
-  | 'wand'
-  | 'wondrous'
-  | 'vehicle-equipment'
-  | 'food'
-  | 'adventurer-equipment'
-  | 'potion';
+export type DnDEquipmentCategory = (typeof DND_EQUIPMENT_CATEGORIES)[number];
 
 /**
  * Предмет D&D 5e — наследует нейтральную базу `BaseGameItem` и добавляет
