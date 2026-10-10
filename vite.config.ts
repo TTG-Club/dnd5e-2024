@@ -53,6 +53,7 @@ const HOST_MODULE_IDS: string[] = [
   '@/shared_ui/composables/useModalManager',
   '@/shared_ui/consts',
   '@/shared_ui/utils/componentUtils',
+  '@/shared_ui/utils/diceRollMarkup',
   '@/shared_ui/utils/domUtils',
   '@/stores/actionPromptStore',
   '@/stores/auraStore',

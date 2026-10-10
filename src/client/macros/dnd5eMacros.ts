@@ -15,6 +15,7 @@ import type {
 import type { SpellCasterPort } from '../composables/spellCastFlow';
 
 import { registerMacro } from '@/core/registries/macroRegistry';
+import { stripDiceRollMarkers } from '@/shared_ui/utils/diceRollMarkup';
 import { useChatStore } from '@/stores/chatStore';
 /**
  * Регистрация макро-executor'ов, специфичных для D&D 5e.
@@ -29,7 +30,6 @@ import {
   findCreatureActionSection,
   findCreatureSpellPlacement,
   isUseActivatedEffect,
-  stripDescriptionRollMarkers,
 } from '@vtt/shared/system/dnd.js';
 
 import {
@@ -59,6 +59,7 @@ import {
   createWeaponAttackPort,
   startWeaponAttack,
 } from '../composables/weaponAttackRoll';
+import { getItemIcon } from '../ui/actor/utils/itemIcon';
 import {
   DND_MACRO_TYPES,
   EFFECT_USE_SLOT_LABELS,
@@ -183,19 +184,21 @@ function resolveWeaponAttackSlot(
 
 /**
  * Кнопка применения предмета: предмет на месте, не закончился, хватает
- * зарядов; остаток — в углу.
+ * зарядов; остаток — в углу. Значок берётся у предмета на сейчас: сохранённый
+ * в слоте пишется один раз при перетаскивании и после правки предмета
+ * застывал бы.
  *
  * @param macro - макрос слота
  * @returns состояние слота
  */
 function resolveItemUseSlot(macro: HotbarMacro): MacroSlotState {
   const owner = useWorldEntities().findCurrentDndEntity(macro.actorId);
+  const item = owner?.equipment?.find((entry) => entry.id === macro.ref);
 
-  return toHotbarSlotState(
-    describeItemUseAvailability(
-      owner?.equipment?.find((item) => item.id === macro.ref),
-    ),
-  );
+  return {
+    ...toHotbarSlotState(describeItemUseAvailability(item)),
+    ...(item ? { icon: getItemIcon(item) } : {}),
+  };
 }
 
 /**
@@ -211,8 +214,9 @@ function executeItemUse(macro: HotbarMacro): void {
 
 /**
  * Кнопка особенности с переключателем («Ярость»): эффект на месте; включён —
- * метка «вкл», выключен — остаток ресурса в углу, без ресурса кнопка гаснет.
- * Включённый эффект выключается всегда: выключение ничего не тратит.
+ * кнопка нажата, остаток ресурса в углу виден в обоих положениях; выключен и
+ * ресурса нет — кнопка гаснет. Включённый эффект выключается всегда:
+ * выключение ничего не тратит.
  *
  * @param macro - макрос слота
  * @returns состояние слота
@@ -233,12 +237,33 @@ function resolveFeatureToggleSlot(macro: HotbarMacro): MacroSlotState {
 
   if (isOn) {
     return {
-      badge: FEATURE_TOGGLE_SLOT_LABELS.activeBadge,
+      ...describeCounterBadge(owner, effect),
+      active: true,
       hint: FEATURE_TOGGLE_SLOT_LABELS.activeHint,
     };
   }
 
   return describeActivationSlot(owner, effect);
+}
+
+/**
+ * Остаток ресурса эффекта для метки в углу слота.
+ *
+ * @param owner - владелец эффекта
+ * @param effect - эффект с применением или переключателем
+ * @returns метка с остатком; у эффекта без ресурса — пусто
+ */
+function describeCounterBadge(
+  owner: DnDSceneEntity,
+  effect: ActiveEffect,
+): Pick<MacroSlotState, 'badge'> {
+  const counterKey = effect.activation?.counter;
+
+  const counter = counterKey
+    ? readEntityCounters(owner).find((entry) => entry.counterKey === counterKey)
+    : undefined;
+
+  return counter ? { badge: String(counter.current) } : {};
 }
 
 /**
@@ -254,16 +279,13 @@ function describeActivationSlot(
   owner: DnDSceneEntity,
   effect: ActiveEffect,
 ): MacroSlotState {
-  const counters = readEntityCounters(owner);
-  const counterKey = effect.activation?.counter;
-
-  const counter = counterKey
-    ? counters.find((entry) => entry.counterKey === counterKey)
-    : undefined;
-
   return {
-    ...(counter ? { badge: String(counter.current) } : {}),
-    ...(canSwitchOnEffect(counters, owner.activeEffects ?? [], effect)
+    ...describeCounterBadge(owner, effect),
+    ...(canSwitchOnEffect(
+      readEntityCounters(owner),
+      owner.activeEffects ?? [],
+      effect,
+    )
       ? {}
       : { disabled: true, hint: FEATURE_TOGGLE_SLOT_LABELS.noCounterHint }),
   };
@@ -433,7 +455,7 @@ function collectCreatureActions(
  */
 function announceCreatureAction(action: CreatureAction): void {
   const description = action.description
-    ? stripDescriptionRollMarkers(action.description.join(' '))
+    ? stripDiceRollMarkers(action.description.join(' '))
     : '';
 
   useChatStore().sendMessage(

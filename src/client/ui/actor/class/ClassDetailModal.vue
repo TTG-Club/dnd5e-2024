@@ -11,9 +11,9 @@
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
+  import { stripDiceRollMarkers } from '@/shared_ui/utils/diceRollMarkup';
   import {
     classOwnCounterDefinitions,
-    stripDescriptionRollMarkers,
     subclassCounterDefinitions,
     toolProficiencyLabel,
     withCounterTableColumns,
@@ -1052,7 +1052,7 @@
                     <ItemDescriptionRenderer
                       :content="feature.description"
                       class="mt-1 line-clamp-3 text-sm text-muted"
-                      :title="stripDescriptionRollMarkers(feature.description)"
+                      :title="stripDiceRollMarkers(feature.description)"
                     />
 
                     <ClassFeatureChoicesView

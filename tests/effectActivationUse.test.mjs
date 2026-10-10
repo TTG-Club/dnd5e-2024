@@ -501,12 +501,14 @@ it('кнопка панели гаснет с причиной и показыв
       }),
       describeItemUseAvailability: engine.describeItemUseAvailability,
       toHotbarSlotState,
+      getItemIcon: () => 'tabler:flask',
     },
   );
 
   assert.deepEqual(
     { ...resolveItemUseSlot({ ref: 'potion', actorId: 'hero' }) },
-    { disabled: false, badge: '2' },
+    // Значок слот берёт у предмета на сейчас, а не тот, что сохранён в макросе
+    { disabled: false, badge: '2', icon: 'tabler:flask' },
   );
 
   assert.deepEqual(
