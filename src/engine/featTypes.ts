@@ -262,6 +262,16 @@ export interface FeatChoiceOption {
   name?: string;
 }
 
+/**
+ * Вид оружия мира как вариант выбора. Ключ приёма приезжает из справочника
+ * видов оружия (`weapon-base-types.json`): по нему вариант «оружие с приёмом»
+ * подписывается названием приёма.
+ */
+export interface FeatChoiceWeaponOption extends FeatChoiceOption {
+  /** Ключ оружейного приёма этого вида; нет — приёма у вида нет */
+  mastery?: string;
+}
+
 /** Чем ограничен выбор заклинания или заговора. */
 export interface FeatChoiceSpellFilter {
   /** Точный уровень; 0 — заговор */

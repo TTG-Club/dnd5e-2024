@@ -134,7 +134,7 @@
    */
   const weaponWithMasteryOptions = computed<FeatChoiceOption[]>(() =>
     systemDataStore.weaponBaseTypes.map((baseType) => {
-      const mastery = weaponMasteryName(baseType.key);
+      const mastery = weaponMasteryName(baseType.mastery);
 
       return {
         value: baseType.key,
@@ -286,7 +286,13 @@
     }
 
     if (kind === 'weaponMastery') {
-      return weaponMasteryName(value) ?? undefined;
+      return (
+        weaponMasteryName(
+          systemDataStore.weaponBaseTypes.find(
+            (baseType) => baseType.key === value,
+          )?.mastery,
+        ) ?? undefined
+      );
     }
 
     if (kind === 'skill') {

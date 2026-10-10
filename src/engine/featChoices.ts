@@ -24,6 +24,7 @@ import type {
   FeatChoiceOption,
   FeatChoiceSpellFilter,
   FeatChoiceType,
+  FeatChoiceWeaponOption,
   FeatDamageDefenseChoice,
   FeatData,
 } from './featTypes.js';
@@ -224,7 +225,7 @@ const SPELLCASTING_ABILITIES: readonly AbilityType[] = [
  */
 export function getFeatChoiceDefaultPool(
   type: FeatChoiceType,
-  weapons: ReadonlyArray<FeatChoiceOption> = [],
+  weapons: ReadonlyArray<FeatChoiceWeaponOption> = [],
 ): FeatChoiceOption[] {
   switch (type) {
     case 'skill':
@@ -269,12 +270,13 @@ export function getFeatChoiceDefaultPool(
         name: mastery.name.ru,
       }));
     case 'weapon':
-      return [...weapons];
+      // Ключ приёма наружу не идёт: вариант выбора — это ключ и подпись
+      return weapons.map(({ value, name }) => ({ value, name }));
     case 'weaponMastery':
       // Приём есть не у всякого оружия: дубину выбирать незачем. Подпись
       // приёмом — чтобы игрок видел, что именно достаётся вместе с оружием
       return weapons.flatMap((weapon) => {
-        const mastery = weaponMasteryName(weapon.value);
+        const mastery = weaponMasteryName(weapon.mastery);
 
         return mastery
           ? [
@@ -363,7 +365,7 @@ export interface FeatChoicePoolContext {
    * Справочника оружия у движка нет: виды живут в данных мира, а не в правилах,
    * поэтому список приходит снаружи. Пусто — выбирать нечего.
    */
-  weapons?: ReadonlyArray<FeatChoiceOption>;
+  weapons?: ReadonlyArray<FeatChoiceWeaponOption>;
 }
 
 /**
@@ -967,7 +969,7 @@ export function clearSpellChoicesOfClass(
 function withDictionaryLabels(
   choice: Pick<FeatChoice, 'type' | 'types'>,
   options: ReadonlyArray<FeatChoiceOption>,
-  weapons: ReadonlyArray<FeatChoiceOption> = [],
+  weapons: ReadonlyArray<FeatChoiceWeaponOption> = [],
 ): FeatChoiceOption[] {
   const labels = new Map(
     resolveFeatChoiceTypes(choice)

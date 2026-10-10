@@ -111,6 +111,7 @@ import {
   getEntityActiveFlags as getEntityActiveFlagsImpl,
   getEntityArmorClass as getEntityArmorClassImpl,
   pickCombatState as pickCombatStateImpl,
+  writeCombatState,
 } from './damageApplication.js';
 import {
   clampDamageHits,
@@ -1614,7 +1615,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.257';
+  readonly version = '0.8.258';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -2232,11 +2233,9 @@ export class Dnd5eVttSystem implements VttSystem {
    * без них гейт считает не то же, что показывает лист, — аура, дающая скорость
    * неходячему, на листе видна, а токен ею не двинется.
    *
-   * ⚠️ Хост этот аргумент пока НЕ передаёт: в его контракте у метода одна
-   * сущность, а ауры лежат в его же сторе отдельно (README, § «Чего не хватает
-   * для полноценного SDK», п. 16). Правка контракта — на стороне хоста, и
-   * трогать его отсюда нельзя; со своей стороны метод к ней готов и посчитает
-   * ауры в тот же день, когда они начнут приходить.
+   * Хост передаёт их с VTTG 0.9.637 — и клиент (из своего стора аур), и
+   * сервер (README, § «Чего не хватает для полноценного SDK», п. 16). На
+   * хосте старше аргумент не приходит, и гейт считает по одной сущности.
    *
    * @param entity - сущность токена
    * @param ambientEffects - эффекты аур, накрывающих токен
@@ -2417,8 +2416,12 @@ export class Dnd5eVttSystem implements VttSystem {
 
     const effectIdsBefore = new Set(effectsBefore.map((effect) => effect.id));
 
-    if (!applyCombatStateImpl(entity, state)) {
-      return REJECTED_COMBAT_STATE;
+    const written = writeCombatState(entity, state);
+
+    // Причину отказа называем ядру (VTTG 0.9.643): «менять нечего» оно
+    // пропускает молча, о негодном снимке предупреждает
+    if (written !== 'applied') {
+      return { ...REJECTED_COMBAT_STATE, rejection: written };
     }
 
     // Подъём хитов закрывает серию спасбросков от смерти, падение — начинает
