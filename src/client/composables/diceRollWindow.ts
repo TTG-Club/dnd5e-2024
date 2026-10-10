@@ -62,10 +62,9 @@ export interface DiceRollWindowOptions {
    */
   sourceKey?: string;
   /**
-   * Обработчик закрытия окна: помощник кладёт его в свойства окна и зовёт
-   * сам, когда закрывает окно ради замены, — менеджер окон, закрывая окно
-   * (`closeModal`), события окна не шлёт (README, § «Чего не хватает для
-   * полноценного SDK», п. 36)
+   * Обработчик закрытия окна: ложится в свойства окна. Его зовёт и само окно,
+   * закрываясь, и менеджер окон, когда помощник закрывает окно ради замены
+   * (`closeModal` с признаком `notify`, VTTG 0.9.642)
    */
   onClose?: (isOpen: boolean) => void;
   /** Проверка перед броском: выбор целей и снарядов ещё в силе */
@@ -79,16 +78,8 @@ export interface DiceRollWindowOptions {
   commit?: () => boolean;
 }
 
-/** Окно действия источника */
-interface SourceWindow {
-  /** id окна в менеджере окон */
-  modalId: string;
-  /** Обработчик закрытия, который ведёт вызывающий */
-  onClose: ((isOpen: boolean) => void) | undefined;
-}
-
-/** Окна действий по источнику */
-const sourceWindows = new Map<string, SourceWindow>();
+/** Окна действий по источнику: источник → id окна в менеджере окон */
+const sourceWindows = new Map<string, string>();
 
 /**
  * Ключ источника действия: то же оружие, заклинание или действие той же
@@ -113,17 +104,16 @@ export function buildRollSourceKey(
  * или закрыто, из учёта выбывает: оно уже закрывается само.
  *
  * @param sourceKey - источник действия
- * @returns окно источника либо `undefined`
+ * @returns id окна источника либо `undefined`
  */
-function findOpenSourceWindow(sourceKey: string): SourceWindow | undefined {
-  const sourceWindow = sourceWindows.get(sourceKey);
+function findOpenSourceWindow(sourceKey: string): string | undefined {
+  const modalId = sourceWindows.get(sourceKey);
 
-  const modal = sourceWindow
-    ? useModalManager().getModal(sourceWindow.modalId)
-    : undefined;
+  const modal =
+    modalId === undefined ? undefined : useModalManager().getModal(modalId);
 
-  if (sourceWindow && modal?.props.open === true) {
-    return sourceWindow;
+  if (modalId !== undefined && modal?.props.open === true) {
+    return modalId;
   }
 
   sourceWindows.delete(sourceKey);
@@ -133,10 +123,11 @@ function findOpenSourceWindow(sourceKey: string): SourceWindow | undefined {
 
 /**
  * Закрывает открытое окно источника как отменённое: окно сворачивает своё
- * действие само (`onCancel` — шаблон области), обработчик закрытия — то, что
- * вёл вызывающий (шаблон и выбор снарядов заклинания персонажа). Ход и заряд
- * прежнее окно не тратило — их тратит бросок, — поэтому заменяющее окно
- * потратит их один раз, когда бросят в нём.
+ * действие само (`onCancel` — шаблон области), а о закрытии открывшему
+ * сообщает менеджер окон — зовёт обработчик `onUpdate:open` из свойств окна
+ * (шаблон и выбор снарядов заклинания персонажа). Ход и заряд прежнее окно не
+ * тратило — их тратит бросок, — поэтому заменяющее окно потратит их один раз,
+ * когда бросят в нём.
  *
  * Зовётся перед тем, как действие начнёт собирать новое окно: выбор снарядов
  * у заклинаний один на приложение, и прежнее окно обязано отпустить его
@@ -146,15 +137,14 @@ function findOpenSourceWindow(sourceKey: string): SourceWindow | undefined {
  * @returns `true`, если окно было и закрыто: новое встаёт на его место
  */
 export function closeRollWindow(sourceKey: string): boolean {
-  const sourceWindow = findOpenSourceWindow(sourceKey);
+  const modalId = findOpenSourceWindow(sourceKey);
 
-  if (!sourceWindow) {
+  if (modalId === undefined) {
     return false;
   }
 
   sourceWindows.delete(sourceKey);
-  useModalManager().closeModal(sourceWindow.modalId);
-  sourceWindow.onClose?.(false);
+  useModalManager().closeModal(modalId, { notify: true });
 
   return true;
 }
@@ -220,7 +210,7 @@ export function openDiceRollWindow(
   });
 
   if (modalId !== null && sourceKey !== undefined) {
-    sourceWindows.set(sourceKey, { modalId, onClose });
+    sourceWindows.set(sourceKey, modalId);
   }
 
   return modalId;

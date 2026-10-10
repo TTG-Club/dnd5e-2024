@@ -105,12 +105,18 @@ function createModalManager() {
       return modal.id;
     },
     getModal: (modalId) => modals.find((modal) => modal.id === modalId),
-    closeModal: (modalId) => {
+    closeModal: (modalId, options) => {
       const modal = manager.getModal(modalId);
 
       if (modal?.props.open) {
         modal.props.open = false;
         modal.props.onCancel?.();
+
+        // Как у ядра (VTTG 0.9.642): о программном закрытии открывшему
+        // сообщает сам менеджер — только по признаку `notify`
+        if (options?.notify === true) {
+          modal.props['onUpdate:open']?.(false);
+        }
       }
     },
   };
