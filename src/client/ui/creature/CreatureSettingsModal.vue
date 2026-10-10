@@ -61,7 +61,11 @@
   import { ENTITY_OWNERSHIP_CONFLICT_TOAST } from '../entity-ownership/constants';
   import EntityOwnersSelect from '../entity-ownership/EntityOwnersSelect.vue';
   import { withoutEntityOwnership } from '../entity-ownership/utils';
-  import { CREATURE_NO_ALIGNMENT, CREATURE_SETTINGS_LABELS } from './constants';
+  import {
+    CREATURE_ICON,
+    CREATURE_NO_ALIGNMENT,
+    CREATURE_SETTINGS_LABELS,
+  } from './constants';
   import CreatureDeleteConfirmModal from './CreatureDeleteConfirmModal.vue';
 
   interface Props {
@@ -1067,7 +1071,7 @@
                           class="absolute inset-0 flex items-center justify-center text-dimmed"
                         >
                           <UIcon
-                            name="tabler:alien"
+                            :name="CREATURE_ICON"
                             class="h-1/2 w-1/2"
                           />
                         </div>
@@ -1108,7 +1112,7 @@
                           class="flex h-full w-full items-center justify-center text-dimmed"
                         >
                           <UIcon
-                            name="tabler:alien"
+                            :name="CREATURE_ICON"
                             class="h-1/2 w-1/2"
                           />
                         </div>

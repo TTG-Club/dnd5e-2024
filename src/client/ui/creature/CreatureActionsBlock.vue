@@ -64,6 +64,7 @@
     CREATURE_ACTION_MENU_LABELS,
     CREATURE_ACTIONS_BLOCK_LABELS,
     CREATURE_DAMAGE_CHOICE_LABELS,
+    CREATURE_ICON,
     CREATURE_RANGE_TYPE_LABELS,
     CREATURE_ROW_ICONS,
     CREATURE_ROW_STAT_HINTS,
@@ -458,7 +459,7 @@
       id: `${props.creatureId}-${action.name.replace(/\\s+/g, '-')}`,
       type: 'creature-action',
       label,
-      icon: 'tabler:alien',
+      icon: CREATURE_ICON,
       ref: action.name,
       actorId: props.creatureId,
     });

@@ -10,7 +10,7 @@
   import { useListRowClass } from '../../composables/useListRowClass';
   import ContextMenuOverlay from '../actor/ContextMenuOverlay.vue';
   import EntityRowBody from '../actor/EntityRowBody.vue';
-  import { CREATURE_LIST_ITEM_LABELS } from './constants';
+  import { CREATURE_ICON, CREATURE_LIST_ITEM_LABELS } from './constants';
 
   interface Props {
     /** Название существа */
@@ -62,13 +62,13 @@
     @click.left.exact.prevent="emit('click')"
     @contextmenu="openContextMenu"
   >
-    <!-- Морда токена вместо значка: одинаковый «пришелец» строки не различал.
-      Картинки у существа может и не быть — тогда «пришелец» остаётся, но уже
+    <!-- Морда токена вместо значка: одинаковый значок строки не различал.
+      Картинки у существа может и не быть — тогда значок-лапка остаётся, но уже
       внутри кругляша токена, чтобы строка не разъезжалась с соседними -->
     <EntityRowBody
       avatar
       :image-url="imageUrl"
-      icon="tabler:alien"
+      :icon="CREATURE_ICON"
       :name="name"
       :name-en="nameEn"
       :source-key="sourceKey"
