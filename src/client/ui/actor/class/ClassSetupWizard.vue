@@ -462,7 +462,6 @@
   <UDraggableModal
     v-model:open="isOpen"
     :draggable="true"
-    :resizable="false"
     :min-width="800"
     :initial-width="800"
     :min-height="400"

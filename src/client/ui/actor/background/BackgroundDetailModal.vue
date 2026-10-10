@@ -224,10 +224,7 @@
     </template>
 
     <template #body>
-      <ItemDetailTabs
-        v-if="data"
-        resizable-modal
-      >
+      <ItemDetailTabs v-if="data">
         <!-- Вкладка «Основное» — описание, дары и стартовое снаряжение -->
         <template #general>
           <div class="flex flex-col gap-4">

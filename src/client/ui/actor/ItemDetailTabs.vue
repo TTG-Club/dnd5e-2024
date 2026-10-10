@@ -1,7 +1,7 @@
 <script setup lang="ts">
-  import { computed, useSlots } from 'vue';
+  import { useSlots } from 'vue';
 
-  import { FORM_TAB_LABELS } from './constants';
+  import { FORM_TAB_LABELS, WINDOW_TAB_CONTENT_CLASS } from './constants';
 
   /** Пункт списка вкладок: подпись и имя слота с содержимым */
   interface TabItem {
@@ -15,26 +15,7 @@
    * показывается только если передан слот `combat`. Каждая модалка наполняет
    * одноимённые слоты своим содержимым.
    */
-  const props = withDefaults(
-    defineProps<{
-      /**
-       * Меняет ли размер модалка-носитель. У карточек он фиксирован, поэтому
-       * по умолчанию высота содержимого вкладки ограничена потолком и длинный
-       * текст прокручивается внутри неё. У растягиваемой модалки такой потолок
-       * обрезал бы содержимое на середине окна — там прокрутка остаётся, а
-       * потолок снимается.
-       */
-      resizableModal?: boolean;
-    }>(),
-    { resizableModal: false },
-  );
-
   const slots = useSlots();
-
-  /** Классы содержимого вкладки: потолок высоты — только у фиксированных окон */
-  const contentClass = computed(() =>
-    props.resizableModal ? 'overflow-y-auto' : 'overflow-y-auto max-h-150',
-  );
 
   /**
    * Список вкладок. Намеренно функция, а не `computed`: набор слотов Vue не
@@ -66,7 +47,7 @@
     :ui="{
       list: 'mb-3',
       trigger: 'flex-1 justify-center',
-      content: contentClass,
+      content: WINDOW_TAB_CONTENT_CLASS,
     }"
   >
     <template #general>

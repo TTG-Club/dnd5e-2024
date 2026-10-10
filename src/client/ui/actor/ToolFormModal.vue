@@ -17,6 +17,7 @@
   import {
     FORM_FIELD_LABELS,
     FORM_TAB_LABELS,
+    WINDOW_TAB_CONTENT_CLASS,
     ITEM_FORM_LABELS,
     ITEM_USES_LABELS,
     MODAL_BUTTON_LABELS,
@@ -186,7 +187,6 @@
     :open="open"
     :title="item ? TOOL_FORM_LABELS.editTitle : TOOL_FORM_LABELS.createTitle"
     :initial-width="500"
-    :resizable="false"
     :z-index="zIndex"
     :saved-position="initialPosition"
     @update:open="
@@ -207,7 +207,7 @@
         :ui="{
           list: 'mb-3',
           trigger: 'flex-1 justify-center',
-          content: 'overflow-y-auto max-h-150',
+          content: WINDOW_TAB_CONTENT_CLASS,
         }"
       >
         <!-- Вкладка «Общие» -->

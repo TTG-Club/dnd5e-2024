@@ -55,7 +55,6 @@
     :initial-width="480"
     :min-width="320"
     :min-height="240"
-    :resizable="false"
     :z-index="zIndex"
     @update:open="emit('update:open', $event)"
     @bring-to-front="emit('bring-to-front')"

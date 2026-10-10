@@ -72,7 +72,6 @@
     :initial-width="480"
     :min-width="300"
     :min-height="200"
-    :resizable="false"
     :z-index="zIndex"
     :saved-position="initialPosition"
     @update:open="emit('update:open', $event)"
