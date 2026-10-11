@@ -18,6 +18,8 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
+import { z } from 'zod';
+
 import { inspectClientBundle } from './bundleChecks.mjs';
 import { HOST_SHARED_PACKAGE } from './serverBuildOptions.mjs';
 
@@ -35,6 +37,23 @@ const VUE_MODULE = 'vue';
 
 /** Сколько модулей назвать в сообщении — остальное числом. */
 const LISTED_MODULES = 3;
+
+/** Запись модуля в контракте приложения. */
+const hostModuleEntrySchema = z.object({
+  id: z.string(),
+  since: z.string(),
+  deprecated: z
+    .object({ since: z.string(), replacement: z.string().optional() })
+    .optional(),
+});
+
+/** Манифест контракта приложения — в объёме, который читает сверка. */
+const hostContractSchema = z.object({
+  contractVersion: z.string(),
+  clientGlobals: z.array(hostModuleEntrySchema),
+  client: z.array(hostModuleEntrySchema),
+  server: z.array(hostModuleEntrySchema),
+});
 
 /**
  * Спецификаторы ядра, которые серверный бандл импортирует у приложения.
@@ -91,9 +110,24 @@ export function collectHostRequirements(clientBundle, serverBundle) {
 export function readHostContract(root) {
   const manifestPath = path.resolve(root, HOST_CONTRACT_MANIFEST);
 
-  return existsSync(manifestPath)
-    ? JSON.parse(readFileSync(manifestPath, 'utf-8'))
-    : null;
+  if (!existsSync(manifestPath)) {
+    return null;
+  }
+
+  // Манифест — чужой файл: проверяем его форму, прежде чем по нему судить о
+  // сборке. Иначе изменённый формат дал бы падение скрипта без объяснения.
+  const parsed = hostContractSchema.safeParse(
+    JSON.parse(readFileSync(manifestPath, 'utf-8')),
+  );
+
+  if (!parsed.success) {
+    throw new Error(
+      `манифест контракта приложения ${manifestPath} не разбирается`
+        + ' — формат изменился, сверку нужно обновить (scripts/lib/hostContract.mjs)',
+    );
+  }
+
+  return parsed.data;
 }
 
 /**

@@ -1,9 +1,14 @@
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
 import { describe, expect, it } from 'vitest';
 
 import {
   collectHostRequirements,
   collectServerHostImports,
   inspectHostRequirements,
+  readHostContract,
 } from '../scripts/lib/hostContract.mjs';
 
 /**
@@ -119,5 +124,49 @@ describe('inspectHostRequirements', () => {
     expect(report.problems).toEqual([]);
     expect(report.warnings).toHaveLength(1);
     expect(report.warnings[0]).toContain('@/stores/newStore');
+  });
+});
+
+describe('readHostContract', () => {
+  /**
+   * Готовит временную пару «система + чекаут приложения рядом».
+   *
+   * @param {string | null} manifestText - содержимое манифеста контракта;
+   *   `null` — чекаута приложения рядом нет
+   * @returns {string} корень системы
+   */
+  function createSystemRoot(manifestText) {
+    const workspace = mkdtempSync(path.join(tmpdir(), 'dnd5e-host-contract-'));
+    const systemRoot = path.join(workspace, 'system');
+
+    mkdirSync(systemRoot, { recursive: true });
+
+    if (manifestText !== null) {
+      const sharedDir = path.join(workspace, 'vttg', 'packages', 'shared');
+
+      mkdirSync(sharedDir, { recursive: true });
+      writeFileSync(path.join(sharedDir, 'host-contract.json'), manifestText);
+    }
+
+    return systemRoot;
+  }
+
+  it('без чекаута приложения сверять не с чем', () => {
+    expect(readHostContract(createSystemRoot(null))).toBeNull();
+  });
+
+  it('читает манифест приложения', () => {
+    const contract = readHostContract(
+      createSystemRoot(JSON.stringify(CONTRACT)),
+    );
+
+    expect(contract.contractVersion).toBe('1.0.0');
+    expect(contract.client).toHaveLength(CONTRACT.client.length);
+  });
+
+  it('манифест незнакомого вида — понятная ошибка, а не падение сверки', () => {
+    expect(() =>
+      readHostContract(createSystemRoot(JSON.stringify({ modules: [] }))),
+    ).toThrow('не разбирается');
   });
 });
