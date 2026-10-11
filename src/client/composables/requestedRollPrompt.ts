@@ -3,6 +3,7 @@ import type {
   RequestedRollReply,
 } from '@/core/systems/uiSystemRegistry';
 import type {
+  AbilityCheckRequestPayload,
   EffectPromptRequestPayload,
   SaveOverrideRequestPayload,
   TargetChoiceRequestPayload,
@@ -14,6 +15,7 @@ import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import {
   findSaveOverride,
   formatSaveOverrideQuestion,
+  parseAbilityCheckRequestPayload,
   parseEffectPromptRequestPayload,
   parseSaveOverrideRequestPayload,
   parseSavingThrowRequestPayload,
@@ -28,6 +30,7 @@ import {
   EFFECT_QUESTION_PROMPT_MODAL,
   EFFECT_TARGET_PROMPT_MODAL,
 } from '../ui/effect/constants';
+import { openRequestedCheckModal } from './requestedCheckRoll';
 import {
   answerWithSaveOverride,
   spendEntitySaveOverride,
@@ -57,6 +60,7 @@ const openRequestModals = new Map<string, string>();
 /** Что не открылось — строка консоли, когда окно запроса не показалось */
 const REQUEST_MODAL_FAILURES = {
   save: 'Окно спасброска не открылось',
+  check: 'Окно проверки не открылось',
   choice: 'Окно выбора цели не открылось',
   question: 'Плашка вопроса не открылась',
 } as const;
@@ -188,6 +192,13 @@ export function promptRequestedRoll(
     return promptSaveOverride(request, reply, override);
   }
 
+  // Проверка характеристики или навыка — мастер попросил бросить
+  const check = parseAbilityCheckRequestPayload(request.payload);
+
+  if (check) {
+    return promptAbilityCheck(request, reply, check);
+  }
+
   const payload = parseSavingThrowRequestPayload(request.payload);
 
   // Чужая форма нагрузки (другой вид броска, другая система) — не наше дело
@@ -264,6 +275,47 @@ export function promptRequestedRoll(
         },
       }),
     REQUEST_MODAL_FAILURES.save,
+  );
+
+  return true;
+}
+
+/**
+ * Открывает окно проверки по запросу мастера. Закрытие окна — отказ, как и у
+ * спасброска; бросок считается по своей сущности (флаги, «Наставление»).
+ *
+ * @param request - запрос от ядра
+ * @param reply - ответ инициатору
+ * @param payload - разобранная нагрузка проверки
+ * @returns `true`, если окно открыто; `false` — сущности с данными системы
+ *   нет, и пусть ядро бросит нейтральной формулой
+ */
+function promptAbilityCheck(
+  request: RequestedRollPrompt,
+  reply: RequestedRollReply,
+  payload: AbilityCheckRequestPayload,
+): boolean {
+  const entity = useWorldEntities().findCurrentDndEntity(request.entityId);
+
+  if (!entity) {
+    return false;
+  }
+
+  openTrackedRequestModal(
+    request,
+    reply,
+    (settle, modalKey) =>
+      openRequestedCheckModal(entity, payload, {
+        modalKey,
+        takeover: request.takeover,
+        onResult: (result) => {
+          settle(() => reply.answer(result));
+        },
+        onCancel: () => {
+          settle(() => reply.decline());
+        },
+      }),
+    REQUEST_MODAL_FAILURES.check,
   );
 
   return true;

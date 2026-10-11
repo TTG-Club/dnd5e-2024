@@ -390,7 +390,7 @@ function rollEscapeCheck(
 
   openSkillCheckModal(entity, skill, {
     modalKey: `${EFFECT_ESCAPE_MODAL_KEY_PREFIX}${effect.id}`,
-    title: `${formatEffectEscapeLabel(effect)}${EFFECT_ESCAPE_LABELS.titleSeparator}${entity.name}`,
+    title: formatEffectEscapeLabel(effect),
     rollButtonText: EFFECT_ESCAPE_LABELS.rollButton,
     targetDc: dc,
     resolveMode: (checkMode, flags) =>

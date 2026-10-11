@@ -425,6 +425,7 @@ export function openCreatureActionRoll(
         ? action.name
         : `${CREATURE_ACTIONS_BLOCK_LABELS.attackRollPrefix}${action.name}`,
       rollLabel: action.name,
+      actorName: creature.name,
       rollButtonText: usesSaveOrArea
         ? SPELL_DAMAGE_ROLL_BUTTON
         : CREATURE_ACTION_MENU_LABELS.attack,

@@ -170,6 +170,8 @@ const UNGUARDED_REASONS = {
   formatEscapeTitle: 'ничего не пишет',
   listSelfEscapeEffects: 'ничего не пишет',
   readEntityCounters: 'ничего не пишет',
+  sendGmRollRequest:
+    'запрос броска мастера из окна сцены, не с листа: сам пишет только броски в чат',
   runRestWithTriggers:
     'отдых останавливают входы листа (handleRest и «Применить» окна отдыха); тест ниже',
   dispatchAttackRollTriggers:

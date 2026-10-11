@@ -60,6 +60,7 @@
   import { useWorldEntities } from '../../composables/useWorldEntities';
   import { useSystemDataStore } from '../../stores/systemDataStore';
   import {
+    DICE_ROLL_ACTOR_ICON,
     DICE_ROLL_DEFAULT_BUTTON,
     DICE_ROLL_LABELS,
     DICE_ROLL_LOG_PREFIX,
@@ -73,8 +74,14 @@
 
   interface Props {
     open: boolean;
-    /** Заголовок модалки (напр. "Бросок инициативы", "Атака — Длинный меч") */
+    /**
+     * Заголовок модалки (напр. "Бросок инициативы", "Атака — Длинный меч").
+     * Кто бросает и сложность сюда не пишутся — у них своё место над формулой
+     * (`actorName`, `targetDc`)
+     */
     title: string;
+    /** Кто бросает — строка над формулой */
+    actorName?: string;
     /** Контекст/label для чата (напр. "Инициатива", "Атака — Длинный меч") */
     rollLabel: string;
     /** Текст кнопки броска (напр. "Бросить инициативу") */
@@ -303,6 +310,7 @@
     skipChatMessage: false,
     skipRoll: false,
     targetDc: undefined,
+    actorName: undefined,
     allowWilling: false,
   });
 
@@ -584,6 +592,11 @@
       props.attackModifier !== undefined
       && !props.isHealing
       && targetAc.value !== null,
+  );
+
+  /** Есть ли что показать над формулой: кто бросает или сложность */
+  const hasRollContext = computed(
+    () => Boolean(props.actorName) || props.targetDc !== undefined,
   );
 
   /**
@@ -1615,11 +1628,39 @@
           />
         </div>
 
-        <!-- Формула (скрыта при skipRoll — самобафф без броска) -->
+        <!-- Формула (скрыта при skipRoll — самобафф без броска): над ней кто
+             бросает и сложность, чтобы заголовок окна оставался коротким -->
         <div
           v-if="!skipRoll"
           class="rounded-lg bg-elevated/50 p-3 text-center"
         >
+          <div
+            v-if="hasRollContext"
+            class="mb-2 flex items-center justify-between gap-2 border-b border-default/50 pb-2"
+          >
+            <span
+              v-if="actorName"
+              class="flex min-w-0 items-center gap-1.5 text-sm font-medium text-highlighted"
+            >
+              <UIcon
+                :name="DICE_ROLL_ACTOR_ICON"
+                class="size-4 shrink-0 text-muted"
+              />
+
+              <span class="truncate">{{ actorName }}</span>
+            </span>
+
+            <UBadge
+              v-if="targetDc !== undefined"
+              color="primary"
+              variant="soft"
+              size="md"
+              class="ml-auto shrink-0"
+            >
+              {{ DICE_ROLL_LABELS.targetDcPrefix }}{{ targetDc }}
+            </UBadge>
+          </div>
+
           <span class="text-xs tracking-wider text-muted uppercase">
             {{ DICE_ROLL_LABELS.formula }}
           </span>
@@ -1639,10 +1680,10 @@
           </div>
         </div>
 
-        <!-- Бонус (скрыт при skipRoll — самобафф без броска) -->
+        <!-- Бонус одной строкой (скрыт при skipRoll — самобафф без броска) -->
         <div
           v-if="!skipRoll"
-          class="space-y-2"
+          class="flex items-center justify-between gap-3"
         >
           <span class="text-sm text-toned">{{
             DICE_ROLL_LABELS.extraBonus
@@ -1652,7 +1693,7 @@
             :model-value="bonusValue"
             type="number"
             size="sm"
-            class="w-full"
+            class="w-24 shrink-0"
             placeholder="0"
             @update:model-value="bonusValue = Number($event)"
           />

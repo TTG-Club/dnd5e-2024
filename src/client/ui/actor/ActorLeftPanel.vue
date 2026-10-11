@@ -1437,6 +1437,7 @@
     :modifier="diceRollConfig.modifier"
     :title="diceRollConfig.title"
     :roll-label="diceRollConfig.rollLabel"
+    :actor-name="actor.name"
     :roll-button-text="diceRollConfig.rollButtonText"
     :initial-roll-mode="diceRollConfig.initialRollMode"
     :auto-fail="diceRollConfig.autoFail"

@@ -2460,6 +2460,7 @@
     :modifier="diceRollConfig.modifier"
     :title="diceRollConfig.title"
     :roll-label="diceRollConfig.rollLabel"
+    :actor-name="localCreature?.name"
     :roll-button-text="diceRollConfig.rollButtonText"
     :initial-roll-mode="diceRollConfig.initialRollMode"
     :evaluate-bonus-roll-formulas="diceRollConfig.evaluateBonusRollFormulas"

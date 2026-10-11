@@ -230,22 +230,16 @@ export function formatSavingThrowRollLabel(
 }
 
 /**
- * Заголовок окна спасброска: подпись броска плюс сложность.
+ * Заголовок окна спасброска: «Спасбросок Ловкость».
  *
- * Общий у своего окна и у окна адресата по запросу — цель и сложность в них
- * одни и те же, и расходиться подписи не должны.
+ * Общий у своего окна и у окна адресата по запросу. Имени цели и сложности
+ * в нём нет: окно показывает их отдельно, над формулой.
  *
  * @param ability - характеристика спасброска
- * @param entityName - имя цели
- * @param dc - сложность
  * @returns заголовок окна
  */
-export function formatSavingThrowTitle(
-  ability: AbilityType,
-  entityName: string,
-  dc: number,
-): string {
-  return `${formatSavingThrowRollLabel(ability, entityName)}${SAVING_THROW_ROLL_LABELS.dcPrefix}${dc}${SAVING_THROW_ROLL_LABELS.dcSuffix}`;
+export function formatSavingThrowTitle(ability: AbilityType): string {
+  return `${SAVING_THROW_ROLL_LABELS.rollPrefix}${SAVE_TYPE_LABELS[ability]}`;
 }
 
 /**

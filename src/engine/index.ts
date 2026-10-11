@@ -1,3 +1,4 @@
+export * from './abilityCheckRequest.js';
 export * from './actionRestrictions.js';
 export * from './activeEffectDescribe.js';
 export * from './activeEffectScenario.js';
@@ -36,8 +37,8 @@ export * from './conditionTemplates.js';
 export * from './consts.js';
 export * from './counterIds.js';
 export * from './counterResource.js';
-export * from './creatureActionIds.js';
 export * from './counterTableColumns.js';
+export * from './creatureActionIds.js';
 export * from './creatureDamageAlternatives.js';
 export * from './creatureHitDice.js';
 export * from './creatureSpellcasting.js';

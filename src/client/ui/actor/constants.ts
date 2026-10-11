@@ -5044,6 +5044,9 @@ export const SPELL_DETAIL_LABELS = {
   materialConsumed: ', расходуется',
 } as const;
 
+/** Значок того, кто бросает, — над формулой окна броска */
+export const DICE_ROLL_ACTOR_ICON = 'tabler:user';
+
 /**
  * Подписи окна броска кубиков. Окно одно у листов персонажа и существа, и
  * подписи в нём общие.
@@ -5067,6 +5070,8 @@ export const DICE_ROLL_LABELS = {
   damageVariant: 'Урон',
   damageType: 'Тип урона',
   formula: 'Формула',
+  /** Сложность над формулой: дальше идёт число */
+  targetDcPrefix: 'Сл ',
   extraBonus: 'Доп. бонус',
   rollMode: 'Режим броска',
   rollModeNormal: 'Обычный',

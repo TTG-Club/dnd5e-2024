@@ -528,6 +528,7 @@ export function openCreatureSpellRoll(
         ? `${CREATURE_ACTIONS_BLOCK_LABELS.attackRollPrefix}${spell.name}`
         : spell.name,
       rollLabel: spell.name,
+      actorName: creature.name,
       rollButtonText: getCreatureSpellRollButtonText(usesAttack, isHealing),
       formula: setup.baseParts[0]?.formula ?? '',
       attackModifier: usesAttack ? numbers.attackBonus : undefined,

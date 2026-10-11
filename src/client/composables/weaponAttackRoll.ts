@@ -308,6 +308,7 @@ export function openWeaponAttackRoll(
     {
       title: `${ACTOR_EQUIPMENT_TAB_LABELS.attackRollPrefix}${weapon.name}`,
       rollLabel: weapon.name,
+      actorName: attacker.name,
       rollButtonText: hasSave
         ? SPELL_DAMAGE_ROLL_BUTTON
         : ACTOR_SPELLS_TAB_LABELS.attackRoll,
