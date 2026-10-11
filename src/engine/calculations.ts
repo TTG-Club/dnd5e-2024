@@ -61,6 +61,7 @@ import {
   SKILL_ABILITY_MAP,
 } from './consts.js';
 import { stampCounterIds } from './counterIds.js';
+import { stampCreatureActionIds } from './creatureActionIds.js';
 import {
   ensureCreatureSpellsInBlocks,
   normalizeCreatureSpellcastingBlocks,
@@ -1736,6 +1737,10 @@ export function normalizeCreature(creature: BaseCreature): void {
   }
 
   normalizeCreatureActionRangeTypes(system);
+
+  // Записям боевого блока — `id`: без него частичная запись шлёт их списки
+  // целиком
+  stampCreatureActionIds(system);
 
   // Нормализация movement: если отсутствует (legacy-существа) — дефолт 30 фт.
   if (!isRecord(system.movement)) {

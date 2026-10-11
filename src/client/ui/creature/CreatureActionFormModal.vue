@@ -25,6 +25,7 @@
     areaShapeUsesHeight,
     areaShapeUsesWidth,
     buildActionDescription,
+    createCreatureActionId,
     getActionDescriptionMarkdown,
     getAreaSizeLabel,
     listCreatureDamageAlternatives,
@@ -425,6 +426,9 @@
   /** Собирает CreatureAction из формы (чистый JSON: пустые значения не пишутся) */
   function buildAction(): CreatureAction {
     const result: CreatureAction = {
+      // Правка сохраняет `id` записи, новая запись получает свой: по нему
+      // сервер меняет одно это действие, а не весь список
+      id: props.action?.id ?? createCreatureActionId(),
       name: form.name.trim(),
       description: buildActionDescription(form.description),
     };
