@@ -3910,8 +3910,8 @@ condition?, optional?, chooser? }`). Правила сплошь и рядом �
     `requestPlacement` — тем же расчётом, что закрывал последствие для целей
     (`areaOriginatesFromCaster`, `engine/areaChoice.ts`): заклинание персонажа
     (`spellCastFlow.ts`) и существа (`creatureSpellCast.ts`), применение с
-    областью и кнопка «При действии» (`areaTemplateTargets.ts`); действие
-    существа с областью (`creatureDamageChoice.ts`) передаёт его всегда. Само
+    областью и кнопка «При действии» (`areaTemplateTargets.ts`), действие
+    существа с областью (`creatureDamageChoice.ts`). Само
     правило для целей осталось: куб фишку применившего и так не накрывает, а
     круг накрывает. На VTTG старше 0.9.662 седьмой аргумент просто
     отбрасывается — шаблон ставится по-старому, поэтому `minimum` ради него

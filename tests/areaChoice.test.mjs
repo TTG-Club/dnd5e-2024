@@ -35,11 +35,12 @@ const CHOICE_PATH = 'src/client/composables/areaTargetChoice.ts';
 const ACTIVE_ACTION_PATH = 'src/client/composables/effectActiveAction.ts';
 
 /**
- * Запросы шаблона области: заклинание персонажа и существа, применение с
- * областью. Признак «от применившего» они передают приложению.
+ * Запросы шаблона области: заклинание персонажа и существа, действие
+ * существа, применение с областью. Признак «от применившего» они передают приложению.
  */
 const PLACEMENT_PATHS = [
   'src/client/composables/areaTemplateTargets.ts',
+  'src/client/composables/creatureDamageChoice.ts',
   'src/client/composables/creatureSpellCast.ts',
   'src/client/composables/spellCastFlow.ts',
 ];
@@ -666,7 +667,7 @@ describe('общий разбор целей области', () => {
     for (const path of PLACEMENT_PATHS) {
       assert.match(
         readFileSync(path, 'utf8'),
-        /requestPlacement\([\s\S]*?areaOriginatesFromCaster\((?:spell|source)\),\s*\);/u,
+        /requestPlacement\([\s\S]*?areaOriginatesFromCaster\([^)]*\),\s*\);/u,
         `${path}: признак уходит в запрос шаблона последним аргументом`,
       );
     }
