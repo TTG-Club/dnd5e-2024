@@ -56,6 +56,11 @@ import {
 } from './lib/bundleChecks.mjs';
 import { copyManifestAndData, isDataFile } from './lib/distAssets.mjs';
 import {
+  collectHostRequirements,
+  inspectHostRequirements,
+  readHostContract,
+} from './lib/hostContract.mjs';
+import {
   assertDistComplete,
   confirmTrust,
   readManifest,
@@ -154,6 +159,9 @@ try {
 }
 
 const systemId = manifest.id;
+
+/** Контракт модулей приложения из соседнего чекаута; `null` — чекаута нет. */
+const hostContract = readHostContract(ROOT);
 const targetDir = path.join(dataPath, 'systems', systemId);
 
 // Watch-сборки пишут в `dist/` по частям и с выключенным `emptyOutDir` (иначе
@@ -244,10 +252,22 @@ function syncToApp() {
 
   // Негодный бандл в приложение не кладём: система молча не поднимется, и искать
   // причину придётся в devtools вместо этой строки.
+  const clientBundle = readFileSync(path.join(DIST, 'client.js'), 'utf-8');
+
   const problems = [
-    ...inspectClientBundle(readFileSync(path.join(DIST, 'client.js'), 'utf-8'))
-      .problems,
+    ...inspectClientBundle(clientBundle).problems,
     ...serverProblems,
+    // Модуль вне контракта приложения: без этой сверки установка прошла бы, а
+    // вход в мир приложение отклонило бы уже по блоку `hostContract` манифеста.
+    ...(hostContract
+      ? inspectHostRequirements(
+          collectHostRequirements(
+            clientBundle,
+            readFileSync(path.join(DIST, 'index.js'), 'utf-8'),
+          ),
+          hostContract,
+        ).problems
+      : []),
   ];
 
   if (problems.length > 0) {

@@ -184,6 +184,7 @@ import {
 import { SPELL_SCHOOL_LABELS } from './spellTypes.js';
 import { damagePartIsHealing } from './spellUtils.js';
 import { parseSystemClientEvent } from './systemClientEvents.js';
+import { SYSTEM_ID } from './systemId.js';
 import { isPointInTemplate as isPointInTemplateGeometry } from './templateGeometry.js';
 import {
   entityIgnoresTerrainCost as entityIgnoresTerrainCostImpl,
@@ -1648,11 +1649,11 @@ function settleSnapshotEvents(
  * с Инициативой, Боевкой и т.д.
  */
 export class Dnd5eVttSystem implements VttSystem {
-  readonly id = 'dnd5e-2024';
+  readonly id = SYSTEM_ID;
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.285';
+  readonly version = '0.8.286';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -2929,7 +2930,7 @@ export class Dnd5eVttSystem implements VttSystem {
       label: condition.nameRu,
       icon: condition.icon,
       description: condition.description,
-      systemId: 'dnd5e-2024',
+      systemId: SYSTEM_ID,
       customImage: condition.customImage,
       overlay: condition.overlay,
     }));

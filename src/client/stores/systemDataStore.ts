@@ -15,6 +15,11 @@ import type { SpeciesDefinition } from '@vtt/shared/system/dnd.js';
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 
+import { SYSTEM_ID } from '@vtt/shared/system/dnd.js';
+
+/** Имя хранилища: приставка — id системы из манифеста. */
+const STORE_ID = `${SYSTEM_ID}:system-data`;
+
 /**
  * Хранилище справочных данных D&D (свойства оружия, типы урона и т.д.) —
  * единственное своё хранилище системы. Наполняется один раз при подключении к
@@ -29,7 +34,7 @@ import { computed, ref } from 'vue';
  * окну и правда нужно записать, у того есть своё названное действие
  * (`rememberSource`, `rememberSpeciesDefinitions`).
  */
-export const useSystemDataStore = defineStore('dnd5e-2024:system-data', () => {
+export const useSystemDataStore = defineStore(STORE_ID, () => {
   /** Определения свойств оружия */
   const weaponProperties = ref<WeaponPropertyDefinition[]>([]);
 

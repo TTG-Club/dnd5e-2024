@@ -16,6 +16,8 @@
 import { useToast } from '@nuxt/ui/composables';
 import { defineStore } from 'pinia';
 
+import { SYSTEM_ID } from '@vtt/shared/system/dnd.js';
+
 /**
  * Хранилище уведомлений системы. Своего состояния у него нет — только действие
  * `add`, которое показывает уведомление Nuxt UI из любого места.
@@ -25,7 +27,7 @@ import { defineStore } from 'pinia';
  * @returns хранилище с действием `add`
  */
 export const useSystemToastStore = defineStore(
-  'dnd5e-2024:system-toast',
+  `${SYSTEM_ID}:system-toast`,
   () => {
     const toast = useToast();
 

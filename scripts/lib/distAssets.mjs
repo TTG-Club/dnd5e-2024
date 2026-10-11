@@ -8,6 +8,8 @@
 import { cpSync, existsSync, mkdirSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
+import { stampHostRequirements } from './hostContract.mjs';
+
 /** Расширения кода — в `data/` не копируются (код уже в бандлах). */
 const CODE_EXTENSIONS = new Set([
   '.ts',
@@ -64,6 +66,10 @@ export function copyDataFiles(sourceDir, targetDir) {
 /**
  * Кладёт в `dist/` манифест и справочные данные движка.
  *
+ * В манифест вписывается, что бандлы просят у приложения (блок `hostContract`),
+ * поэтому вызывать её нужно ПОСЛЕ сборки клиента и сервера — так это и делают
+ * и разовая сборка, и watch-режим.
+ *
  * @param root - корень репозитория
  * @param dist - папка сборки
  * @returns число скопированных файлов данных
@@ -71,6 +77,7 @@ export function copyDataFiles(sourceDir, targetDir) {
 export function copyManifestAndData(root, dist) {
   mkdirSync(dist, { recursive: true });
   cpSync(path.join(root, 'system.json'), path.join(dist, 'system.json'));
+  stampHostRequirements(dist);
 
   // Справочные данные и компендиум лежат внутри исходников движка.
   const dataSource = path.join(root, 'src', 'engine');

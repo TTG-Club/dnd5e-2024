@@ -18,10 +18,12 @@
 
 import type { ClientSystemAPI } from '@/core/systemBootstrap';
 
+import { SYSTEM_ID } from '@vtt/shared/system/dnd.js';
+
 import { registerClientSystem } from './clientSystem';
 
 import './system.css';
 
-globalThis.VTTSystems.register('dnd5e-2024', (api: ClientSystemAPI) => {
+globalThis.VTTSystems.register(SYSTEM_ID, (api: ClientSystemAPI) => {
   registerClientSystem(api);
 });

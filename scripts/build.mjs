@@ -12,6 +12,11 @@ import { fileURLToPath } from 'node:url';
 
 import { inspectClientBundle } from './lib/bundleChecks.mjs';
 import { copyManifestAndData } from './lib/distAssets.mjs';
+import {
+  collectHostRequirements,
+  inspectHostRequirements,
+  readHostContract,
+} from './lib/hostContract.mjs';
 
 const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const DIST = path.join(ROOT, 'dist');
@@ -54,9 +59,34 @@ const serverSize = existsSync(path.join(DIST, 'index.js'))
 // Проверки собранного клиента (см. scripts/lib/bundleChecks.mjs): все дефекты
 // проявляются ТОЛЬКО в браузере, асинхронно и с сообщениями, по которым причину
 // не угадать, — поэтому ловим их здесь, до выкладки релиза.
-const { problems, hostModules } = inspectClientBundle(
-  readFileSync(path.join(DIST, 'client.js'), 'utf-8'),
-);
+const clientBundle = readFileSync(path.join(DIST, 'client.js'), 'utf-8');
+const { problems, hostModules } = inspectClientBundle(clientBundle);
+
+// Сверка с контрактом приложения (см. scripts/lib/hostContract.mjs): модуль,
+// которого приложение не отдаёт, иначе всплыл бы только отказом при входе в мир.
+// Манифест контракта берётся из соседнего чекаута приложения; без него (сборка
+// релиза на GitHub) сверка пропускается.
+const hostContract = readHostContract(ROOT);
+
+if (hostContract) {
+  const contractReport = inspectHostRequirements(
+    collectHostRequirements(
+      clientBundle,
+      readFileSync(path.join(DIST, 'index.js'), 'utf-8'),
+    ),
+    hostContract,
+  );
+
+  problems.push(...contractReport.problems);
+
+  for (const warning of contractReport.warnings) {
+    console.warn(`[build] ⚠ ${warning}`);
+  }
+} else {
+  console.warn(
+    '[build] ⚠ рядом нет чекаута приложения (../vttg) — сверка с контрактом модулей хоста пропущена',
+  );
+}
 
 if (problems.length > 0) {
   console.error(
