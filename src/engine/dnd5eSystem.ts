@@ -177,6 +177,10 @@ import {
   runPresenceTriggerSources,
   syncActorAreaEffects,
 } from './positionalEffects.js';
+import {
+  reconcileScenePresence,
+  releaseOffSceneEffects,
+} from './scenePresence.js';
 import { SPELL_SCHOOL_LABELS } from './spellTypes.js';
 import { damagePartIsHealing } from './spellUtils.js';
 import { parseSystemClientEvent } from './systemClientEvents.js';
@@ -459,6 +463,39 @@ function mergeTriggerResults(
     ...(chatRolls.length > 0 ? { chatRolls } : {}),
     ...(deferred.length > 0 ? { deferred } : {}),
     ...(related.length > 0 ? { related } : {}),
+  };
+}
+
+/**
+ * Сверяет фишку сущности с её эффектами после срабатывания правил: эффект с
+ * флагом «убран со сцены» наложили — фишка уходит, сняли — возвращается.
+ *
+ * Стоит на выходе хуков, которые накладывают и снимают эффекты: боевой
+ * снимок, ход, срок, конец каста, событие клиента. В хуках зон, аур и пути её
+ * нет намеренно: уход фишки сам выводит её из зоны, и зона, которая убирает
+ * стоящих в ней, гоняла бы фишку туда-обратно.
+ *
+ * @param entity - сущность, чьи эффекты могли измениться
+ * @param context - возможности ядра
+ * @param result - исход срабатывания
+ * @returns тот же исход; со строкой в чат, если фишка вернулась поверх другой
+ */
+function withScenePresence<Result extends SystemDeferredTriggerResult>(
+  entity: SceneEntity,
+  context: SystemTriggerContext | undefined,
+  result: Result,
+): Result {
+  const note = isDndSceneEntity(entity)
+    ? reconcileScenePresence(entity, context)
+    : null;
+
+  if (!note) {
+    return result;
+  }
+
+  return {
+    ...result,
+    chatSummary: result.chatSummary ? `${result.chatSummary}\n${note}` : note,
   };
 }
 
@@ -1615,7 +1652,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.270';
+  readonly version = '0.8.271';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -1800,7 +1837,11 @@ export class Dnd5eVttSystem implements VttSystem {
     timing: 'startOfTurn' | 'endOfTurn',
     context?: SystemTriggerContext,
   ): SystemDeferredTriggerResult {
-    return settleTurnEffects(entity, timing, context, this.pendingTurnSaveKeys);
+    return withScenePresence(
+      entity,
+      context,
+      settleTurnEffects(entity, timing, context, this.pendingTurnSaveKeys),
+    );
   }
 
   /**
@@ -1815,12 +1856,16 @@ export class Dnd5eVttSystem implements VttSystem {
     timing: 'startOfTurn' | 'endOfTurn',
     context?: SystemTriggerContext,
   ): SystemDeferredTriggerResult {
-    return settleTurnEffects(
+    return withScenePresence(
       entity,
-      timing,
       context,
-      this.pendingTurnSaveKeys,
-      turnActorId,
+      settleTurnEffects(
+        entity,
+        timing,
+        context,
+        this.pendingTurnSaveKeys,
+        turnActorId,
+      ),
     );
   }
 
@@ -1849,8 +1894,12 @@ export class Dnd5eVttSystem implements VttSystem {
       this.outsidersGetTurnBoundaries = true;
     }
 
-    return expireWithConcentration(entity, context, (carrier) =>
-      expireEntityTurnEffects(carrier, turnActorId, timing, participantIds),
+    return withScenePresence(
+      entity,
+      context,
+      expireWithConcentration(entity, context, (carrier) =>
+        expireEntityTurnEffects(carrier, turnActorId, timing, participantIds),
+      ),
     );
   }
 
@@ -1888,18 +1937,22 @@ export class Dnd5eVttSystem implements VttSystem {
       return other !== undefined && context?.isInCombat?.(other) === true;
     };
 
-    return expireWithConcentration(entity, context, (carrier) => {
-      const roundsChanged = decrementActorEffectDurations(carrier);
+    return withScenePresence(
+      entity,
+      context,
+      expireWithConcentration(entity, context, (carrier) => {
+        const roundsChanged = decrementActorEffectDurations(carrier);
 
-      const turnsChanged = isOutsider
-        ? expireOutsiderTurnEffects(
-            carrier,
-            this.outsidersGetTurnBoundaries ? isCombatantId : undefined,
-          )
-        : false;
+        const turnsChanged = isOutsider
+          ? expireOutsiderTurnEffects(
+              carrier,
+              this.outsidersGetTurnBoundaries ? isCombatantId : undefined,
+            )
+          : false;
 
-      return roundsChanged || turnsChanged;
-    });
+        return roundsChanged || turnsChanged;
+      }),
+    );
   }
 
   /**
@@ -1934,10 +1987,43 @@ export class Dnd5eVttSystem implements VttSystem {
       chatSummary: `${entity.name}: ${CAST_ENDED_SUMMARY_PREFIX}${removed.map((effect) => effect.name).join(', ')}`,
     };
 
-    return mergeTriggerResults(
-      removal,
-      runCastEndTriggers(entity, removed, hpBefore, context),
+    return withScenePresence(
+      entity,
+      context,
+      mergeTriggerResults(
+        removal,
+        runCastEndTriggers(entity, removed, hpBefore, context),
+      ),
     );
+  }
+
+  /**
+   * Сущность записана — и правкой листа тоже: эффект «убран со сцены» вписали
+   * руками или стёрли. Других хуков с возможностями ядра правка листа не будит,
+   * а фишка должна уйти или вернуться сразу. Сама сущность здесь не меняется.
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  settleEntityChange(
+    entity: SceneEntity,
+    context?: SystemTriggerContext,
+  ): SystemDeferredTriggerResult {
+    return withScenePresence(entity, context, {
+      changed: false,
+      chatSummary: null,
+    });
+  }
+
+  /**
+   * Мастер возвращает убранную фишку меткой на сцене: снимает с существа
+   * эффекты «убран со сцены». Иначе они остались бы, и фишка ушла бы снова.
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  releaseOffSceneToken(entity: SceneEntity): SystemDeferredTriggerResult {
+    const note = isDndSceneEntity(entity)
+      ? releaseOffSceneEffects(entity)
+      : null;
+
+    return { changed: note !== null, chatSummary: note };
   }
 
   /**
@@ -1957,11 +2043,15 @@ export class Dnd5eVttSystem implements VttSystem {
     }
 
     if (event.type === 'attackRoll') {
-      return settleAttackRollEvent(event, context);
+      return settleAttackRollEvent(event, context).map((outcome) =>
+        withScenePresence(outcome.entity, context, outcome),
+      );
     }
 
     if (event.type === 'effectAction') {
-      return settleEffectActionEvent(event, context);
+      return settleEffectActionEvent(event, context).map((outcome) =>
+        withScenePresence(outcome.entity, context, outcome),
+      );
     }
 
     const caster = context.getEntity(event.casterId);
@@ -2467,7 +2557,7 @@ export class Dnd5eVttSystem implements VttSystem {
       options: buildTriggerEventOptions(entity, context),
     });
 
-    return { accepted: true, ...settled };
+    return withScenePresence(entity, context, { accepted: true, ...settled });
   }
 
   /**

@@ -1405,6 +1405,7 @@ export type EffectFlagKey =
   | 'hitPoints.maxReductionBlocked'
   | 'attacksAgainst.forceCritical'
   | 'movement.teleportBlocked'
+  | 'scene.offScene'
   | 'actions.noReaction'
   | 'actions.noBonusAction'
   | 'actions.oneActionOrBonus'
@@ -1584,6 +1585,7 @@ const BASE_EFFECT_FLAG_LABELS: Record<
   'hitPoints.maxReductionBlocked': 'Максимум хитов нельзя уменьшать',
   'attacksAgainst.forceCritical': 'Попадание по этому существу — крит',
   'movement.teleportBlocked': 'Не может телепортироваться',
+  'scene.offScene': 'Убран со сцены: фишки нет, пока эффект действует',
   'rest.noBenefit.short': 'Короткий отдых не приносит пользы',
   'rest.noBenefit.long': 'Продолжительный отдых не приносит пользы',
 

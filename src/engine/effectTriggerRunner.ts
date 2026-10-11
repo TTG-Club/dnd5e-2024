@@ -142,6 +142,7 @@ import {
 } from './effectTriggerUsage.js';
 import {
   findSceneToken,
+  resolveForcedMoveOptions,
   resolveForcedMoveOrigin,
   resolveForcedMovePosition,
 } from './forcedMovement.js';
@@ -1814,7 +1815,7 @@ function pushRecipient(
   });
 
   if (position) {
-    moveToken(target.id, position);
+    moveToken(target.id, position, resolveForcedMoveOptions(action));
   }
 }
 
