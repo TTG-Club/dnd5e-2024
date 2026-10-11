@@ -30,6 +30,7 @@ import { useTargetStore } from '@/stores/targetStore';
 import { useWorldStore } from '@/stores/worldStore';
 import { generateId } from '@vtt/shared';
 import {
+  areaOriginatesFromCaster,
   calculateCreatureSpellBlockNumbers,
   castReachesTargets,
   collectActiveEffects,
@@ -75,6 +76,7 @@ import {
 } from './diceRollWindow';
 import { runWithEffectVariants } from './effectVariantChoice';
 import { changeEntitySheet } from './entitySheetWrite';
+import { refuseWhilePaused } from './pauseLock';
 import { buildRollBonusEvaluator } from './rollBonusEvaluator';
 import { refuseWhileSheetEditing } from './sheetEditLock';
 import {
@@ -203,6 +205,11 @@ export function startCreatureSpellCast(
 ): void {
   // Лист существа в режиме правки — каст ждёт «Сохранить» или отмены
   if (refuseWhileSheetEditing(port.creatureId)) {
+    return;
+  }
+
+  // Игра на паузе — действие не начинается
+  if (refuseWhilePaused()) {
     return;
   }
 
@@ -349,6 +356,7 @@ export function startCreatureSpellCast(
             openRoll,
             null,
             isSpellAreaPlacedAtRange(spell),
+            areaOriginatesFromCaster(spell),
           );
         },
       );

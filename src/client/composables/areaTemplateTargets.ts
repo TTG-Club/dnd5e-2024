@@ -14,6 +14,7 @@ import type { AreaTargetsInput } from './areaTargetChoice';
 import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
 import { useWorldStore } from '@/stores/worldStore';
 import { resolveGridCellSize } from '@vtt/shared';
+import { areaOriginatesFromCaster } from '@vtt/shared/system/dnd.js';
 
 import { resolveAreaTargets } from './areaTargetChoice';
 import { useWorldEntities } from './useWorldEntities';
@@ -32,6 +33,7 @@ const AREA_TEMPLATE_COLOR = 0x8b5cf6;
  * @param area - форма и размер шаблона
  * @param originEntityId - от чьей фишки ставится шаблон
  * @param maxDistance - предел расстояния до точки шаблона; `null` — без предела
+ *   (у области от применившего не действует: она встаёт у его фишки)
  * @param source - что применяют: название и эффекты с правилом выбора
  * @param proceed - продолжение: задетые сущности без повторов и сам шаблон
  */
@@ -79,5 +81,7 @@ export function placeAreaTemplate(
       );
     },
     maxDistance,
+    false,
+    areaOriginatesFromCaster(source),
   );
 }

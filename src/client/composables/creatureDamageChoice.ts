@@ -415,6 +415,10 @@ export function launchCreatureAction(
     creatureId,
     (templateId) => openRoll(templateId),
     null,
+    false,
+    // Область действия существа всегда исходит от его фишки — то же правило,
+    // что у `areaOriginatesFromCaster` для действий существ
+    true,
   );
 }
 

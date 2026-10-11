@@ -70,6 +70,7 @@ import {
   hasActionUseEffects,
 } from './effectActivationUse';
 import { isEntityOwnTurn } from './encounterTurn';
+import { refuseWhilePaused } from './pauseLock';
 import { buildRollBonusEvaluator } from './rollBonusEvaluator';
 import { refuseWhileSheetEditing } from './sheetEditLock';
 import { discardSpellTemplate } from './spellResolutionShared';
@@ -155,6 +156,11 @@ export function startCreatureAction(
 ): void {
   // Лист существа в режиме правки — действие ждёт «Сохранить» или отмены
   if (refuseWhileSheetEditing(port.creatureId)) {
+    return;
+  }
+
+  // Игра на паузе — действие не начинается
+  if (refuseWhilePaused()) {
     return;
   }
 

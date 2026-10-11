@@ -2892,6 +2892,11 @@ export const SHEET_EDIT_LOCK_LABELS = {
   description: 'Сохраните или отмените правку листа — и повторите действие.',
 } as const;
 
+export const PAUSE_LOCK_LABELS = {
+  title: 'Игра на паузе',
+  description: 'Мастер поставил игру на паузу — действие подождёт.',
+} as const;
+
 export const ACTOR_SHEET_LABELS = {
   confirmSave: 'Сохранить изменения перед закрытием?',
   /** Итог передачи предмета с другого листа — тот же жест, что у существа */

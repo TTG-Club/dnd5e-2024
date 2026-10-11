@@ -61,6 +61,7 @@ import { recordEntityActionSpend } from './actionSpend';
 import { isEntityOwnTurn } from './encounterTurn';
 import { changeEntityCombatState } from './entityCombatWrite';
 import { controlsEntityAsUser } from './gmApprovalRequest';
+import { refuseWhilePaused } from './pauseLock';
 import { refuseWhileSheetEditing } from './sheetEditLock';
 import { openSkillCheckModal } from './skillCheckRoll';
 import { resolveEntityStats } from './useResolvedStats';
@@ -430,6 +431,11 @@ export function runEscapeAs(
     return false;
   }
 
+  // Игра на паузе — действие не начинается
+  if (refuseWhilePaused()) {
+    return false;
+  }
+
   const { escape } = effect;
 
   if (!escape || !escapeAllowsRole(escape, actor.role)) {
@@ -537,6 +543,11 @@ export function runEscapeAs(
 export function runEffectEscape(carrierId: string, effectId: string): boolean {
   // Лист носителя в режиме правки — до вопроса «кто действует»
   if (refuseWhileSheetEditing(carrierId)) {
+    return false;
+  }
+
+  // Игра на паузе — действие не начинается
+  if (refuseWhilePaused()) {
     return false;
   }
 

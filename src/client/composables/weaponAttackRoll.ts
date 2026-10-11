@@ -57,6 +57,7 @@ import {
   prepareAmmunitionShot,
   spendShotAmmunition,
 } from './effectActivationUse';
+import { refuseWhilePaused } from './pauseLock';
 import { buildRollBonusEvaluator } from './rollBonusEvaluator';
 import { refuseWhileSheetEditing } from './sheetEditLock';
 import { useBonusDamageParts } from './useBonusDamageParts';
@@ -167,6 +168,11 @@ export function startWeaponAttack(
   // чтения мира: нового, ещё не сохранённого персонажа там нет, и удар с его
   // листа молчал, вместо того чтобы попросить сохранить лист
   if (refuseWhileSheetEditing(port.attackerId)) {
+    return;
+  }
+
+  // Игра на паузе — действие не начинается
+  if (refuseWhilePaused()) {
     return;
   }
 
