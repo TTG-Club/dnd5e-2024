@@ -166,6 +166,55 @@ describe('разделы мира: кто пишет и кто синхрони�
   });
 });
 
+describe('выход из правки без изменений', () => {
+  it('черновик и основа догоняют мир — разделы и токен', async () => {
+    const world = createCreature({
+      token: { showName: true, tint: '#00ff00' },
+      spells: [{ id: 'spell_fear', name: 'Страх' }],
+    });
+
+    // Лист вошёл в правку раньше: токен и заклинания у него прежние
+    const stale = { ...structuredClone(world), token: { showName: false } };
+
+    stale.spells = [];
+
+    const draft = { value: structuredClone(stale) };
+    const base = { value: structuredClone(stale) };
+
+    const useWorldSheetSync = await loadHandler(
+      'src/client/composables/useWorldSheetSync.ts',
+      'useWorldSheetSync',
+      {
+        // Наблюдатели в правке молчат — здесь проверяется только догон
+        watch: () => {},
+        WORLD_SHEET_SECTIONS: sections.WORLD_SHEET_SECTIONS,
+        copyWorldSection: sections.copyWorldSection,
+        copyWorldSections: sections.copyWorldSections,
+        copyWorldToken: await loadHandler(
+          'src/client/composables/useWorldSheetSync.ts',
+          'copyWorldToken',
+          { cloneEntityData: (value) => structuredClone(value) },
+        ),
+      },
+    );
+
+    const { pullFromWorld } = useWorldSheetSync({
+      readWorld: () => world,
+      draft,
+      base,
+      isPaused: () => true,
+    });
+
+    pullFromWorld();
+
+    for (const copy of [draft.value, base.value]) {
+      assert.deepEqual(copy.token, world.token);
+      assert.notEqual(copy.token, world.token, 'токен — своя копия');
+      assert.equal(copy.spells.length, 1);
+    }
+  });
+});
+
 describe('заряд заклинания существа доходит до открытого листа', () => {
   /** Заклинание «1/день» */
   const FEAR = {

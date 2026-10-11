@@ -43,6 +43,22 @@ export interface WorldSheetSyncOptions<Entity extends DnDSceneEntity> {
 }
 
 /**
+ * Кладёт в копию токен сущности мира — глубокой копией: запись стора хоста
+ * общая. Сущность мира без токена копию не трогает.
+ *
+ * @param target - черновик листа или его основа (меняется)
+ * @param world - сущность мира того же вида
+ */
+function copyWorldToken<Entity extends DnDSceneEntity>(
+  target: Entity,
+  world: Entity,
+): void {
+  if (world.token) {
+    target.token = cloneEntityData(world.token);
+  }
+}
+
+/**
  * Подтягивает разделы мира в черновик листа на каждое их изменение.
  *
  * Наблюдатель у каждого раздела свой, и копируется только изменившийся
@@ -60,16 +76,23 @@ export interface WorldSheetSyncOptions<Entity extends DnDSceneEntity> {
 export function useWorldSheetSync<Entity extends DnDSceneEntity>(
   options: WorldSheetSyncOptions<Entity>,
 ): { pullFromWorld: () => void } {
-  /** Кладёт все разделы мира в черновик, если есть и то и другое */
+  /**
+   * Кладёт всё, что лист берёт из мира, в черновик и в основу: разделы и
+   * токен. Токен — тоже: за время правки его могли сменить окно настроек или
+   * сцена, а наблюдатель в правке молчал.
+   */
   function pullFromWorld(): void {
     const world = options.readWorld();
 
-    if (world && options.draft.value) {
-      copyWorldSections(options.draft.value, world);
+    if (!world) {
+      return;
     }
 
-    if (world && options.base.value) {
-      copyWorldSections(options.base.value, world);
+    for (const target of [options.draft.value, options.base.value]) {
+      if (target) {
+        copyWorldSections(target, world);
+        copyWorldToken(target, world);
+      }
     }
   }
 
@@ -101,17 +124,19 @@ export function useWorldSheetSync<Entity extends DnDSceneEntity>(
   // чужое изменение токена как правку листа
   watch(
     () => options.readWorld()?.token,
-    (worldToken) => {
-      if (!worldToken || options.isPaused()) {
+    () => {
+      const world = options.readWorld();
+
+      if (!world || options.isPaused()) {
         return;
       }
 
       if (options.draft.value) {
-        options.draft.value.token = cloneEntityData(worldToken);
+        copyWorldToken(options.draft.value, world);
       }
 
       if (options.base.value) {
-        options.base.value.token = cloneEntityData(worldToken);
+        copyWorldToken(options.base.value, world);
       }
     },
     { deep: true },
