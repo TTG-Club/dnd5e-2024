@@ -46,7 +46,6 @@
     calculateAbilityModifier,
     calculateMaxHP,
     checkFeatPrerequisites,
-    cloneEntityData,
     collectClassCounterDefinitions,
     collectFeatsAwaitingLeveledChoices,
     collectRechoosableFeats,
@@ -671,27 +670,6 @@
         emit('close');
       }
     },
-  );
-
-  watch(
-    () => storeActor.value?.token,
-    (newToken) => {
-      // В режиме правки синхронизация стоит: снимок входа токен не получает,
-      // и «Сохранить» отправило бы чужое изменение токена как правку листа
-      if (isEditMode.value || !newToken) {
-        return;
-      }
-
-      if (localActor.value) {
-        localActor.value.token = cloneEntityData(newToken);
-      }
-
-      // Пришло из мира — не правка листа: основа получает то же
-      if (draftBase.value) {
-        draftBase.value.token = cloneEntityData(newToken);
-      }
-    },
-    { deep: true },
   );
 
   /**

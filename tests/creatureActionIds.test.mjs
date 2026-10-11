@@ -78,6 +78,34 @@ describe('id записей боевого блока', () => {
     assert.equal(new Set(ids).size, ids.length, 'id не повторяются');
   });
 
+  it('id предсказуем: клиент и сервер выдают одной записи один и тот же', () => {
+    const onServer = createHawk();
+    const onClient = structuredClone(onServer);
+
+    engine.normalizeCreature(onServer);
+    engine.normalizeCreature(onClient);
+
+    assert.deepEqual(
+      collectEntries(onClient).map((entry) => entry.id),
+      collectEntries(onServer).map((entry) => entry.id),
+    );
+  });
+
+  it('выданный id от места и названия дальше не зависит', () => {
+    const hawk = createHawk();
+
+    engine.normalizeCreature(hawk);
+
+    const [beak, claws] = hawk.system.actions;
+    const beakId = beak.id;
+
+    // Действие переименовали и переставили — id хранится в записи
+    hawk.system.actions = [claws, { ...beak, name: 'Острый клюв' }];
+    engine.normalizeCreature(hawk);
+
+    assert.equal(hawk.system.actions[1].id, beakId);
+  });
+
   it('повторная нормализация id не меняет', () => {
     const hawk = createHawk();
 

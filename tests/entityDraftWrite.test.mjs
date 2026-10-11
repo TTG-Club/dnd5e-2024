@@ -34,6 +34,18 @@ const ACCEPTED = { ok: true, changed: true };
 /** Ответ сервера: правка не легла на его сущность */
 const CONFLICT = { ok: false, reason: 'conflict', operationIndex: 0 };
 
+/**
+ * Копия сущности без полей прав — как помощник листа.
+ *
+ * @param {object} entity - сущность
+ * @returns {object} сущность без `ownerId` и `ownerIds`
+ */
+function withoutEntityOwnership(entity) {
+  const { ownerId: _ownerId, ownerIds: _ownerIds, ...content } = entity;
+
+  return content;
+}
+
 /** Гвард формы для тестов: любая запись с `id` */
 const hasId = (value) => typeof value?.id === 'string';
 
@@ -108,6 +120,7 @@ function loadSaveEntityDraft(server) {
     emitEntityChange: server.emitEntityChange,
     mergeEntityDraft: engine.mergeEntityDraft,
     withPatchRecordIds: engine.withPatchRecordIds,
+    withoutEntityOwnership,
     PATCH_CONFLICT_REASON: 'conflict',
   });
 }
@@ -233,6 +246,7 @@ describe('saveEntityDraft', () => {
           throw new Error('Пересборка не нужна');
         },
         withPatchRecordIds: engine.withPatchRecordIds,
+        withoutEntityOwnership,
         PATCH_CONFLICT_REASON: 'conflict',
       },
     );
@@ -278,10 +292,10 @@ async function loadDraftWrite({ draft, server, readWorld, send }) {
         : saveEntityDraft,
       buildEntityPatch: engine.buildEntityPatch,
       applyEntityPatch: engine.applyEntityPatch,
-      copyWorldSections: sections.copyWorldSections,
+      withPatchRecordIds: engine.withPatchRecordIds,
+      withoutEntityOwnership,
       buildEntityPatchFailureToast: (outcome, name) =>
         outcome.ok ? null : { title: name, description: outcome.reason },
-      Promise,
     },
   );
 
@@ -330,7 +344,7 @@ describe('useEntityDraftWrite', () => {
     );
   });
 
-  it('две правки в одном тике: вторая отправка ждёт ответа и повторно первую не шлёт', async () => {
+  it('две правки в одном тике: каждая уходит сразу и шлёт только себя', async () => {
     const draft = { value: hero() };
     const server = createServer(hero());
     const { rebaseDraft, saveDraft } = await loadDraftWrite({ draft, server });
@@ -343,21 +357,53 @@ describe('useEntityDraftWrite', () => {
     saveDraft({});
     await settleAnswers();
 
-    // Первая отправка ушла, когда в черновике уже были обе правки; второй
-    // после её ответа слать нечего
     assert.deepEqual(
-      server.requests.flatMap((request) => request.operations),
+      server.requests.map((request) => request.operations),
       [
-        { op: 'set', path: ['name'], value: 'Герой II' },
-        { op: 'set', path: ['system', 'slotsUsed'], value: 1 },
+        [{ op: 'set', path: ['name'], value: 'Герой II' }],
+        [{ op: 'set', path: ['system', 'slotsUsed'], value: 1 }],
       ],
     );
-
-    assert.equal(server.entity.name, 'Герой II');
-    assert.equal(server.entity.system.slotsUsed, 1);
   });
 
-  it('отказ сервера основу не двигает: несохранённое уходит со следующей правкой', async () => {
+  it('вторая правка того же раздела не теряется, когда ответ на первую переписал черновик', async () => {
+    const draft = { value: hero() };
+    const server = createServer(hero());
+
+    const { draftBase, rebaseDraft, saveDraft } = await loadDraftWrite({
+      draft,
+      server,
+    });
+
+    rebaseDraft();
+
+    // Два щелчка подряд в быстрой панели: меч и зелье
+    draft.value.equipment[0].quantity = 5;
+    saveDraft({});
+    draft.value.equipment[1].quantity = 1;
+    saveDraft({});
+
+    // Сервер разослал итог первой правки раньше, чем подтвердил её: раздел
+    // мира (без второй правки) лёг и в черновик, и в основу
+    const afterFirst = hero();
+
+    afterFirst.equipment[0].quantity = 5;
+    sections.copyWorldSection(draft.value, afterFirst, 'equipment');
+    sections.copyWorldSection(draftBase.value, afterFirst, 'equipment');
+
+    await settleAnswers();
+
+    assert.deepEqual(
+      server.entity.equipment.map((item) => [item.id, item.quantity]),
+      [
+        ['sword', 5],
+        ['potion', 1],
+      ],
+      'вторая правка дошла до сервера',
+    );
+  });
+
+  it('отказ сервера: основа забывает правку, несохранённое уходит со следующей', async () => {
     const draft = { value: hero() };
     const server = createServer(hero());
     const answers = [{ ok: false, reason: 'noResponse' }];
@@ -408,8 +454,10 @@ describe('useEntityDraftWrite', () => {
     rebaseDraft();
     draftBase.value = structuredClone(snapshot);
 
-    // Пока лист был в правке, сервер снял хиты — синхронизация стояла
+    // Пока лист был в правке, сервер снял хиты, а ведущий сменил управляющих:
+    // синхронизация стояла, да и права она не ведёт вовсе
     server.entity = hero({
+      ownerIds: ['player', 'friend'],
       system: { hitPoints: { current: 7, temp: 0 }, slotsUsed: 0 },
     });
 
@@ -418,6 +466,7 @@ describe('useEntityDraftWrite', () => {
     // Лист сразу показывает черновик, слитый с миром
     draft.value = hero({
       name: 'Герой II',
+      ownerIds: ['player', 'friend'],
       system: { hitPoints: { current: 7, temp: 0 }, slotsUsed: 0 },
     });
 
@@ -485,30 +534,24 @@ describe('useEntityDraftWrite', () => {
     );
   });
 
-  it('ответ сервера разослан раньше подтверждения: основа не задваивает запись', async () => {
+  it('устаревшие права черновика на сервер не уходят', async () => {
     const draft = { value: hero() };
-    const server = createServer(hero());
-
-    const { draftBase, rebaseDraft, saveDraft } = await loadDraftWrite({
-      draft,
-      server,
-    });
+    const server = createServer(hero({ ownerIds: ['player', 'friend'] }));
+    const { rebaseDraft, saveDraft } = await loadDraftWrite({ draft, server });
 
     rebaseDraft();
 
-    const bow = { id: 'bow', name: 'Лук', quantity: 1 };
-
-    draft.value.equipment = [...draft.value.equipment, bow];
+    // Ведущий назначил второго управляющего, лист об этом не знает
+    draft.value.name = 'Герой II';
+    draft.value.ownerIds = ['player'];
     saveDraft({});
-
-    // Эхо правки уже положило лук в основу
-    draftBase.value.equipment = [...draftBase.value.equipment, { ...bow }];
     await settleAnswers();
 
-    assert.deepEqual(
-      draftBase.value.equipment.map((item) => item.id),
-      ['sword', 'potion', 'bow'],
-    );
+    assert.deepEqual(server.requests[0].operations, [
+      { op: 'set', path: ['name'], value: 'Герой II' },
+    ]);
+
+    assert.deepEqual(server.entity.ownerIds, ['player', 'friend']);
   });
 
   it('сущности в мире ещё нет — на сервер ничего не уходит', async () => {

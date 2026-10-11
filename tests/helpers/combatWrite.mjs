@@ -199,6 +199,15 @@ export async function loadEntityWrites({
     {},
   );
 
+  // Память разделов последней записи — общая у записи и разбора ответа
+  const lastWrittenSections = new Map();
+
+  const keepsWrittenSections = await loadHandler(
+    SHEET_WRITE_PATH,
+    'keepsWrittenSections',
+    { lastWrittenSections, toRaw: (value) => value },
+  );
+
   // Запись и разбор ответа зовут друг друга (повтор после отказа), поэтому
   // запись приходит разбору ссылкой, которая заполняется ниже
   const sheetWrite = { writeSheetChange: () => null };
@@ -209,6 +218,7 @@ export async function loadEntityWrites({
     {
       resendSheetInFull,
       pickSheetSections,
+      keepsWrittenSections,
       writeSheetChange: (...args) => sheetWrite.writeSheetChange(...args),
       buildEntityPatch: engine.buildEntityPatch,
       useWorldEntities: () => ({ findCurrentDndEntity: findEntity }),
@@ -232,6 +242,7 @@ export async function loadEntityWrites({
       buildEntityPatch: engine.buildEntityPatch,
       withPatchRecordIds: engine.withPatchRecordIds,
       pickSheetSections,
+      lastWrittenSections,
       settleSheetWrite,
       keepsCombatState: await loadHandler(
         SHEET_WRITE_PATH,

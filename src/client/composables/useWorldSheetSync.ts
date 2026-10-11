@@ -3,7 +3,8 @@
  * время игры, подтягиваются в черновик, пока лист не в режиме правки.
  *
  * Один на лист персонажа и лист существа: у каждого был свой набор
- * наблюдателей, и лист существа раздел заклинаний пропустил.
+ * наблюдателей, и лист существа раздел заклинаний пропустил. Токен сущности
+ * подтягивается тем же помощником.
  */
 
 import type { Ref } from 'vue';
@@ -13,6 +14,8 @@ import type { DnDSceneEntity } from '@vtt/shared/system/dnd.js';
 import type { EntityDraftBase } from './useEntityDraftWrite';
 
 import { watch } from 'vue';
+
+import { cloneEntityData } from '@vtt/shared/system/dnd.js';
 
 import {
   copyWorldSection,
@@ -91,6 +94,28 @@ export function useWorldSheetSync<Entity extends DnDSceneEntity>(
       { deep: true },
     );
   }
+
+  // Токен правят окно настроек и сцена, лист его только показывает и хранит в
+  // черновике. Правило то же, что у разделов: вне режима правки — в черновик
+  // и в основу; в правке синхронизация стоит, иначе «Сохранить» отправило бы
+  // чужое изменение токена как правку листа
+  watch(
+    () => options.readWorld()?.token,
+    (worldToken) => {
+      if (!worldToken || options.isPaused()) {
+        return;
+      }
+
+      if (options.draft.value) {
+        options.draft.value.token = cloneEntityData(worldToken);
+      }
+
+      if (options.base.value) {
+        options.base.value.token = cloneEntityData(worldToken);
+      }
+    },
+    { deep: true },
+  );
 
   return { pullFromWorld };
 }

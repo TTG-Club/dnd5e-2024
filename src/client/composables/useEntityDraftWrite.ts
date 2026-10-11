@@ -9,15 +9,15 @@
  * черновиком; сервер кладёт её на свою текущую сущность.
  *
  * Основа ведётся рядом с черновиком и значит «что из черновика сервер уже
- * знает»: её двигает только правка, которую сервер записал, и раздел,
+ * знает или вот-вот узнает»: её двигает каждая отправка и каждый раздел,
  * подтянутый из мира (`useWorldSheetSync`). Поэтому в разницу не попадает ни
- * уже записанное, ни пришедшее из мира, а несохранённое уходит со следующей
- * отправкой само.
+ * уже посланное, ни пришедшее из мира. Правку, которую сервер не записал,
+ * основа забывает — встаёт на сущность мира, — и несохранённое уходит со
+ * следующей отправкой.
  */
 
 import type {
   EntityPatchFailure,
-  EntityPatchFailureToast,
   EntityPatchOutcome,
 } from '@/core/entityUtils';
 import type { TypedWebSocketClient } from '@vtt/shared';
@@ -36,8 +36,8 @@ import {
   withPatchRecordIds,
 } from '@vtt/shared/system/dnd.js';
 
+import { useSystemToastStore } from '../stores/systemToastStore';
 import { withoutEntityOwnership } from '../ui/entity-ownership/utils';
-import { copyWorldSections } from './worldSheetSections';
 
 /**
  * Отказ сервера «правка не легла на текущую сущность»: запись списка успели
@@ -79,7 +79,14 @@ export async function saveEntityDraft<Entity extends DnDSceneEntity>(
   // получил — без него разница ушла бы всем списком
   const base = withPatchRecordIds(request.base);
   const draft = withPatchRecordIds(request.draft);
-  const outcome = await emitEntityChange(socket, base, draft);
+
+  // Права лист не правит: копия идёт без них, и управляющие, назначенные
+  // ведущим за время правки, из устаревшего черновика не перезаписываются
+  const outcome = await emitEntityChange(
+    socket,
+    base,
+    withoutEntityOwnership(draft),
+  );
 
   if (outcome.ok || outcome.reason !== PATCH_CONFLICT_REASON) {
     return outcome;
@@ -94,12 +101,17 @@ export async function saveEntityDraft<Entity extends DnDSceneEntity>(
   return emitEntityChange(
     socket,
     withPatchRecordIds(world),
-    withPatchRecordIds(mergeEntityDraft(base, draft, world, request.isEntity)),
+    withoutEntityOwnership(
+      withPatchRecordIds(
+        mergeEntityDraft(base, draft, world, request.isEntity),
+      ),
+    ),
   );
 }
 
 /**
- * Сохраняет поля окна настроек поверх сущности мира.
+ * Сохраняет поля окна настроек поверх сущности мира и сообщает игроку, если
+ * сервер их не записал.
  *
  * Окно отдаёт часть полей, собранных от сущности мира в момент сохранения,
  * поэтому основа разницы — она же: серверу уходит только то, чем поля окна от
@@ -109,19 +121,26 @@ export async function saveEntityDraft<Entity extends DnDSceneEntity>(
  * @param socket - сокет мира
  * @param current - сущность мира сейчас
  * @param updates - поля из окна
- * @returns уведомление об отказе либо `null`, если правка записана
+ * @returns `true`, если правка записана; иначе игрок уже видит причину
  */
 export async function saveEntityFields(
   socket: TypedWebSocketClient,
   current: DnDSceneEntity,
   updates: object,
-): Promise<EntityPatchFailureToast | null> {
+): Promise<boolean> {
   const outcome = await emitEntityChange(socket, current, {
     ...withoutEntityOwnership(current),
     ...updates,
   });
 
-  return buildEntityPatchFailureToast(outcome, current.name);
+  const failureToast = buildEntityPatchFailureToast(outcome, current.name);
+
+  if (failureToast) {
+    // Окно зовёт помощника уже после `setup` — уведомление идёт через стор
+    useSystemToastStore().add(failureToast);
+  }
+
+  return failureToast === null;
 }
 
 /** Что связывает черновик с записью */
@@ -145,17 +164,11 @@ export interface EntityDraftBase<Entity extends DnDSceneEntity> {
   value: Entity | null;
 }
 
-/** Пара «основа → черновик», снятая в момент нажатия «Сохранить» */
-interface FixedDraftChange<Entity extends DnDSceneEntity> {
-  base: Entity;
-  draft: Entity;
-}
-
 /** Основа черновика и его отправка */
 export interface EntityDraftWrite<Entity extends DnDSceneEntity> {
   /**
-   * Основа: то, что из черновика сервер уже знает. Раздел, подтянутый из мира
-   * в черновик, кладётся и сюда
+   * Основа: то, что из черновика сервер уже знает или вот-вот узнает. Раздел,
+   * подтянутый из мира в черновик, кладётся и сюда
    */
   draftBase: EntityDraftBase<Entity>;
   /** Основа := копия черновика (черновик заново взят из мира либо создан) */
@@ -174,10 +187,15 @@ export interface EntityDraftWrite<Entity extends DnDSceneEntity> {
 /**
  * Ведёт основу черновика и шлёт его правки частичной записью.
  *
- * Отправки идут по очереди: следующая считает разницу уже после ответа на
- * предыдущую. Основа двигается только записанной правкой — отказ сервера её
- * не трогает, поэтому несохранённое остаётся несохранённым и уходит со
- * следующей отправкой, а игрок видит причину отказа.
+ * Пара «основа → черновик» снимается в момент вызова и уходит сразу: ответ
+ * сервера на прежнюю правку рассылается раньше её подтверждения и успевает
+ * переписать раздел черновика, поэтому правка, отложенная до ответа, до
+ * сервера уже не дошла бы. Основа при этом сразу встаёт на посланное —
+ * следующая правка в том же тике шлёт только себя.
+ *
+ * Правку, которую сервер не записал, основа забывает: встаёт на сущность
+ * мира, и всё, чем черновик от неё отличается, уйдёт со следующей отправкой.
+ * Игрок видит причину отказа.
  *
  * @param options - черновик, сущность мира и гвард формы
  * @returns основа черновика, её сброс и отправка правки
@@ -188,9 +206,6 @@ export function useEntityDraftWrite<Entity extends DnDSceneEntity>(
   const toast = useToast();
   const draftBase: EntityDraftBase<Entity> = { value: null };
 
-  /** Очередь отправок: каждая ждёт ответа на предыдущую */
-  let sendQueue: Promise<void> = Promise.resolve();
-
   function rebaseDraft(): void {
     const draft = options.readDraft();
 
@@ -198,13 +213,25 @@ export function useEntityDraftWrite<Entity extends DnDSceneEntity>(
   }
 
   /**
-   * Кладёт записанную сервером правку в основу — по одной операции. За время
-   * отправки в основу мог прийти раздел из мира, и он уже несёт часть правки
-   * (ответ сервера рассылается раньше подтверждения): операция, которая на
-   * такую основу не легла, там уже учтена.
+   * Основа := сущность мира. Так основа забывает правку, которую сервер не
+   * записал, и догоняет мир целиком после режима правки: за его время мир мог
+   * сменить и то, что синхронизация листа не ведёт (имя, права).
+   */
+  function rebaseOnWorld(): void {
+    const world = options.readWorld();
+
+    if (world) {
+      draftBase.value = cloneEntityData(world);
+    }
+  }
+
+  /**
+   * Кладёт посланную правку в основу — по одной операции: на сущность мира
+   * ложится не всё (запись списка успели убрать), и то, что не легло, остаётся
+   * несохранённым.
    *
-   * @param sentBase - основа отправленной правки
-   * @param sentDraft - отправленный черновик
+   * @param sentBase - основа посланной правки
+   * @param sentDraft - посланный черновик
    */
   function acceptSentChange(sentBase: Entity, sentDraft: Entity): void {
     for (const operation of buildEntityPatch(sentBase, sentDraft)) {
@@ -218,66 +245,46 @@ export function useEntityDraftWrite<Entity extends DnDSceneEntity>(
     }
   }
 
-  /**
-   * Шлёт одну правку и по ответу сервера двигает основу либо сообщает отказ.
-   *
-   * @param socket - сокет мира
-   * @param fixed - пара «основа → черновик» из режима правки; без неё шлётся
-   *   несохранённое на момент отправки
-   */
-  async function sendChange(
-    socket: TypedWebSocketClient,
-    fixed: FixedDraftChange<Entity> | null,
-  ): Promise<void> {
-    const base = fixed?.base ?? draftBase.value;
-    const draft = fixed?.draft ?? options.readDraft();
+  function saveDraft(socket: TypedWebSocketClient, base?: Entity | null): void {
+    const draft = options.readDraft();
+    const sourceBase = base ?? draftBase.value;
 
     // Сущности в мире нет — писать некуда: новый лист до первого «Сохранить»
-    if (!options.readWorld() || !base || !draft) {
+    if (!options.readWorld() || !draft || !sourceBase) {
       return;
     }
 
     // Копии: основу правит синхронизация с миром, черновик — игрок, а
     // пересборка правки после отказа читает оба уже после ответа сервера
-    const sentBase = cloneEntityData(base);
-    const sentDraft = cloneEntityData(draft);
+    const sentBase = withPatchRecordIds(cloneEntityData(sourceBase));
+    const sentDraft = withPatchRecordIds(cloneEntityData(draft));
 
-    const outcome = await saveEntityDraft({
+    if (base) {
+      // «Сохранить» из режима правки: синхронизация с миром стояла, а лист
+      // сейчас покажет черновик, слитый с миром. Основа — мир плюс правки
+      rebaseOnWorld();
+      acceptSentChange(sentBase, sentDraft);
+    } else {
+      draftBase.value = cloneEntityData(sentDraft);
+    }
+
+    void saveEntityDraft({
       socket,
       base: sentBase,
       draft: sentDraft,
       readWorld: options.readWorld,
       isEntity: options.isEntity,
+    }).then((outcome) => {
+      const failureToast = buildEntityPatchFailureToast(
+        outcome,
+        sentDraft.name,
+      );
+
+      if (failureToast) {
+        rebaseOnWorld();
+        toast.add(failureToast);
+      }
     });
-
-    const failureToast = buildEntityPatchFailureToast(outcome, sentDraft.name);
-
-    if (failureToast) {
-      toast.add(failureToast);
-
-      return;
-    }
-
-    acceptSentChange(sentBase, sentDraft);
-  }
-
-  function saveDraft(socket: TypedWebSocketClient, base?: Entity | null): void {
-    const draft = options.readDraft();
-    const world = options.readWorld();
-
-    // Пара из режима правки снимается сейчас: сразу после «Сохранить» лист
-    // сливает черновик с миром, и позже разница несла бы чужие изменения
-    const fixed =
-      base && draft
-        ? { base: cloneEntityData(base), draft: cloneEntityData(draft) }
-        : null;
-
-    // Синхронизация с миром на время правки стояла — основа догоняет мир
-    if (fixed && world && draftBase.value) {
-      copyWorldSections(draftBase.value, world);
-    }
-
-    sendQueue = sendQueue.then(() => sendChange(socket, fixed));
   }
 
   return { draftBase, rebaseDraft, saveDraft };

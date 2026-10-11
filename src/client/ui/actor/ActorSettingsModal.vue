@@ -658,15 +658,7 @@
 
         // Серверу — только то, чем поля окна отличаются от персонажа мира:
         // урон, пришедший, пока окно было открыто, сохранение не возвращает
-        const failureToast = await saveEntityFields(
-          props.socket,
-          actor.value,
-          updates,
-        );
-
-        if (failureToast) {
-          toast.add(failureToast);
-
+        if (!(await saveEntityFields(props.socket, actor.value, updates))) {
           return;
         }
       } else if (props.onSave) {

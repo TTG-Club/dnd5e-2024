@@ -277,6 +277,26 @@ it('правка не легла, а рассылка уже принесла с
   assert.equal(toasts.length, 0);
 });
 
+it('две записи в одном тике, первая не легла: сущность уходит целиком, трата не задваивается', async () => {
+  const world = new Map([['hero', hero()]]);
+  const answers = [PATCH_CONFLICT];
+
+  const { changeEntitySheet, patches, fullWrites } = await loadEntityWrites({
+    world,
+    answerPatch: () => answers.shift() ?? { ok: true, changed: true },
+  });
+
+  changeEntitySheet('hero', spendFirstSlot);
+  changeEntitySheet('hero', spendFirstSlot);
+  await settleAnswers();
+
+  // Стор несёт разделы наших записей — сервер отстал: повторять трату
+  // поверх стора, где она уже есть, нельзя
+  assert.equal(patches.length, 2, 'повторной правки нет');
+  assert.equal(fullWrites.length, 1);
+  assert.deepEqual([...fullWrites[0].system.spellSlotsUsed], [2, 0]);
+});
+
 it('повтор правки сам не повторяется: о втором отказе узнаёт игрок', async () => {
   const world = new Map([['hero', hero()]]);
 

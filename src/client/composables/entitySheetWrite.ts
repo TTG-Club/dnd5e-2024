@@ -29,6 +29,8 @@ import type { DnDSceneEntity } from '@vtt/shared/system/dnd.js';
 
 import type { SheetWriteSection } from './worldSheetSections';
 
+import { toRaw } from 'vue';
+
 import {
   buildEntityPatchFailureToast,
   emitEntityPatch,
@@ -114,6 +116,34 @@ function resendSheetInFull(
   );
 }
 
+/**
+ * Разделы, которые система положила в стор последней записью листа, — по
+ * сущностям. По ним разбор отказа узнаёт, заменила ли рассылка сервера
+ * сущность стора: пока разделы стора те же объекты, сервер отстаёт, и
+ * сколько бы записей ни прошло в одном тике, стор несёт их все.
+ */
+const lastWrittenSections = new Map<
+  string,
+  Pick<DnDSceneEntity, SheetWriteSection>
+>();
+
+/**
+ * Несёт ли стор разделы последней записи листа — те же объекты.
+ *
+ * @param current - сущность стора
+ * @returns `true`, если рассылка сервера сущность ещё не заменила
+ */
+function keepsWrittenSections(current: DnDSceneEntity): boolean {
+  const written = lastWrittenSections.get(current.id);
+
+  return (
+    written !== undefined
+    && toRaw(current.system) === written.system
+    && toRaw(current.equipment) === written.equipment
+    && toRaw(current.spells) === written.spells
+  );
+}
+
 /** Преобразование листа: новая сущность от свежей либо `null` */
 type SheetChange = (current: DnDSceneEntity) => DnDSceneEntity | null;
 
@@ -149,9 +179,9 @@ function pickSheetSections(
  * Разбирает ответ сервера на правку листа.
  *
  * Правка не легла на сущность сервера — повторяется один раз: если стор всё
- * ещё несёт нашу правку (сервер отстал), сущность стора уходит целиком; если
- * рассылка уже заменила её сущностью сервера, преобразование выполняется
- * заново над ней. О прочих отказах и о неудавшемся повторе узнаёт игрок —
+ * ещё несёт разделы наших записей (сервер отстал), сущность стора уходит
+ * целиком — со всеми записями этого тика; если рассылка уже заменила её
+ * сущностью сервера, преобразование выполняется заново над ней. О прочих отказах и о неудавшемся повторе узнаёт игрок —
  * стор уже показывает списанное, а на сервере его нет.
  *
  * @param outcome - ответ сервера
@@ -170,10 +200,15 @@ function settleSheetWrite(
   if (outcome.reason === PATCH_CONFLICT_REASON && sent.mayRetry) {
     const current = useWorldEntities().findCurrentDndEntity(entity.id);
 
+    // Тот же объект раздела либо то же содержимое: стор хоста мог положить
+    // раздел копией, и по одной ссылке «сервер отстал» не узнать
     const storeKeepsChange =
       current !== undefined
-      && buildEntityPatch(pickSheetSections(current), pickSheetSections(entity))
-        .length === 0;
+      && (keepsWrittenSections(current)
+        || buildEntityPatch(
+          pickSheetSections(current),
+          pickSheetSections(entity),
+        ).length === 0);
 
     if (storeKeepsChange) {
       resendSheetInFull(socket, entity.id);
@@ -287,6 +322,8 @@ function writeSheetChange(
   // Разделы — по списку `SHEET_WRITE_SECTIONS`: те же подтягивают из мира
   // открытые листы; новый раздел в списке без строки здесь не соберётся
   const sections = pickSheetSections(next);
+
+  lastWrittenSections.set(next.id, sections);
 
   if (isActorEntity(next)) {
     worldStore.updateActor(worldId, next.id, sections);

@@ -586,15 +586,7 @@
 
         // Серверу — только то, чем поля окна отличаются от существа мира:
         // урон, пришедший, пока окно было открыто, сохранение не возвращает
-        const failureToast = await saveEntityFields(
-          props.socket,
-          creature.value,
-          updates,
-        );
-
-        if (failureToast) {
-          toast.add(failureToast);
-
+        if (!(await saveEntityFields(props.socket, creature.value, updates))) {
           return;
         }
 

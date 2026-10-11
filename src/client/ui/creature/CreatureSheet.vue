@@ -36,7 +36,6 @@
   import {
     applyCreatureRest,
     calculateAbilityModifier,
-    cloneEntityData,
     CR_TABLE,
     createInventoryItem,
     CREATURE_ENVIRONMENTS,
@@ -542,29 +541,6 @@
   );
 
   /**
-   * Синхронизация token из store в localCreature.
-   * Позволяет обновлять визуал/зрение, если они были изменены через настройки токена.
-   */
-  watch(
-    () => storeCreature.value?.token,
-    (newToken) => {
-      if (isEditMode.value || !newToken) {
-        return;
-      }
-
-      if (localCreature.value) {
-        localCreature.value.token = cloneEntityData(newToken);
-      }
-
-      // Пришло из мира — не правка листа: основа получает то же
-      if (draftBase.value) {
-        draftBase.value.token = cloneEntityData(newToken);
-      }
-    },
-    { deep: true },
-  );
-
-  /**
    * Разделы, которые система пишет в мир во время игры (ресурсы листа,
    * предметы, заклинания, эффекты, хиты), подтягиваются из стора в
    * localCreature — тем же помощником, что у листа персонажа. Пока лист
@@ -572,7 +548,8 @@
    * и снимает эффекты, передача предмета правит инвентарь. Без этого лист
    * показывал бы прежнее. Пришедшее из мира кладётся и в основу черновика:
    * сохранение шлёт серверу только разницу с ней, и чужое изменение не должно
-   * уйти как правка листа.
+   * уйти как правка листа. Токен подтягивает тот же помощник: его меняют окно
+   * настроек и сцена.
    */
   const { pullFromWorld } = useWorldSheetSync({
     readWorld: () => storeCreature.value,
