@@ -310,7 +310,7 @@ describe('запись листа не откатывает журнал', () =>
       changeEntityCombatState,
       changeEntitySheet,
       emitted,
-      updated,
+      patches,
     } = await setup(hero);
 
     // Трата хода снимком: стор клиента ответа сервера ещё не видел
@@ -325,7 +325,7 @@ describe('запись листа не откатывает журнал', () =>
 
     assert.equal(world.get(hero.id).system.effectUsage, undefined);
 
-    // В том же тике — полная запись ячейки
+    // В том же тике — запись ячейки
     changeEntitySheet(hero.id, (current) => ({
       ...current,
       system: {
@@ -334,13 +334,13 @@ describe('запись листа не откатывает журнал', () =>
       },
     }));
 
-    assert.equal(updated.length, 1);
-    server.receiveUpdate(updated[0]);
+    assert.equal(patches.length, 1);
+    server.receivePatch(patches[0]);
 
     assert.deepEqual(
       Object.keys(engine.readTriggerUsage(server.entity)),
       ['turnSpend|action'],
-      'полная запись не стёрла трату хода',
+      'запись листа не стёрла трату хода',
     );
 
     assert.equal(server.entity.system.spellSlotsUsed[0], 1);
@@ -358,7 +358,21 @@ describe('запись листа не откатывает журнал', () =>
       },
     }));
 
-    assert.deepEqual(Object.keys(engine.readTriggerUsage(updated[1])), [
+    assert.deepEqual(
+      patches[1].operations,
+      [
+        {
+          op: 'set',
+          path: ['system', 'spellSlotsUsed'],
+          value: [2, 0, 0, 0, 0, 0, 0, 0, 0],
+        },
+      ],
+      'правка листа несёт только ячейки: журнал в ней не едет',
+    );
+
+    server.receivePatch(patches[1]);
+
+    assert.deepEqual(Object.keys(engine.readTriggerUsage(server.entity)), [
       'turnSpend|action',
     ]);
   });
@@ -372,7 +386,7 @@ describe('запись листа не откатывает журнал', () =>
       changeEntitySheet,
       sendTriggerUsageSpend,
       emitted,
-      updated,
+      patches,
       errors,
     } = await setup(hero);
 
@@ -395,9 +409,17 @@ describe('запись листа не откатывает журнал', () =>
       engine.withSheetResources(current, paid),
     );
 
-    assert.equal(updated.length, 1);
+    assert.equal(patches.length, 1);
     assert.equal(emitted.length, 0, 'запись листа боевой снимок не шлёт');
-    assert.equal(updated[0].system.effectUsage?.['free|die'], undefined);
+
+    assert.equal(
+      patches[0].operations.some(
+        (operation) => operation.path[1] === 'effectUsage',
+      ),
+      false,
+      'журнал в правке листа не едет',
+    );
+
     assert.deepEqual(errors, []);
 
     // Расход журнала — боевым помощником, разницей «до оплаты → после»
@@ -422,7 +444,7 @@ describe('запись листа не откатывает журнал', () =>
 
   it('преобразование листа, тронувшее журнал, — ошибка: журнал не уходит', async () => {
     const hero = withHp(createActor, TARGET_HP);
-    const { changeEntitySheet, emitted, updated, errors } = await setup(hero);
+    const { changeEntitySheet, emitted, patches, errors } = await setup(hero);
 
     // Только журнал: писать нечего
     assert.equal(
@@ -445,9 +467,12 @@ describe('запись листа не откатывает журнал', () =>
 
     assert.equal(errors.length, 2);
     assert.equal(emitted.length, 0);
-    assert.equal(updated.length, 1);
-    assert.equal(updated[0].system.effectUsage, undefined);
-    assert.equal(updated[0].system.inspiration, true);
+
+    // На сервер ушло только вдохновение: журнал из преобразования не взят
+    assert.deepEqual(
+      patches.map((patch) => patch.operations),
+      [[{ op: 'set', path: ['system', 'inspiration'], value: true }]],
+    );
   });
 
   it('перенос оплаты с ранней копии журнал не трогает: ключ прошлого хода не возвращается', () => {

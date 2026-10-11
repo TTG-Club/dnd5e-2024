@@ -13,7 +13,9 @@ import { systemRoot } from './helpers/engineBundle.mjs';
  *
  * Клиент, который сам собирает копию и шлёт её целиком, затирает то, что
  * сервер изменил после копии: конец прежнего каста, метку концентрации.
- * Помощник боевой записи берёт сущность свежей и шлёт разницу эффектов.
+ * Помощник боевой записи берёт сущность свежей и шлёт разницу эффектов;
+ * ресурсы листа, листы и окна настройки шлют частичную запись — только то,
+ * что изменили.
  */
 
 /** Единственное место, откуда система зовёт боевой канал ядра */
@@ -22,12 +24,19 @@ const COMBAT_WRITE_FILE = 'src/client/composables/entityCombatWrite.ts';
 /** Вызов боевого канала ядра */
 const COMBAT_CHANNEL_CALL = /\bemitEntityCombatState\(/u;
 
-/** Единственное место полной записи сущности во время игры */
+/**
+ * Запись ресурсов листа во время игры. Единственное место, где осталась
+ * полная запись: запасной путь для правки, которая не легла на сущность
+ * сервера
+ */
 const SHEET_WRITE_FILE = 'src/client/composables/entitySheetWrite.ts';
 
+/** Общий помощник сохранения черновика частичной записью */
+const DRAFT_WRITE_FILE = 'src/client/composables/useEntityDraftWrite.ts';
+
 /**
- * Листы и окна настройки: их сохранение — правка владельцем, полная запись
- * черновика листа. Остаются своим сохранением.
+ * Листы, быстрые панели и окна настройки: сохраняют черновик частичной
+ * записью через общий помощник, сами на сервер ничего не шлют.
  */
 const SHEET_SAVE_FILES = [
   'src/client/ui/actor/ActorSettingsModal.vue',
@@ -42,6 +51,12 @@ const SHEET_SAVE_FILES = [
 /** Полная запись сущности: помощником ядра или событием напрямую */
 const FULL_WRITE_CALL =
   /\bemitEntityUpdate\(|\.emit\(\s*'(?:actor|creature):updated'/u;
+
+/** Частичная запись сущности помощниками ядра */
+const PARTIAL_WRITE_CALL = /\bemitEntity(?:Patch|Change)\(/u;
+
+/** Сохранение черновика общим помощником системы */
+const DRAFT_SAVE_CALL = /\b(?:saveDraft|saveCopy|saveEntityFields)\(/u;
 
 /** Правка стора хоста: только вместе с записью, в помощнике */
 const STORE_WRITE_CALL = /\.update(?:Actor|Creature)\(/u;
@@ -86,11 +101,25 @@ function listCallers(pattern) {
     .sort();
 }
 
-it('полная запись сущности — только помощник записи листа и сохранения листов', () => {
+it('полная запись сущности — только запасной путь помощника записи листа', () => {
+  assert.deepEqual(listCallers(FULL_WRITE_CALL), [SHEET_WRITE_FILE]);
+});
+
+it('частичную запись ядра зовут только два помощника записи', () => {
   assert.deepEqual(
-    listCallers(FULL_WRITE_CALL),
-    [SHEET_WRITE_FILE, ...SHEET_SAVE_FILES].sort(),
+    listCallers(PARTIAL_WRITE_CALL),
+    [SHEET_WRITE_FILE, DRAFT_WRITE_FILE].sort(),
   );
+});
+
+it('листы, быстрые панели и окна настройки сохраняют общим помощником', () => {
+  for (const path of SHEET_SAVE_FILES) {
+    assert.match(
+      readFileSync(join(systemRoot, path), 'utf8'),
+      DRAFT_SAVE_CALL,
+      `${path}: сохранение идёт мимо общего помощника`,
+    );
+  }
 });
 
 it('стор хоста правит только помощник записи листа', () => {
@@ -114,11 +143,10 @@ it('горячая панель не шлёт копию, снятую до ок
  * @returns {Promise<object>} помощник и журнал отправок
  */
 async function loadSheetWrite(world) {
-  const { changeEntitySheet, updated, errors } = await loadEntityWrites({
-    world,
-  });
+  const { changeEntitySheet, updated, patches, errors } =
+    await loadEntityWrites({ world });
 
-  return { changeEntitySheet, emitted: updated, errors };
+  return { changeEntitySheet, emitted: updated, patches, errors };
 }
 
 /**
@@ -140,7 +168,7 @@ function hero(overrides = {}) {
 
 it('помощник записи листа читает сущность в момент вызова; две записи подряд не теряют первую', async () => {
   const world = new Map([['hero', hero()]]);
-  const { changeEntitySheet, emitted } = await loadSheetWrite(world);
+  const { changeEntitySheet, emitted, patches } = await loadSheetWrite(world);
 
   // Пока окно было открыто, сервер снял хиты
   world.set(
@@ -164,9 +192,110 @@ it('помощник записи листа читает сущность в м
   changeEntitySheet('hero', spendFirstLevel);
 
   assert.equal(emitted.length, 2);
-  assert.equal(emitted[0].system.hitPoints.current, 12, 'хиты — свежие');
+
+  assert.deepEqual(
+    patches[0].operations,
+    [{ op: 'set', path: ['system', 'spellSlotsUsed'], value: [1, 0] }],
+    'на сервер — только ячейки: хиты в правке не едут',
+  );
+
   assert.deepEqual([...emitted[1].system.spellSlotsUsed], [2, 0]);
   assert.deepEqual([...world.get('hero').system.spellSlotsUsed], [2, 0]);
+});
+
+/**
+ * Даёт отработать ответу сервера на правку листа.
+ *
+ * @returns {Promise<void>}
+ */
+function settleAnswers() {
+  return new Promise((resolve) => {
+    setImmediate(resolve);
+  });
+}
+
+/** Ответ сервера «правка не легла на его сущность» */
+const PATCH_CONFLICT = { ok: false, reason: 'conflict', operationIndex: 0 };
+
+/**
+ * Трата первой ячейки от свежей сущности.
+ *
+ * @param {object} current - сущность мира
+ * @returns {object} сущность с потраченной ячейкой
+ */
+function spendFirstSlot(current) {
+  return {
+    ...current,
+    system: {
+      ...current.system,
+      spellSlotsUsed: current.system.spellSlotsUsed.map((count, index) =>
+        index === 0 ? count + 1 : count,
+      ),
+    },
+  };
+}
+
+it('правка не легла, а рассылка уже принесла сущность сервера — преобразование выполняется заново', async () => {
+  const world = new Map([['hero', hero()]]);
+  const answers = [PATCH_CONFLICT];
+
+  const { changeEntitySheet, patches, fullWrites, toasts } =
+    await loadEntityWrites({
+      world,
+      answerPatch: () => {
+        // Сервер ушёл вперёд: другой клиент потратил ячейку второго уровня, и
+        // рассылка заменила сущность стора раньше, чем пришёл отказ
+        if (answers.length > 0) {
+          world.set(
+            'hero',
+            hero({
+              system: {
+                hitPoints: { current: 30, temp: 0 },
+                spellSlotsUsed: [0, 1],
+              },
+            }),
+          );
+        }
+
+        return answers.shift() ?? { ok: true, changed: true };
+      },
+    });
+
+  changeEntitySheet('hero', spendFirstSlot);
+  await settleAnswers();
+
+  assert.deepEqual(
+    patches.map((patch) => patch.operations[0].value),
+    [
+      [1, 0],
+      [1, 1],
+    ],
+    'повтор считает трату от сущности сервера, а не от прежней копии',
+  );
+
+  assert.equal(fullWrites.length, 0, 'полная запись не нужна');
+  assert.equal(toasts.length, 0);
+});
+
+it('повтор правки сам не повторяется: о втором отказе узнаёт игрок', async () => {
+  const world = new Map([['hero', hero()]]);
+
+  const { changeEntitySheet, patches, fullWrites, toasts } =
+    await loadEntityWrites({
+      world,
+      answerPatch: () => {
+        world.set('hero', hero());
+
+        return PATCH_CONFLICT;
+      },
+    });
+
+  changeEntitySheet('hero', spendFirstSlot);
+  await settleAnswers();
+
+  assert.equal(patches.length, 2, 'правка и один повтор');
+  assert.equal(fullWrites.length, 0);
+  assert.deepEqual(toasts, [{ title: 'Герой', description: 'conflict' }]);
 });
 
 it('помощник записи листа не шлёт правку хитов и эффектов', async () => {

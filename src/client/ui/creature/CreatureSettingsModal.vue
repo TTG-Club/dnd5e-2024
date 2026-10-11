@@ -38,6 +38,7 @@
     TOKEN_SCALE_TO_CREATURE_SIZE,
   } from '@vtt/shared/system/dnd.js';
 
+  import { saveEntityFields } from '../../composables/useEntityDraftWrite';
   import { useEntityOwnershipSettings } from '../../composables/useEntityOwnershipSettings';
   import {
     TOKEN_TINT_DEFAULT,
@@ -60,7 +61,6 @@
   import { readTokenVision } from '../actor/tokenVision';
   import { ENTITY_OWNERSHIP_CONFLICT_TOAST } from '../entity-ownership/constants';
   import EntityOwnersSelect from '../entity-ownership/EntityOwnersSelect.vue';
-  import { withoutEntityOwnership } from '../entity-ownership/utils';
   import {
     CREATURE_ICON,
     CREATURE_NO_ALIGNMENT,
@@ -506,7 +506,7 @@
     }
   }
 
-  function saveSettings() {
+  async function saveSettings(): Promise<void> {
     if (!creature.value) {
       return;
     }
@@ -584,10 +584,19 @@
       if (props.creatureId) {
         requireSocket(props.socket);
 
-        props.socket.emit('creature:updated', {
-          ...withoutEntityOwnership(creature.value),
-          ...updates,
-        });
+        // Серверу — только то, чем поля окна отличаются от существа мира:
+        // урон, пришедший, пока окно было открыто, сохранение не возвращает
+        const failureToast = await saveEntityFields(
+          props.socket,
+          creature.value,
+          updates,
+        );
+
+        if (failureToast) {
+          toast.add(failureToast);
+
+          return;
+        }
 
         props.onPersistedSave?.(updates);
       } else {

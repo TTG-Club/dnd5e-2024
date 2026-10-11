@@ -46,6 +46,7 @@
     calculateAbilityModifier,
     calculateMaxHP,
     checkFeatPrerequisites,
+    cloneEntityData,
     collectClassCounterDefinitions,
     collectFeatsAwaitingLeveledChoices,
     collectRechoosableFeats,
@@ -82,6 +83,7 @@
   } from '../../composables/sheetEditLock';
   import { useClassCatalog } from '../../composables/useClassCatalog';
   import { useCompendiumCatalog } from '../../composables/useCompendiumCatalog';
+  import { useEntityDraftWrite } from '../../composables/useEntityDraftWrite';
   import {
     isItemTransferDrop,
     useItemTransfer,
@@ -90,7 +92,6 @@
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
   import { useWorldSheetSync } from '../../composables/useWorldSheetSync';
   import { useSystemDataStore } from '../../stores/systemDataStore';
-  import { withoutEntityOwnership } from '../entity-ownership/utils';
   import ActorCenterPanel from './ActorCenterPanel.vue';
   import ActorHeader from './ActorHeader.vue';
   import ActorLeftPanel from './ActorLeftPanel.vue';
@@ -597,6 +598,13 @@
     });
   });
 
+  // Основа черновика: от неё считается то, что сохранение шлёт серверу
+  const { draftBase, rebaseDraft, saveDraft } = useEntityDraftWrite({
+    readDraft: () => localActor.value,
+    readWorld: () => storeActor.value,
+    isEntity: isDndActorRecord,
+  });
+
   function initializeActor() {
     if (props.actorId) {
       const world = worldStore.getWorldById(props.worldId);
@@ -651,6 +659,7 @@
     }
 
     isDirty.value = false;
+    rebaseDraft();
   }
 
   watch(
@@ -667,8 +676,19 @@
   watch(
     () => storeActor.value?.token,
     (newToken) => {
-      if (localActor.value && newToken) {
-        localActor.value.token = JSON.parse(JSON.stringify(newToken));
+      // В режиме правки синхронизация стоит: снимок входа токен не получает,
+      // и «Сохранить» отправило бы чужое изменение токена как правку листа
+      if (isEditMode.value || !newToken) {
+        return;
+      }
+
+      if (localActor.value) {
+        localActor.value.token = cloneEntityData(newToken);
+      }
+
+      // Пришло из мира — не правка листа: основа получает то же
+      if (draftBase.value) {
+        draftBase.value.token = cloneEntityData(newToken);
       }
     },
     { deep: true },
@@ -678,11 +698,10 @@
    * Разделы, которые система пишет в мир во время игры (ресурсы листа,
    * предметы, заклинания, эффекты, хиты), подтягиваются из стора в localActor.
    *
-   * Зачем: localActor — глубокая копия на момент открытия листа, а все
-   * сохранения отправляют актёра ЦЕЛИКОМ (`actor:updated`). Без обратной
-   * синхронизации любое сохранение листа затирало бы на сервере изменения,
-   * пришедшие извне после открытия (потерянное обновление — так «слетали»
-   * формулы заклинаний).
+   * Зачем: localActor — глубокая копия на момент открытия листа, и лист
+   * показывает её, а не мир. Сохранение шлёт серверу только разницу с
+   * основой черновика, поэтому пришедшее из мира кладётся и в черновик, и в
+   * основу: иначе лист отправил бы чужое изменение как своё.
    *
    * В режиме редактирования синхронизация выключена: локальные правки имеют
    * приоритет до «Сохранить»/«Отменить».
@@ -690,6 +709,7 @@
   const { pullFromWorld } = useWorldSheetSync({
     readWorld: () => storeActor.value,
     draft: localActor,
+    base: draftBase,
     isPaused: () => isEditMode.value,
   });
 
@@ -703,13 +723,13 @@
   );
 
   /**
-   * Что уходит на сервер по «Сохранить». Черновик правки сливается с миром:
-   * правки владельца — из черновика, всё, что он не трогал, — из мира. Иначе
-   * сохранение вернуло бы то, что мир изменил за время правки (урон от
-   * другого клиента, срабатывание сервера, списанный ресурс).
+   * Что лист показывает после «Сохранить». Черновик правки сливается с миром:
+   * правки владельца — из черновика, всё, что он не трогал, — из мира (урон от
+   * другого клиента, срабатывание сервера, списанный ресурс). На сервер при
+   * этом уходят только правки владельца — разница со снимком входа в правку.
    *
    * @param draft - черновик листа
-   * @returns персонаж для записи
+   * @returns персонаж, каким он станет после записи
    */
   function resolveActorToSave(draft: DnDActor): DnDActor {
     const world = storeActor.value;
@@ -741,11 +761,7 @@
 
     try {
       requireSocket(props.socket);
-
-      props.socket.emit(
-        'actor:updated',
-        withoutEntityOwnership(localActor.value),
-      );
+      saveDraft(props.socket);
 
       isDirty.value = false;
     } catch (error) {
@@ -999,8 +1015,10 @@
       if (props.actorId) {
         const saved = resolveActorToSave(localActor.value);
 
+        // Основа правки — снимок входа в режим: синхронизация с миром на время
+        // правки стояла, и всё, чем черновик от него отличается, — правки листа
+        saveDraft(props.socket, isEditMode.value ? savedSnapshot.value : null);
         localActor.value = saved;
-        props.socket.emit('actor:updated', withoutEntityOwnership(saved));
       } else {
         const rawLocalActor = JSON.parse(JSON.stringify(localActor.value));
 
@@ -1012,6 +1030,8 @@
         props.socket.emit('actor:created', newActor);
         emit('save', newActor);
         isCreated.value = true;
+        // Сервер получил лист целиком — дальнейшие правки считаются от него
+        rebaseDraft();
 
         if (props.modalId) {
           updateModalProps(props.modalId, { actorId: newActor.id });

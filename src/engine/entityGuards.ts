@@ -122,6 +122,19 @@ export function isDndCreatureRecord(value: unknown): value is DnDCreature {
 }
 
 /**
+ * Проверяет, что СЫРАЯ запись — лист D&D 5e любого вида, персонаж или
+ * существо: дверь для копий, которые держат окна над обоими листами.
+ *
+ * @param value - сырая запись (копия сущности)
+ * @returns `true`, если это персонаж либо существо с данными D&D
+ */
+export function isDndSceneEntityRecord(
+  value: unknown,
+): value is DnDSceneEntity {
+  return isDndActorRecord(value) || isDndCreatureRecord(value);
+}
+
+/**
  * Проверяет, что сущность сцены — существо D&D 5e.
  *
  * @param entity - сущность сцены в нейтральной форме ядра

@@ -212,7 +212,7 @@ const DIRECT_WORLD_WRITES = {
 
 /** Чем интерфейс мог бы писать в мир сам, мимо входа действия */
 const DIRECT_WORLD_WRITE_PATTERN =
-  /\b(?:changeEntitySheet|changeEntityCombatState|sendComputedCombatState|sendTriggerUsageSpend|requestEndCasts|emitSystemClientEvent|emitEntityUpdate)\(|'(?:actor|creature):(?:updated|created|deleted)'/u;
+  /\b(?:changeEntitySheet|changeEntityCombatState|sendComputedCombatState|sendTriggerUsageSpend|requestEndCasts|emitSystemClientEvent|emitEntityUpdate|emitEntityPatch|emitEntityChange|saveDraft|saveCopy|saveEntityFields)\(|'(?:actor|creature):(?:updated|created|deleted)'/u;
 
 /**
  * Исходник от корня системы.
@@ -1116,15 +1116,17 @@ describe('«Сохранить» сливает черновик с миром',
     assert.equal(saved.spells[0].uses.current, 1);
   });
 
-  it('оба листа шлют по «Сохранить» слитое', () => {
+  it('оба листа шлют по «Сохранить» правки от снимка входа и показывают слитое', () => {
+    // Серверу — разница «снимок входа в правку → черновик», листу — черновик,
+    // слитый с миром; основу двигает ответ сервера, а не лист
     assert.match(
       readSource('src/client/ui/actor/Dnd5eActorSheet.vue'),
-      /const saved = resolveActorToSave\(localActor\.value\);\s*localActor\.value = saved;\s*props\.socket\.emit\('actor:updated', withoutEntityOwnership\(saved\)\);/u,
+      /const saved = resolveActorToSave\(localActor\.value\);[^;]*?saveDraft\(props\.socket, isEditMode\.value \? savedSnapshot\.value : null\);\s*localActor\.value = saved;\s*\} else \{/u,
     );
 
     assert.match(
       readSource('src/client/ui/creature/CreatureSheet.vue'),
-      /const saved = resolveCreatureToSave\(localCreature\.value\);\s*localCreature\.value = saved;\s*props\.socket!\.emit\('creature:updated', withoutEntityOwnership\(saved\)\);/u,
+      /const saved = resolveCreatureToSave\(localCreature\.value\);[^;]*?saveDraft\(props\.socket, isEditMode\.value \? savedSnapshot\.value : null\);\s*localCreature\.value = saved;\s*\} else \{/u,
     );
   });
 });

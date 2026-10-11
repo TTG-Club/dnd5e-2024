@@ -44,6 +44,7 @@
     TOKEN_SCALE_TO_CREATURE_SIZE,
   } from '@vtt/shared/system/dnd.js';
 
+  import { saveEntityFields } from '../../composables/useEntityDraftWrite';
   import { useEntityOwnershipSettings } from '../../composables/useEntityOwnershipSettings';
   import { useResolvedStats } from '../../composables/useResolvedStats';
   import {
@@ -52,7 +53,6 @@
   } from '../../composables/useTokenPreview';
   import { ENTITY_OWNERSHIP_CONFLICT_TOAST } from '../entity-ownership/constants';
   import EntityOwnersSelect from '../entity-ownership/EntityOwnersSelect.vue';
-  import { withoutEntityOwnership } from '../entity-ownership/utils';
   import ActorDeleteConfirmModal from './ActorDeleteConfirmModal.vue';
   import {
     ACTOR_SETTINGS_LABELS,
@@ -585,7 +585,7 @@
     }
   }
 
-  function saveSettings() {
+  async function saveSettings(): Promise<void> {
     if (!actor.value || !currentWorld.value) {
       return;
     }
@@ -654,13 +654,21 @@
       };
 
       if (props.actorId) {
-        const updatedActor: DnDActor = {
-          ...withoutEntityOwnership(actor.value),
-          ...updates,
-        };
-
         requireSocket(props.socket);
-        props.socket.emit('actor:updated', updatedActor);
+
+        // Серверу — только то, чем поля окна отличаются от персонажа мира:
+        // урон, пришедший, пока окно было открыто, сохранение не возвращает
+        const failureToast = await saveEntityFields(
+          props.socket,
+          actor.value,
+          updates,
+        );
+
+        if (failureToast) {
+          toast.add(failureToast);
+
+          return;
+        }
       } else if (props.onSave) {
         props.onSave(updates);
       }

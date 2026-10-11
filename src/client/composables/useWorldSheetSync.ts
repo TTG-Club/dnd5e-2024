@@ -10,6 +10,8 @@ import type { Ref } from 'vue';
 
 import type { DnDSceneEntity } from '@vtt/shared/system/dnd.js';
 
+import type { EntityDraftBase } from './useEntityDraftWrite';
+
 import { watch } from 'vue';
 
 import {
@@ -24,6 +26,12 @@ export interface WorldSheetSyncOptions<Entity extends DnDSceneEntity> {
   readWorld: () => Entity | null | undefined;
   /** Черновик листа */
   draft: Ref<Entity | null>;
+  /**
+   * Основа черновика (`useEntityDraftWrite`): раздел, пришедший из мира,
+   * кладётся и в неё — иначе следующая правка листа отправила бы его серверу
+   * как собственную
+   */
+  base: EntityDraftBase<Entity>;
   /**
    * Синхронизация стоит: в режиме правки локальные правки главнее до
    * «Сохранить» или отмены
@@ -56,6 +64,10 @@ export function useWorldSheetSync<Entity extends DnDSceneEntity>(
     if (world && options.draft.value) {
       copyWorldSections(options.draft.value, world);
     }
+
+    if (world && options.base.value) {
+      copyWorldSections(options.base.value, world);
+    }
   }
 
   for (const section of WORLD_SHEET_SECTIONS) {
@@ -64,8 +76,16 @@ export function useWorldSheetSync<Entity extends DnDSceneEntity>(
       () => {
         const world = options.readWorld();
 
-        if (world && options.draft.value && !options.isPaused()) {
+        if (!world || options.isPaused()) {
+          return;
+        }
+
+        if (options.draft.value) {
           copyWorldSection(options.draft.value, world, section);
+        }
+
+        if (options.base.value) {
+          copyWorldSection(options.base.value, world, section);
         }
       },
       { deep: true },

@@ -4,12 +4,17 @@ import { loadHandler } from './sourceHandler.mjs';
 /** Помощник записи боевого состояния — единственный путь боевого канала */
 const COMBAT_WRITE_PATH = 'src/client/composables/entityCombatWrite.ts';
 
-/** Помощник записи листа — единственный путь полной записи во время игры */
+/** Помощник записи листа — запись ресурсов листа во время игры */
 const SHEET_WRITE_PATH = 'src/client/composables/entitySheetWrite.ts';
 
 // Движок собирается один раз на модуль помощника, как в самих тестах
 // eslint-disable-next-line antfu/no-top-level-await
-const engine = await loadEngineBundle("export * from './src/engine/index.ts';");
+const engine = await loadEngineBundle(
+  "export * from './src/engine/index.ts'; export { applyEntityPatch, buildEntityPatch } from '@vtt/shared';",
+);
+
+/** Ответ сервера на правку листа: записано */
+const PATCH_ACCEPTED = { ok: true, changed: true };
 
 /** Правила журнала срабатываний, которыми пользуются оба помощника */
 const usagePorts = {
@@ -109,8 +114,13 @@ export async function loadChangeEntityCombatState({
 
 /**
  * Настоящие помощники записи листа и боевого состояния с общим миром: стор
- * правится так, как его правит хост (`Object.assign` разделов), полные
- * записи и боевые снимки ложатся в журналы.
+ * правится так, как его правит хост (`Object.assign` разделов), правки листа
+ * и боевые снимки ложатся в журналы.
+ *
+ * Правка листа — частичная запись (`entity:patch`): в `patches` лежит то, что
+ * ушло на сервер (сущность и операции), в `updated` — лист, каким его после
+ * этой правки показывает стор, в `fullWrites` — запасные полные записи, в
+ * `toasts` — уведомления об отказе.
  *
  * @param {object} options - окружение
  * @param {Map<string, object>} options.world - сущности мира по id (меняются)
@@ -119,8 +129,11 @@ export async function loadChangeEntityCombatState({
  *   в WeakMap движка
  * @param {(base: object, next: object) => boolean} [options.changesCombatState] -
  *   «меняет ли копия что-нибудь» из того же движка, которым тест пишет удары
- * @param {(kind: 'update' | 'combat', entity: object) => void} [options.onSend] -
- *   каждая отправка по порядку: полная запись или боевой снимок
+ * @param {(kind: 'update' | 'combat', sent: object) => void} [options.onSend] -
+ *   каждая отправка по порядку: правка листа (`{ id, operations }`) или
+ *   боевой снимок
+ * @param {(patch: object) => object} [options.answerPatch] - ответ сервера на
+ *   правку листа; по умолчанию — записано
  * @param {object} [options.clock] - часы и ход боя памяти посланного журнала
  * @returns {Promise<object>} помощники, журналы отправок и ошибок
  */
@@ -129,11 +142,15 @@ export async function loadEntityWrites({
   recordCombatBaseline = () => {},
   changesCombatState = engine.changesCombatState,
   onSend = () => {},
+  answerPatch = () => PATCH_ACCEPTED,
   clock,
 }) {
   const findEntity = (entityId) => world.get(entityId);
   const emitted = [];
   const updated = [];
+  const patches = [];
+  const fullWrites = [];
+  const toasts = [];
   const errors = [];
   const sent = await loadSentTriggerUsage(findEntity, clock);
 
@@ -157,13 +174,64 @@ export async function loadEntityWrites({
     Object.assign(world.get(entityId), sections);
   };
 
-  const changeEntitySheet = await loadHandler(
+  const sheetErrors = await loadHandler(
     SHEET_WRITE_PATH,
-    'changeEntitySheet',
+    'SHEET_WRITE_ERRORS',
+    {},
+  );
+
+  // Запасной путь: правка не легла — сущность стора уходит целиком
+  const resendSheetInFull = await loadHandler(
+    SHEET_WRITE_PATH,
+    'resendSheetInFull',
     {
       ...usagePorts,
       readSentTriggerUsage: sent.readSentTriggerUsage,
       readSentActiveEffects: sent.readSentActiveEffects,
+      useWorldEntities: () => ({ findCurrentDndEntity: findEntity }),
+      emitEntityUpdate: (_socket, entity) => fullWrites.push(entity),
+    },
+  );
+
+  const pickSheetSections = await loadHandler(
+    SHEET_WRITE_PATH,
+    'pickSheetSections',
+    {},
+  );
+
+  // Запись и разбор ответа зовут друг друга (повтор после отказа), поэтому
+  // запись приходит разбору ссылкой, которая заполняется ниже
+  const sheetWrite = { writeSheetChange: () => null };
+
+  const settleSheetWrite = await loadHandler(
+    SHEET_WRITE_PATH,
+    'settleSheetWrite',
+    {
+      resendSheetInFull,
+      pickSheetSections,
+      writeSheetChange: (...args) => sheetWrite.writeSheetChange(...args),
+      buildEntityPatch: engine.buildEntityPatch,
+      useWorldEntities: () => ({ findCurrentDndEntity: findEntity }),
+      PATCH_CONFLICT_REASON: 'conflict',
+      SHEET_WRITE_LOG_PREFIX: '[test]',
+      SHEET_WRITE_ERRORS: sheetErrors,
+      buildEntityPatchFailureToast: (outcome, name) => ({
+        title: name,
+        description: outcome.reason,
+      }),
+      useSystemToastStore: () => ({ add: (toast) => toasts.push(toast) }),
+      console: { error: (message) => errors.push(message) },
+    },
+  );
+
+  sheetWrite.writeSheetChange = await loadHandler(
+    SHEET_WRITE_PATH,
+    'writeSheetChange',
+    {
+      ...usagePorts,
+      buildEntityPatch: engine.buildEntityPatch,
+      pickSheetSections,
+      settleSheetWrite,
       keepsCombatState: await loadHandler(
         SHEET_WRITE_PATH,
         'keepsCombatState',
@@ -181,16 +249,18 @@ export async function loadEntityWrites({
       useWorldEntities: () => ({ findCurrentDndEntity: findEntity }),
       isActorEntity: (entity) => entity.entityType === 'actor',
       isCreatureEntity: (entity) => entity.entityType === 'creature',
-      emitEntityUpdate: (_socket, entity) => {
-        updated.push(entity);
-        onSend('update', entity);
+      emitEntityPatch: (_socket, entityId, operations) => {
+        const patch = { id: entityId, operations };
+
+        patches.push(patch);
+        // Стор к этому моменту уже несёт разделы правки
+        updated.push(structuredClone(world.get(entityId)));
+        onSend('update', patch);
+
+        return Promise.resolve(answerPatch(patch));
       },
       SHEET_WRITE_LOG_PREFIX: '[test]',
-      SHEET_WRITE_ERRORS: await loadHandler(
-        SHEET_WRITE_PATH,
-        'SHEET_WRITE_ERRORS',
-        {},
-      ),
+      SHEET_WRITE_ERRORS: sheetErrors,
       console: { error: (message) => errors.push(message) },
       JSON,
     },
@@ -220,6 +290,12 @@ export async function loadEntityWrites({
     combatPorts,
   );
 
+  const changeEntitySheet = await loadHandler(
+    SHEET_WRITE_PATH,
+    'changeEntitySheet',
+    { writeSheetChange: sheetWrite.writeSheetChange },
+  );
+
   return {
     changeEntityCombatState,
     changeEntitySheet,
@@ -228,13 +304,17 @@ export async function loadEntityWrites({
     rememberSentCastEnd: sent.rememberSentCastEnd,
     emitted,
     updated,
+    patches,
+    fullWrites,
+    toasts,
     errors,
   };
 }
 
 /**
- * Сервер одной сущности: полную запись принимает целиком, боевой снимок
- * сливает правилами системы — как ядро и система.
+ * Сервер одной сущности: полную запись принимает целиком, правку листа
+ * кладёт на свою сущность, боевой снимок сливает правилами системы — как ядро
+ * и система.
  *
  * @param {object} engineBundle - движок, которым тест читает снимок
  * @param {object} entity - сущность сервера
@@ -252,18 +332,33 @@ export function createEntityServer(engineBundle, entity) {
     receiveUpdate(next) {
       current = structuredClone(next);
     },
+    /**
+     * Частичная запись: операции ложатся на сущность СЕРВЕРА.
+     *
+     * @param {object} patch - правка листа
+     * @param {object[]} patch.operations - операции
+     */
+    receivePatch({ operations }) {
+      const applied = engine.applyEntityPatch(current, operations);
+
+      if (!applied.ok) {
+        throw new Error(`Правка не легла: ${applied.problem}`);
+      }
+
+      current = structuredClone(applied.value);
+    },
     receiveCombatState(copy) {
       system.settleCombatState(current, engineBundle.pickCombatState(copy));
     },
     /**
      * Отправка клиента в порядке прихода.
      *
-     * @param {'update' | 'combat'} kind - полная запись или боевой снимок
+     * @param {'update' | 'combat'} kind - правка листа или боевой снимок
      * @param {object} sent - что прислал клиент
      */
     receive(kind, sent) {
       if (kind === 'update') {
-        this.receiveUpdate(sent);
+        this.receivePatch(sent);
       } else {
         this.receiveCombatState(sent);
       }
