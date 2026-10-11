@@ -1526,7 +1526,8 @@ export const EQUIPMENT_MENU_LABELS: Record<
   | 'attune'
   | 'unattune'
   | 'spendCharge'
-  | 'restoreCharge',
+  | 'restoreCharge'
+  | 'sellPrefix',
   string
 > = {
   attack: 'Атаковать',
@@ -1542,6 +1543,8 @@ export const EQUIPMENT_MENU_LABELS: Record<
   /** Ручной возврат заряда: отмена ошибочной траты, а не восстановление отдыхом */
   restoreCharge: 'Вернуть заряд',
 };
+  /** Продажа предмета: дальше идёт цена, которая ляжет в кошелёк */
+  sellPrefix: 'Продать за ',
 
 // ============================================================
 // Строка заклинания на вкладке листа
@@ -4494,6 +4497,39 @@ export const ACTOR_EQUIPMENT_TAB_LABELS = {
   /** Заголовок фильтра окна: раздел компендиума (оружие, доспехи, зелья…) */
   sectionFilter: 'Раздел',
 } as const;
+  /** Второе действие окна: взять отмеченное за монеты кошелька */
+  buy: 'Купить',
+  /** Цена в строке окна у записи без цены */
+  noCost: '—',
+} as const;
+
+/**
+ * Нижние границы размера окна покупки. Высота низкая намеренно: окно берёт её
+ * по содержимому, и с одной покупкой под кнопками не должно оставаться пустоты.
+ */
+export const EQUIPMENT_PURCHASE_MODAL_SIZE = {
+  minWidth: 460,
+  minHeight: 200,
+} as const;
+
+/** Значок покупки и продажи: кнопки окон и пункт меню предмета */
+export const EQUIPMENT_PURCHASE_ICON = 'tabler:coins';
+
+/** Подписи окна покупки снаряжения (`EquipmentPurchaseModal`) */
+export const EQUIPMENT_PURCHASE_LABELS = {
+  title: 'Покупка снаряжения',
+  wallet: 'В кошельке',
+  cost: 'Будет списано',
+  remaining: 'Останется',
+  shortage: 'Не хватает',
+  /** Денег мало: дальше идёт сумма нехватки */
+  shortagePrefix: 'Не хватает денег: ',
+  shortageHint: 'Уберите что-нибудь из списка, чтобы хватило.',
+  itemsTitle: 'Покупки',
+  /** Цена в строке у предмета без цены */
+  free: 'Бесплатно',
+  removeItem: 'Убрать из покупки',
+  empty: 'Список покупок пуст.',
 
 /** Подписи редактора умения класса */
 export const CLASS_FEATURE_LABELS = {
