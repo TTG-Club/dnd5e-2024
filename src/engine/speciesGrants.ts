@@ -6,7 +6,7 @@ import type { GrantedSpellSource } from './grantedSpells.js';
 import type { SpeciesDefinition, SpeciesFeature } from './speciesTypes.js';
 import type { ActorCounterState } from './types.js';
 
-import { counterIdentity } from './counterResource.js';
+import { counterIdentity } from './counterIds.js';
 import {
   buildFeatCounters,
   isSpeciesCounter,

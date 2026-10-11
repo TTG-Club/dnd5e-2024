@@ -34,6 +34,7 @@ export * from './conditionRegistry.js';
 export * from './conditionSyntax.js';
 export * from './conditionTemplates.js';
 export * from './consts.js';
+export * from './counterIds.js';
 export * from './counterResource.js';
 export * from './counterTableColumns.js';
 export * from './creatureDamageAlternatives.js';

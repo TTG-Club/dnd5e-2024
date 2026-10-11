@@ -41,6 +41,7 @@ import {
   readTriggerUsage,
   resolveEntityCurrentHp,
   resolveEntityTempHp,
+  withPatchRecordIds,
   withTriggerUsage,
 } from '@vtt/shared/system/dnd.js';
 
@@ -273,8 +274,9 @@ function writeSheetChange(
 
   // Журнал — прежний, из стора: его меняет только ответ сервера на боевой
   // снимок, по нему и узнают, что посланное дошло
-  const next = withTriggerUsage(changed, storeLedger);
-  const operations = buildEntityPatch(current, next);
+  // Записям списков — `id`: без него разница ушла бы всем списком
+  const next = withPatchRecordIds(withTriggerUsage(changed, storeLedger));
+  const operations = buildEntityPatch(withPatchRecordIds(current), next);
 
   // Изменился только журнал — писать нечего
   if (operations.length === 0) {

@@ -230,6 +230,7 @@ export async function loadEntityWrites({
     {
       ...usagePorts,
       buildEntityPatch: engine.buildEntityPatch,
+      withPatchRecordIds: engine.withPatchRecordIds,
       pickSheetSections,
       settleSheetWrite,
       keepsCombatState: await loadHandler(
@@ -323,7 +324,9 @@ export async function loadEntityWrites({
 export function createEntityServer(engineBundle, entity) {
   const system = new engineBundle.Dnd5eVttSystem();
 
-  let current = entity;
+  // Сервер нормализует сущность при загрузке мира и на каждой записи: записи
+  // списков, которые частичная запись правит по одной, уже несут `id`
+  let current = engine.withPatchRecordIds(entity);
 
   return {
     get entity() {

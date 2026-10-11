@@ -30,7 +30,11 @@ import {
   emitEntityChange,
 } from '@/core/entityUtils';
 import { applyEntityPatch, buildEntityPatch } from '@vtt/shared';
-import { cloneEntityData, mergeEntityDraft } from '@vtt/shared/system/dnd.js';
+import {
+  cloneEntityData,
+  mergeEntityDraft,
+  withPatchRecordIds,
+} from '@vtt/shared/system/dnd.js';
 
 import { withoutEntityOwnership } from '../ui/entity-ownership/utils';
 import { copyWorldSections } from './worldSheetSections';
@@ -69,7 +73,12 @@ export interface EntityDraftSaveRequest<Entity extends DnDSceneEntity> {
 export async function saveEntityDraft<Entity extends DnDSceneEntity>(
   request: EntityDraftSaveRequest<Entity>,
 ): Promise<EntityPatchOutcome> {
-  const { socket, base, draft } = request;
+  const { socket } = request;
+
+  // Счётчик, только что добавленный мастером класса или чертой, `id` ещё не
+  // получил — без него разница ушла бы всем списком
+  const base = withPatchRecordIds(request.base);
+  const draft = withPatchRecordIds(request.draft);
   const outcome = await emitEntityChange(socket, base, draft);
 
   if (outcome.ok || outcome.reason !== PATCH_CONFLICT_REASON) {
@@ -84,8 +93,8 @@ export async function saveEntityDraft<Entity extends DnDSceneEntity>(
 
   return emitEntityChange(
     socket,
-    world,
-    mergeEntityDraft(base, draft, world, request.isEntity),
+    withPatchRecordIds(world),
+    withPatchRecordIds(mergeEntityDraft(base, draft, world, request.isEntity)),
   );
 }
 

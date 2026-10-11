@@ -60,6 +60,7 @@ import {
   normalizeSpellUsesRecovery,
   SKILL_ABILITY_MAP,
 } from './consts.js';
+import { stampCounterIds } from './counterIds.js';
 import {
   ensureCreatureSpellsInBlocks,
   normalizeCreatureSpellcastingBlocks,
@@ -1473,6 +1474,9 @@ export function normalizeActor(actor: BaseActor): void {
     existingSystem.size = normalizeCreatureSize(existingSystem.size);
 
     repairAbilityNumbers(existingSystem.abilities);
+
+    // Счётчикам — `id`: без него частичная запись шлёт их список целиком
+    stampCounterIds(existingSystem);
   } else {
     const system: DnDActorSystem = {
       species: parseLegacySpecies(raw.species),

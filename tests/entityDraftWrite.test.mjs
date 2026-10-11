@@ -107,6 +107,7 @@ function loadSaveEntityDraft(server) {
   return loadHandler(DRAFT_WRITE_PATH, 'saveEntityDraft', {
     emitEntityChange: server.emitEntityChange,
     mergeEntityDraft: engine.mergeEntityDraft,
+    withPatchRecordIds: engine.withPatchRecordIds,
     PATCH_CONFLICT_REASON: 'conflict',
   });
 }
@@ -231,6 +232,7 @@ describe('saveEntityDraft', () => {
         mergeEntityDraft: () => {
           throw new Error('Пересборка не нужна');
         },
+        withPatchRecordIds: engine.withPatchRecordIds,
         PATCH_CONFLICT_REASON: 'conflict',
       },
     );

@@ -28,6 +28,7 @@ import type { ActorCounterState } from './types.js';
 import { z } from 'zod';
 
 import { isAbilityType } from './consts.js';
+import { counterIdentity } from './counterIds.js';
 import { resolveActorStats } from './effectPipeline.js';
 import {
   ABILITY_ABBREVIATION_BY_KEY,
@@ -529,24 +530,6 @@ export function resolveCounterMax(
   counter: ActorCounterState,
 ): number {
   return resolveCounterMaxIn(buildCounterFormulaContext(actor), counter);
-}
-
-/**
- * Идентичность счётчика на акторе: пара «владелец + ключ». Владелец — класс
- * (с подклассом), черта либо источник даров вида; без него два ресурса с
- * одинаковым ключом от разных записей считались бы одним, и кнопка «−» тратила
- * бы оба сразу.
- *
- * В движке, а не в интерфейсе: по ней же пересчёт ресурсов вида узнаёт
- * прежний счётчик, и два разных понятия «один и тот же ресурс» разошлись бы.
- *
- * @param counter - состояние счётчика на акторе
- * @returns строка, уникальная в пределах списка счётчиков актора
- */
-export function counterIdentity(counter: ActorCounterState): string {
-  const owner = counter.classKey ?? counter.featureId ?? '';
-
-  return `${owner}:${counter.subclassKey ?? ''}:${counter.counterKey}`;
 }
 
 /**
