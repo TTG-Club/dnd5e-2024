@@ -16,6 +16,7 @@ import type {
   AbilityDelimiter,
   ActiveEffectDetailSectionKey,
   AttackKind,
+  AttackRollModeReasonLineKind,
   CarriedEffectSourceKind,
   CounterRecoveryChoice,
   CounterRestKey,
@@ -5066,6 +5067,8 @@ export const DICE_ROLL_LABELS = {
   rollModeNormal: 'Обычный',
   rollModeAdvantage: 'Преим.',
   rollModeDisadvantage: 'Помеха',
+  /** Хвост заголовка строки причин: «Помеха» + это, дальше идут источники */
+  rollModeReasonTitleSuffix: ':',
   visibility: 'Кто увидит',
   visibilityAll: 'Все',
   visibilityGm: 'ГМ',
@@ -5083,6 +5086,19 @@ export const DICE_ROLL_LABELS = {
   outcomeSuccess: ' ✓ Успех',
   outcomeFail: ' ✗ Провал',
 } as const;
+
+/**
+ * Значок и цвет строки «откуда режим броска»: преимущество — как кнопка
+ * преимущества, помеха — как кнопка помехи, чтобы строка читалась с ними заодно.
+ */
+export const ROLL_MODE_REASON_STYLES: Record<
+  AttackRollModeReasonLineKind,
+  { icon: string; tone: string }
+> = {
+  advantage: { icon: 'tabler:arrow-big-up-filled', tone: 'text-success' },
+  disadvantage: { icon: 'tabler:arrow-big-down-filled', tone: 'text-error' },
+  cancelled: { icon: 'tabler:equal', tone: 'text-muted' },
+};
 
 /** Приставка сообщений окна броска в консоли — она одна на весь файл */
 export const DICE_ROLL_LOG_PREFIX = '[DiceRollModal] Ошибка броска:';

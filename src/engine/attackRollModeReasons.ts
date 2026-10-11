@@ -198,12 +198,33 @@ export function explainAttackRollMode(
   };
 }
 
+/** Вид строки объяснения: сторона режима либо пометка, что стороны гасятся */
+export type AttackRollModeReasonLineKind = AttackRollModeKind | 'cancelled';
+
+/** Строка объяснения режима в окне броска */
+export interface AttackRollModeReasonLine {
+  /** Вид строки — по нему окно выбирает значок и цвет */
+  kind: AttackRollModeReasonLineKind;
+  /** Заголовок: «Преимущество», «Помеха», «Бросок обычный» */
+  title: string;
+  /** Источники через запятую либо пояснение */
+  text: string;
+}
+
 /** Подписи строк объяснения в окне броска */
 const REASON_LINE_LABELS = {
-  advantagePrefix: 'Преимущество: ',
-  disadvantagePrefix: 'Помеха: ',
-  cancelled: 'Преимущество и помеха гасят друг друга — бросок обычный',
+  advantage: 'Преимущество',
+  disadvantage: 'Помеха',
+  cancelledTitle: 'Бросок обычный',
+  cancelledText: 'преимущество и помеха гасят друг друга',
+  separator: ', ',
 } as const;
+
+/** Стороны режима в том порядке, в каком идут строки объяснения */
+const REASON_LINE_KINDS: readonly AttackRollModeKind[] = [
+  'advantage',
+  'disadvantage',
+];
 
 /**
  * Строки объяснения для окна броска: «Помеха: отравлен, доспех без владения».
@@ -214,15 +235,23 @@ const REASON_LINE_LABELS = {
  */
 export function formatAttackRollModeReasons(
   reasons: AttackRollModeReasons,
-): string[] {
-  const lines = [
-    reasons.advantage.length > 0
-      ? `${REASON_LINE_LABELS.advantagePrefix}${reasons.advantage.join(', ')}`
-      : '',
-    reasons.disadvantage.length > 0
-      ? `${REASON_LINE_LABELS.disadvantagePrefix}${reasons.disadvantage.join(', ')}`
-      : '',
-  ].filter((line) => line.length > 0);
+): AttackRollModeReasonLine[] {
+  const lines: AttackRollModeReasonLine[] = REASON_LINE_KINDS.filter(
+    (kind) => reasons[kind].length > 0,
+  ).map((kind) => ({
+    kind,
+    title: REASON_LINE_LABELS[kind],
+    text: reasons[kind].join(REASON_LINE_LABELS.separator),
+  }));
 
-  return lines.length > 1 ? [...lines, REASON_LINE_LABELS.cancelled] : lines;
+  return lines.length > 1
+    ? [
+        ...lines,
+        {
+          kind: 'cancelled',
+          title: REASON_LINE_LABELS.cancelledTitle,
+          text: REASON_LINE_LABELS.cancelledText,
+        },
+      ]
+    : lines;
 }

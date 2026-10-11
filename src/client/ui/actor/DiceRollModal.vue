@@ -63,6 +63,7 @@
     DICE_ROLL_DEFAULT_BUTTON,
     DICE_ROLL_LABELS,
     DICE_ROLL_LOG_PREFIX,
+    ROLL_MODE_REASON_STYLES,
     SPELL_DAMAGE_ROLL_BUTTON,
     SPELL_LEVEL_SUFFIX,
     WILLING_SAVE_TOTAL,
@@ -602,9 +603,13 @@
    * Строки «Помеха: …» / «Преимущество: …» под режимом броска. Только у атаки
    * по цели: причины посчитаны для неё.
    */
-  const rollModeReasonLines = computed<string[]>(() =>
+  const rollModeReasonLines = computed(() =>
     hasAttackRoll.value && props.rollModeReasons
-      ? formatAttackRollModeReasons(props.rollModeReasons)
+      ? formatAttackRollModeReasons(props.rollModeReasons).map((line) => ({
+          ...line,
+          ...ROLL_MODE_REASON_STYLES[line.kind],
+          heading: `${line.title}${DICE_ROLL_LABELS.rollModeReasonTitleSuffix}`,
+        }))
       : [],
   );
 
@@ -1703,13 +1708,32 @@
             </UButton>
           </div>
 
-          <p
-            v-for="line in rollModeReasonLines"
-            :key="line"
-            class="text-xs text-muted"
+          <ul
+            v-if="rollModeReasonLines.length > 0"
+            class="space-y-1 rounded-md bg-elevated px-2.5 py-2"
           >
-            {{ line }}
-          </p>
+            <li
+              v-for="line in rollModeReasonLines"
+              :key="line.kind"
+              class="flex items-start gap-2 text-sm text-toned"
+            >
+              <UIcon
+                :name="line.icon"
+                class="mt-0.5 h-4 w-4 shrink-0"
+                :class="line.tone"
+              />
+
+              <span>
+                <span
+                  class="font-medium"
+                  :class="line.tone"
+                >
+                  {{ line.heading }}
+                </span>
+                {{ line.text }}
+              </span>
+            </li>
+          </ul>
         </div>
 
         <!-- Разделитель -->
