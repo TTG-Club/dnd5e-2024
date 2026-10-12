@@ -36,6 +36,7 @@ import type {
   EffectTriggerRestType,
 } from './effectTriggerTypes.js';
 import type { FormulaContext } from './formulaParser.js';
+import type { SceneSight } from './sceneSight.js';
 import type { EffectPromptAsker } from './triggerPrompt.js';
 import type { ActorCounterState, DnDActorSystem } from './types.js';
 
@@ -85,6 +86,11 @@ export interface RestTriggerOptions {
   triggerAnswers?: SelfTriggerAnswers;
   /** Куда складывать сводку срабатываний отдыха для чата; нет — она не нужна */
   triggerReport?: SelfTriggerReport;
+  /**
+   * Видимость и свет сцены: условия срабатываний отдыха «на свету / в
+   * темноте». Без поля фактов нет, и такие части условия НЕ выполняются.
+   */
+  sight?: SceneSight;
 }
 
 /** Параметры продолжительного отдыха */
@@ -370,6 +376,7 @@ function settleRestTriggers<Entity extends DnDSceneEntity>(
   settleSelfTriggerSources(rested, listRestTriggerSources(rested, restType), {
     answers: options.triggerAnswers ?? NO_REST_TRIGGER_ANSWERS,
     ...(options.triggerReport ? { report: options.triggerReport } : {}),
+    ...(options.sight ? { sight: options.sight } : {}),
   });
 
   return rested;

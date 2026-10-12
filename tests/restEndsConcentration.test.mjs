@@ -98,6 +98,7 @@ describe('отдых листа', () => {
       },
       askOnTable: () => {},
       sendSelfTriggerReport: () => steps.push(['report']),
+      resolveClientSceneSight: () => undefined,
       REST_TRIGGER_SUMMARY_LABEL: '',
     });
 

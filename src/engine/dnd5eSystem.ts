@@ -1677,7 +1677,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.300';
+  readonly version = '0.8.301';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -2133,6 +2133,7 @@ export class Dnd5eVttSystem implements VttSystem {
         ...options,
         resolveAmbientEffects: toAmbientResolver(options),
         listEntitiesInArea: toAreaLister(options),
+        sight: toSceneSight(options),
         ...toSceneMoveOptions(entity, options),
       },
     );
@@ -2188,6 +2189,7 @@ export class Dnd5eVttSystem implements VttSystem {
         isInCombat: context?.isInCombat,
         getActiveTurnActorId: context?.getActiveTurnActorId,
         getCombatRound: context?.getCombatRound,
+        sight: toSceneSight(context),
         alreadyEnteredAuraKeys: context?.alreadyEnteredAuraKeys,
         listEntitiesInArea: toAreaLister(context),
       },

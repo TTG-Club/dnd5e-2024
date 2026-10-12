@@ -46,6 +46,7 @@ import { runWithEffectVariants } from './effectVariantChoice';
 import { resolveCombatRound } from './encounterTurn';
 import { changeEntityCombatState } from './entityCombatWrite';
 import { changeEntitySheet } from './entitySheetWrite';
+import { resolveClientSceneSight } from './sceneSightFacts';
 import { refuseWhileSheetEditing } from './sheetEditLock';
 import { stampEffectOnApply } from './spellResolutionShared';
 import { useWorldEntities } from './useWorldEntities';
@@ -238,7 +239,7 @@ function switchOnEntityEffect(entityId: string, effectId: string): void {
           { carrierId: entity.id, sourceId: entity.id },
         ),
       resolveCombatRound(),
-      { report },
+      { report, sight: resolveClientSceneSight() },
     );
 
     emitActedEntity(paidEntity, activated);

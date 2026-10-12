@@ -7,6 +7,7 @@ import {
   createCreature,
   createEffect,
   createToken,
+  createZone,
   engine,
   GRID,
   sightFacts,
@@ -410,5 +411,139 @@ describe('видимость в броске атаки', () => {
       }),
       'normal',
     );
+  });
+});
+
+describe('свет сцены там, где другой стороны нет: зона, отдых, включение', () => {
+  /** Отметка, которую ставит срабатывание «только в темноте» */
+  const DARK_TAG = 'inDark';
+
+  /**
+   * Эффект, который на событии ставит отметку, только если носитель в темноте.
+   *
+   * @param {string} event - событие срабатывания
+   * @param {object} overrides - остальные поля эффекта
+   * @returns {object} эффект
+   */
+  function darkOnlyEffect(event, overrides = {}) {
+    return createEffect(`Тень (${event})`, {
+      triggers: [
+        {
+          id: `trigger_${event}`,
+          event,
+          condition: 'self.light === "dark"',
+          actions: [{ type: 'applyTag', tag: DARK_TAG }],
+        },
+      ],
+      ...overrides,
+    });
+  }
+
+  /**
+   * Стоит ли на сущности отметка «в темноте».
+   *
+   * @param {object} entity - сущность или её изменённые поля
+   * @returns {boolean} сработало ли
+   */
+  function isMarked(entity) {
+    return (entity.activeEffects ?? []).some(
+      (effect) => effect.tag === DARK_TAG,
+    );
+  }
+
+  /**
+   * Свет сцены с одной освещённостью на всех.
+   *
+   * @param {string} light - освещённость
+   * @returns {object} видимость и свет
+   */
+  function lightOf(light) {
+    return { canSee: () => undefined, lightOf: () => light };
+  }
+
+  it('вход в зону: условие «в темноте» читает свет сцены у ядра', () => {
+    const system = new engine.Dnd5eVttSystem();
+
+    /**
+     * Входит в зону и отвечает, сработал ли её эффект.
+     *
+     * @param {string | undefined} light - освещённость; нет — старое ядро
+     * @returns {boolean} сработало ли
+     */
+    const enterZone = (light) => {
+      const wolf = createCreature({ id: 'creature_wolf' });
+      const zone = createZone('zone_shade', [darkOnlyEffect('enter')]);
+
+      system.syncAreaEffects(wolf, new Set(), new Set([zone.id]), [zone], {
+        getSceneSurroundings: () => ({
+          token: createToken(wolf.id, 0, 0),
+          gridSettings: GRID,
+          neighbors: [],
+        }),
+        ...(light
+          ? { getSightBetween: () => sightFacts({ viewerLight: light }) }
+          : {}),
+      });
+
+      return isMarked(wolf);
+    };
+
+    assert.equal(enterZone('dark'), true);
+    assert.equal(enterZone('bright'), false);
+    assert.equal(enterZone(undefined), false, 'без фактов условие молчит');
+  });
+
+  it('отдых: условие «в темноте» читает свет сцены у клиента', () => {
+    /**
+     * Отдыхает и отвечает, сработал ли эффект.
+     *
+     * @param {object | undefined} sight - свет сцены; нет — сцена не открыта
+     * @returns {boolean} сработало ли
+     */
+    const rest = (sight) => {
+      const hero = createActor({ activeEffects: [darkOnlyEffect('rest')] });
+
+      return isMarked(
+        engine.applyActorRest(hero, 'long', {
+          triggerAnswers: new Map(),
+          ...(sight ? { sight } : {}),
+        }),
+      );
+    };
+
+    assert.equal(rest(lightOf('dark')), true);
+    assert.equal(rest(lightOf('dim')), false);
+    assert.equal(rest(undefined), false, 'без фактов условие молчит');
+  });
+
+  it('включение эффекта: условие «в темноте» читает свет сцены у клиента', () => {
+    /**
+     * Включает эффект и отвечает, сработало ли его «при включении».
+     *
+     * @param {object | undefined} sight - свет сцены; нет — сцена не открыта
+     * @returns {boolean} сработало ли
+     */
+    const activate = (sight) => {
+      const cloak = darkOnlyEffect('activate', {
+        disabled: true,
+        activation: { cost: 'bonus' },
+      });
+
+      const hero = createActor({ activeEffects: [cloak] });
+
+      return isMarked(
+        engine.activateEffectOnEntity(
+          hero,
+          cloak.id,
+          undefined,
+          undefined,
+          sight ? { sight } : {},
+        ),
+      );
+    };
+
+    assert.equal(activate(lightOf('dark')), true);
+    assert.equal(activate(lightOf('bright')), false);
+    assert.equal(activate(undefined), false, 'без фактов условие молчит');
   });
 });

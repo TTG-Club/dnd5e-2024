@@ -30,6 +30,7 @@ import {
 } from './effectPayChoice';
 import { resolveCombatRound } from './encounterTurn';
 import { refuseWhilePaused } from './pauseLock';
+import { resolveClientSceneSight } from './sceneSightFacts';
 import { refuseWhileSheetEditing } from './sheetEditLock';
 import { emitSystemClientEvent } from './systemClientEvents';
 import { useWorldEntities } from './useWorldEntities';
@@ -137,7 +138,11 @@ export function runEntityEffectAction(
       current,
       effectId,
       resolveCombatRound(),
-      { ...(payPickIds ? { payPickIds } : {}), report },
+      {
+        ...(payPickIds ? { payPickIds } : {}),
+        report,
+        sight: resolveClientSceneSight(),
+      },
     );
 
     emitActedEntity(current, acted);

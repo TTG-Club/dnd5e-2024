@@ -24,6 +24,7 @@ import type { EngineDeferredTrigger } from './deferredEffectSaves.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { TriggerSourcePreparer } from './effectPay.js';
 import type { EffectTriggerSource } from './effectTriggerRunner.js';
+import type { SceneSight } from './sceneSight.js';
 import type { ChoiceCandidateOptions } from './triggerChoice.js';
 import type {
   EntryEffectOptions,
@@ -82,6 +83,7 @@ import { listChoiceCandidates } from './triggerChoice.js';
 import {
   passesLandingCondition,
   withCombatRound,
+  withSceneSight,
 } from './triggerConditions.js';
 
 /**
@@ -147,6 +149,11 @@ export interface PresenceContext {
   inCombat: boolean;
   /** Номер идущего раунда: расписание «на раунде N» */
   combatRound?: number;
+  /**
+   * Видимость и свет сцены: условия «на свету / в темноте». Без поля фактов
+   * нет, и такие части условия НЕ выполняются.
+   */
+  sight?: SceneSight;
   /** Кто просит спасбросок («Зона «Лунный луч»») */
   requesterLabel: string;
   /** Откуда пришли наложения и чей сейчас ход */
@@ -285,8 +292,11 @@ export function runPresenceTriggerSources(
   const outcome = createPresenceOutcome();
   const { requestRoll, requesterLabel, effectOptions } = context;
 
-  // Данных события у входа и выхода нет — только раунд боя
-  const eventData = withCombatRound({}, context.combatRound);
+  // Данных события у входа и выхода нет — только раунд боя и свет сцены
+  const eventData = withSceneSight(
+    withCombatRound({}, context.combatRound),
+    context.sight,
+  );
 
   for (const source of sources) {
     // Срабатывание, которое спросит человека, лимит тратит уже по согласию
@@ -506,6 +516,7 @@ function runPresenceEvent(
  * @param options.getActiveTurnActorId - чей сейчас ход: состояние «до конца
  *   следующего хода», наложенное на ходу якоря, не спадает в конце этого хода
  * @param options.getCombatRound - какой идёт раунд: расписание «на раунде N»
+ * @param options.sight - видимость и свет сцены: условия «на свету / в темноте»
  * @param options.listEntitiesInArea - кто стоит в радиусе: кандидаты
  *   получателя «по выбору»
  * @param options.surroundings - сцена вокруг сущности: по ней считается
@@ -527,6 +538,8 @@ export function syncActorAreaEffects(
     isInCombat?: (entity: DnDSceneEntity) => boolean;
     getActiveTurnActorId?: () => string | null;
     getCombatRound?: () => number | null;
+    /** Видимость и свет сцены: условия «на свету / в темноте» */
+    sight?: SceneSight;
     listEntitiesInArea?: ChoiceCandidateOptions['listEntitiesInArea'];
     surroundings?: SystemSceneSurroundings | null;
     moveToken?: SceneMoveOptions['moveToken'];
@@ -541,6 +554,7 @@ export function syncActorAreaEffects(
     isInCombat,
     getActiveTurnActorId,
     getCombatRound,
+    sight,
     listEntitiesInArea,
     surroundings,
     moveToken,
@@ -617,6 +631,7 @@ export function syncActorAreaEffects(
       requestRoll,
       inCombat: isInCombat?.(entity) ?? false,
       combatRound: getCombatRound?.() ?? undefined,
+      sight,
       requesterLabel: formatZoneRequesterLabel(area.name),
       effectOptions: {
         sourceAreaId: area.id,
@@ -758,6 +773,7 @@ function auraHitKey(hit: TriggerAuraHit): string {
  *   ход / раунд»)
  * @param options.getActiveTurnActorId - чей сейчас ход (срок наложенного)
  * @param options.getCombatRound - какой идёт раунд: расписание «на раунде N»
+ * @param options.sight - видимость и свет сцены: условия «на свету / в темноте»
  * @param options.alreadyEnteredAuraKeys - входы в ауры, уже случившиеся за это
  *   перемещение: ядро ведёт фишку по шагам, и извилистый путь сквозь ауру
  *   входит в неё один раз. Набор пополняется
@@ -777,6 +793,8 @@ export function applyAuraTriggerEffects(
     isInCombat?: (entity: DnDSceneEntity) => boolean;
     getActiveTurnActorId?: () => string | null;
     getCombatRound?: () => number | null;
+    /** Видимость и свет сцены: условия «на свету / в темноте» */
+    sight?: SceneSight;
     alreadyEnteredAuraKeys?: Set<string>;
     listEntitiesInArea?: ChoiceCandidateOptions['listEntitiesInArea'];
   } = {},
@@ -794,6 +812,7 @@ export function applyAuraTriggerEffects(
     isInCombat,
     getActiveTurnActorId,
     getCombatRound,
+    sight,
     alreadyEnteredAuraKeys,
     listEntitiesInArea,
   } = options;
@@ -843,6 +862,7 @@ export function applyAuraTriggerEffects(
       requestRoll,
       inCombat: isInCombat?.(targetEntity) ?? false,
       combatRound: getCombatRound?.() ?? undefined,
+      sight,
       requesterLabel: formatAuraRequesterLabel(
         sourceNames.get(hit.sourceTokenId),
       ),

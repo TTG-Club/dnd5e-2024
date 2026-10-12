@@ -34,7 +34,7 @@ import type {
 import type { EffectFlagKey } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 
-import { brighterLightLevel } from '@vtt/shared';
+import { brighterLightLevel, TOKEN_VISION_RANGE_DEFAULT } from '@vtt/shared';
 
 import { resolveActorStats } from './effectPipeline.js';
 import { computeEntityVision } from './entityVision.js';
@@ -52,12 +52,6 @@ export const UNSEEN_ATTACKER_ADVANTAGE_FLAG: EffectFlagKey = 'attack.advantage';
 
 /** Флаг «невидим»: носителя не видит никто */
 const INVISIBLE_FLAG: EffectFlagKey = 'vision.invisible';
-
-/**
- * Дальность обычного зрения фишки, если её не задавали, фт — та же, с какой
- * сцена рисует туман такой фишке.
- */
-const DEFAULT_TOKEN_VISION_RANGE_FEET = 60;
 
 /** Чем существо смотрит: то, с чем сравниваются факты ядра */
 export interface SightAbility {
@@ -87,7 +81,8 @@ export function resolveSightAbility(viewer: DnDSceneEntity): SightAbility {
   return {
     enabled:
       isEnabled && !resolveActorStats(viewer).activeFlags.has(BLINDED_FLAG),
-    range: viewer.token?.vision?.range ?? DEFAULT_TOKEN_VISION_RANGE_FEET,
+    // Не задана — та же дальность, с какой сцена рисует туман такой фишке
+    range: viewer.token?.vision?.range ?? TOKEN_VISION_RANGE_DEFAULT,
     darkvision:
       byRules?.darkvisionUnits ?? resolveTokenDarkvision(viewer.token),
   };
