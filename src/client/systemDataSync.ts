@@ -21,6 +21,34 @@ import { dnd5eSystemInstance } from '@vtt/shared/system/dnd.js';
 import { useSystemDataStore } from './stores/systemDataStore';
 
 /**
+ * Достаёт набор уже подписанных сокетов.
+ *
+ * В режиме разработки (`npm run dev`) модуль исполняется заново при каждой
+ * правке движка, и набор, объявленный просто переменной, каждый раз был бы
+ * пустым. Поэтому там он лежит в `import.meta.hot.data`, которое повторное
+ * исполнение переживает. В собранном бандле это обычный набор на всю сессию.
+ *
+ * @returns набор сокетов, на которые система уже подписалась
+ */
+function readSubscribedSockets(): WeakSet<object> {
+  const hot = import.meta.hot;
+
+  if (!hot) {
+    return new WeakSet<object>();
+  }
+
+  const kept: unknown = hot.data.subscribedSockets;
+  const sockets = kept instanceof WeakSet ? kept : new WeakSet<object>();
+
+  hot.data.subscribedSockets = sockets;
+
+  return sockets;
+}
+
+/** Сокеты, на которые система уже подписалась. */
+const subscribedSockets = readSubscribedSockets();
+
+/**
  * Подписывает переданный сокет на все справочные `system:*` события D&D и
  * запрашивает данные (`system:request-all`). Идемпотентно на уровне экземпляра
  * сокета: `socket:setup` эмитится по одному разу на клиент (в т.ч. реконнект).
@@ -28,6 +56,14 @@ import { useSystemDataStore } from './stores/systemDataStore';
  * @param socket - активный WebSocket-клиент
  */
 function subscribeSystemData(socket: TypedWebSocketClient): void {
+  // Сокет уже подписан: приложение перерегистрировало систему при открытом
+  // мире (режим разработки). Вторая подписка задвоила бы каждый обработчик.
+  if (subscribedSockets.has(socket)) {
+    return;
+  }
+
+  subscribedSockets.add(socket);
+
   const store = useSystemDataStore();
 
   // Агрегированный ответ — все справочные данные одним пакетом

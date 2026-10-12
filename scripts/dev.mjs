@@ -11,7 +11,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * Watch-режим: правишь исходники системы — приложение показывает изменения.
+ * Watch-режим с установкой (`npm run dev:install`): правишь исходники системы —
+ * скрипт пересобирает её и кладёт в приложение.
+ *
+ * Для правок КЛИЕНТА есть путь быстрее — `npm run dev`: dev-сервер отдаёт
+ * исходники прямо в dev-сборку VTTG, без сборки и перезагрузки страницы (README,
+ * § «Разработка: правки видно сразу»). Этот скрипт остаётся для того, чего тот
+ * путь не умеет: он доносит до приложения серверную часть и работает с любым
+ * VTTG, а не только с запущенным из исходников.
  *
  * Отдельный терминал рядом с dev-сборкой VTTG. Скрипт держит две инкрементальные
  * сборки (клиент — Vite, сервер — esbuild), а после каждой пересборки делает то
@@ -37,9 +44,9 @@ import { fileURLToPath } from 'node:url';
  *
  * Использование:
  *
- *   npm run dev
- *   npm run dev -- --no-reload             # без автоперезагрузки страницы
- *   npm run dev -- --data "D:\путь\к\данным VTTG"
+ *   npm run dev:install
+ *   npm run dev:install -- --no-reload     # без автоперезагрузки страницы
+ *   npm run dev:install -- --data "D:\путь\к\данным VTTG"
  *
  * ⚠️ Страницу нужно открывать с ПОРТА МИРА (кнопка «открыть в браузере» в списке
  * миров, `http://localhost:<порт мира>`): в dev-режиме окно приложения живёт на
@@ -123,7 +130,7 @@ function log(message) {
 function createReloadSnippet(systemId) {
   return `
 ;(function () {
-  /* Дописано "npm run dev" этой системы. В релизной сборке этого кода нет. */
+  /* Дописано "npm run dev:install" этой системы. В релизной сборке этого кода нет. */
   if (globalThis.__vttgSystemDevReload) { return; }
 
   globalThis.__vttgSystemDevReload = true;

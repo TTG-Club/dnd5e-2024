@@ -27,3 +27,23 @@ import './system.css';
 globalThis.VTTSystems.register(SYSTEM_ID, (api: ClientSystemAPI) => {
   registerClientSystem(api);
 });
+
+// Режим разработки (`npm run dev`). В сборке `import.meta.hot` нет, и весь блок
+// вместе с подгружаемым модулем из `client.js` вырезается.
+if (import.meta.hot) {
+  // Правка этого файла или модуля, который он импортирует (кроме `.vue` — их
+  // подменяет сам Vue), исполняет файл заново. Повторный `VTTSystems.register`
+  // приложение понимает как «перерегистрировать систему» — без перезагрузки
+  // страницы.
+  //
+  // ⚠️ Вызов обязан быть записан именно так, целиком: dev-сервер ищет его в
+  // тексте файла. Через переменную (`const hot = import.meta.hot`) он его не
+  // находит и на любую правку перезагружает страницу.
+  import.meta.hot.accept();
+
+  const hot = import.meta.hot;
+
+  void import('./systemDevMode').then(({ setupSystemDevMode }) => {
+    setupSystemDevMode(hot);
+  });
+}
