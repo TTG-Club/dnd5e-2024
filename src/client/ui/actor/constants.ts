@@ -10,6 +10,7 @@ import type {
   AbilityType,
   ArmorCalculation,
   ProficiencyLevel,
+  SpellCastingTimeUnit,
   WeaponRangeType,
 } from '@vtt/shared';
 import type {
@@ -26,6 +27,7 @@ import type {
 } from '@vtt/shared/system/dnd.js';
 
 import {
+  CASTING_TIME_LABELS,
   COMPENDIUM_CLASS_KIND,
   COMPENDIUM_SPELL_KIND,
   COUNTER_RECOVERY_CHOICE_NONE,
@@ -1253,17 +1255,34 @@ export const SPELL_FILTER_LABELS: Record<
   | 'preparedHint'
   | 'cantrip'
   | 'cantripHint'
-  | 'properties'
-  | 'propertiesHint',
+  | 'filters'
+  | 'filtersHint'
+  | 'castingTime'
+  | 'properties',
   string
 > = {
-  prepared: 'Подготовленные',
+  prepared: 'Подгот.',
   preparedHint:
     'Оставить в списке только подготовленные заклинания; заговоры доступны всегда и остаются в нём',
-  cantrip: '0',
+  cantrip: 'Зг',
   cantripHint: 'Заговоры',
-  properties: 'Свойства заклинания',
-  propertiesHint: 'Отбор по свойствам: лечение, концентрация, ритуал',
+  filters: 'Отбор заклинаний',
+  filtersHint: 'Отбор по времени накладывания и свойствам заклинания',
+  castingTime: 'Время накладывания',
+  properties: 'Свойства',
+};
+
+/**
+ * Значки меню отбора на вкладке заклинаний: сам чип, раскрывающий меню, и его
+ * категории.
+ */
+export const SPELL_FILTER_MENU_ICONS: Record<
+  'menu' | 'castingTime' | 'properties',
+  string
+> = {
+  menu: 'tabler:filter',
+  castingTime: 'tabler:clock',
+  properties: 'tabler:adjustments-horizontal',
 };
 
 /** Свойство заклинания, по которому сужается список вкладки */
@@ -1289,6 +1308,67 @@ export const SPELL_PROPERTY_FILTERS: SpellPropertyFilter[] = [
   { key: 'concentration', label: 'Концентрация', icon: 'tabler:focus-2' },
   { key: 'ritual', label: 'Ритуал', icon: 'tabler:book' },
 ];
+
+/**
+ * Время накладывания, по которому сужается список вкладки. Это то, чем
+ * заклинание оплачивается в ходу, а не единица времени целиком: минуты и часы
+ * в бою неразличимы и сведены в одно «долгое».
+ */
+export type SpellCastingTimeFilterKey =
+  'action' | 'bonus-action' | 'reaction' | 'long';
+
+/** Пункт отбора по времени накладывания */
+export interface SpellCastingTimeFilter {
+  /** Ключ времени накладывания */
+  key: SpellCastingTimeFilterKey;
+  /** Название — подпись пункта меню */
+  label: string;
+  /** Значок пункта */
+  icon: string;
+}
+
+/**
+ * Пункты отбора по времени накладывания — в порядке, в каком ими платят в
+ * ходу. Названия действий берутся у движка, чтобы не разойтись с карточкой
+ * заклинания.
+ */
+export const SPELL_CASTING_TIME_FILTERS: SpellCastingTimeFilter[] = [
+  { key: 'action', label: CASTING_TIME_LABELS.action, icon: 'tabler:bolt' },
+  {
+    key: 'bonus-action',
+    label: CASTING_TIME_LABELS['bonus-action'],
+    icon: 'tabler:plus',
+  },
+  {
+    key: 'reaction',
+    label: CASTING_TIME_LABELS.reaction,
+    icon: 'tabler:arrow-back-up',
+  },
+  { key: 'long', label: 'Минута и дольше', icon: 'tabler:hourglass' },
+];
+
+/**
+ * Сколько разного времени накладывания должно быть в книге, чтобы категория
+ * встала в меню: из одного пункта выбирать нечего.
+ */
+export const SPELL_CASTING_TIME_FILTER_MIN_OPTIONS = 2;
+
+/**
+ * Пункт отбора для каждой единицы времени накладывания. Бонусное действие
+ * после попадания (кары паладина) оплачивается тем же бонусным действием,
+ * поэтому стоит под ним.
+ */
+export const SPELL_CASTING_TIME_FILTER_BY_UNIT: Record<
+  SpellCastingTimeUnit,
+  SpellCastingTimeFilterKey
+> = {
+  'action': 'action',
+  'bonus-action': 'bonus-action',
+  'bonus-action-after-hit': 'bonus-action',
+  'reaction': 'reaction',
+  'minute': 'long',
+  'hour': 'long',
+};
 
 /**
  * Источник особенности, по которому сужается список вкладки. Черты входят

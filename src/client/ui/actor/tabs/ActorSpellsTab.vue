@@ -14,7 +14,10 @@
   } from '@vtt/shared/system/dnd.js';
 
   import type { SpellCasterPort } from '../../../composables/spellCastFlow';
-  import type { SpellPropertyFilterKey } from '../constants';
+  import type {
+    SpellCastingTimeFilterKey,
+    SpellPropertyFilterKey,
+  } from '../constants';
   import type { SheetRowStat } from '../sheetRowTypes';
 
   import { useToast } from '@nuxt/ui/composables';
@@ -82,7 +85,11 @@
     SHEET_FILTER_LABELS,
     SHEET_ROW_MENU_LABELS,
     SPELL_BROWSER_WARMUP_KINDS,
+    SPELL_CASTING_TIME_FILTER_BY_UNIT,
+    SPELL_CASTING_TIME_FILTER_MIN_OPTIONS,
+    SPELL_CASTING_TIME_FILTERS,
     SPELL_FILTER_LABELS,
+    SPELL_FILTER_MENU_ICONS,
     SPELL_LEVEL_SUFFIX,
     SPELL_MENU_LABELS,
     SPELL_MIME,
@@ -671,6 +678,13 @@
   });
 
   /**
+   * Отмеченное время накладывания; пусто — список по нему не сужается.
+   * Отмеченные пункты складываются: «действие» и «реакция» вместе оставляют и
+   * те и другие заклинания.
+   */
+  const filterCastingTimes = ref<Set<SpellCastingTimeFilterKey>>(new Set());
+
+  /**
    * Отбор сужает сам список заклинаний (а не только круги): под ним разделители
    * пустых кругов уже мешают — показывать нечего, кроме пузырьков ячеек.
    */
@@ -678,6 +692,7 @@
     () =>
       searchQuery.value.trim().length > 0
       || filterPrepared.value
+      || filterCastingTimes.value.size > 0
       || Object.values(propertyFilters.value).some((isPicked) => isPicked),
   );
 
@@ -691,6 +706,7 @@
     searchQuery.value = '';
     filterLevels.value = new Set();
     filterPrepared.value = false;
+    filterCastingTimes.value = new Set();
 
     propertyFilters.value = {
       healing: false,
@@ -739,6 +755,24 @@
     };
   }
 
+  /**
+   * Нажатие на пункт времени накладывания: пункты набираются по одному,
+   * повторное нажатие снимает пункт с отбора.
+   *
+   * @param key - время накладывания
+   */
+  function toggleCastingTimeFilter(key: SpellCastingTimeFilterKey): void {
+    const pickedTimes = new Set(filterCastingTimes.value);
+
+    if (pickedTimes.has(key)) {
+      pickedTimes.delete(key);
+    } else {
+      pickedTimes.add(key);
+    }
+
+    filterCastingTimes.value = pickedTimes;
+  }
+
   /** Круги, у которых класс даёт ячейки заклинаний */
   const slotLevels = computed(() =>
     maxSlots.value.reduce<number[]>((levels, max, index) => {
@@ -782,7 +816,7 @@
   );
 
   /**
-   * Значок ячеек — квадрат чипа отбора, как соседний значок свойств. Без поиска
+   * Значок ячеек — квадрат чипа отбора, как соседний значок отбора. Без поиска
    * (в книге пусто) распор справа держит уже он сам.
    */
   const slotsButtonClass = computed(() => [
@@ -815,19 +849,25 @@
     }));
   });
 
-  /** Отмечено хотя бы одно свойство: чип раскрывающегося меню горит тёплым */
+  /** Отмечено хотя бы одно свойство */
   const hasPropertyFilter = computed(() =>
     Object.values(propertyFilters.value).some((isPicked) => isPicked),
   );
 
-  /** Чип, раскрывающий меню свойств: квадрат со значком отбора */
-  const propertyMenuChipClass = computed(() =>
-    getFilterChipClass(hasPropertyFilter.value, 'icon'),
+  /**
+   * Чип, раскрывающий меню отбора: квадрат со значком, горит тёплым, пока в
+   * меню отмечено хоть что-то — время накладывания либо свойство.
+   */
+  const filterMenuChipClass = computed(() =>
+    getFilterChipClass(
+      hasPropertyFilter.value || filterCastingTimes.value.size > 0,
+      'icon',
+    ),
   );
 
   /**
-   * Отметка свойства не закрывает меню: свойств три, и ставят их обычно
-   * подряд — закрытие после каждой галочки заставляло бы открывать меню заново.
+   * Отметка не закрывает меню: пунктов несколько, и ставят их обычно подряд —
+   * закрытие после каждой галочки заставляло бы открывать меню заново.
    *
    * @param event - событие выбора пункта меню
    */
@@ -847,6 +887,67 @@
     })),
   );
 
+  /**
+   * Время накладывания, которое встречается в книге: пункт без единого
+   * заклинания только опустошал бы список. Отмеченный пункт остаётся в меню и
+   * после того, как его заклинания из книги убрали, — иначе отбор не снять.
+   */
+  const availableCastingTimeFilters = computed(() => {
+    const presentTimes = new Set<SpellCastingTimeFilterKey>(
+      filterCastingTimes.value,
+    );
+
+    for (const spell of props.actor.spells ?? []) {
+      presentTimes.add(
+        SPELL_CASTING_TIME_FILTER_BY_UNIT[spell.castingTimeUnit],
+      );
+    }
+
+    return SPELL_CASTING_TIME_FILTERS.filter((castingTime) =>
+      presentTimes.has(castingTime.key),
+    );
+  });
+
+  /** Пункты меню времени накладывания: отметка держится галочкой в меню */
+  const castingTimeMenuItems = computed<DropdownMenuItem[]>(() =>
+    availableCastingTimeFilters.value.map((castingTime) => ({
+      label: castingTime.label,
+      icon: castingTime.icon,
+      type: 'checkbox',
+      checked: filterCastingTimes.value.has(castingTime.key),
+      onSelect: keepMenuOpen,
+      onUpdateChecked: () => toggleCastingTimeFilter(castingTime.key),
+    })),
+  );
+
+  /**
+   * Меню отбора: категории, у каждой свой раскрывающийся список. Время
+   * накладывания стоит в нём, только когда оно в книге разное — из одного
+   * пункта выбирать нечего.
+   */
+  const filterMenuItems = computed<DropdownMenuItem[]>(() => {
+    const propertiesCategory: DropdownMenuItem = {
+      label: SPELL_FILTER_LABELS.properties,
+      icon: SPELL_FILTER_MENU_ICONS.properties,
+      children: propertyMenuItems.value,
+    };
+
+    if (
+      castingTimeMenuItems.value.length < SPELL_CASTING_TIME_FILTER_MIN_OPTIONS
+    ) {
+      return [propertiesCategory];
+    }
+
+    return [
+      {
+        label: SPELL_FILTER_LABELS.castingTime,
+        icon: SPELL_FILTER_MENU_ICONS.castingTime,
+        children: castingTimeMenuItems.value,
+      },
+      propertiesCategory,
+    ];
+  });
+
   /** Заклинания, прошедшие поиск и отбор */
   const filteredSpells = computed(() => {
     const spells = props.actor.spells ?? [];
@@ -862,6 +963,15 @@
       }
 
       if (filterPrepared.value && !isSpellReady(spell, cantripsTracked.value)) {
+        return false;
+      }
+
+      if (
+        filterCastingTimes.value.size > 0
+        && !filterCastingTimes.value.has(
+          SPELL_CASTING_TIME_FILTER_BY_UNIT[spell.castingTimeUnit],
+        )
+      ) {
         return false;
       }
 
@@ -1457,23 +1567,24 @@
             </template>
           </UInput>
 
-          <!-- Свойства заклинания живут в раскрывающемся меню: обращаются к ним
-        реже, чем к кругам, а места чипами занимали столько же. Отметки стоят
-        галочками в самом меню, и оно не закрывается после каждой -->
+          <!-- Время накладывания и свойства живут под одним значком: обращаются
+        к ним реже, чем к кругам, а места чипами занимали бы столько же. Внутри
+        — категории, у каждой свой раскрывающийся список; отметки стоят
+        галочками, и меню не закрывается после каждой -->
           <UDropdownMenu
-            :items="propertyMenuItems"
+            :items="filterMenuItems"
             :content="{ align: 'end' }"
           >
-            <!-- Отметку свойств несут галочки пунктов меню, а не сама кнопка:
+            <!-- Отметку несут галочки пунктов меню, а не сама кнопка:
           `aria-pressed` на ней спорил бы с ролью кнопки, раскрывающей меню -->
-            <UTooltip :text="SPELL_FILTER_LABELS.propertiesHint">
+            <UTooltip :text="SPELL_FILTER_LABELS.filtersHint">
               <button
                 type="button"
-                :class="propertyMenuChipClass"
-                :aria-label="SPELL_FILTER_LABELS.properties"
+                :class="filterMenuChipClass"
+                :aria-label="SPELL_FILTER_LABELS.filters"
               >
                 <UIcon
-                  name="tabler:adjustments-horizontal"
+                  :name="SPELL_FILTER_MENU_ICONS.menu"
                   class="size-4"
                 />
               </button>
@@ -1482,7 +1593,7 @@
         </template>
 
         <!-- Своя прибавка к ячейкам: настройка листа, а не отбор, но живёт
-          рядом со значком свойств — одним значком, чтобы не теснить плитки -->
+          рядом со значком отбора — одним значком, чтобы не теснить плитки -->
         <UTooltip :text="slotsButtonTooltip">
           <button
             type="button"
