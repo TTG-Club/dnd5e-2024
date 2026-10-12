@@ -4,9 +4,11 @@
  * Регистрирует кнопки под уроном атаки в карточке чата: «Отменить урон» под
  * нанесённым уроном и «Нанести урон» под отметкой об отмене, а рядом с ними,
  * в том же ряду, — переключатели «Половина» / «Полный урон» и «Крит» / «Не
- * крит». Кнопки рисует ядро и показывает их только мастеру (`gmOnly`); что
- * они делают и как подписаны под конкретной карточкой — решает система
- * (`attackDamageActions.ts`), она же отказывает не-мастеру.
+ * крит». Кнопки рисует ядро — автору сообщения и мастеру. Что они делают, как
+ * подписаны и кому из двоих показаны под конкретной карточкой — решает
+ * система (`attackDamageActions.ts`): «Половина» и «Крит» под нанесённым
+ * уроном видит и автор атаки, отмену и повторный урон — мастер и автор с
+ * правом роли «Отмена урона из чата». Она же отказывает в самом действии.
  *
  * @module systems/dnd5e/modules/combat
  */
@@ -30,7 +32,7 @@ import {
 } from '../../composables/attackDamageActions';
 import { ATTACK_DAMAGE_ACTION_LABELS } from '../../ui/actor/constants';
 
-/** Раскладка кнопок под уроном: три равные кнопки в один ряд */
+/** Раскладка кнопок под уроном: кнопки равной ширины в один ряд */
 const ATTACK_DAMAGE_ACTIONS_LAYOUT = 'row';
 
 /**
@@ -43,7 +45,6 @@ const ATTACK_DAMAGE_MODE_ACTIONS = [
     label: ATTACK_DAMAGE_ACTION_LABELS.half,
     icon: ATTACK_DAMAGE_ACTION_LABELS.halfIcon,
     tooltip: ATTACK_DAMAGE_ACTION_LABELS.halfTooltip,
-    gmOnly: true,
     view: resolveHalfActionView,
     run: toggleAttackDamageHalf,
   },
@@ -52,7 +53,6 @@ const ATTACK_DAMAGE_MODE_ACTIONS = [
     label: ATTACK_DAMAGE_ACTION_LABELS.critical,
     icon: ATTACK_DAMAGE_ACTION_LABELS.criticalIcon,
     tooltip: ATTACK_DAMAGE_ACTION_LABELS.criticalTooltip,
-    gmOnly: true,
     view: resolveCriticalActionView,
     run: toggleAttackDamageCritical,
   },
@@ -78,7 +78,6 @@ export function register(api: ClientSystemAPI): void {
         id: ATTACK_DAMAGE_ACTION_LABELS.revertId,
         label: ATTACK_DAMAGE_ACTION_LABELS.revert,
         icon: ATTACK_DAMAGE_ACTION_LABELS.revertIcon,
-        gmOnly: true,
         view: resolveRevertActionView,
         run: revertAttackDamage,
       },
@@ -94,7 +93,6 @@ export function register(api: ClientSystemAPI): void {
         id: ATTACK_DAMAGE_ACTION_LABELS.reapplyId,
         label: ATTACK_DAMAGE_ACTION_LABELS.reapply,
         icon: ATTACK_DAMAGE_ACTION_LABELS.reapplyIcon,
-        gmOnly: true,
         view: resolveReapplyActionView,
         run: reapplyAttackDamage,
       },

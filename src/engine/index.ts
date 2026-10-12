@@ -11,6 +11,7 @@ export * from './areaShift.js';
 export * from './armorProficiency.js';
 export * from './armorState.js';
 export * from './attackChatBlocks.js';
+export * from './attackDamageAccess.js';
 export * from './attackDamageModes.js';
 export * from './attackDamageRecord.js';
 export * from './attackDamageRoll.js';

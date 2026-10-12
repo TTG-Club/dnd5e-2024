@@ -21,9 +21,13 @@
  * «Отменить урон» возвращает всё снятое в любом режиме, «Нанести урон»
  * перебрасывает кости и наносит урон в том же режиме.
  *
- * Все кнопки — только мастеру: ядро их игрокам не показывает (`gmOnly`), а
- * обработчики отказывают не-мастеру сами — замену дополнения сервер разрешает
- * и автору сообщения.
+ * «Половина» и «Крит» под нанесённым уроном доступны мастеру и автору атаки.
+ * «Отменить урон», «Нанести урон» и те же переключатели над отменённым уроном
+ * (там они наносят его заново) — мастеру, а автору атаки только с правом роли
+ * «Отмена урона из чата» (`REVERT_CHAT_DAMAGE`, таблица прав ролей ядра).
+ * Кнопку, которая смотрящему не дана, прячет её вид (`hidden`), а обработчики
+ * отказывают сами — замену дополнения сервер разрешает любому автору
+ * сообщения. Правило — в `attackDamageAccess.ts` движка.
  */
 
 import type {
@@ -41,6 +45,8 @@ import type {
 import type {
   AppliedDamagePart,
   AppliedRecordedDamage,
+  AttackDamageAction,
+  AttackDamageActionRefusal,
   AttackDamageModes,
   AttackDamageRecord,
   AttackDamageTarget,
@@ -49,6 +55,7 @@ import type {
   HpChangeRowPlacement,
 } from '@vtt/shared/system/dnd.js';
 
+import { usePermissions } from '@/shared_ui/composables';
 import { useChatStore } from '@/stores/chatStore';
 import { useDiceRollerStore } from '@/stores/diceRollerStore';
 import { useWorldStore } from '@/stores/worldStore';
@@ -75,8 +82,10 @@ import {
   pickRowTargetName,
   planDamageReroll,
   readDamageModes,
+  resolveAttackDamageActionRefusal,
   resolveEntityCurrentHp,
   resolveEntityTempHp,
+  REVERT_CHAT_DAMAGE_PERMISSION,
   revertRecordedDamage,
   revertRecordedDeathSaves,
   serializeAttackDamageRecord,
@@ -114,6 +123,52 @@ type DamageModeView = Pick<
   'target' | 'total' | 'damage' | 'parts' | 'hpChange'
 >;
 
+/** Чем объяснить отказ в действии над уроном */
+const ATTACK_DAMAGE_REFUSAL_TITLES: Readonly<
+  Record<AttackDamageActionRefusal, string>
+> = {
+  authorOnly: ATTACK_DAMAGE_ACTION_LABELS.authorOnlyTitle,
+  revertForbidden: ATTACK_DAMAGE_ACTION_LABELS.revertForbiddenTitle,
+};
+
+/**
+ * Есть ли у роли пользователя право «Отмена урона из чата». Мастеру ядро
+ * отвечает «да» всегда; ядро старше этого права проверку ролей системе не
+ * отдаёт — там отмена остаётся мастеру.
+ *
+ * @returns `true`, если пользователь вправе отменять урон своей атаки
+ */
+function canRevertDamage(): boolean {
+  return (
+    typeof usePermissions === 'function'
+    && usePermissions().hasPermission.value(REVERT_CHAT_DAMAGE_PERMISSION)
+  );
+}
+
+/**
+ * Прятать ли кнопку действия от того, кто смотрит ленту. Кнопки ядро
+ * показывает только автору сообщения и мастеру, поэтому смотрящий не-мастер
+ * здесь — автор атаки.
+ *
+ * @param action - действие кнопки
+ * @param followUp - дополнение, под которым она стоит
+ * @returns `true`, если действие смотрящему не дано
+ */
+function isActionHidden(
+  action: AttackDamageAction,
+  followUp: ChatMessageFollowUp,
+): boolean {
+  return (
+    resolveAttackDamageActionRefusal({
+      action,
+      isGM: useWorldStore().isGM,
+      isAuthor: true,
+      isApplied: followUp.kind === ATTACK_DAMAGE_FOLLOW_UP_KIND,
+      canRevertDamage: canRevertDamage(),
+    }) !== null
+  );
+}
+
 /**
  * Показывает отказ: действие над уроном не выполнено.
  *
@@ -125,18 +180,31 @@ function refuse(title: string, description?: string): void {
 }
 
 /**
- * Запись дополнения, если с ней сейчас можно работать. Урон отменяет и
- * наносит заново только мастер: кнопки ядро показывает ему одному, а здесь —
- * отказ на случай, если действие вызвали в обход кнопки.
+ * Запись дополнения, если с ней сейчас можно работать. Кому какое действие
+ * разрешено, решает `resolveAttackDamageActionRefusal`; лишние кнопки
+ * спрятаны от игрока, а здесь — отказ на случай, если действие вызвали в
+ * обход кнопки.
  *
  * @param context - сообщение и дополнение, под которым нажали кнопку
+ * @param action - действие, кнопку которого нажали
  * @returns запись или `null` — отказ уже показан
  */
 function readActionableRecord(
   context: ChatFollowUpActionContext,
+  action: AttackDamageAction,
 ): AttackDamageRecord | null {
-  if (!useWorldStore().isGM) {
-    refuse(ATTACK_DAMAGE_ACTION_LABELS.gmOnlyTitle);
+  const worldStore = useWorldStore();
+
+  const refusal = resolveAttackDamageActionRefusal({
+    action,
+    isGM: worldStore.isGM,
+    isAuthor: worldStore.currentUser?.id === context.message.authorId,
+    isApplied: context.followUp.kind === ATTACK_DAMAGE_FOLLOW_UP_KIND,
+    canRevertDamage: canRevertDamage(),
+  });
+
+  if (refusal) {
+    refuse(ATTACK_DAMAGE_REFUSAL_TITLES[refusal]);
 
     return null;
   }
@@ -313,7 +381,7 @@ function revertTargetDeathSaves(target: AttackDamageTarget): void {
  * @param context - сообщение и дополнение с уроном
  */
 export function revertAttackDamage(context: ChatFollowUpActionContext): void {
-  const record = readActionableRecord(context);
+  const record = readActionableRecord(context, 'revert');
 
   if (!record) {
     return;
@@ -773,6 +841,10 @@ function readModesRecord(
 export function resolveRevertActionView(
   followUp: ChatMessageFollowUp,
 ): ChatFollowUpActionView | null {
+  if (isActionHidden('revert', followUp)) {
+    return { hidden: true };
+  }
+
   return readModesRecord(followUp)
     ? {
         label: ATTACK_DAMAGE_ACTION_LABELS.revertShort,
@@ -790,6 +862,10 @@ export function resolveRevertActionView(
 export function resolveReapplyActionView(
   followUp: ChatMessageFollowUp,
 ): ChatFollowUpActionView | null {
+  if (isActionHidden('reapply', followUp)) {
+    return { hidden: true };
+  }
+
   return readModesRecord(followUp)
     ? {
         label: ATTACK_DAMAGE_ACTION_LABELS.reapplyShort,
@@ -810,7 +886,7 @@ export function resolveHalfActionView(
 ): ChatFollowUpActionView | null {
   const record = readModesRecord(followUp);
 
-  if (!record) {
+  if (!record || isActionHidden('modes', followUp)) {
     return { hidden: true };
   }
 
@@ -836,7 +912,7 @@ export function resolveCriticalActionView(
 ): ChatFollowUpActionView | null {
   const record = readModesRecord(followUp);
 
-  if (!record || !hasCritDice(record)) {
+  if (!record || !hasCritDice(record) || isActionHidden('modes', followUp)) {
     return { hidden: true };
   }
 
@@ -902,7 +978,7 @@ function changeAttackDamageModes(
   context: ChatFollowUpActionContext,
   pickNext: (modes: AttackDamageModes) => AttackDamageModes,
 ): void {
-  const storedRecord = readActionableRecord(context);
+  const storedRecord = readActionableRecord(context, 'modes');
 
   if (!storedRecord) {
     return;
@@ -1013,7 +1089,7 @@ export function toggleAttackDamageCritical(
  * @param context - сообщение и дополнение с отметкой об отмене
  */
 export function reapplyAttackDamage(context: ChatFollowUpActionContext): void {
-  const record = readActionableRecord(context);
+  const record = readActionableRecord(context, 'reapply');
 
   if (!record) {
     return;
