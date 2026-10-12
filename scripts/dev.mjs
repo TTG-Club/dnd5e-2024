@@ -203,8 +203,8 @@ function distSignature(dir) {
   const hash = crypto.createHash('sha256');
 
   const walk = (current) => {
-    const entries = readdirSync(current, { withFileTypes: true }).sort((a, b) =>
-      a.name.localeCompare(b.name),
+    const entries = readdirSync(current, { withFileTypes: true }).sort(
+      (first, second) => first.name.localeCompare(second.name),
     );
 
     for (const entry of entries) {
