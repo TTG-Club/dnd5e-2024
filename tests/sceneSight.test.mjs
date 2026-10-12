@@ -9,6 +9,7 @@ import {
   createToken,
   engine,
   GRID,
+  sightFacts,
 } from './scenarios/_fixtures.mjs';
 
 /**
@@ -19,25 +20,6 @@ import {
 
 /** Дальность тёмного зрения в сценариях, фт */
 const DARKVISION_FEET = 60;
-
-/**
- * Факты ядра о паре фишек: по умолчанию цель рядом, на свету и ничем не
- * закрыта.
- *
- * @param {object} overrides - что отличается
- * @returns {object} факты
- */
-function factsOf(overrides = {}) {
-  return {
-    lineOfSight: true,
-    inVisionCone: true,
-    distance: 30,
-    targetLight: 'bright',
-    viewerLight: 'bright',
-    seenLight: 'bright',
-    ...overrides,
-  };
-}
 
 /**
  * Зрение смотрящего по умолчанию: включено, без предела дальности, тёмного
@@ -84,45 +66,51 @@ function sourceOf(facts) {
 
 describe('правило «видит» по фактам ядра', () => {
   it('цель на свету и ничем не закрыта — видна', () => {
-    assert.equal(engine.canSeeByFacts(factsOf(), abilityOf()), true);
+    assert.equal(engine.canSeeByFacts(sightFacts(), abilityOf()), true);
   });
 
   it('стена, сектор обзора и выключенное зрение — не видна', () => {
     assert.equal(
-      engine.canSeeByFacts(factsOf({ lineOfSight: false }), abilityOf()),
+      engine.canSeeByFacts(sightFacts({ lineOfSight: false }), abilityOf()),
       false,
     );
 
     assert.equal(
-      engine.canSeeByFacts(factsOf({ inVisionCone: false }), abilityOf()),
+      engine.canSeeByFacts(sightFacts({ inVisionCone: false }), abilityOf()),
       false,
     );
 
     assert.equal(
-      engine.canSeeByFacts(factsOf(), abilityOf({ enabled: false })),
+      engine.canSeeByFacts(sightFacts(), abilityOf({ enabled: false })),
       false,
     );
   });
 
   it('дальше дальности зрения фишки — не видна; ноль дальности — без предела', () => {
     assert.equal(
-      engine.canSeeByFacts(factsOf({ distance: 65 }), abilityOf({ range: 60 })),
+      engine.canSeeByFacts(
+        sightFacts({ distance: 65 }),
+        abilityOf({ range: 60 }),
+      ),
       false,
     );
 
     assert.equal(
-      engine.canSeeByFacts(factsOf({ distance: 60 }), abilityOf({ range: 60 })),
+      engine.canSeeByFacts(
+        sightFacts({ distance: 60 }),
+        abilityOf({ range: 60 }),
+      ),
       true,
     );
 
     assert.equal(
-      engine.canSeeByFacts(factsOf({ distance: 500 }), abilityOf()),
+      engine.canSeeByFacts(sightFacts({ distance: 500 }), abilityOf()),
       true,
     );
   });
 
   it('в темноте видно только на дальность тёмного зрения', () => {
-    const dark = factsOf({ seenLight: 'dark', targetLight: 'dark' });
+    const dark = sightFacts({ seenLight: 'dark', targetLight: 'dark' });
 
     assert.equal(engine.canSeeByFacts(dark, abilityOf()), false);
 
@@ -142,7 +130,7 @@ describe('правило «видит» по фактам ядра', () => {
 
   it('тусклый свет — тоже свет', () => {
     assert.equal(
-      engine.canSeeByFacts(factsOf({ seenLight: 'dim' }), abilityOf()),
+      engine.canSeeByFacts(sightFacts({ seenLight: 'dim' }), abilityOf()),
       true,
     );
   });
@@ -150,7 +138,7 @@ describe('правило «видит» по фактам ядра', () => {
   it('цель освещена только с невидимой стороны — видимая часть в темноте', () => {
     assert.equal(
       engine.canSeeByFacts(
-        factsOf({ targetLight: 'bright', seenLight: 'dark' }),
+        sightFacts({ targetLight: 'bright', seenLight: 'dark' }),
         abilityOf(),
       ),
       false,
@@ -214,7 +202,7 @@ describe('видимость и свет сцены для правил', () => 
 
   it('сущности нет на сцене — ответ «неизвестно»', () => {
     const sight = engine.createSceneSight({
-      getSightBetween: () => factsOf(),
+      getSightBetween: () => sightFacts(),
       listTokenIds: () => [],
     });
 
@@ -223,13 +211,13 @@ describe('видимость и свет сцены для правил', () => 
 
   it('видит цель на свету и не видит за стеной', () => {
     assert.equal(
-      engine.createSceneSight(sourceOf(factsOf())).canSee(viewer, target),
+      engine.createSceneSight(sourceOf(sightFacts())).canSee(viewer, target),
       true,
     );
 
     assert.equal(
       engine
-        .createSceneSight(sourceOf(factsOf({ lineOfSight: false })))
+        .createSceneSight(sourceOf(sightFacts({ lineOfSight: false })))
         .canSee(viewer, target),
       false,
     );
@@ -241,7 +229,7 @@ describe('видимость и свет сцены для правил', () => 
     ]);
 
     assert.equal(
-      engine.createSceneSight(sourceOf(factsOf())).canSee(viewer, hidden),
+      engine.createSceneSight(sourceOf(sightFacts())).canSee(viewer, hidden),
       false,
     );
   });
@@ -249,7 +237,7 @@ describe('видимость и свет сцены для правил', () => 
   it('копий существа несколько — берётся лучшая пара', () => {
     const sight = engine.createSceneSight({
       getSightBetween: (viewerTokenId) =>
-        factsOf({ lineOfSight: viewerTokenId === 'near' }),
+        sightFacts({ lineOfSight: viewerTokenId === 'near' }),
       listTokenIds: (entity) =>
         entity.id === viewer.id ? ['far', 'near'] : ['token_target'],
     });
@@ -260,7 +248,7 @@ describe('видимость и свет сцены для правил', () => 
   it('освещённость существа — свет его места', () => {
     assert.equal(
       engine
-        .createSceneSight(sourceOf(factsOf({ viewerLight: 'dim' })))
+        .createSceneSight(sourceOf(sightFacts({ viewerLight: 'dim' })))
         .lightOf(viewer),
       'dim',
     );
@@ -303,7 +291,7 @@ describe('факты из контекста срабатывания ядра',
       getSightBetween: (viewerTokenId, targetTokenId) => {
         asked.push([viewerTokenId, targetTokenId]);
 
-        return factsOf();
+        return sightFacts();
       },
     });
 
@@ -317,7 +305,7 @@ describe('факты из контекста срабатывания ядра',
   it('сущности нет на сцене — фишек нет', () => {
     const source = engine.createContextSightSource({
       getSceneSurroundings: () => null,
-      getSightBetween: () => factsOf(),
+      getSightBetween: () => sightFacts(),
     });
 
     assert.deepEqual(source.listTokenIds(hero), []);

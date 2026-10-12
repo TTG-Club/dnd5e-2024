@@ -270,6 +270,25 @@ export function createToken(actorId, column, row, overrides = {}) {
 }
 
 /**
+ * Факты ядра о паре фишек (`SceneSightFacts`): по умолчанию цель в 30 футах,
+ * на свету и ничем не закрыта.
+ *
+ * @param {object} overrides - что отличается
+ * @returns {object} факты
+ */
+export function sightFacts(overrides = {}) {
+  return {
+    lineOfSight: true,
+    inVisionCone: true,
+    distance: 30,
+    targetLight: 'bright',
+    viewerLight: 'bright',
+    seenLight: 'bright',
+    ...overrides,
+  };
+}
+
+/**
  * Зона сцены.
  *
  * @param {string} id - идентификатор

@@ -11,6 +11,7 @@ import {
   GRID,
   MAX_ROLL,
   MIN_ROLL,
+  sightFacts,
   strikeEntity,
   withHp,
   withRandom,
@@ -649,14 +650,7 @@ describe('каталог: события срабатываний', () => {
       };
     };
 
-    const clearSight = {
-      lineOfSight: true,
-      inVisionCone: true,
-      distance: 10,
-      targetLight: 'bright',
-      viewerLight: 'bright',
-      seenLight: 'bright',
-    };
+    const clearSight = sightFacts({ distance: 10 });
 
     /**
      * Бьёт раненого и отвечает, сработал ли эффект свидетеля.

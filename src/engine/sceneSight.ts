@@ -34,6 +34,8 @@ import type {
 import type { EffectFlagKey } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 
+import { brighterLightLevel } from '@vtt/shared';
+
 import { resolveActorStats } from './effectPipeline.js';
 import { computeEntityVision } from './entityVision.js';
 import { isTokenVisionEnabled, resolveTokenDarkvision } from './visionUtils.js';
@@ -56,13 +58,6 @@ const INVISIBLE_FLAG: EffectFlagKey = 'vision.invisible';
  * сцена рисует туман такой фишке.
  */
 const DEFAULT_TOKEN_VISION_RANGE_FEET = 60;
-
-/** Яркость уровней освещённости: больше — светлее */
-const LIGHT_LEVEL_RANK: Record<SceneLightLevel, number> = {
-  dark: 0,
-  dim: 1,
-  bright: 2,
-};
 
 /** Чем существо смотрит: то, с чем сравниваются факты ядра */
 export interface SightAbility {
@@ -219,17 +214,13 @@ export function createSceneSight(
 
       return facts.some((pairFacts) => canSeeByFacts(pairFacts, ability));
     },
-    lightOf: (entity) =>
-      listSightFacts(source, entity, entity)
-        .map((facts) => facts.viewerLight)
-        .reduce<SceneLightLevel | undefined>(
-          (brightest, level) =>
-            brightest === undefined
-            || LIGHT_LEVEL_RANK[level] > LIGHT_LEVEL_RANK[brightest]
-              ? level
-              : brightest,
-          undefined,
-        ),
+    lightOf: (entity) => {
+      const levels = listSightFacts(source, entity, entity).map(
+        (facts) => facts.viewerLight,
+      );
+
+      return levels.length > 0 ? levels.reduce(brighterLightLevel) : undefined;
+    },
   };
 }
 

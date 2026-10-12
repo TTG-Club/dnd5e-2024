@@ -11,6 +11,7 @@ import {
   createToken,
   engine,
   GRID,
+  sightFacts,
   withHp,
 } from './_fixtures.mjs';
 
@@ -419,14 +420,12 @@ describe('каталог: ключи и флаги', () => {
 
     // Цель в темноте в 30 футах, стен нет: так ответило ядро
     const sight = engine.createSceneSight({
-      getSightBetween: () => ({
-        lineOfSight: true,
-        inVisionCone: true,
-        distance: 30,
-        targetLight: 'dark',
-        viewerLight: 'dark',
-        seenLight: 'dark',
-      }),
+      getSightBetween: () =>
+        sightFacts({
+          targetLight: 'dark',
+          viewerLight: 'dark',
+          seenLight: 'dark',
+        }),
       listTokenIds: (entity) => [`token_${entity.id}`],
     });
 
