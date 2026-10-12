@@ -43,6 +43,44 @@ export function resolveCreatureActionSaveDc(action: CreatureAction): number {
 }
 
 /**
+ * Бросает ли действие существа попадание. Спасбросок и область заменяют
+ * бросок попадания, автопопадание отменяет его. Иначе атакой считается любая
+ * запись с бонусом атаки или уроном — даже без записанного бонуса: пустой
+ * бонус значит +0 (см. {@link resolveCreatureActionAttackBonus}).
+ *
+ * @param action - действие существа
+ * @returns `true`, если по действию бросают попадание
+ */
+export function creatureActionHasAttackRoll(action: CreatureAction): boolean {
+  if (
+    creatureActionHasSave(action)
+    || action.areaOfEffect !== undefined
+    || action.autoHit === true
+  ) {
+    return false;
+  }
+
+  return (
+    action.attackBonus !== undefined || (action.damageParts?.length ?? 0) > 0
+  );
+}
+
+/**
+ * Бонус к попаданию действия существа: записанный либо +0, если бонуса в
+ * данных нет.
+ *
+ * @param action - действие существа
+ * @returns бонус атаки; `undefined` — у действия нет броска попадания
+ */
+export function resolveCreatureActionAttackBonus(
+  action: CreatureAction,
+): number | undefined {
+  return creatureActionHasAttackRoll(action)
+    ? (action.attackBonus ?? 0)
+    : undefined;
+}
+
+/**
  * Есть ли у действия существа что бросать: атака, урон или спасбросок.
  * Правило нужно и входу действия (окно или применение сразу), и листу
  * существа (значок броска в строке), поэтому живёт здесь.

@@ -433,6 +433,7 @@ async function loadCreatureAction(windowOpens, creature = WOLF) {
     buildRollSourceKey: (...parts) => parts.join(':'),
     warnOpportunityAttack: () => {},
     creatureActionHasSave: engine.creatureActionHasSave,
+    resolveCreatureActionAttackBonus: engine.resolveCreatureActionAttackBonus,
     collectActiveEffects: () => [],
     useBonusDamageParts: () => ({
       buildCreatureRollSetup: () => ({ baseParts: [], pseudoSpell: {} }),

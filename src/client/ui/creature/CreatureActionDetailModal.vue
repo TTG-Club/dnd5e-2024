@@ -16,6 +16,7 @@
     getActionDescriptionMarkdown,
     listCreatureDamageAlternatives,
     readAlternativeShownParts,
+    resolveCreatureActionAttackBonus,
     SAVE_EFFECT_OPTIONS,
     SAVE_TYPE_LABELS,
   } from '@vtt/shared/system/dnd.js';
@@ -139,9 +140,17 @@
       : undefined,
   );
 
-  /** Бонус к попаданию со знаком (напр. «+5», «−1»), пусто если не задан */
+  /**
+   * Бонус к попаданию: записанный либо +0, если бонуса в данных нет;
+   * `undefined` — у действия нет броска попадания
+   */
+  const attackBonus = computed(() =>
+    props.action ? resolveCreatureActionAttackBonus(props.action) : undefined,
+  );
+
+  /** Бонус к попаданию со знаком (напр. «+5», «−1»), пусто без броска */
   const attackBonusLabel = computed(() => {
-    const bonus = props.action?.attackBonus;
+    const bonus = attackBonus.value;
 
     if (bonus === undefined) {
       return '';
@@ -232,7 +241,7 @@
             <!-- Боевые параметры -->
             <div
               v-if="
-                action.attackBonus !== undefined
+                attackBonus !== undefined
                 || hasSave
                 || damageParts.length > 0
                 || damageAlternatives.length > 0
@@ -241,7 +250,7 @@
             >
               <div class="flex flex-wrap gap-x-6 gap-y-2 text-sm">
                 <!-- Тип броска / бонус к попаданию -->
-                <div v-if="action.attackBonus !== undefined && !hasSave">
+                <div v-if="attackBonus !== undefined">
                   <span class="block text-xs text-dimmed">{{
                     attackTypeLabel
                   }}</span>

@@ -77,6 +77,7 @@ async function createPorts() {
 
   const shared = {
     creatureActionHasSave: engine.creatureActionHasSave,
+    resolveCreatureActionAttackBonus: engine.resolveCreatureActionAttackBonus,
     getDamagePartsPrimaryType: () => undefined,
     // Типа урона на выбор у фикстур нет: плашка пропускает действие сразу
     runWithDamageTypeChoices: (source, proceed) => proceed(source),
@@ -222,6 +223,8 @@ describe('признак «действие без урона»', () => {
       'runDamagelessCreatureAction',
       {
         creatureActionHasSave: engine.creatureActionHasSave,
+        resolveCreatureActionAttackBonus:
+          engine.resolveCreatureActionAttackBonus,
         runWithDamageTypeChoices: (source, proceed) => proceed(source),
       },
     );

@@ -567,6 +567,9 @@ export function useBonusDamageParts() {
       saveType: action.saveType ?? 'none',
       saveEffect: action.saveEffect,
       areaOfEffect: action.areaOfEffect,
+      // Автопопадание — тот же флаг, что у заклинания: разбор целей читает
+      // его одним правилом для обоих
+      autoHit: action.autoHit,
       // Эффекты действия (статус/доп.урон со своим applySave) обрабатывает
       // оркестратор per-target — тем же путём, что и у заклинаний/оружия.
       // Оркестратор разбирает эффекты действия по каждой задетой цели —

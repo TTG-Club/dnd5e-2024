@@ -106,6 +106,8 @@
     nameEn: string;
     description: string;
     attackBonus: number | null;
+    /** Урон без броска попадания; без отметки пустой бонус — атака с +0 */
+    autoHit: boolean;
     damageParts: DamagePart[];
     /** Урон «или»: наборы, заменяющие основной урон по условию */
     damageAlternatives: CreatureDamageAlternative[];
@@ -138,6 +140,7 @@
     nameEn: '',
     description: '',
     attackBonus: null,
+    autoHit: false,
     damageParts: [],
     damageAlternatives: [],
     saveType: 'none',
@@ -196,6 +199,9 @@
 
   /** Есть ли спасбросок (заменяет бросок попадания) */
   const hasSave = computed(() => form.saveType !== 'none');
+
+  /** Поле бонуса атаки: у спасброска и автопопадания броска попадания нет */
+  const isAttackBonusShown = computed(() => !hasSave.value && !form.autoHit);
 
   /** Опции типа урона из системных данных (для DamagePartsEditor) */
   const damageTypeOptions = computed(() =>
@@ -266,6 +272,7 @@
         form.nameEn = action.nameEn ?? '';
         form.description = getActionDescriptionMarkdown(action);
         form.attackBonus = action.attackBonus ?? null;
+        form.autoHit = action.autoHit ?? false;
 
         form.damageParts = (action.damageParts ?? []).map((part) => ({
           ...part,
@@ -307,6 +314,7 @@
         form.nameEn = '';
         form.description = '';
         form.attackBonus = null;
+        form.autoHit = false;
         form.damageParts = [];
         form.damageAlternatives = [];
         form.saveType = 'none';
@@ -453,7 +461,8 @@
       }
 
       // Спасбросок ЗАМЕНЯЕТ бросок попадания: при наличии спаса бонус атаки
-      // не пишется (как у оружия со спасброском).
+      // не пишется (как у оружия со спасброском). Автопопадание тоже
+      // отменяет бросок — пустой бонус без него значит атаку с +0.
       if (hasSave.value) {
         result.saveType = form.saveType;
 
@@ -462,8 +471,14 @@
         }
 
         result.saveEffect = form.saveEffect;
-      } else if (form.attackBonus !== null) {
+      } else if (!form.autoHit && form.attackBonus !== null) {
         result.attackBonus = form.attackBonus;
+      }
+
+      // Автопопадание — тот же флаг, что у заклинаний: пишется при любом
+      // спасброске и области, а разбор целей читает его одинаково
+      if (form.autoHit) {
+        result.autoHit = true;
       }
 
       if (form.useArea) {
@@ -640,17 +655,24 @@
                 </UFormField>
 
                 <UFormField
-                  v-if="!hasSave"
+                  v-if="isAttackBonusShown"
                   :label="CREATURE_ACTION_FORM_LABELS.attackBonus"
                 >
                   <UInput
                     v-model="form.attackBonus"
                     type="number"
-                    placeholder="+5"
+                    :placeholder="
+                      CREATURE_ACTION_FORM_LABELS.attackBonusPlaceholder
+                    "
                     class="w-full"
                   />
                 </UFormField>
               </div>
+
+              <UCheckbox
+                v-model="form.autoHit"
+                :label="CREATURE_ACTION_FORM_LABELS.autoHit"
+              />
 
               <!-- Урон (единая со заклинаниями и оружием система частей) -->
               <div class="space-y-2">

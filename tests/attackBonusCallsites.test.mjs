@@ -6,7 +6,7 @@ import { loadEngineBundle } from './helpers/engineBundle.mjs';
 import { loadHandler } from './helpers/sourceHandler.mjs';
 
 const engine = await loadEngineBundle(
-  "export * from './src/engine/attackUtils.ts'; export * from './src/engine/effectPipeline.ts'; export * from './src/engine/consts.ts'; export * from './src/engine/formulaParser.ts'; export * from './src/engine/resolvedFormulaContext.ts'; export * from './src/engine/spellCastPlan.ts'; export * from './src/engine/hitPoints.ts'; export { isSaveAbility } from './src/engine/spellUtils.ts'; export { creatureActionHasSave } from './src/engine/creatureUtils.ts';",
+  "export * from './src/engine/attackUtils.ts'; export * from './src/engine/effectPipeline.ts'; export * from './src/engine/consts.ts'; export * from './src/engine/formulaParser.ts'; export * from './src/engine/resolvedFormulaContext.ts'; export * from './src/engine/spellCastPlan.ts'; export * from './src/engine/hitPoints.ts'; export { isSaveAbility } from './src/engine/spellUtils.ts'; export { creatureActionHasSave, resolveCreatureActionAttackBonus } from './src/engine/creatureUtils.ts';",
 );
 
 const macroPath = 'src/client/macros/dnd5eMacros.ts';
@@ -128,6 +128,7 @@ function createPorts(current) {
     spendShotAmmunition: () => {},
     isDndSceneEntity: () => true,
     creatureActionHasSave: engine.creatureActionHasSave,
+    resolveCreatureActionAttackBonus: engine.resolveCreatureActionAttackBonus,
     getDamagePartsPrimaryType: () => undefined,
     getSpellAttackType: (spell) => spell.deliveryType,
     // Общий разбор заклинания существа: существо из мира, вид каста — план
@@ -366,6 +367,29 @@ for (const entry of [[creatureActionPath, 'openCreatureActionRoll', false]]) {
 
       assert.equal(ports.rollConfig.value.evaluateBonusRollFormulas, undefined);
     }
+  });
+
+  it(`actual ${entry[1]} rolls to hit with +0 when the attack bonus is missing, and not at all on auto-hit`, async () => {
+    const current = { value: createEntity() };
+    const ports = createPorts(current);
+    const handler = await loadHandler(entry[0], entry[1], ports);
+    const creature = current.value;
+
+    // Призванное существо: бонус «равен модификатору заклинателя» в данные
+    // не попал — бросок попадания всё равно идёт, с +0
+    const rend = {
+      name: 'Rend',
+      rangeType: 'melee',
+      damageParts: [{ formula: '1d8+3' }],
+    };
+
+    handler(rend, creature, false, undefined);
+
+    assert.equal(ports.rollConfig.value.attackModifier, 0);
+
+    handler({ ...rend, autoHit: true }, creature, false, undefined);
+
+    assert.equal(ports.rollConfig.value.attackModifier, undefined);
   });
 }
 

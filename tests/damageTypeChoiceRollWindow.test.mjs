@@ -250,6 +250,7 @@ function createPorts(applied) {
     useWorldEntities: () => ({ findCurrentDndEntity: () => undefined }),
     collectActiveEffects: () => [],
     creatureActionHasSave: engine.creatureActionHasSave,
+    resolveCreatureActionAttackBonus: engine.resolveCreatureActionAttackBonus,
     getAttackFlagCategory: engine.getAttackFlagCategory,
     getAttackBonusKey: engine.getAttackBonusKey,
     getDamagePartsPrimaryType: () => undefined,

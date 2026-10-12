@@ -28,7 +28,6 @@ import { useTargetStore } from '@/stores/targetStore';
 import { useWorldStore } from '@/stores/worldStore';
 import {
   collectActiveEffects,
-  creatureActionHasSave,
   findCreatureActionBlock,
   getAttackBonusKey,
   getAttackFlagCategory,
@@ -36,6 +35,7 @@ import {
   isCreatureAttackAction,
   isDndCreature,
   isTargetAtFullHp,
+  resolveCreatureActionAttackBonus,
   resolveCreatureActionSaveDc,
   resolveCreatureSectionCost,
   resolveEntityActionBlocks,
@@ -304,8 +304,9 @@ export function startCreatureAction(
 
 /**
  * Окно броска действия существа — многочастный путь, общий с заклинаниями и
- * оружием. Атаки — с броском попадания; спасброски и область — без него,
- * спасброски и эффекты разбирает оркестратор по каждой задетой цели.
+ * оружием. Атаки — с броском попадания (пустой бонус — +0); спасброски,
+ * область и автопопадание — без него, спасброски и эффекты разбирает
+ * оркестратор по каждой задетой цели.
  *
  * @param action - действие существа
  * @param creature - существо-источник
@@ -331,7 +332,10 @@ export function openCreatureActionRoll(
   const { buildCreatureRollSetup, buildTargetHpContext } =
     useBonusDamageParts();
 
-  const usesSaveOrArea = creatureActionHasSave(action) || !!action.areaOfEffect;
+  // Нет бонуса — бросок попадания всё равно идёт с +0; без броска только
+  // спасбросок, область и автопопадание
+  const attackModifier = resolveCreatureActionAttackBonus(action);
+  const hasAttackRoll = attackModifier !== undefined;
   const effects = collectActiveEffects(creature);
 
   // Хиты цели для @target.* — только у одиночной цели (не у области)
@@ -411,32 +415,32 @@ export function openCreatureActionRoll(
     return true;
   }
 
-  const actionAttackRoll = usesSaveOrArea
-    ? undefined
-    : resolveTargetedAttackRoll(
+  const actionAttackRoll = hasAttackRoll
+    ? resolveTargetedAttackRoll(
         creature,
         getAttackFlagCategory(action.rangeType),
         { forceDisadvantage: isDisadvantage },
-      );
+      )
+    : undefined;
 
   const opened = openDiceRollWindow(
     {
-      title: usesSaveOrArea
-        ? action.name
-        : `${CREATURE_ACTIONS_BLOCK_LABELS.attackRollPrefix}${action.name}`,
+      title: hasAttackRoll
+        ? `${CREATURE_ACTIONS_BLOCK_LABELS.attackRollPrefix}${action.name}`
+        : action.name,
       rollLabel: action.name,
       actorName: creature.name,
-      rollButtonText: usesSaveOrArea
-        ? SPELL_DAMAGE_ROLL_BUTTON
-        : CREATURE_ACTION_MENU_LABELS.attack,
+      rollButtonText: hasAttackRoll
+        ? CREATURE_ACTION_MENU_LABELS.attack
+        : SPELL_DAMAGE_ROLL_BUTTON,
       formula: primary.formula,
-      attackModifier: usesSaveOrArea ? undefined : action.attackBonus,
-      evaluateBonusRollFormulas: usesSaveOrArea
-        ? undefined
-        : buildRollBonusEvaluator(
+      attackModifier,
+      evaluateBonusRollFormulas: hasAttackRoll
+        ? buildRollBonusEvaluator(
             () => readCreature(creature.id),
             getAttackBonusKey(action.rangeType),
-          ),
+          )
+        : undefined,
       initialRollMode: actionAttackRoll?.mode ?? 'normal',
       rollModeReasons: actionAttackRoll?.reasons,
       incomingAttackType: getAttackFlagCategory(action.rangeType),
