@@ -71,6 +71,7 @@ import {
   TARGET_NOT_SOURCE_CONDITION,
   WEAPON_DAMAGE_DICE_KEY,
 } from './activeEffectTypes.js';
+import { isArmorProficient } from './armorProficiency.js';
 import {
   armorConditionMatches,
   getCarrierArmorState,
@@ -3495,20 +3496,9 @@ export function prepareDerivedData(
         continue;
       }
 
-      // Владение: в списке есть сам доспех (baseType) или его категория.
-      // Список пишут двумя способами: мастер класса и окно владений — по
-      // доспехам («leather»), черты и дары уровней — категорией («light»).
-      // Если baseType неизвестен (кастомный предмет) — не штрафуем.
-      // Списка нет (существо) — владение не проверяется вовсе.
-      if (
-        armorProficiencies
-        && item.baseType
-        && !armorProficiencies.includes(item.baseType)
-        && !(
-          item.equipmentCategory
-          && armorProficiencies.includes(item.equipmentCategory)
-        )
-      ) {
+      // Владение: сам доспех, его категория или все доспехи категории
+      // (см. isArmorProficient). Списка нет (существо) — не проверяется.
+      if (armorProficiencies && !isArmorProficient(item, armorProficiencies)) {
         lacksArmorProficiency = true;
       }
 

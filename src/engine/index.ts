@@ -8,6 +8,7 @@ export * from './actorValidation.js';
 export * from './applyTimeFormulas.js';
 export * from './areaChoice.js';
 export * from './areaShift.js';
+export * from './armorProficiency.js';
 export * from './armorState.js';
 export * from './attackKind.js';
 export * from './attackRollHold.js';
