@@ -309,6 +309,9 @@
       props.socket,
       selectedEquipmentItems.value,
       props.packId,
+      props.backgroundDefinition
+        ? { kind: 'background', key: props.backgroundDefinition.key }
+        : undefined,
     );
 
     if (granted.length > 0) {

@@ -440,6 +440,9 @@
       props.socket,
       selectedEquipmentItems.value,
       props.packId,
+      props.classDefinition
+        ? { kind: 'class', key: props.classDefinition.key }
+        : undefined,
     );
 
     if (granted.length > 0) {

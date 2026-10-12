@@ -98,6 +98,16 @@ export type Creature = DnDCreature;
 export type DnDEquipmentCategory = (typeof DND_EQUIPMENT_CATEGORIES)[number];
 
 /**
+ * Кто выдал предмет стартовым снаряжением: класс или предыстория персонажа.
+ * Вид снаряжения не выдаёт.
+ */
+export interface ItemGrantSource {
+  kind: 'class' | 'background';
+  /** Ключ записи-источника: класса или предыстории */
+  key: string;
+}
+
+/**
  * Предмет D&D 5e — наследует нейтральную базу `BaseGameItem` и добавляет
  * D&D-специфичную форму (оружие, снаряжение, черты, инструменты, предыстории,
  * заклинания, виды, классы). Зеркало `DnDActor`/`DnDCreature`. Ядро с этим
@@ -119,6 +129,12 @@ export interface DnDGameItem extends BaseGameItem {
   activeEffects?: ActiveEffect[];
   /** Универсальное оружие держится двумя руками (только для versatile) */
   twoHandedGrip?: boolean;
+  /**
+   * Кем предмет выдан стартовым снаряжением. По этой пометке окно удаления
+   * класса или предыстории предлагает забрать выданное. Поля нет у предметов,
+   * добытых иначе, и у выданных до его появления.
+   */
+  grantedBy?: ItemGrantSource;
   // --- Weapon-specific (только для type === 'weapon') ---
   /** Базовый тип оружия (напр. 'longsword', 'dagger') */
   baseType?: string;

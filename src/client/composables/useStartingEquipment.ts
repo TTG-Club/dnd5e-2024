@@ -14,6 +14,7 @@
 import type { TypedWebSocketClient } from '@vtt/shared';
 import type {
   DnDGameItem,
+  ItemGrantSource,
   StartingEquipmentItem,
 } from '@vtt/shared/system/dnd.js';
 
@@ -137,19 +138,25 @@ export function buildEquipmentItems(
  * @param socket - WebSocket-клиент (для загрузки компендиума)
  * @param items - позиции выбранного варианта
  * @param preferredPackId - пак записи класса или предыстории; пусто — порядок хоста
+ * @param grantedBy - кто выдаёт снаряжение: пометка ложится на каждый предмет,
+ * и по ней удаление класса или предыстории предложит его забрать; пусто —
+ * предметы остаются без пометки
  * @returns предметы, готовые лечь в `actor.equipment`
  */
 export async function resolveStartingEquipment(
   socket: TypedWebSocketClient | null | undefined,
   items: StartingEquipmentItem[],
   preferredPackId?: string,
+  grantedBy?: ItemGrantSource,
 ): Promise<DnDGameItem[]> {
   if (items.length === 0) {
     return [];
   }
 
-  return buildEquipmentItems(
+  const granted = buildEquipmentItems(
     await loadEquipmentIndex(socket, preferredPackId),
     items,
   );
+
+  return grantedBy ? granted.map((item) => ({ ...item, grantedBy })) : granted;
 }
