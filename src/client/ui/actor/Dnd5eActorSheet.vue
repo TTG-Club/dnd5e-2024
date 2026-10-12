@@ -20,6 +20,7 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { ItemTransferResult } from '../../composables/useItemTransfer';
   import type { ActorSubclassBadgeEntry } from './ActorHeader.vue';
   import type { PickedDefinition } from './CompendiumPickerModal.vue';
   import type { MissingSheetSectionKey } from './constants';
@@ -84,6 +85,7 @@
   import { useCompendiumCatalog } from '../../composables/useCompendiumCatalog';
   import { useEntityDraftWrite } from '../../composables/useEntityDraftWrite';
   import {
+    describeItemTransfer,
     isItemTransferDrop,
     useItemTransfer,
   } from '../../composables/useItemTransfer';
@@ -1427,17 +1429,16 @@
    * Принимает предмет, переданный с другого листа: предмет уходит из инвентаря
    * отправителя и появляется здесь.
    *
-   * Отправителя обновляет композабл переноса — его лист может быть закрыт.
-   * Сюда возвращается только новый инвентарь получателя.
+   * Обе стороны пишет сервер одним действием; лист узнаёт о новом предмете из
+   * обычной рассылки, а здесь только сообщает игроку итог.
    *
    * @param event - событие drop
    * @returns `true`, если нагрузка была передачей предмета
    */
   function handleItemTransferDrop(event: DragEvent): boolean {
-    // В режиме правки жест не принимается: у отправителя предмет уходит сразу и
-    // на сервер, а здесь правки копятся до «Сохранить» — «Отмена» стёрла бы
-    // предмет уже после того, как его отдали, и он пропал бы у обоих. Причину
-    // говорим: молчаливый отказ выглядел поломкой жеста
+    // В режиме правки жест не принимается: здесь открыт черновик, и его
+    // «Сохранить» положило бы поверх пришедшего предмета прежний инвентарь.
+    // Причину говорим: молчаливый отказ выглядел поломкой жеста
     if (isEditMode.value) {
       return (
         isItemTransferDrop(event)
@@ -1449,30 +1450,36 @@
       return false;
     }
 
-    const received = receiveTransferredItem(
+    const transfer = receiveTransferredItem(
       event,
       localActor.value,
       props.socket,
     );
 
-    if (!received) {
+    if (!transfer) {
       return false;
     }
 
-    localActor.value.equipment = received.equipment;
-    isDirty.value = true;
-
-    handleImmediateSave();
-
-    activeTab.value = 'equipment';
-
-    toast.add({
-      title: ACTOR_SHEET_LABELS.itemReceived,
-      description: received.itemName,
-      color: 'success',
-    });
+    void reportItemTransfer(transfer);
 
     return true;
+  }
+
+  /**
+   * Дожидается ответа сервера на передачу и говорит игроку итог.
+   *
+   * @param transfer - обещание итога передачи
+   */
+  async function reportItemTransfer(
+    transfer: Promise<ItemTransferResult>,
+  ): Promise<void> {
+    const result = await transfer;
+
+    if (result.outcome.ok) {
+      activeTab.value = 'equipment';
+    }
+
+    toast.add(describeItemTransfer(result, ACTOR_SHEET_LABELS.itemReceived));
   }
 
   function handleDrop(event: DragEvent) {

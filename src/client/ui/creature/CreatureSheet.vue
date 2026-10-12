@@ -18,6 +18,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
+  import type { ItemTransferResult } from '../../composables/useItemTransfer';
   import type { SheetTabEntry } from '../actor/sheetTabsModel';
 
   import { useToast } from '@nuxt/ui/composables';
@@ -79,6 +80,7 @@
   } from '../../composables/sheetEditLock';
   import { useEntityDraftWrite } from '../../composables/useEntityDraftWrite';
   import {
+    describeItemTransfer,
     isItemTransferDrop,
     useItemTransfer,
   } from '../../composables/useItemTransfer';
@@ -1430,9 +1432,8 @@
    *   отброшена. `false` значит «это не передача», и лист идёт дальше по цепочке
    */
   function handleItemTransferDrop(event: DragEvent): boolean {
-    // В режиме правки жест не принимается: у отправителя предмет уходит сразу и
-    // на сервер, а здесь правки копятся до «Сохранить» — «Отмена» стёрла бы
-    // предмет уже после того, как его отдали, и он пропал бы у обоих
+    // В режиме правки жест не принимается: здесь открыт черновик, и его
+    // «Сохранить» положило бы поверх пришедшего предмета прежний инвентарь
     // Черновик своего компендиума предмет не принимает: у отправителя он ушёл бы
     // из мира насовсем — в запись компендиума, а не к существу на столе
     if (!localCreature.value || props.draftSave) {
@@ -1447,27 +1448,36 @@
       );
     }
 
-    const received = receiveTransferredItem(
+    const transfer = receiveTransferredItem(
       event,
       localCreature.value,
       props.socket,
     );
 
-    if (!received) {
+    if (!transfer) {
       return false;
     }
 
-    handleCreatureUpdate({ equipment: received.equipment });
-
-    activeTab.value = 'equipment';
-
-    toast.add({
-      title: CREATURE_SHEET_LABELS.itemReceived,
-      description: received.itemName,
-      color: 'success',
-    });
+    void reportItemTransfer(transfer);
 
     return true;
+  }
+
+  /**
+   * Дожидается ответа сервера на передачу и говорит игроку итог.
+   *
+   * @param transfer - обещание итога передачи
+   */
+  async function reportItemTransfer(
+    transfer: Promise<ItemTransferResult>,
+  ): Promise<void> {
+    const result = await transfer;
+
+    if (result.outcome.ok) {
+      activeTab.value = 'equipment';
+    }
+
+    toast.add(describeItemTransfer(result, CREATURE_SHEET_LABELS.itemReceived));
   }
 
   /**

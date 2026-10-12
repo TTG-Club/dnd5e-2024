@@ -76,6 +76,9 @@ export const GAME_FEATURE_MIME = 'application/game-feature';
 /** Re-export: определение перенесено в core/mimeTypes.ts */
 export { GAME_ITEM_TRANSFER_MIME } from '@/core/mimeTypes';
 
+/** Заголовок сообщения, когда предмет на лист передать не удалось */
+export const ITEM_TRANSFER_REFUSED_TITLE = 'Предмет не передан';
+
 // ============================================================
 // Разделы шапки листа персонажа, заполняемые из компендиума
 // ============================================================

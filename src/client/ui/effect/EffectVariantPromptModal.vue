@@ -11,6 +11,7 @@
 
   import { computed, ref } from 'vue';
 
+  import { HUD_PROMPT_TITLE_ATTR } from '@/shared_ui/consts';
   import {
     joinVariantChoice,
     splitVariantChoice,
@@ -138,6 +139,7 @@
       <div
         v-if="open"
         :class="HUD_PROMPT_PANEL_CLASS"
+        :[HUD_PROMPT_TITLE_ATTR]="title"
       >
         <div class="flex items-center gap-2 border-b border-muted/50 pb-2">
           <UIcon

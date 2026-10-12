@@ -49,6 +49,12 @@ const LOCK_TOAST_TITLE = 'Лист в режиме правки';
 const WRITE_MODULES = ['entitySheetWrite', 'entityCombatWrite'];
 
 /**
+ * Запросы ядра, которые меняют мир одним действием сервера: модуль, который
+ * зовёт такой запрос сам, пишет в мир и без помощников записи.
+ */
+const HOST_WRITE_REQUEST_PATTERN = /\brequestItemTransfer\(/u;
+
+/**
  * Полный перечень входов действий в общих модулях и чем их позвать так, чтобы
  * до проверки листа дошло только чтение своих аргументов. Любой другой вызов
  * упал бы на неизвестном имени: в окружении нет ничего, кроме проверки.
@@ -166,6 +172,8 @@ const UNGUARDED_REASONS = {
   createWeaponAttackPort: 'фабрика порта: пишет только охраняемый удар',
   hasActionSelfEffects: 'ничего не пишет',
   isItemTransferDrop: 'ничего не пишет: только читает нагрузку события',
+  describeItemTransfer:
+    'ничего не пишет: собирает сообщение игроку из ответа сервера',
   listEscapeHelpOffers: 'ничего не пишет',
   formatEscapeTitle: 'ничего не пишет',
   listSelfEscapeEffects: 'ничего не пишет',
@@ -214,7 +222,7 @@ const DIRECT_WORLD_WRITES = {
 
 /** Чем интерфейс мог бы писать в мир сам, мимо входа действия */
 const DIRECT_WORLD_WRITE_PATTERN =
-  /\b(?:changeEntitySheet|changeEntityCombatState|sendComputedCombatState|sendTriggerUsageSpend|requestEndCasts|emitSystemClientEvent|emitEntityUpdate|emitEntityPatch|emitEntityChange|saveDraft|saveCopy|saveEntityFields)\(|'(?:actor|creature):(?:updated|created|deleted)'/u;
+  /\b(?:changeEntitySheet|changeEntityCombatState|sendComputedCombatState|sendTriggerUsageSpend|requestEndCasts|emitSystemClientEvent|emitEntityUpdate|emitEntityPatch|emitEntityChange|requestItemTransfer|saveDraft|saveCopy|saveEntityFields)\(|'(?:actor|creature):(?:updated|created|deleted)'/u;
 
 /**
  * Исходник от корня системы.
@@ -227,7 +235,8 @@ function readSource(path) {
 }
 
 /**
- * Модули composables, которые сами или через соседей зовут помощники записи.
+ * Модули composables, которые сами или через соседей зовут помощники записи
+ * либо сами просят ядро изменить мир.
  *
  * @returns {string[]} имена модулей без расширения
  */
@@ -247,7 +256,14 @@ function listWritingModules() {
     ]),
   );
 
-  const writing = new Set(WRITE_MODULES);
+  const writing = new Set([
+    ...WRITE_MODULES,
+    ...modules.filter((name) =>
+      HOST_WRITE_REQUEST_PATTERN.test(
+        readSource(`${COMPOSABLES_DIR}/${name}.ts`),
+      ),
+    ),
+  ]);
 
   for (let grew = true; grew;) {
     grew = false;

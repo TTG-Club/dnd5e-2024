@@ -6,7 +6,9 @@
 <script setup lang="ts">
   import type { CastLevelPromptItem } from '../../composables/castLevelPrompt';
 
-  import { ref } from 'vue';
+  import { computed, ref } from 'vue';
+
+  import { HUD_PROMPT_TITLE_ATTR } from '@/shared_ui/consts';
 
   import {
     ACTOR_SPELLS_TAB_LABELS,
@@ -31,6 +33,15 @@
     /** Круг выбран — каст продолжается им */
     onConfirm: (castLevel: number) => void;
   }>();
+
+  /**
+   * Заголовок плашки. Его же читает напоминание хоста о плашке, которую окно
+   * закрыло целиком, — чтобы назвать, какой вопрос ждёт ответа
+   */
+  const promptTitle = computed(
+    () =>
+      `${ACTOR_SPELLS_TAB_LABELS.castConfirmPrefix}${props.sourceName}${ACTOR_SPELLS_TAB_LABELS.castConfirmSuffix}`,
+  );
 
   const emit = defineEmits<{
     'update:open': [value: boolean];
@@ -60,6 +71,7 @@
       <div
         v-if="open"
         :class="HUD_PROMPT_PANEL_CLASS"
+        :[HUD_PROMPT_TITLE_ATTR]="promptTitle"
       >
         <div class="flex items-center gap-2 border-b border-muted/50 pb-2">
           <UIcon
@@ -68,8 +80,7 @@
           />
 
           <span class="min-w-0 text-sm font-medium break-words">
-            {{ ACTOR_SPELLS_TAB_LABELS.castConfirmPrefix }}{{ sourceName
-            }}{{ ACTOR_SPELLS_TAB_LABELS.castConfirmSuffix }}
+            {{ promptTitle }}
           </span>
         </div>
 
