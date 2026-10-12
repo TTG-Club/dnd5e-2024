@@ -27,6 +27,7 @@ import {
   resolveCombatRound,
 } from './encounterTurn';
 import { changeEntityCombatState } from './entityCombatWrite';
+import { resolveClientSceneSight } from './sceneSightFacts';
 import { emitSystemClientEvent } from './systemClientEvents';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -136,6 +137,7 @@ function settleAttackRollSide(
       inCombat: isEntityInCombat(entityId),
       activeTurnActorId: resolveActiveTurnActorId(),
       combatRound: resolveCombatRound(),
+      sight: resolveClientSceneSight(),
       other: side.otherId ? findDndWorldEntity(side.otherId) : undefined,
       roll: {
         hasAdvantage: rollMode === 'advantage',

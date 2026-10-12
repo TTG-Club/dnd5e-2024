@@ -52,11 +52,17 @@ export interface AttackRollModeReasonParams {
   incomingAttack?: DndIncomingAttackContext;
   /** Цель дальше нормальной дистанции оружия */
   isBeyondNormalRange: boolean;
+  /** Атакующий не видит цель (стена, темнота, невидимость) — помеха */
+  isTargetUnseen?: boolean;
+  /** Цель не видит атакующего — преимущество */
+  isAttackerUnseen?: boolean;
 }
 
 /** Подписи причин, которые не являются эффектами */
 const REASON_LABELS = {
   beyondNormalRange: 'дальше нормальной дистанции',
+  targetUnseen: 'цель не видна',
+  attackerUnseen: 'цель не видит атакующего',
   armorWithoutProficiency: 'доспех без владения',
   targetSuffix: ' (у цели)',
 } as const;
@@ -180,7 +186,18 @@ function listReasonsOfKind(
       ? [REASON_LABELS.beyondNormalRange]
       : [];
 
-  return [...new Set([...fromRange, ...fromAttacker, ...fromTarget])];
+  const fromSight = [
+    ...(kind === 'disadvantage' && params.isTargetUnseen === true
+      ? [REASON_LABELS.targetUnseen]
+      : []),
+    ...(kind === 'advantage' && params.isAttackerUnseen === true
+      ? [REASON_LABELS.attackerUnseen]
+      : []),
+  ];
+
+  return [
+    ...new Set([...fromRange, ...fromSight, ...fromAttacker, ...fromTarget]),
+  ];
 }
 
 /**

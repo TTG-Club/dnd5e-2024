@@ -135,6 +135,7 @@ async function setup(entities) {
     isEntityInCombat: () => false,
     resolveActiveTurnActorId: () => null,
     resolveCombatRound: () => undefined,
+    resolveClientSceneSight: () => undefined,
     changeEntityCombatState,
     TRIGGER_EVENTS_LOG_PREFIX: '[test]',
     console,

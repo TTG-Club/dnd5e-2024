@@ -214,6 +214,7 @@ describe('фиксация: расход эффекта на броске ата
         isEntityInCombat: () => inCombat,
         resolveActiveTurnActorId: () => null,
         resolveCombatRound: () => undefined,
+        resolveClientSceneSight: () => undefined,
         isActorEntity: (entity) => entity.entityType === 'actor',
         isCreatureEntity: (entity) => entity.entityType === 'creature',
         useWorldStore: () => ({

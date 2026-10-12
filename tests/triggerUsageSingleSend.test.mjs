@@ -261,6 +261,7 @@ describe('журнал срабатываний уходит один раз н�
         stampEffectPaid: engine.stampEffectPaid,
         stampEffectOnApply: (effect) => effect,
         resolveCombatRound: () => undefined,
+        resolveClientSceneSight: () => undefined,
         recordEntityActionSpend: () => {},
         sendSelfTriggerReport: () => {},
       },

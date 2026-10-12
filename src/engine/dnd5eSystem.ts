@@ -50,6 +50,7 @@ import type { EffectTriggerArea } from './effectTriggerTypes.js';
 import type { DndEntityLight } from './entityLight.js';
 import type { DndEntityVision } from './entityVision.js';
 import type { AreaEffectsSyncResult } from './positionalEffects.js';
+import type { SceneSight } from './sceneSight.js';
 import type { SystemClientEvent } from './systemClientEvents.js';
 import type {
   EntryEffectOptions,
@@ -135,6 +136,7 @@ import {
 import { rollDamageFormula as rollDamageFormulaImpl } from './diceFormula.js';
 import { SELF_TRIGGER_SUMMARY_LABEL } from './effectActivation.js';
 import {
+  settleAllyHurtEvents,
   settleAppliedEvents,
   settleAttackRollTriggers,
   settleConditionLostEvents,
@@ -181,6 +183,7 @@ import {
   reconcileScenePresence,
   releaseOffSceneEffects,
 } from './scenePresence.js';
+import { createContextSightSource, createSceneSight } from './sceneSight.js';
 import { SPELL_SCHOOL_LABELS } from './spellTypes.js';
 import { damagePartIsHealing } from './spellUtils.js';
 import { parseSystemClientEvent } from './systemClientEvents.js';
@@ -278,6 +281,9 @@ const CONDITION_LOST_SUMMARY_LABEL = 'при снятии состояния';
 
 /** Подпись момента в сводке срабатываний «носитель свалил цель» */
 const DOWNED_OTHER_SUMMARY_LABEL = 'когда цель свалена';
+
+/** Подпись сводки события «на глазах носителя ранили союзника» */
+const ALLY_HURT_SUMMARY_LABEL = 'когда ранили союзника на глазах';
 
 /**
  * Состояния, снятые снимком: те, чьих эффектов в новом списке не стало.
@@ -652,6 +658,7 @@ function buildTriggerEventOptions(
     inCombat: context?.isInCombat?.(entity) ?? false,
     activeTurnActorId: context?.getActiveTurnActorId?.() ?? null,
     combatRound: toCombatRound(context),
+    sight: toSceneSight(context),
     getEntity: toDndEntityResolver(context?.getEntity),
     endCast: toCastEnder(context, entity.id),
     listEntitiesInArea: toAreaLister(context),
@@ -735,6 +742,20 @@ function toSourceProximityResolver(
     findEntitiesInArea(context.getSceneSurroundings?.(subject), {
       radius: feet,
     }).some((entity) => entity.id === sourceId);
+}
+
+/**
+ * Видимость и свет сцены из контекста ядра: правило D&D поверх его фактов
+ * (`sceneSight.ts`). Ядро старше 0.9.700 фактов не отдаёт — тогда условия
+ * «вижу / не вижу» и «на свету / в темноте» молчат.
+ *
+ * @param context - контекст срабатывания от ядра
+ * @returns видимость и свет либо `undefined`
+ */
+function toSceneSight(
+  context: SystemTriggerContext | undefined,
+): SceneSight | undefined {
+  return createSceneSight(createContextSightSource(context));
 }
 
 /**
@@ -1207,6 +1228,7 @@ function settleTurnEffects(
     isSourceInCombat: toSourceInCombatResolver(context),
     isSourceWithin: toSourceProximityResolver(entity, context),
     combatRound: toCombatRound(context),
+    sight: toSceneSight(context),
     endCast,
     ...toSceneMoveOptions(entity, context),
   });
@@ -1630,6 +1652,8 @@ function settleSnapshotEvents(
       ),
       CONDITION_LOST_SUMMARY_LABEL,
     ],
+    // Идёт на эффектах свидетелей: раненый для них — другая сторона
+    [settleAllyHurtEvents(entity, hits, options), ALLY_HURT_SUMMARY_LABEL],
     ...downedExtra,
   ];
 
@@ -1653,7 +1677,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.296';
+  readonly version = '0.8.297';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.

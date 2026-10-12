@@ -134,12 +134,14 @@ function readTokenLightRadius(entity: DnDSceneEntity): number {
 }
 
 /**
- * Считает свет сущности без кэша.
+ * Считает свет сущности без кэша. Нужен там, где сущность правят на месте
+ * (сервер): кэш по объекту отдал бы свет до правки — эффект сняли, а фишка
+ * для правил «на свету / в темноте» всё ещё светит.
  *
  * @param entity - сущность
  * @returns свет от эффектов либо `undefined`, если он не сильнее своего
  */
-function computeEntityLight(
+export function computeEntityLight(
   entity: DnDSceneEntity,
 ): DndEntityLight | undefined {
   const strongest = pickStrongestEffectLight(

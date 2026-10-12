@@ -119,6 +119,8 @@ const bundle = await build({
               'export const getRollRequestService = () => null;',
             '@/stores/auraStore':
               'export const useAuraStore = () => ({ getAmbientEffectsForActor: () => [] });',
+            '@/system-runtime/sceneSight':
+              'export const getSightBetween = () => null;',
             '@/stores/initiativeStore':
               'export const useInitiativeStore = () => ({ encounter: null });',
             '@/stores/worldStore':

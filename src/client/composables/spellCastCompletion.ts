@@ -36,6 +36,7 @@ import {
 
 import { resolveCombatRound } from './encounterTurn';
 import { changeEntityCombatState } from './entityCombatWrite';
+import { resolveClientSceneSight } from './sceneSightFacts';
 import {
   requestEndCasts,
   resolveSpellCastId,
@@ -94,6 +95,7 @@ export function prepareCasterSpellEffects(
     passesLandingCondition(effect, caster, {
       source: caster,
       combatRound: resolveCombatRound(),
+      sight: resolveClientSceneSight(),
     }),
   );
 

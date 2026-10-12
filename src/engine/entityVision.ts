@@ -38,13 +38,14 @@ export interface DndEntityVision {
 const visionCache = new WeakMap<DnDSceneEntity, DndEntityVision | undefined>();
 
 /**
- * Считает зрение сущности без кэша.
+ * Считает зрение сущности без кэша. Нужен там, где сущность правят на месте
+ * (сервер): кэш по объекту отдал бы зрение до правки.
  *
  * @param entity - сущность
  * @returns поправка к зрению токена либо `undefined`, если правила ничего не
  *   меняют
  */
-function computeEntityVision(
+export function computeEntityVision(
   entity: DnDSceneEntity,
 ): DndEntityVision | undefined {
   const isEnabled = isTokenVisionEnabled(entity.token);

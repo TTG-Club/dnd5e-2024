@@ -41,6 +41,7 @@ import type {
   EffectTriggerTempHpAction,
 } from './effectTriggerTypes.js';
 import type { SaveDamageDefense } from './saveDamage.js';
+import type { SceneSight } from './sceneSight.js';
 import type { TriggerEventData } from './triggerConditions.js';
 import type {
   EffectSaveSpec,
@@ -165,6 +166,7 @@ import {
   countEffectTag,
   isTriggerConditionMet,
   withCombatRound,
+  withSceneSight,
 } from './triggerConditions.js';
 import { TRIGGER_ASK_CHAT_NOTES } from './triggerPrompt.js';
 import {
@@ -2095,7 +2097,10 @@ function buildTurnEventData(
       ? { isSourceWithin: (feet) => isSourceWithin(sourceId, feet) }
       : {};
 
-  return withCombatRound(proximity, options.combatRound);
+  return withSceneSight(
+    withCombatRound(proximity, options.combatRound),
+    options.sight,
+  );
 }
 
 /**
@@ -2934,6 +2939,11 @@ export interface SelfTriggerOptions {
   /** Номер идущего раунда: расписание «на раунде N» */
   combatRound?: number;
   /**
+   * Видимость и свет сцены: условия «вижу / не вижу», «на свету / в темноте».
+   * Без опции фактов нет, и такие части условия НЕ выполняются.
+   */
+  sight?: SceneSight;
+  /**
    * Выбранные варианты цены срабатывания (окно оплаты на клиенте). Нет поля —
    * цена без выбора списывается сама, а цена с выбором срабатывание отменяет
    */
@@ -2982,7 +2992,7 @@ export function settleSelfTriggerSources(
       !admitTrigger(
         entity,
         source,
-        withCombatRound({}, options.combatRound),
+        withSceneSight(withCombatRound({}, options.combatRound), options.sight),
         undefined,
         holds,
         report ? (note) => report.notes.push(note) : undefined,
@@ -3121,6 +3131,11 @@ export interface AttackRollTriggerOptions {
   activeTurnActorId?: string | null;
   /** Номер идущего раунда: расписание «на раунде N» */
   combatRound?: number;
+  /**
+   * Видимость и свет сцены: условия «вижу / не вижу», «на свету / в темноте».
+   * Без опции фактов нет, и такие части условия НЕ выполняются.
+   */
+  sight?: SceneSight;
   /** Другая сторона: цель для атакующего, атакующий для цели */
   other?: DnDSceneEntity;
   /** Режим броска атаки */
@@ -3189,13 +3204,16 @@ export function runAttackRollTriggers(
   const usageBefore = JSON.stringify(entity.system.effectUsage ?? null);
   const removedIds = new Set<string>();
 
-  const eventData = withCombatRound(
-    {
-      other: options.other,
-      roll: options.roll,
-      ...(options.attack ? { attack: options.attack } : {}),
-    },
-    options.combatRound,
+  const eventData = withSceneSight(
+    withCombatRound(
+      {
+        other: options.other,
+        roll: options.roll,
+        ...(options.attack ? { attack: options.attack } : {}),
+      },
+      options.combatRound,
+    ),
+    options.sight,
   );
 
   let applied = false;

@@ -36,6 +36,7 @@ export const EFFECT_TRIGGER_EVENTS = [
   'healed',
   'hpZero',
   'downedOther',
+  'allyHurt',
   'conditionLost',
   'castEnd',
   'moved',
@@ -88,6 +89,16 @@ export const OWN_DEED_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
 ];
 
 /**
+ * Событие «на глазах носителя ранили союзника»: носитель — свидетель, другая
+ * сторона события — раненый союзник, урон события — удар по нему. Идёт только
+ * там, где ядро отдаёт сцену и видимость (сервер, VTTG 0.9.700+): кого считать
+ * союзником и кто кого видит, знает сцена. Без них событие молчит.
+ */
+export const WITNESS_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
+  'allyHurt',
+];
+
+/**
  * Событие «носителя вылечили»: несёт число восстановленных хитов в `@damage` —
  * той же переменной, что и урон. Отдельного токена лечению не заводится: у
  * события оно одно, и путать его не с чем.
@@ -107,6 +118,7 @@ export const CONDITION_LOST_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
 export const DAMAGE_DATA_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
   ...DAMAGE_TRIGGER_EVENTS,
   'applied',
+  'allyHurt',
 ];
 
 /**
@@ -126,6 +138,7 @@ export const OTHER_PARTY_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
   'attackRoll',
   'damageTaken',
   'applied',
+  ...WITNESS_TRIGGER_EVENTS,
 ];
 
 /**

@@ -1071,6 +1071,7 @@ describe('список «Срабатывания»', () => {
       'healed',
       'conditionLost',
       'downedOther',
+      'allyHurt',
       'moved',
       'rest',
     ]);
@@ -1194,6 +1195,7 @@ describe('список «Срабатывания»', () => {
         'healed',
         'conditionLost',
         'downedOther',
+        'allyHurt',
         'moved',
         'castEnd',
         'rest',
@@ -1229,6 +1231,7 @@ describe('список «Срабатывания»', () => {
       'healed',
       'conditionLost',
       'downedOther',
+      'allyHurt',
       'moved',
       'rest',
     ]);
@@ -1275,6 +1278,7 @@ describe('список «Срабатывания»', () => {
         'healed',
         'conditionLost',
         'downedOther',
+        'allyHurt',
         'moved',
         'rest',
       ],
@@ -1290,7 +1294,14 @@ describe('список «Срабатывания»', () => {
     // Эффект оружия «на владельце» — такой же эффект предмета в руке
     assert.deepEqual(
       layoutOf('weapon', { effectTarget: 'self' }).triggerEvents,
-      ['attackRoll', 'conditionLost', 'downedOther', 'moved', 'rest'],
+      [
+        'attackRoll',
+        'conditionLost',
+        'downedOther',
+        'allyHurt',
+        'moved',
+        'rest',
+      ],
     );
 
     // Эффект умения скопирован на персонажа и слышит его поступки: атаку,
@@ -1304,6 +1315,7 @@ describe('список «Срабатывания»', () => {
       'healed',
       'conditionLost',
       'downedOther',
+      'allyHurt',
       'moved',
       'rest',
     ]);

@@ -82,6 +82,7 @@ const HOST_MODULE_IDS: string[] = [
   '@/stores/targetStore',
   '@/stores/worldStore',
   '@/system-runtime/activeSocket',
+  '@/system-runtime/sceneSight',
   '@nuxt/ui/composables',
   '@vtt/shared',
   '@vueuse/core',

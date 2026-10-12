@@ -39,6 +39,7 @@ import type {
 import type { SceneOffset } from './forcedMovement.js';
 import type { FormulaContext } from './formulaParser.js';
 import type { SaveSourceTraits } from './saveSourceTraits.js';
+import type { SceneSight } from './sceneSight.js';
 import type { TriggerEventData } from './triggerConditions.js';
 
 import { isToggleActivatedEffect } from './activeEffectTypes.js';
@@ -563,6 +564,11 @@ export interface TurnEffectsOptions extends SceneMoveOptions {
    * опции номер неизвестен, и части расписания НЕ выполняются.
    */
   combatRound?: number;
+  /**
+   * Видимость и свет сцены: условия «вижу / не вижу», «на свету / в темноте».
+   * Без опции фактов нет, и такие части условия НЕ выполняются.
+   */
+  sight?: SceneSight;
   /**
    * Ауры чужих токенов, накрывающие сущность: их урон «пока внутри» тикает на
    * её ходу, а бонусы учитываются в спасбросках. Эффекты ауры на сущности не

@@ -31,6 +31,7 @@ import type {
   EffectTriggerEvent,
 } from './effectTriggerTypes.js';
 import type { SceneOffset } from './forcedMovement.js';
+import type { SceneSight } from './sceneSight.js';
 import type { TriggerEventData } from './triggerConditions.js';
 import type {
   EffectSaveSpec,
@@ -92,7 +93,11 @@ import {
 } from './formulaTokens.js';
 import { resolveEntityCurrentHp } from './hitPoints.js';
 import { listChoiceCandidates } from './triggerChoice.js';
-import { isTriggerConditionMet, withCombatRound } from './triggerConditions.js';
+import {
+  isTriggerConditionMet,
+  withCombatRound,
+  withSceneSight,
+} from './triggerConditions.js';
 import { mapTriggerDamageParts } from './triggerDamageParts.js';
 
 /** С чем прогоняются срабатывания событий с другой стороной */
@@ -107,6 +112,11 @@ export interface TriggerEventOptions extends SceneMoveOptions {
   activeTurnActorId?: string | null;
   /** Номер идущего раунда: расписание «на раунде N» (ядро, VTTG 0.9.533+) */
   combatRound?: number;
+  /**
+   * Видимость и свет сцены: условия «вижу / не вижу», «на свету / в темноте».
+   * Без опции фактов нет, и такие части условия НЕ выполняются.
+   */
+  sight?: SceneSight;
   /** Живая сущность мира по id: другая сторона — кто нанёс урон */
   getEntity?: (entityId: string) => DnDSceneEntity | undefined;
   /** Закончить каст эффекта: провал концентрации */
@@ -590,7 +600,10 @@ function runTriggerEventSource(
   // Раунд — общий на всю серию: его знает ядро, а не построитель события.
   // Союзник ли другая сторона наложившему — знает сцена
   const eventData = withSourceRelation(
-    withCombatRound(rawEventData, options.combatRound),
+    withSceneSight(
+      withCombatRound(rawEventData, options.combatRound),
+      options.sight,
+    ),
     rawSource.effect.sourceActorId,
     options,
   );
@@ -1384,18 +1397,98 @@ export function settleDownedOtherEvents(
 
   // ...но снимок пишет ПОВЕРЖЕННЫЙ, и правки свалившего уедут в мир, только
   // если положить их «другой стороной». Иначе они останутся в памяти сервера
-  const outcome = relatedOutcomeOf(result, slayer);
+  mergeRelatedRun(result, slayer, own);
+
+  return result;
+}
+
+/**
+ * Кладёт итог срабатываний другой сущности в общий итог «другой стороной»:
+ * снимок пишет субъект события, и правки свидетеля или свалившего уедут в мир,
+ * только если лежат рядом. Строки «сообщить» идут в сводку той сущности, на
+ * чьих эффектах сработало.
+ *
+ * @param result - общий итог события (пополняется)
+ * @param entity - сущность, на чьих эффектах сработало
+ * @param own - итог её срабатываний
+ */
+function mergeRelatedRun(
+  result: DamageEventsResult,
+  entity: DnDSceneEntity,
+  own: DamageEventsResult,
+): void {
+  const outcome = relatedOutcomeOf(result, entity);
 
   outcome.changed ||= own.changed;
   outcome.damageOutcomes.push(...own.damageOutcomes);
   outcome.healingOutcomes.push(...own.healingOutcomes);
   outcome.saveOutcomes.push(...own.saveOutcomes);
-
-  // Строки «сообщить» — эффектов свалившего: в его сводку, а не поверженного
   outcome.notes.push(...own.notes);
 
   result.related.push(...own.related);
   result.deferred.push(...own.deferred);
+}
+
+/** Вся сцена: свидетелей отбирает видимость, а не расстояние */
+const WHOLE_SCENE_ALLIES: EffectTriggerArea = {
+  radius: Number.POSITIVE_INFINITY,
+  target: 'allies',
+};
+
+/**
+ * «На глазах носителя ранили союзника»: срабатывания свидетелей — союзников
+ * раненого, которые его видят. Событие идёт на ИХ эффектах, а раненый — другая
+ * сторона: условия о хитах и типе читают его, действия «другой стороне»
+ * достаются ему.
+ *
+ * Союзников называет сцена (отношение фишек), «видит» решает правило поверх
+ * фактов ядра (`sceneSight.ts`): стена, темнота без тёмного зрения, слепота
+ * свидетеля и невидимость раненого события не дают. Без сцены или без фактов
+ * (старое ядро, клиент) событие молчит — догадываться, кто что видел, система
+ * не вправе.
+ *
+ * @param hurt - раненый: в него уже записан урон
+ * @param hits - удары снимка
+ * @param options - с чем прогоняются события
+ * @returns итог: свидетели, которых изменило срабатывание
+ */
+export function settleAllyHurtEvents(
+  hurt: DnDSceneEntity,
+  hits: readonly DamageHit[],
+  options: TriggerEventOptions,
+): DamageEventsResult {
+  const result = createDamageEventsResult();
+  const landed = hits.filter((hit) => hit.amount > 0);
+  const { sight, listEntitiesInArea } = options;
+
+  if (landed.length === 0 || !sight || !listEntitiesInArea) {
+    return result;
+  }
+
+  for (const witness of listEntitiesInArea(hurt, WHOLE_SCENE_ALLIES)) {
+    const sources = listOwnEventSources(witness, 'allyHurt');
+
+    if (sources.length === 0 || sight.canSee(witness, hurt) !== true) {
+      continue;
+    }
+
+    // Срабатывания идут на свидетеле: он субъект своих эффектов
+    const own = createDamageEventsResult();
+
+    for (const hit of landed) {
+      for (const source of sources) {
+        runTriggerEventSource(
+          witness,
+          source,
+          { damage: hit, other: hurt },
+          options,
+          own,
+        );
+      }
+    }
+
+    mergeRelatedRun(result, witness, own);
+  }
 
   return result;
 }

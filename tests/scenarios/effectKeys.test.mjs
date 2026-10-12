@@ -403,7 +403,48 @@ describe('каталог: ключи и флаги', () => {
   // Пробелы каталога: этим ключам нужны либо чувства и свет в расчёте сцены,
   // либо размер фишки — это хозяйство ядра, системе их не посчитать
   it.todo('[K08] Смена размера меняет фишку и грузоподъёмность');
-  it.todo('[K10] Выданные чувства участвуют в расчёте видимости');
+
+  it('[K10] Выданные чувства участвуют в расчёте видимости', () => {
+    const darkvision = createEffect('Тёмное зрение', {
+      changes: [change('sense.darkvision', '60')],
+    });
+
+    const scout = createActor({
+      id: 'actor_scout',
+      activeEffects: [darkvision],
+    });
+
+    const plain = createActor({ id: 'actor_plain' });
+    const wolf = createCreature({ id: 'creature_wolf' });
+
+    // Цель в темноте в 30 футах, стен нет: так ответило ядро
+    const sight = engine.createSceneSight({
+      getSightBetween: () => ({
+        lineOfSight: true,
+        inVisionCone: true,
+        distance: 30,
+        targetLight: 'dark',
+        viewerLight: 'dark',
+        seenLight: 'dark',
+      }),
+      listTokenIds: (entity) => [`token_${entity.id}`],
+    });
+
+    assert.equal(engine.resolveSightAbility(scout).darkvision, 60);
+
+    assert.equal(
+      sight.canSee(scout, wolf),
+      true,
+      'тёмное зрение от эффекта дотягивается до цели в темноте',
+    );
+
+    assert.equal(
+      sight.canSee(plain, wolf),
+      false,
+      'без тёмного зрения цель в темноте не видна',
+    );
+  });
+
   it.todo('[K12] Выданная атака в списке действий');
   it.todo('[K13] Временное владение навыком');
 });

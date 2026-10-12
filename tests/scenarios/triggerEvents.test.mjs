@@ -6,7 +6,9 @@ import {
   createActor,
   createCreature,
   createEffect,
+  createToken,
   engine,
+  GRID,
   MAX_ROLL,
   MIN_ROLL,
   strikeEntity,
@@ -580,7 +582,136 @@ describe('каталог: события срабатываний', () => {
   it.todo('[E11] Снятие после первого любого броска к20');
   it.todo('[E12] Носитель стал целью заклинания');
   it.todo('[E13] Носитель колдует, и каст можно отменить');
-  it.todo('[E14] На глазах носителя ранили союзника');
+
+  it('[E14] На глазах носителя ранили союзника', () => {
+    const system = new engine.Dnd5eVttSystem();
+    const friendly = { disposition: 'friendly' };
+
+    /**
+     * Свидетель с эффектом, слушающим событие.
+     *
+     * @returns {object} свидетель
+     */
+    const createWitness = () => {
+      const witness = withHp(createActor, 30, {
+        id: 'actor_witness',
+        activeEffects: [markingEffect('Страж', { event: 'allyHurt' })],
+      });
+
+      witness.token = { ...witness.token, ...friendly };
+
+      return witness;
+    };
+
+    /**
+     * Раненый: союзник свидетеля либо враг.
+     *
+     * @param {string} disposition - отношение фишки
+     * @returns {object} раненый
+     */
+    const createHurt = (disposition) => {
+      const hurt = withHp(createCreature, 30, { id: 'creature_hurt' });
+
+      hurt.token = { ...hurt.token, disposition };
+
+      return hurt;
+    };
+
+    /**
+     * Контекст ядра: раненый и свидетель на одной сцене.
+     *
+     * @param {object} hurt - раненый
+     * @param {object} witness - свидетель
+     * @param {object | undefined} facts - факты ядра; нет — старое ядро
+     * @returns {object} контекст
+     */
+    const contextOf = (hurt, witness, facts) => {
+      const hurtToken = createToken(hurt.id, 0, 0, {
+        disposition: hurt.token.disposition,
+      });
+
+      const witnessToken = createToken(witness.id, 3, 0, friendly);
+
+      return {
+        getSceneSurroundings: (entity) =>
+          entity.id === hurt.id
+            ? {
+                token: hurtToken,
+                gridSettings: GRID,
+                neighbors: [{ token: witnessToken, entity: witness }],
+              }
+            : {
+                token: witnessToken,
+                gridSettings: GRID,
+                neighbors: [{ token: hurtToken, entity: hurt }],
+              },
+        ...(facts ? { getSightBetween: () => facts } : {}),
+      };
+    };
+
+    const clearSight = {
+      lineOfSight: true,
+      inVisionCone: true,
+      distance: 10,
+      targetLight: 'bright',
+      viewerLight: 'bright',
+      seenLight: 'bright',
+    };
+
+    /**
+     * Бьёт раненого и отвечает, сработал ли эффект свидетеля.
+     *
+     * @param {string} disposition - отношение фишки раненого
+     * @param {object | undefined} facts - факты ядра
+     * @returns {{ fired: boolean, related: string[] }} исход
+     */
+    const strike = (disposition, facts) => {
+      const witness = createWitness();
+      const hurt = createHurt(disposition);
+
+      const result = strikeEntity(system, hurt, 5, 'slashing', {
+        details: { critical: false },
+        context: contextOf(hurt, witness, facts),
+      });
+
+      return {
+        fired: hasFired(witness),
+        related: (result.related ?? []).map((related) => related.entity.id),
+      };
+    };
+
+    assert.deepEqual(
+      strike('friendly', clearSight),
+      { fired: true, related: ['actor_witness'] },
+      'союзника ранили на глазах — событие пришло на эффектах свидетеля, а '
+        + 'его правки ушли в мир «другой стороной»',
+    );
+
+    assert.equal(
+      strike('friendly', { ...clearSight, lineOfSight: false }).fired,
+      false,
+      'между свидетелем и раненым стена — он ничего не видел',
+    );
+
+    assert.equal(
+      strike('friendly', { ...clearSight, seenLight: 'dark' }).fired,
+      false,
+      'раненый в темноте, тёмного зрения у свидетеля нет',
+    );
+
+    assert.equal(
+      strike('hostile', clearSight).fired,
+      false,
+      'ранили врага — событие про союзников',
+    );
+
+    assert.equal(
+      strike('friendly', undefined).fired,
+      false,
+      'старое ядро видимости не отдаёт — событие молчит',
+    );
+  });
+
   it.todo('[E15] Носитель пересёк границу своей области');
   it.todo('[E16] Срабатывание по игровому времени');
   it.todo('[E18] Отложенное начало эффекта');
