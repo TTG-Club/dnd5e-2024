@@ -91,7 +91,7 @@ const HOST_MODULE_IDS: string[] = [
 const EXTERNAL = new Set<string>([...HOST_MODULE_IDS, 'vue']);
 
 /**
- * Порт dev-сервера системы (`npm run dev`). Тот же порт стоит во флаге запуска
+ * Порт dev-сервера системы (`npm run dev:hot`). Тот же порт стоит во флаге запуска
  * приложения `VTT_SYSTEM_DEV`.
  */
 const DEV_SERVER_PORT = 5174;
@@ -298,7 +298,7 @@ const buildConfig: UserConfig = {
 };
 
 /**
- * Настройки режима разработки (`npm run dev`): dev-сервер отдаёт исходники
+ * Настройки режима разработки (`npm run dev:hot`): dev-сервер отдаёт исходники
  * прямо в приложение, и правки клиента видны без сборки и перезагрузки
  * страницы. На сборку они не влияют.
  *

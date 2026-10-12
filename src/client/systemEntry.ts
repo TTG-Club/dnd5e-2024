@@ -28,7 +28,7 @@ globalThis.VTTSystems.register(SYSTEM_ID, (api: ClientSystemAPI) => {
   registerClientSystem(api);
 });
 
-// Режим разработки (`npm run dev`). В сборке `import.meta.hot` нет, и весь блок
+// Режим разработки (`npm run dev:hot`). В сборке `import.meta.hot` нет, и весь блок
 // вместе с подгружаемым модулем из `client.js` вырезается.
 if (import.meta.hot) {
   // Правка этого файла или модуля, который он импортирует (кроме `.vue` — их
