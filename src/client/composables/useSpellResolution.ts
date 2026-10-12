@@ -7,13 +7,21 @@
  * - Применение урона с учётом результата спасброска (full / half / none)
  * - Отправку результатов в чат
  */
-import type { DiceGroupResult, MeasurementTemplate, Scene } from '@vtt/shared';
+import type {
+  ChatBlock,
+  ChatBlockRow,
+  ChatSendOptions,
+  DiceGroupResult,
+  MeasurementTemplate,
+  Scene,
+} from '@vtt/shared';
 import type {
   ActiveEffect,
   AttackRollMode,
   DamageDefenseOutcome,
   DamageHit,
   DnDSceneEntity,
+  HpChangeDetail,
   ProjectileOutcome,
   SavingThrowResult,
   Spell,
@@ -36,15 +44,20 @@ import { generateId, resolveGridCellSize } from '@vtt/shared';
 import {
   applyDamageDefenses,
   applyHpChange,
+  buildActionChatHeader,
+  buildAttackChatBlock,
   buildAttackFormula,
   buildAttackLabel,
+  buildDamageChatRowLabel,
   collectActiveEffects,
   damagePartIsHealing,
   describeSpellSaveSource,
   detectFormulaDamageType,
   doubleDiceInFormula,
   evaluateDefensiveACBonus,
+  formatDamageDefenseNote,
   formatDamageDefenseSuffix,
+  formatHpChangeValue,
   formatProjectileOutcomeLine,
   getNaturalD20Roll,
   getShortDamageTypeLabel,
@@ -53,9 +66,11 @@ import {
   getSpellSaveCondition,
   isDeductionFormula,
   isDndSceneEntity,
+  isEntityHpShownToPlayers,
   isSpellRoll,
   limitEntityHealing,
   mergeAppliedEffects,
+  pickRowTargetName,
   recordDamageHit,
   resolveActorStats,
   resolveAttackRoll,
@@ -66,19 +81,28 @@ import {
   resolveTargetDamageDefenses,
   scaleSaveDamage,
   settleDamageTypeChoices,
+  SPELL_CHAT_ICON,
   spellHealsTempHp,
   spellIsHealing,
   toRollerFormula,
+  withHpChangeDetail,
   withInitializedDuration,
   writeEntityHitPoints,
 } from '@vtt/shared/system/dnd.js';
 
-import { SPELL_NO_TARGETS_LABELS } from '../ui/actor/constants';
+import {
+  SPELL_NO_TARGETS_LABELS,
+  SPELL_SUMMARY_LABELS,
+} from '../ui/actor/constants';
 import { resolveAreaTargets } from './areaTargetChoice';
 import {
   resolveSelectedAttackTarget,
   withAttackHeldEffects,
 } from './attackRollSnapshot';
+import {
+  buildCombatChatOptions,
+  buildSpeakerChatOptions,
+} from './damageChatMessage';
 import { changeEntityCombatState } from './entityCombatWrite';
 import {
   buildSaveDamageDefense,
@@ -209,6 +233,35 @@ function computeBonusDamageForEntity(
 }
 
 /**
+ * Параметры отправки сводки заклинания: сводку урона лента чата отмечает
+ * как сообщение боя, лечение и эффекты без урона идут обычным сообщением.
+ * Подписывается сводка заклинателем, а не тем, чей токен выделен.
+ *
+ * @param spell - заклинание
+ * @param casterId - заклинатель
+ * @param blocks - оформление сводки блоками; нет — текст
+ * @returns параметры сообщения
+ */
+function spellSummaryChatOptions(
+  spell: Spell,
+  casterId: string | undefined,
+  blocks?: ChatBlock[],
+): ChatSendOptions {
+  const dealsDamage =
+    !spellIsHealing(spell)
+    && getSpellDamageParts(spell).some(
+      (part) => !damagePartIsHealing(part) && Boolean(part.formula),
+    );
+
+  return dealsDamage
+    ? buildCombatChatOptions(casterId, blocks)
+    : {
+        ...buildSpeakerChatOptions(casterId),
+        ...(blocks && blocks.length > 0 ? { blocks } : {}),
+      };
+}
+
+/**
  * Композабл для обработки результатов заклинания.
  *
  * Использование:
@@ -266,6 +319,7 @@ export function useSpellResolution() {
   ): {
     hpBefore: number;
     hpAfter: number;
+    hpChange: HpChangeDetail;
     finalDamage: number;
     tempHpGained: number;
     defenseOutcome: DamageDefenseOutcome;
@@ -381,6 +435,13 @@ export function useSpellResolution() {
         outcome: {
           hpBefore,
           hpAfter,
+          hpChange: {
+            hpBefore,
+            hpAfter,
+            tempBefore,
+            tempAfter,
+            isPublic: isEntityHpShownToPlayers(target),
+          },
           finalDamage,
           tempHpGained: Math.max(0, tempAfter - hpChange.tempAfter),
           defenseOutcome,
@@ -526,6 +587,7 @@ export function useSpellResolution() {
       damageApplied: damageResult.finalDamage,
       hpBefore: damageResult.hpBefore,
       hpAfter: damageResult.hpAfter,
+      hpChange: damageResult.hpChange,
       tempHpGained: healsTempHp ? damageResult.tempHpGained : undefined,
       defenseOutcome: damageResult.defenseOutcome,
       appliedEffects: damageResult.appliedEffects,
@@ -553,6 +615,31 @@ export function useSpellResolution() {
     }
 
     return `+${result.hpAfter - result.hpBefore} HP`;
+  }
+
+  /**
+   * Изменение хитов цели для строки блока сводки: значение и его цвет.
+   *
+   * @param isHealing - является ли каст лечением
+   * @param result - результат обработки цели
+   * @returns значение («−5 HP», «+7 HP», «+10 врем. HP») и цвет
+   */
+  function formatSpellTargetHpValue(
+    isHealing: boolean,
+    result: SpellTargetResult,
+  ): Pick<ChatBlockRow, 'value' | 'accent'> {
+    if (!isHealing) {
+      return formatHpChangeValue(result.damageApplied);
+    }
+
+    return result.tempHpGained === undefined
+      ? formatHpChangeValue(result.hpAfter - result.hpBefore, {
+          isHealing: true,
+        })
+      : formatHpChangeValue(result.tempHpGained, {
+          isHealing: true,
+          healTemp: true,
+        });
   }
 
   /**
@@ -641,6 +728,98 @@ export function useSpellResolution() {
   }
 
   /**
+   * Оформление сводки заклинания блоком карточки чата — тем же, что у урона
+   * атаки: над блоком название заклинания, в шапке вид урона или лечения, под
+   * ней цели — имя и изменение хитов. Наложенные эффекты видны сразу, защита
+   * цели и снаряды — в подробностях строки. Заклинание без урона и лечения
+   * называет в шапке само себя.
+   *
+   * @param spell - заклинание
+   * @param results - результаты по целям
+   * @param bonusPartLines - строки разбивки бонус-частей урона
+   * @returns блоки для сообщения чата
+   */
+  function buildSpellSummaryBlocks(
+    spell: Spell,
+    results: SpellTargetResult[],
+    bonusPartLines: string[] = [],
+  ): ChatBlock[] {
+    const isHealing = spellIsHealing(spell);
+
+    const note = bonusPartLines
+      .map((partLine) => `${SPELL_SUMMARY_LABELS.bonusDamagePrefix}${partLine}`)
+      .join('\n');
+
+    const damageTypes = [
+      ...new Set(
+        getSpellDamageParts(spell)
+          .filter((part) => !damagePartIsHealing(part) && part.formula)
+          .flatMap(
+            (part) => part.type ?? detectFormulaDamageType(part.formula) ?? [],
+          ),
+      ),
+    ];
+
+    const hasResultKind = isHealing || damageTypes.length > 0;
+
+    const rows = results.flatMap((result): ChatBlockRow[] => {
+      const effects = result.appliedEffects?.join(', ');
+      const rowTarget = pickRowTargetName(result.actorName, results.length);
+
+      // Заклинание без урона и лечения: итог цели — только наложенное на неё
+      if (!hasResultKind) {
+        return effects
+          ? [
+              {
+                icon: SPELL_SUMMARY_LABELS.effectsIcon,
+                name: SPELL_SUMMARY_LABELS.effects,
+                ...(rowTarget ? { target: rowTarget } : {}),
+                note: effects,
+              },
+            ]
+          : [];
+      }
+
+      const defenseNote = formatDamageDefenseNote(result.defenseOutcome);
+
+      const detail = [
+        ...(defenseNote ? [defenseNote] : []),
+        ...(result.projectiles ?? []).map((projectile) =>
+          formatProjectileOutcomeLine(projectile).trim(),
+        ),
+      ].join('\n');
+
+      return [
+        withHpChangeDetail(
+          {
+            ...buildDamageChatRowLabel(
+              { isHealing, types: damageTypes },
+              rowTarget,
+            ),
+            ...formatSpellTargetHpValue(isHealing, result),
+            // Наложенное заклинанием — тоже итог: видно сразу
+            ...(effects ? { note: effects } : {}),
+            ...(detail ? { detail } : {}),
+          },
+          result.hpChange,
+        ),
+      ];
+    });
+
+    return [
+      {
+        ...buildActionChatHeader({
+          name: spell.name,
+          targetNames: results.map((result) => result.actorName),
+          icon: SPELL_CHAT_ICON,
+        }),
+        ...(note ? { note } : {}),
+        ...(rows.length > 0 ? { rows } : {}),
+      },
+    ];
+  }
+
+  /**
    * Отправляет сводку по целям (AoE-путь или несколько снарядов).
    *
    * Пустой результат называет причину: у площади это промах шаблоном мимо всех,
@@ -651,22 +830,44 @@ export function useSpellResolution() {
    * @param results - массив результатов по каждой цели
    * @param bonusPartLines - строки разбивки бонус-частей урона от эффектов
    * @param emptyReason - чем объяснить пустой результат
+   * @param casterId - заклинатель: им подписывается сводка
    */
   function sendAoeSummary(
     spell: Spell,
     results: SpellTargetResult[],
     bonusPartLines: string[] = [],
     emptyReason: string = SPELL_NO_TARGETS_LABELS.emptyArea,
+    casterId?: string,
   ): void {
     if (results.length === 0) {
-      chatStore.sendMessage(`${spell.name} — ${emptyReason}`, 'text');
+      // Урон «в пустоту» — тоже исход заклинания с уроном: окраска та же
+      chatStore.sendMessage(
+        `${spell.name} — ${emptyReason}`,
+        'text',
+        undefined,
+        undefined,
+        // Причина — всё, что есть в этой карточке: её не убрать, как шум
+        spellSummaryChatOptions(spell, casterId, [
+          { icon: SPELL_CHAT_ICON, title: spell.name, note: emptyReason },
+        ]),
+      );
 
       return;
     }
 
     const message = buildSpellSummaryMessage(spell, results, bonusPartLines);
 
-    chatStore.sendMessage(message, 'text');
+    chatStore.sendMessage(
+      message,
+      'text',
+      undefined,
+      undefined,
+      spellSummaryChatOptions(
+        spell,
+        casterId,
+        buildSpellSummaryBlocks(spell, results, bonusPartLines),
+      ),
+    );
   }
 
   /**
@@ -674,14 +875,26 @@ export function useSpellResolution() {
    *
    * @param spell - заклинание
    * @param result - результат цели
+   * @param casterId - заклинатель: им подписывается сводка
    */
   function sendSingleTargetSummary(
     spell: Spell,
     result: SpellTargetResult,
+    casterId?: string,
   ): void {
     const message = buildSpellSummaryMessage(spell, [result]);
 
-    chatStore.sendMessage(message, 'text');
+    chatStore.sendMessage(
+      message,
+      'text',
+      undefined,
+      undefined,
+      spellSummaryChatOptions(
+        spell,
+        casterId,
+        buildSpellSummaryBlocks(spell, [result]),
+      ),
+    );
   }
 
   /**
@@ -792,9 +1005,9 @@ export function useSpellResolution() {
 
     // Единственная цель (single-target) — одиночная сводка вместо общей
     if (targets.length === 1 && results.length === 1) {
-      sendSingleTargetSummary(spell, results[0]);
+      sendSingleTargetSummary(spell, results[0], context.casterId);
     } else if (sendSummaryAfter && results.length > 0) {
-      sendAoeSummary(spell, results);
+      sendAoeSummary(spell, results, [], undefined, context.casterId);
     }
 
     return results;
@@ -893,7 +1106,7 @@ export function useSpellResolution() {
           // Сводка по своим авто-целям. По остальным её отправит пачка —
           // после того, как все бросят.
           if (localAutoTargets.length > 0) {
-            sendAoeSummary(spell, results);
+            sendAoeSummary(spell, results, [], undefined, context.casterId);
           }
         },
       );
@@ -919,7 +1132,7 @@ export function useSpellResolution() {
           results.push(result);
 
           // Отправляем результат для single-target в чат
-          sendSingleTargetSummary(spell, result);
+          sendSingleTargetSummary(spell, result, context.casterId);
         }
       }
     }
@@ -1048,7 +1261,27 @@ export function useSpellResolution() {
           result: attackResult,
         });
 
-        chatStore.sendMessage(attackFormula, 'roll', attackRoll);
+        attackRoll.block = buildAttackChatBlock({
+          name: spell.name,
+          targetName: targetEntity.name,
+          result: attackResult,
+          attackKind: 'spell',
+          ...(totalProjectiles > 1
+            ? {
+                note: `${SPELL_SUMMARY_LABELS.projectile} ${projectileNumber}/${totalProjectiles}`,
+              }
+            : {}),
+        });
+
+        // Бросок атаки выделяется всегда — и промах, и попадание без урона;
+        // подписывается он заклинателем
+        chatStore.sendMessage(
+          attackFormula,
+          'roll',
+          attackRoll,
+          undefined,
+          buildCombatChatOptions(context.casterId),
+        );
 
         if (!attackResult.isHit) {
           projectiles.push({ number: projectileNumber, damage: null });
@@ -1170,6 +1403,7 @@ export function useSpellResolution() {
       results,
       bonusPartLines,
       SPELL_NO_TARGETS_LABELS.noTarget,
+      context.casterId,
     );
 
     projectileStore.stopTargeting();
@@ -1381,6 +1615,7 @@ export function useSpellResolution() {
           results,
           bonusPartLines,
           SPELL_NO_TARGETS_LABELS.noTarget,
+          context.casterId,
         );
       }
 

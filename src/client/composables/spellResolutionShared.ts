@@ -11,6 +11,7 @@ import type {
   CreatureCategory,
   DamageDefenseOutcome,
   DamageTypeChoice,
+  HpChangeDetail,
   ProjectileOutcome,
   SaveDamageDefense,
   Spell,
@@ -75,6 +76,11 @@ export interface SpellTargetResult {
   hpBefore: number;
   /** HP после применения */
   hpAfter: number;
+  /**
+   * Хиты цели до и после вместе с временными — для подробностей строки
+   * сводки в чате; нет — хиты цели не менялись
+   */
+  hpChange?: HpChangeDetail;
   /** Полученные временные ХП (прирост; 0 — если текущие временные были выше) */
   tempHpGained?: number;
   /** Сработавшая защита от урона (иммунитет/сопротивление/уязвимость) */

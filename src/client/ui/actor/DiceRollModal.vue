@@ -1,6 +1,7 @@
 <script setup lang="ts">
-  import type { DamageType } from '@vtt/shared';
+  import type { DamageApplyResult, DamageType } from '@vtt/shared';
   import type {
+    AttackHitConsequences,
     AttackRollMode,
     AttackRollModeReasons,
     DamageHitDetails,
@@ -28,7 +29,10 @@
   import { useDiceRollerStore } from '@/stores/diceRollerStore';
   import { useTargetStore } from '@/stores/targetStore';
   import {
+    buildActionChatHeader,
     buildAttackFormula,
+    buildDamageChatBlock,
+    buildSingleTargetDamageRecord,
     CHOICE_DAMAGE_TYPE,
     damageTypeChoiceKey,
     doubleDiceInFormula,
@@ -39,7 +43,9 @@
     isDamageType,
     isDeductionFormula,
     listPartDamageTypeChoices,
+    listRolledDiceValues,
     performTwoStageAttack,
+    previewDamageConsequences,
     rollRandomDamageTypeChoices,
     scaleDamageFormula,
     settleDamageTypeChoices,
@@ -47,6 +53,11 @@
     uniqueDamageTypeChoices,
   } from '@vtt/shared/system/dnd.js';
 
+  import {
+    buildCombatChatOptions,
+    buildSpeakerChatOptions,
+    sendDamageToChat,
+  } from '../../composables/damageChatMessage';
   import {
     announceDamageTypeChoices,
     useDamageTypeLabel,
@@ -1148,6 +1159,17 @@
       finalDamageFormula += `${damageBonus > 0 ? '+' : ''}${damageBonus}`;
     }
 
+    /**
+     * Что урон снял с цели: по этому кнопка в карточке чата отменит его и
+     * нанесёт заново. Пусто — промах или урон никому не достался
+     */
+    const appliedDamage: {
+      targetId: string;
+      result: DamageApplyResult;
+      details: DamageHitDetails;
+      consequences: AttackHitConsequences;
+    }[] = [];
+
     const attackOutput = performTwoStageAttack(
       {
         attackFormula,
@@ -1160,18 +1182,56 @@
         targetFlags: targetStore.getTargetFlags(),
         critThreshold: props.critThreshold,
         damageType: resolvedDamageType.value,
+        attackKind: props.incomingAttackType,
       },
       (formula) => diceRollerStore.parseAndRoll(formula),
-      (damage, isHealing, critical) =>
-        targetStore.applyToTarget(
+      (damage, isHealing, critical) => {
+        const details = buildHitDetails(critical);
+
+        // Цель до удара: по ней запись узнает, что удар изменил помимо хитов
+        // (спасброски от смерти у лежащего на нуле), — отмена вернёт и это
+        const targetBefore = findCurrentDndEntity(targetStore.targetActorId);
+
+        const consequences =
+          targetBefore && !isHealing
+            ? previewDamageConsequences(
+                targetBefore,
+                damage,
+                resolvedDamageType.value,
+                details,
+              )
+            : {};
+
+        const result = targetStore.applyToTarget(
           damage,
           isHealing,
           resolvedDamageType.value,
-          buildHitDetails(critical),
-        ),
+          details,
+        );
+
+        if (result && targetStore.targetActorId) {
+          appliedDamage.push({
+            targetId: targetStore.targetActorId,
+            result,
+            details,
+            consequences,
+          });
+        }
+
+        return result;
+      },
     );
 
-    chatStore.sendMessage(attackFormula, 'roll', attackOutput.attackRoll);
+    // Урон допишется в карточку этого броска. Окраска — у любого броска
+    // атаки, и у промаха тоже: карточка атаки выделена с самого начала.
+    // Подписывается карточка атакующим, а не тем, чей токен выделен
+    const attackMessageId = chatStore.sendMessage(
+      attackFormula,
+      'roll',
+      attackOutput.attackRoll,
+      undefined,
+      buildCombatChatOptions(props.attackerId),
+    );
 
     if (attackOutput.attackResult.isHit && props.onHit) {
       props.onHit(attack);
@@ -1186,6 +1246,21 @@
         : finalDamageFormula;
 
       const damageRoll = attackOutput.damageRoll;
+      const [applied] = appliedDamage;
+
+      const damageRecord = applied
+        ? buildSingleTargetDamageRecord({
+            label: props.rollLabel,
+            formula: resultingDamageFormula,
+            damageType: resolvedDamageType.value,
+            ...applied,
+            // Бросок по костям: с ним под уроном работают «Половина» и «Крит»
+            roll: {
+              total: damageRoll.total,
+              values: listRolledDiceValues(damageRoll),
+            },
+          })
+        : null;
 
       // Сохраняем видимость броска (она будет сброшена в performRoll до того,
       // как сработает отложенная отправка урона).
@@ -1199,7 +1274,15 @@
         chatStore.isPrivateRoll = wasPrivate;
         chatStore.isGmOnlyRoll = wasGmOnly;
 
-        chatStore.sendMessage(resultingDamageFormula, 'roll', damageRoll);
+        sendDamageToChat(
+          chatStore,
+          attackMessageId,
+          resultingDamageFormula,
+          'roll',
+          damageRoll,
+          damageRecord,
+          props.attackerId,
+        );
 
         chatStore.isPrivateRoll = prevPrivate;
         chatStore.isGmOnlyRoll = prevGmOnly;
@@ -1267,6 +1350,15 @@
       rollData.damageType = resolvedDamageType.value;
     }
 
+    /**
+     * Бросок урона. Формулу окну дают только урон и лечение: проверка и
+     * спасбросок идут без неё
+     */
+    const isDamageRoll = Boolean(rollFormula.value) && !props.isHealing;
+
+    /** Что урон снял с цели; нет — урон никому не достался */
+    let appliedResult: DamageApplyResult | null = null;
+
     let rollLabel = props.rollLabel;
 
     if (!props.isHealing && resolvedDamageType.value) {
@@ -1302,7 +1394,26 @@
         }
 
         rollLabel += formatDamageDefenseSuffix(result.defenseOutcome);
+
+        appliedResult = result;
       }
+    }
+
+    // Карточка урона без броска атаки: та же строка урона, что в карточке
+    // атаки (вид урона и снятые хиты, без цели — брошенное число), а шапкой,
+    // которую там даёт бросок атаки, — чем бьют и по кому
+    if (isDamageRoll) {
+      rollData.block = {
+        ...buildDamageChatBlock(
+          appliedResult,
+          resolvedDamageType.value,
+          rollData.total,
+        ),
+        ...buildActionChatHeader({
+          name: props.rollLabel,
+          targetNames: appliedResult ? [appliedResult.actorName] : [],
+        }),
+      };
     }
 
     if (props.autoFail) {
@@ -1318,7 +1429,17 @@
     rollData.label = rollLabel;
 
     if (!props.skipChatMessage) {
-      chatStore.sendMessage(formula, 'roll', rollData);
+      // Бросок урона лента выделяет — с целью и без, с известным типом
+      // урона и без него
+      chatStore.sendMessage(
+        formula,
+        'roll',
+        rollData,
+        undefined,
+        isDamageRoll
+          ? buildCombatChatOptions(props.attackerId)
+          : buildSpeakerChatOptions(props.attackerId),
+      );
     }
 
     // Бонусные кости влияют на итог, но не изменяют натуральную оставленную d20.
@@ -1469,11 +1590,21 @@
         targetActorId: targetStore.targetActorId,
         targetFlags: targetStore.getTargetFlags(),
         critThreshold: props.critThreshold,
+        attackKind: props.incomingAttackType,
       },
       (formula) => diceRollerStore.parseAndRoll(formula),
     );
 
-    chatStore.sendMessage(attackFormula, 'roll', attackOutput.attackRoll);
+    // Части урона допишутся в карточку этого броска. Окраска — у любого
+    // броска атаки, и у промаха тоже; подпись — атакующего
+    const chatMessageId =
+      chatStore.sendMessage(
+        attackFormula,
+        'roll',
+        attackOutput.attackRoll,
+        undefined,
+        buildCombatChatOptions(props.attackerId),
+      ) ?? undefined;
 
     if (attackOutput.attackResult.isHit && props.onHit) {
       props.onHit(attack);
@@ -1492,7 +1623,13 @@
     // узнаёт о броске после урона. За время показа ответ сервера убирает
     // израсходованные эффекты из мира — части разбираются по снимку броска
     void waitForAttackDisplay()
-      .then(() => rollPartsSequentially(parts, isCrit, attack))
+      .then(() =>
+        rollPartsSequentially(
+          parts,
+          isCrit,
+          attack ? { ...attack, chatMessageId } : undefined,
+        ),
+      )
       .then(() => finishAttackRoll(attack, true, isCrit));
   }
 </script>

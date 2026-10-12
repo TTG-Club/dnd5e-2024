@@ -6,7 +6,7 @@ import { loadEngineBundle } from './helpers/engineBundle.mjs';
 import { loadHandler } from './helpers/sourceHandler.mjs';
 
 const engine = await loadEngineBundle(
-  "export * from './src/engine/attackUtils.ts'; export * from './src/engine/effectPipeline.ts'; export * from './src/engine/consts.ts'; export * from './src/engine/formulaParser.ts'; export * from './src/engine/resolvedFormulaContext.ts'; export * from './src/engine/spellCastPlan.ts'; export * from './src/engine/hitPoints.ts'; export { isSaveAbility } from './src/engine/spellUtils.ts'; export { creatureActionHasSave, resolveCreatureActionAttackBonus } from './src/engine/creatureUtils.ts';",
+  "export * from './src/engine/attackUtils.ts'; export * from './src/engine/attackChatBlocks.ts'; export * from './src/engine/effectPipeline.ts'; export * from './src/engine/consts.ts'; export * from './src/engine/formulaParser.ts'; export * from './src/engine/resolvedFormulaContext.ts'; export * from './src/engine/spellCastPlan.ts'; export * from './src/engine/hitPoints.ts'; export { isSaveAbility } from './src/engine/spellUtils.ts'; export { creatureActionHasSave, resolveCreatureActionAttackBonus } from './src/engine/creatureUtils.ts';",
 );
 
 const macroPath = 'src/client/macros/dnd5eMacros.ts';
@@ -29,6 +29,9 @@ const buildCreatureRollVariants = await loadHandler(
 
 const resolverPath = 'src/client/composables/useSpellResolution.ts';
 const normalContext = { hasAdvantage: false, hasDisadvantage: false };
+
+/** Окраска карточки броска атаки: ею выделяется и промах */
+const ATTACK_CARD_OPTIONS = { tone: 'damage' };
 
 /** Изолирует вычисление формул: тестируется выбор ключа и актуального носителя обработчиком. */
 function buildRollBonusEvaluator(getEntity, key) {
@@ -679,6 +682,7 @@ it('actual projectile series rolls attack bonus per beam and preserves natural c
 
   const rolledFormulas = [];
   const chatRolls = [];
+  const chatOptions = [];
   const applied = [];
 
   const diceStore = {
@@ -727,8 +731,13 @@ it('actual projectile series rolls attack bonus per beam and preserves natural c
       }),
       evaluateDefensiveACBonus: () => 0,
       collectActiveEffects: () => [],
+      buildCombatChatOptions: () => ATTACK_CARD_OPTIONS,
+      SPELL_SUMMARY_LABELS: { projectile: 'Снаряд' },
       chatStore: {
-        sendMessage: (_formula, _kind, roll) => chatRolls.push(roll),
+        sendMessage: (_formula, _kind, roll, _cardData, options) => {
+          chatRolls.push(roll);
+          chatOptions.push(options);
+        },
       },
       resolveEntityCurrentHp: () => 100,
       processTarget: (entity, context) => {
@@ -775,6 +784,14 @@ it('actual projectile series rolls attack bonus per beam and preserves natural c
 
   assert.deepEqual(applied, [{ entityId: 'first', damage: 14 }]);
   assert.equal(chatRolls.length, 3);
+
+  // Каждый бросок атаки выделен — и промах, и попадание
+  assert.deepEqual(chatOptions, [
+    ATTACK_CARD_OPTIONS,
+    ATTACK_CARD_OPTIONS,
+    ATTACK_CARD_OPTIONS,
+  ]);
+
   assert.equal(projectileStore.isActive, false);
 });
 
@@ -1043,6 +1060,8 @@ it('projectile attack bonuses follow each assigned target instead of the unrelat
       }),
       collectActiveEffects: () => [],
       evaluateDefensiveACBonus: () => 0,
+      buildCombatChatOptions: () => ATTACK_CARD_OPTIONS,
+      SPELL_SUMMARY_LABELS: { projectile: 'Снаряд' },
       chatStore: { sendMessage() {} },
       resolveEntityCurrentHp: () => 10,
       sendAoeSummary() {},

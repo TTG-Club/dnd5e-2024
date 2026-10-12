@@ -179,6 +179,8 @@ async function setup(entities) {
       resolveEntityCurrentHp: engine.resolveEntityCurrentHp,
       resolveEntityMaxHp: engine.resolveEntityMaxHp,
       resolveEntityTempHp: engine.resolveEntityTempHp,
+      isEntityHpShownToPlayers: engine.isEntityHpShownToPlayers,
+      withHpChangeDetail: engine.withHpChangeDetail,
       limitEntityHealing: engine.limitEntityHealing,
       applyHpChange: engine.applyHpChange,
       writeEntityHitPoints: engine.writeEntityHitPoints,
@@ -598,10 +600,10 @@ describe('снимок броска доходит до разбора на вс
     assert.equal((modal.match(/props\.onHit\(attack\);/gu) ?? []).length, 2);
     assert.doesNotMatch(modal, /props\.onHit\(\);/u);
 
-    // Части после показа броска идут со снимком
+    // Части после показа броска идут со снимком (и id карточки атаки в чате)
     assert.match(
       modal,
-      /\.then\(\(\) => rollPartsSequentially\(parts, isCrit, attack\)\)/u,
+      /\.then\(\(\) =>\s*rollPartsSequentially\(\s*parts,\s*isCrit,\s*attack \? \{ \.\.\.attack, chatMessageId \} : undefined,\s*\),\s*\)/u,
     );
   });
 });

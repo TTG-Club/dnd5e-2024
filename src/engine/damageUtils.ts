@@ -23,6 +23,41 @@ import { DEFENSIBLE_DAMAGE_TYPES } from './damageConstants.js';
 
 export type { DamageApplyResult, DamageDefenseOutcome };
 
+/**
+ * Хиты цели до и после изменения — для строки «HP: 47 → 42» в подробностях
+ * карточки чата.
+ */
+export interface HpChangeDetail {
+  /** Хиты до изменения */
+  hpBefore: number;
+  /** Хиты после изменения */
+  hpAfter: number;
+  /** Временные хиты до изменения */
+  tempBefore: number;
+  /** Временные хиты после изменения */
+  tempAfter: number;
+  /**
+   * Хиты цели открыты игрокам (см. `isEntityHpShownToPlayers`). Нет — строку
+   * увидит только мастер: игрокам сервер её не пришлёт
+   */
+  isPublic: boolean;
+}
+
+/**
+ * Итог применения урона вместе с тем, что нужно карточке чата. Контракт ядра
+ * (`DamageApplyResult`) временных хитов «до» и видимости хитов цели не знает —
+ * система дописывает их сама; ядро лишние поля не читает.
+ */
+export interface DndDamageApplyResult extends DamageApplyResult {
+  /** Хиты цели до и после — для подробностей строки урона */
+  hpChange?: HpChangeDetail;
+  /**
+   * Урон после защит цели, сколько бы хитов у неё ни было: по нему кнопки
+   * под уроном в чате считают половину и крит
+   */
+  damageDealt?: number;
+}
+
 /** Урон при иммунитете (полностью игнорируется) */
 const IMMUNITY_DAMAGE = 0;
 

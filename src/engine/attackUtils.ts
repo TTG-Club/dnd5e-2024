@@ -20,6 +20,7 @@ import type {
   EffectTargetKey,
   ResolvedActorStats,
 } from './activeEffectTypes.js';
+import type { AttackChatKind } from './attackChatBlocks.js';
 import type { ConditionRef } from './conditionKeys.js';
 import type {
   CreatureAction,
@@ -37,6 +38,10 @@ import {
   buildSaveVsConditionFlag,
   CONCENTRATION_SAVE_KEY,
 } from './activeEffectTypes.js';
+import {
+  buildAttackChatBlock,
+  buildDamageChatBlock,
+} from './attackChatBlocks.js';
 import { SPELL_SAVE_DC_BASE } from './consts.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
 import { formatDamageDefenseSuffix } from './damageUtils.js';
@@ -273,7 +278,8 @@ interface AttackLabelParams {
 /**
  * Формирует лейбл для броска атаки с результатом попадания.
  *
- * Пример: `Атака — Длинный меч → Гоблин | ✅ Попадание!`
+ * Пример: `Атака — Длинный меч → Гоблин | Попадание!`. Эмодзи в подписи нет:
+ * это запасной текст карточки, а исход в ней называет плашка блока.
  *
  * @param params - параметры для лейбла
  * @returns текст лейбла
@@ -282,17 +288,17 @@ export function buildAttackLabel(params: AttackLabelParams): string {
   let label = `Атака\u00A0—\u00A0${params.weaponName}\u00A0→\u00A0${params.targetName}`;
 
   if (params.isDisadvantage) {
-    label += '\u00A0|\u00A0⚠️\u00A0Помеха\u00A0(дальняя\u00A0дистанция)';
+    label += '\u00A0|\u00A0Помеха\u00A0(дальняя\u00A0дистанция)';
   }
 
   if (params.result.isCriticalHit) {
-    label += '\u00A0|\u00A0✨\u00A0КРИТ!';
+    label += '\u00A0|\u00A0Крит!';
   } else if (params.result.isCriticalMiss) {
-    label += '\u00A0|\u00A0❌\u00A0Крит.\u00A0промах!';
+    label += '\u00A0|\u00A0Крит.\u00A0промах!';
   } else if (params.result.isHit) {
-    label += '\u00A0|\u00A0✅\u00A0Попадание!';
+    label += '\u00A0|\u00A0Попадание!';
   } else {
-    label += '\u00A0|\u00A0❌\u00A0Промах!';
+    label += '\u00A0|\u00A0Промах!';
   }
 
   return label;
@@ -412,6 +418,80 @@ export function doubleDiceInFormula(formula: string): string {
   );
 }
 
+/**
+ * Возвращает формулу к виду до крита: делит пополам число костей, которое
+ * удвоил {@link doubleDiceInFormula}.
+ *
+ * @param formula - формула с удвоенными костями (напр. "4к6+3")
+ * @returns формула без костей крита (напр. "2к6+3") либо `undefined`, если
+ *   число каких-то костей нечётное: такую формулу крит не удваивал
+ */
+export function halveDiceInFormula(formula: string): string | undefined {
+  let isHalvable = true;
+
+  const halved = formula.replace(
+    DOUBLE_DICE_REGEX,
+    (_match, count, separator, sides) => {
+      isHalvable &&= Number(count) % 2 === 0;
+
+      return `${Number(count) / 2}${separator}${sides}`;
+    },
+  );
+
+  return isHalvable ? halved : undefined;
+}
+
+/** Кости формулы, которые удваивает крит: сколько их и с каким знаком */
+export interface CritDiceTerm {
+  /** Число костей */
+  count: number;
+  /** Знак слагаемого: «2к6 − 1к4» вычитает вторую кость и на крите */
+  sign: 1 | -1;
+  /** Запись слагаемого как в формуле: «2к6» */
+  body: string;
+}
+
+/**
+ * Кости формулы в порядке записи — те же, что удваивает
+ * {@link doubleDiceInFormula}.
+ *
+ * @param formula - формула урона
+ * @returns кости со знаком их слагаемого
+ */
+export function listCritDiceTerms(formula: string): CritDiceTerm[] {
+  return [...formula.matchAll(DOUBLE_DICE_REGEX)].map((match) => ({
+    count: Number(match[1]),
+    sign: formula.slice(0, match.index).trimEnd().endsWith('-') ? -1 : 1,
+    body: match[0],
+  }));
+}
+
+/**
+ * Кости крита — формула из одних костей: по правилам 5e критическое
+ * попадание бросает кости урона ещё раз, а модификаторы не повторяет.
+ *
+ * @param formula - формула урона без крита (напр. "2к6+3")
+ * @returns формула костей крита (напр. "2к6") либо `undefined`, если костей
+ *   в формуле нет
+ */
+export function buildCritDiceFormula(formula: string): string | undefined {
+  const terms = listCritDiceTerms(formula);
+
+  if (terms.length === 0) {
+    return undefined;
+  }
+
+  return terms
+    .map((term, index) => {
+      if (index === 0) {
+        return term.sign < 0 ? `-${term.body}` : term.body;
+      }
+
+      return term.sign < 0 ? ` - ${term.body}` : ` + ${term.body}`;
+    })
+    .join('');
+}
+
 /** Параметры для полного двухэтапного броска атаки */
 export interface PerformAttackParams {
   /** Формула атаки (напр. "1к20+5") */
@@ -436,6 +516,8 @@ export interface PerformAttackParams {
   damageType?: string;
   /** С какой натуральной кости крит (по умолчанию 20) */
   critThreshold?: number;
+  /** Вид атаки — от него значок в карточке чата; не задан — рукопашная */
+  attackKind?: AttackChatKind;
 }
 
 /** Результат двухэтапной атаки */
@@ -484,6 +566,14 @@ export function performTwoStageAttack(
     isDisadvantage: params.isDisadvantage,
   });
 
+  attackRoll.block = buildAttackChatBlock({
+    name: params.weaponName,
+    targetName: params.targetName,
+    result: attackResult,
+    attackKind: params.attackKind,
+    isDisadvantage: params.isDisadvantage,
+  });
+
   const output: PerformAttackResult = { attackRoll, attackResult };
 
   // Если попал и есть формула урона — бросок урона
@@ -508,6 +598,12 @@ export function performTwoStageAttack(
       params.weaponName,
       applyResult,
       params.damageType,
+    );
+
+    damageRoll.block = buildDamageChatBlock(
+      applyResult,
+      params.damageType,
+      damageRoll.total,
     );
 
     output.damageRoll = damageRoll;

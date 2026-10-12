@@ -47,6 +47,7 @@ import {
   EFFECT_PAY_PROMPT_MODAL,
 } from '../ui/effect/payLabels';
 import { askCastLevel } from './castLevelPrompt';
+import { DAMAGE_CHAT_OPTIONS } from './damageChatMessage';
 import {
   sendComputedCombatState,
   sendTriggerUsageSpend,
@@ -356,9 +357,22 @@ export function sendSelfTriggerReport(
 ): void {
   const summary = formatSelfTriggerReport(entityName, report, whenLabel);
 
-  if (summary) {
-    useChatStore().sendMessage(summary, 'text');
+  if (!summary) {
+    return;
   }
+
+  // Сводка с уроном срабатывания выделяется, как любой урон в ленте
+  const dealsDamage = report.results.some((result) =>
+    Boolean(result.damageOutcome),
+  );
+
+  useChatStore().sendMessage(
+    summary,
+    'text',
+    undefined,
+    undefined,
+    dealsDamage ? DAMAGE_CHAT_OPTIONS : undefined,
+  );
 }
 
 /**

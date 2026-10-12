@@ -21,9 +21,9 @@ import type { ActiveEffect, EffectOrigin } from './activeEffectTypes.js';
 import type { EffectChanges } from './combatEffectChanges.js';
 import type { DamageHit } from './damageHits.js';
 import type {
-  DamageApplyResult,
   DamageDefenseOutcome,
   DamageDefenses,
+  DndDamageApplyResult,
 } from './damageUtils.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { IncomingAttackContext } from './effectPipeline.js';
@@ -80,6 +80,7 @@ import {
 import { stripDamageTypeTokens } from './formulaTokens.js';
 import { limitEntityHealing } from './healingLimits.js';
 import {
+  isEntityHpShownToPlayers,
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
   resolveEntityTempHp,
@@ -218,7 +219,7 @@ export function applyTargetDamage(
   isHealing: boolean,
   damageType?: string,
   details?: unknown,
-): DamageApplyResult {
+): DndDamageApplyResult {
   const hpBefore = resolveEntityCurrentHp(entity);
   const maxHp = resolveEntityMaxHp(entity);
 
@@ -284,6 +285,14 @@ export function applyTargetDamage(
     hpAfter: hpChange.hpAfter,
     tempAbsorbed: hpChange.tempAbsorbed,
     defenseOutcome,
+    ...(isHealing ? {} : { damageDealt: Math.max(0, finalAmount) }),
+    hpChange: {
+      hpBefore,
+      hpAfter: hpChange.hpAfter,
+      tempBefore,
+      tempAfter: hpChange.tempAfter,
+      isPublic: isEntityHpShownToPlayers(entity),
+    },
   };
 }
 

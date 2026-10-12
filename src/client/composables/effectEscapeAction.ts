@@ -58,6 +58,7 @@ import {
 } from '../ui/effect/constants';
 import { EFFECT_ESCAPE_PROMPT_LABELS } from '../ui/effect/escapeLabels';
 import { recordEntityActionSpend } from './actionSpend';
+import { DAMAGE_CHAT_OPTIONS } from './damageChatMessage';
 import { isEntityOwnTurn } from './encounterTurn';
 import { changeEntityCombatState } from './entityCombatWrite';
 import { controlsEntityAsUser } from './gmApprovalRequest';
@@ -363,6 +364,9 @@ function settleEscape(
   useChatStore().sendMessage(
     `${effect.name}${EFFECT_ESCAPE_PROMPT_LABELS.failDamageMiddle}${hurt.name}${EFFECT_ESCAPE_PROMPT_LABELS.failDamageSuffix}${dealt}`,
     'text',
+    undefined,
+    undefined,
+    DAMAGE_CHAT_OPTIONS,
   );
 }
 

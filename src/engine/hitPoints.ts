@@ -162,3 +162,22 @@ export function isEntityBloodied(entity: DnDSceneEntity): boolean {
     && targetHpGateMatches('halfOrLess', resolveEntityCurrentHp(entity), maxHp)
   );
 }
+
+/**
+ * Видят ли игроки хиты сущности числом. Настройка токена «Отображение ХП»:
+ * полоска показывает запас хитов всем, текстовое состояние («Невредим»,
+ * «Ранен») числа скрывает — их знает только мастер. Не задано — как рисует
+ * ядро: персонажу полоска, существу состояние.
+ *
+ * По этому же правилу карточка чата решает, кому показать хиты цели до и
+ * после удара.
+ *
+ * @param entity - сущность (актор или существо)
+ * @returns `true`, если хиты сущности открыты игрокам
+ */
+export function isEntityHpShownToPlayers(entity: DnDSceneEntity): boolean {
+  const displayMode =
+    entity.token?.hpDisplayMode ?? (isActorEntity(entity) ? 'bar' : 'text');
+
+  return displayMode === 'bar';
+}

@@ -42,7 +42,7 @@ export function isImmuneToCondition(
  * @param effect - эффект
  * @returns стабильный ключ идентичности
  */
-function effectIdentityKey(effect: ActiveEffect): string {
+export function effectIdentityKey(effect: ActiveEffect): string {
   // Концентрация у заклинателя одна: новая метка заменяет прежнюю
   if (effect.concentration) {
     return 'concentration';

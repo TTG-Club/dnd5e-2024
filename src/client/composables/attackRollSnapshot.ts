@@ -39,6 +39,8 @@ export interface AttackRollSnapshot {
    * они были до расхода. Сторона без расхода в снимок не входит
    */
   held: ReadonlyMap<string, readonly HeldAttackEffect[]>;
+  /** Сообщение чата с броском атаки: урон дописывается в его карточку */
+  chatMessageId?: string;
 }
 
 /**

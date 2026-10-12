@@ -266,6 +266,9 @@ it('actual save modal reports natural d20 and complete bonus without adding d4 t
     rollFormula: { value: undefined },
     targetStore: {},
     buildAttackFormula: engine.buildAttackFormula,
+    // Бросок урона окном получает блок карточки; здесь проверяется формула
+    buildDamageChatBlock: () => ({ rows: [{ name: 'Урон' }] }),
+    buildActionChatHeader: () => ({}),
     getNaturalD20Roll: engine.getNaturalD20Roll,
     diceRollerStore: {
       parseAndRoll: (formula) => {
