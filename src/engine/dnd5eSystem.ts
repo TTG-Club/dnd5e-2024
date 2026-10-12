@@ -1653,7 +1653,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.290';
+  readonly version = '0.8.291';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -2325,7 +2325,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * неходячему, на листе видна, а токен ею не двинется.
    *
    * Хост передаёт их с VTTG 0.9.637 — и клиент (из своего стора аур), и
-   * сервер (README, § «Чего не хватает для полноценного SDK», п. 16). На
+   * сервер. На
    * хосте старше аргумент не приходит, и гейт считает по одной сущности.
    *
    * @param entity - сущность токена
@@ -2451,8 +2451,8 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Свет сущности по правилам D&D — самый сильный свет действующих эффектов
    * поверх света фишки. Хук для сцены приложения по образцу
-   * `resolveEntityVision`: ядро зовёт его при расчёте света фишки с VTTG 0.9.580
-   * (README § «Чего не хватает», п. 33); на хосте старше сцена видит только
+   * `resolveEntityVision`: ядро зовёт его при расчёте света фишки с VTTG 0.9.580;
+   * на хосте старше сцена видит только
    * свет фишки.
    */
   // eslint-disable-next-line class-methods-use-this -- хук для ядра: вызывается на экземпляре системы
