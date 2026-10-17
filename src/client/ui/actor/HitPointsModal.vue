@@ -405,8 +405,8 @@
                   color="neutral"
                   variant="soft"
                   icon="tabler:minus"
-                  :disabled="group.used === 0"
-                  @click.left.exact.prevent="adjustHitDieUsed(group.die, -1)"
+                  :disabled="group.available === 0"
+                  @click.left.exact.prevent="adjustHitDieUsed(group.die, 1)"
                 />
 
                 <UButton
@@ -414,8 +414,8 @@
                   color="neutral"
                   variant="soft"
                   icon="tabler:plus"
-                  :disabled="group.available === 0"
-                  @click.left.exact.prevent="adjustHitDieUsed(group.die, 1)"
+                  :disabled="group.used === 0"
+                  @click.left.exact.prevent="adjustHitDieUsed(group.die, -1)"
                 />
               </div>
             </div>
