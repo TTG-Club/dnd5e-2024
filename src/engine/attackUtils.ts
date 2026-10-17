@@ -199,8 +199,11 @@ interface AttackResolveParams {
   attackModifier: number;
   /** Натуральная оставленная кость d20, отдельно от бонусных костей. */
   naturalRoll: number;
-  /** Класс доспеха цели */
-  targetAc: number;
+  /**
+   * Класс доспеха цели; `null` — цель не выбрана: попал ли бросок, решает
+   * мастер по числу в чате
+   */
+  targetAc: number | null;
   /** Активные флаги цели (для иммунитета к критам и т.п.) */
   targetFlags?: ReadonlySet<string>;
   /** С какой натуральной кости крит (по умолчанию 20) */
@@ -215,8 +218,16 @@ export interface AttackResult {
   isCriticalHit: boolean;
   /** Критический промах (натуральная 1) */
   isCriticalMiss: boolean;
-  /** Попадание (крит или total >= AC, но не крит. промах) */
+  /**
+   * Попадание (крит или total >= AC, но не крит. промах). Без цели — любой
+   * бросок, кроме критического промаха: урон катится, а засчитывает его мастер
+   */
   isHit: boolean;
+  /**
+   * Цели нет, и исход броска неизвестен. Крит и критический промах известны
+   * и без цели — их решает сама кость
+   */
+  isHitUnknown: boolean;
 }
 
 /** Натуральная 20: крит по правилам и всегда попадание */
@@ -249,7 +260,11 @@ export function resolveAttackRoll(params: AttackResolveParams): AttackResult {
   // становится только атака, которая уже попала, — промах им не делается.
   // Иммунитет к критам сильнее — адамантиновая броня спасает и от него
   const forcesCritical = params.targetFlags?.has(FORCE_CRITICAL_FLAG) ?? false;
-  const hitsByTotal = params.total >= params.targetAc;
+
+  // Без цели сравнивать не с чем: бросок считается попавшим, пока кость не
+  // сказала обратного, — урон катится сразу, а засчитывает его мастер
+  const hitsByTotal =
+    params.targetAc === null || params.total >= params.targetAc;
 
   const isCriticalHit =
     (naturalRoll >= critThreshold || (forcesCritical && hitsByTotal))
@@ -260,15 +275,39 @@ export function resolveAttackRoll(params: AttackResolveParams): AttackResult {
     naturalRoll === NATURAL_CRIT_ROLL
     || (!isCriticalMiss && (isCriticalHit || hitsByTotal));
 
-  return { naturalRoll, isCriticalHit, isCriticalMiss, isHit };
+  const isHitUnknown =
+    params.targetAc === null && !isCriticalHit && !isCriticalMiss;
+
+  return { naturalRoll, isCriticalHit, isCriticalMiss, isHit, isHitUnknown };
+}
+
+/**
+ * Попал ли бросок наверняка: без цели обычный бросок попаданием не считается —
+ * обработчики попадания (эффекты «при попадании») ждут решения мастера.
+ *
+ * @param result - результат броска атаки
+ * @returns `true`, если попадание известно
+ */
+export function isKnownAttackHit(result: AttackResult): boolean {
+  return result.isHit && !result.isHitUnknown;
+}
+
+/**
+ * Попадание для сообщения серверу о броске: без цели оно неизвестно.
+ *
+ * @param result - результат броска атаки
+ * @returns попал ли бросок; `undefined` — исход решает мастер
+ */
+export function resolveAttackLanded(result: AttackResult): boolean | undefined {
+  return result.isHitUnknown ? undefined : result.isHit;
 }
 
 /** Параметры для формирования лейбла атаки */
 interface AttackLabelParams {
   /** Название оружия или контекст броска */
   weaponName: string;
-  /** Имя цели */
-  targetName: string;
+  /** Имя цели; нет — цель не выбрана */
+  targetName?: string;
   /** Результат определения попадания */
   result: AttackResult;
   /** Атака с помехой (дальняя дистанция) */
@@ -285,7 +324,11 @@ interface AttackLabelParams {
  * @returns текст лейбла
  */
 export function buildAttackLabel(params: AttackLabelParams): string {
-  let label = `Атака\u00A0—\u00A0${params.weaponName}\u00A0→\u00A0${params.targetName}`;
+  let label = `Атака\u00A0—\u00A0${params.weaponName}`;
+
+  if (params.targetName) {
+    label += `\u00A0→\u00A0${params.targetName}`;
+  }
 
   if (params.isDisadvantage) {
     label += '\u00A0|\u00A0Помеха\u00A0(дальняя\u00A0дистанция)';
@@ -295,10 +338,11 @@ export function buildAttackLabel(params: AttackLabelParams): string {
     label += '\u00A0|\u00A0Крит!';
   } else if (params.result.isCriticalMiss) {
     label += '\u00A0|\u00A0Крит.\u00A0промах!';
-  } else if (params.result.isHit) {
-    label += '\u00A0|\u00A0Попадание!';
-  } else {
-    label += '\u00A0|\u00A0Промах!';
+  } else if (!params.result.isHitUnknown) {
+    // Исход без цели решает мастер — тогда подпись его не называет
+    label += params.result.isHit
+      ? '\u00A0|\u00A0Попадание!'
+      : '\u00A0|\u00A0Промах!';
   }
 
   return label;
@@ -498,12 +542,12 @@ export interface PerformAttackParams {
   attackFormula: string;
   /** Модификатор атаки */
   attackModifier: number;
-  /** Класс доспеха цели */
-  targetAc: number;
+  /** Класс доспеха цели; `null` — цель не выбрана, исход решает мастер */
+  targetAc: number | null;
   /** Название оружия */
   weaponName: string;
-  /** Имя цели */
-  targetName: string;
+  /** Имя цели; нет — цель не выбрана */
+  targetName?: string;
   /** Атака с помехой */
   isDisadvantage?: boolean;
   /** Формула урона (если есть) */

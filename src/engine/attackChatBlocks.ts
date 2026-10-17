@@ -41,6 +41,8 @@ export interface AttackChatOutcome {
   isCriticalMiss: boolean;
   /** Попадание */
   isHit: boolean;
+  /** Цели нет: попал ли бросок, решает мастер — плашки исхода нет */
+  isHitUnknown?: boolean;
 }
 
 /** Значок заклинания в шапке карточки: атака заклинанием и сводка его урона */
@@ -119,8 +121,8 @@ const DAMAGE_DEFENSE_NOTES: Readonly<
 export interface AttackChatBlockParams {
   /** Чем атакуют: оружие, действие существа, заклинание */
   name: string;
-  /** Имя цели */
-  targetName: string;
+  /** Имя цели; нет — цель не выбрана */
+  targetName?: string;
   /** Исход броска */
   result: AttackChatOutcome;
   /** Вид атаки; не задан — рукопашная */
@@ -135,15 +137,20 @@ export interface AttackChatBlockParams {
  * Плашка исхода броска атаки: «Крит», «Попадание», «Промах».
  *
  * @param result - исход броска
- * @returns плашка блока: ядро ставит её в строку итога броска
+ * @returns плашка блока: ядро ставит её в строку итога броска; нет — исход
+ *   без цели решает мастер
  */
-function resolveAttackBadge(result: AttackChatOutcome): ChatBadge {
+function resolveAttackBadge(result: AttackChatOutcome): ChatBadge | undefined {
   if (result.isCriticalHit) {
     return ATTACK_OUTCOME_BADGES.critical;
   }
 
   if (result.isCriticalMiss) {
     return ATTACK_OUTCOME_BADGES.criticalMiss;
+  }
+
+  if (result.isHitUnknown) {
+    return undefined;
   }
 
   return result.isHit ? ATTACK_OUTCOME_BADGES.hit : ATTACK_OUTCOME_BADGES.miss;
@@ -174,11 +181,13 @@ function resolveAttackNote(
  * @returns блок для `DiceRollData.block`
  */
 export function buildAttackChatBlock(params: AttackChatBlockParams): ChatBlock {
+  const badge = resolveAttackBadge(params.result);
+
   return {
     icon: ATTACK_CHAT_ICONS[params.attackKind ?? 'melee'],
     title: params.name,
-    target: params.targetName,
-    badge: resolveAttackBadge(params.result),
+    ...(params.targetName ? { target: params.targetName } : {}),
+    ...(badge ? { badge } : {}),
     ...resolveAttackNote(params),
   };
 }
