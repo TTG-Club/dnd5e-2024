@@ -13,6 +13,7 @@
     DnDGameItem,
     FeatAwaitingChoices,
     LongRestOptions,
+    ResolvedGrantedSpell,
     RestTriggerOptions,
     RestType,
     ShortRestHitDiceResult,
@@ -165,6 +166,7 @@
     rollbackSpeciesProficiencies,
   } from './species/speciesRollback';
   import SpeciesSetupWizard from './species/SpeciesSetupWizard.vue';
+  import { resolveActorSpeciesSpells } from './species/speciesSpellUnlock';
 
   /** Удаление записи, ждущее выбора в окне */
   interface PendingGrantRemoval {
@@ -1983,12 +1985,39 @@
   }
 
   /**
-   * Открывает на новом уровне то, что черты выдают ступенями: заклинание с
-   * уровнем доступа («Малое восстановление» метки исцеления приходит на третьем)
-   * и выбор с уровнем открытия.
+   * Заклинания вида листа, открытые на его текущем уровне.
    *
-   * Без этого прохода такие заклинания не появились бы никогда: черту применяют
-   * один раз, на взятии, и повторно её дары никто не пересчитывает. Уже выданное
+   * @param actorData - лист персонажа с уже обновлённым уровнем
+   * @returns заклинания вида; вида нет или он не найден в компендиуме — пусто
+   */
+  async function resolveCurrentSpeciesSpells(
+    actorData: DnDActor,
+  ): Promise<ResolvedGrantedSpell[]> {
+    if (!actorData.system.species?.speciesKey) {
+      return [];
+    }
+
+    await loadCurrentSpeciesDefinition(actorData);
+
+    if (!appliedSpeciesDef.value) {
+      return [];
+    }
+
+    return resolveActorSpeciesSpells(
+      props.socket,
+      actorData,
+      appliedSpeciesDef.value,
+      appliedSubspeciesDef.value,
+    );
+  }
+
+  /**
+   * Открывает на новом уровне то, что черты и вид выдают ступенями: заклинание с
+   * уровнем доступа («Малое восстановление» метки исцеления приходит на третьем,
+   * «Псевдожизнь» чтонического тифлинга — тоже) и выбор черты с уровнем открытия.
+   *
+   * Без этого прохода такие заклинания не появились бы никогда: черту и вид
+   * применяют один раз, и повторно их дары никто не пересчитывает. Уже выданное
    * не задваивается — совпадения отсеиваются по названию. Расширение списка
    * заклинаний ничего не выдаёт — его показывает окно выбора заклинаний.
    */
@@ -1997,10 +2026,10 @@
       return;
     }
 
-    const resolved = await resolveActorFeatSpells(
-      props.socket,
-      localActor.value,
-    );
+    const [featSpells, speciesSpells] = await Promise.all([
+      resolveActorFeatSpells(props.socket, localActor.value),
+      resolveCurrentSpeciesSpells(localActor.value),
+    ]);
 
     if (!localActor.value) {
       return;
@@ -2008,7 +2037,11 @@
 
     const before = localActor.value.spells ?? [];
 
-    const spells = appendGrantedSpells(before, resolved, 'feat');
+    const spells = appendGrantedSpells(
+      appendGrantedSpells(before, featSpells, 'feat'),
+      speciesSpells,
+      'species',
+    );
 
     // Не только новые записи: выдача без подготовки отдаёт отметку уже лежащей
     // записи, и число заклинаний при этом не меняется

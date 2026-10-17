@@ -792,10 +792,14 @@
         burrow: feature.movement?.burrow ?? 0,
       },
       darkvision: feature.darkvision ?? 0,
+      // Уровень доступа полем формы не правится, но переживает сохранение:
+      // иначе правка вида в мире молча выдавала бы заклинания 3-го и 5-го
+      // уровня с первого
       grantedSpells: (feature.grantedSpells ?? []).map((spell) => ({
         name: spell.name,
         spellId: spell.spellId,
         packId: spell.packId,
+        requiredLevel: spell.requiredLevel,
       })),
       grantedSpellsAlwaysPrepared: readGrantedSpellsAlwaysPrepared(
         feature.grantedSpells ?? [],
@@ -853,6 +857,9 @@
         name: spell.name.trim(),
         ...(spell.spellId ? { spellId: spell.spellId } : {}),
         ...(spell.packId ? { packId: spell.packId } : {}),
+        ...(spell.requiredLevel && spell.requiredLevel > 1
+          ? { requiredLevel: spell.requiredLevel }
+          : {}),
         ...writeGrantedSpellPreparation(fields.grantedSpellsAlwaysPrepared),
       }));
 

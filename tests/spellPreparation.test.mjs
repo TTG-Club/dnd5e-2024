@@ -268,6 +268,85 @@ it('innate species spells keep their preparation exception at the source', () =>
   );
 });
 
+it('species spells open at their own level or the feature level, whichever is later', () => {
+  const definition = {
+    features: [
+      {
+        key: 'innate-spells',
+        name: 'Innate Spells',
+        grantedSpells: [
+          { spellId: 'chill-touch' },
+          { spellId: 'false-life', requiredLevel: 3 },
+          { spellId: 'ray-of-enfeeblement', requiredLevel: 5 },
+        ],
+      },
+      {
+        key: 'late-feature',
+        name: 'Late Feature',
+        level: 4,
+        grantedSpells: [{ spellId: 'late', requiredLevel: 2 }],
+      },
+    ],
+  };
+
+  const opened = (characterLevel) =>
+    engine
+      .collectSpeciesGrantedSpellSources(definition, null, { characterLevel })
+      .map((source) => source.spellId);
+
+  // Вид выбран до класса: уровней ещё нет, но заговор уже положен
+  assert.deepEqual(opened(0), ['chill-touch']);
+  assert.deepEqual(opened(1), ['chill-touch']);
+  assert.deepEqual(opened(3), ['chill-touch', 'false-life']);
+
+  assert.deepEqual(opened(5), [
+    'chill-touch',
+    'false-life',
+    'ray-of-enfeeblement',
+    'late',
+  ]);
+
+  // Без уровня — всё: так собирает выдачу откат вида
+  assert.equal(engine.collectSpeciesGrantedSpellSources(definition).length, 4);
+});
+
+it('species spells of a legacy variant come only from the chosen variant when choices are given', () => {
+  const definition = {
+    features: [
+      {
+        key: 'lineage',
+        name: 'Lineage',
+        choices: [
+          {
+            key: 'drow',
+            features: [
+              { name: 'Drow', grantedSpells: [{ spellId: 'dancing-lights' }] },
+            ],
+          },
+          {
+            key: 'high',
+            features: [
+              {
+                name: 'High',
+                grantedSpells: [{ spellId: 'prestidigitation' }],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+
+  assert.deepEqual(
+    engine
+      .collectSpeciesGrantedSpellSources(definition, null, {
+        featureChoices: { lineage: 'high' },
+      })
+      .map((source) => source.spellId),
+    ['prestidigitation'],
+  );
+});
+
 it('species editor keeps the innate preparation mark and writes only its removal', async () => {
   const { loadHandler } = await import('./helpers/sourceHandler.mjs');
   const editorPath = 'src/client/ui/actor/species/speciesEditorTypes.ts';
