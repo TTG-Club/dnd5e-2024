@@ -722,7 +722,7 @@
         <!-- Выбор подкласса для таблицы -->
         <div
           v-if="displayedClass.subclasses?.length > 0"
-          class="mt-4 flex w-64 items-center rounded-lg border border-default/50 bg-elevated/30 p-1"
+          class="mt-4 flex w-full items-center rounded-lg border border-default/50 bg-elevated/30 p-1 sm:w-96"
         >
           <span class="pl-2 text-xs font-medium text-muted">
             {{ CLASS_DETAIL_LABELS.subclassPickerPrefix }}
@@ -735,6 +735,7 @@
             :placeholder="CLASS_DETAIL_LABELS.subclassPickerPlaceholder"
             variant="none"
             class="min-w-0 flex-1"
+            :ui="{ content: 'min-w-fit' }"
             :searchable="false"
           >
             <template #label>
