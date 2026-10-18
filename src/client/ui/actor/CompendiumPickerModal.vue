@@ -776,6 +776,7 @@
   <SpeciesDetailModal
     v-if="detailSpecies"
     v-model:open="isDetailOpen"
+    :raise-key="detailSpecies.key"
     :species-definition="detailSpecies"
     :z-index="Z_INDEX.MODAL_CONFIRM"
     show-select-button
@@ -786,6 +787,7 @@
   <ClassDetailModal
     v-if="detailClass"
     v-model:open="isDetailOpen"
+    :raise-key="detailClass.key"
     :class-definition="detailClass"
     :pack-id="detailRow?.packId"
     :z-index="Z_INDEX.MODAL_CONFIRM"
@@ -797,6 +799,7 @@
   <BackgroundDetailModal
     v-if="detailBackground"
     v-model:open="isDetailOpen"
+    :raise-key="detailBackground.key"
     :background-definition="detailBackground"
     :z-index="Z_INDEX.MODAL_CONFIRM"
     show-select-button
