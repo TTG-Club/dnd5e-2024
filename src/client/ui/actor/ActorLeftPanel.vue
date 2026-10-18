@@ -1039,7 +1039,7 @@
           <div class="flex items-center justify-center gap-1 px-2 pb-2">
             <UIcon
               :name="SHEET_TILE_ICONS.armorClass"
-              class="size-5 shrink-0 text-dimmed"
+              class="size-5 shrink-0 text-primary"
             />
 
             <span class="text-xl font-bold text-highlighted">{{
