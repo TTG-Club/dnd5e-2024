@@ -18,6 +18,13 @@
     showEdit?: boolean;
     /** Показывать «Удалить» в контекстном меню */
     showDelete?: boolean;
+    /** Показывать «В компендиум» в контекстном меню (ставит ядро в «Мастерской») */
+    showAddToCompendium?: boolean;
+    /**
+     * «Поделиться в чат» в контекстном меню. Это обработчик `@share`, а не
+     * событие: пункт показывается, только когда отправить есть кому.
+     */
+    onShare?: () => void;
     /** Показывать стоимость (по умолчанию true) */
     showCost?: boolean;
     /** Показывать вес (по умолчанию true) */
@@ -42,10 +49,19 @@
     edit: [];
     /** Удалить */
     delete: [];
+    /** Положить запись в компендиум мира */
+    addToCompendium: [];
   }>();
 
-  const { isMenuOpen, menuX, menuY, openContextMenu, handleAction, closeMenu } =
-    useContextMenu(props, emit);
+  const {
+    isMenuOpen,
+    menuX,
+    menuY,
+    canShare,
+    openContextMenu,
+    handleAction,
+    closeMenu,
+  } = useContextMenu(props, emit, () => emit('addToCompendium'));
 
   /**
    * Начинает перетаскивание предмета (D&D на актёра)
@@ -121,6 +137,8 @@
     :show-copy="showCopy"
     :show-edit="showEdit"
     :show-delete="showDelete"
+    :show-add-to-compendium="showAddToCompendium"
+    :show-share="canShare"
     @action="handleAction"
     @close="closeMenu"
   />

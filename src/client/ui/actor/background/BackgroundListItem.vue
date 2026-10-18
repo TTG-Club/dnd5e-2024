@@ -8,6 +8,7 @@
   import {
     BACKGROUND_DEFINITION_MIME,
     BACKGROUND_LIST_ITEM_LABELS,
+    LIST_ROW_PACK_NAME_CLASS,
   } from '../constants';
   import ContextMenuOverlay from '../ContextMenuOverlay.vue';
   import EntityRowBody from '../EntityRowBody.vue';
@@ -22,8 +23,20 @@
     item?: BackgroundDefinition;
     /** Пак записи: уходит на лист вместе с определением при переносе */
     packId?: string;
+    /**
+     * Название компендиума в плоской строке — в режиме «все компендиумы», как
+     * в окне выбора: копии одной записи из разных паков иначе не различить.
+     */
+    packName?: string;
     showEdit?: boolean;
     showDelete?: boolean;
+    /** Показывать «В компендиум» в контекстном меню (ставит ядро в «Мастерской») */
+    showAddToCompendium?: boolean;
+    /**
+     * «Поделиться в чат» в контекстном меню. Это обработчик `@share`, а не
+     * событие: пункт показывается, только когда отправить есть кому.
+     */
+    onShare?: () => void;
     showCopy?: boolean;
     showCost?: boolean;
     showWeight?: boolean;
@@ -44,11 +57,20 @@
     click: [];
     edit: [];
     delete: [];
+    /** Положить запись в компендиум мира */
+    addToCompendium: [];
     copy: [];
   }>();
 
-  const { isMenuOpen, menuX, menuY, openContextMenu, handleAction, closeMenu } =
-    useContextMenu(props, emit);
+  const {
+    isMenuOpen,
+    menuX,
+    menuY,
+    canShare,
+    openContextMenu,
+    handleAction,
+    closeMenu,
+  } = useContextMenu(props, emit, () => emit('addToCompendium'));
 
   function onDragStart(event: DragEvent) {
     if (event.dataTransfer) {
@@ -81,7 +103,16 @@
       :name-en="data.nameEn"
       :source-key="data.sourceKey"
       :source="data.source"
-    />
+    >
+      <template #badges>
+        <span
+          v-if="packName"
+          :class="LIST_ROW_PACK_NAME_CLASS"
+        >
+          {{ packName }}
+        </span>
+      </template>
+    </EntityRowBody>
 
     <div
       v-else
@@ -138,6 +169,8 @@
     :show-copy="showCopy"
     :show-edit="showEdit"
     :show-delete="showDelete"
+    :show-add-to-compendium="showAddToCompendium"
+    :show-share="canShare"
     @action="handleAction"
     @close="closeMenu"
   />

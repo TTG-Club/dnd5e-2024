@@ -10,10 +10,16 @@
  * Система регистрируется через ModuleRegistry.setSystem() при старте мира.
  */
 
-import type { WorldConditionDefinition } from '@vtt/shared/system/dnd.js';
+import type { SceneEntity } from '@vtt/shared';
+import type {
+  DndEntityLight,
+  WorldConditionDefinition,
+} from '@vtt/shared/system/dnd.js';
 
 import {
+  computeEntityLight,
   Dnd5eVttSystem,
+  isDndSceneEntity,
   parseWorldConditionRecords,
   setWorldConditionsSource,
 } from '@vtt/shared/system/dnd.js';
@@ -35,6 +41,20 @@ export class Dnd5eSystem extends Dnd5eVttSystem {
   onWorldItemsChanged(items: readonly unknown[]): void {
     this.worldConditions = parseWorldConditionRecords(items);
     setWorldConditionsSource(() => this.worldConditions);
+  }
+
+  /**
+   * Свет сущности на сервере — без кэша по объекту сущности. Сервер правит
+   * сущность на месте (эффект сняли, предмет сняли), объект остаётся тем же, и
+   * кэш отдал бы прежний свет: ядро считало бы фишку светящей, когда на
+   * сцене она уже погасла (расчёт «кто кого видит», VTTG 0.9.700+).
+   *
+   * @param entity - сущность
+   * @returns свет от эффектов либо `undefined`, если светить нечем сверх фишки
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  override resolveEntityLight(entity: SceneEntity): DndEntityLight | undefined {
+    return isDndSceneEntity(entity) ? computeEntityLight(entity) : undefined;
   }
 
   override init(_api: unknown): void {

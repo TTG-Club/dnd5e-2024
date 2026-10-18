@@ -33,6 +33,13 @@ import type { EffectTriggerUsageLedger } from './effectTriggerUsage.js';
  * Создаётся при добавлении класса и обновляется при повышении уровня.
  */
 export interface ActorCounterState {
+  /**
+   * Идентификатор записи для частичной записи листа: по нему трата одного
+   * счётчика едет на сервер правкой этой записи, а не всем списком. Значение
+   * производное — идентичность счётчика (`counterIdentity`), его выставляют
+   * нормализация листа и помощники записи; руками не задаётся.
+   */
+  id?: string;
   /** Ключ счётчика (из ClassCounterDefinition.key) */
   counterKey: string;
   /**

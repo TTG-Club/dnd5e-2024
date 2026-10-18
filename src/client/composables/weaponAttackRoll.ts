@@ -57,6 +57,7 @@ import {
   prepareAmmunitionShot,
   spendShotAmmunition,
 } from './effectActivationUse';
+import { refuseWhilePaused } from './pauseLock';
 import { buildRollBonusEvaluator } from './rollBonusEvaluator';
 import { refuseWhileSheetEditing } from './sheetEditLock';
 import { useBonusDamageParts } from './useBonusDamageParts';
@@ -167,6 +168,11 @@ export function startWeaponAttack(
   // чтения мира: нового, ещё не сохранённого персонажа там нет, и удар с его
   // листа молчал, вместо того чтобы попросить сохранить лист
   if (refuseWhileSheetEditing(port.attackerId)) {
+    return;
+  }
+
+  // Игра на паузе — действие не начинается
+  if (refuseWhilePaused()) {
     return;
   }
 
@@ -302,6 +308,7 @@ export function openWeaponAttackRoll(
     {
       title: `${ACTOR_EQUIPMENT_TAB_LABELS.attackRollPrefix}${weapon.name}`,
       rollLabel: weapon.name,
+      actorName: attacker.name,
       rollButtonText: hasSave
         ? SPELL_DAMAGE_ROLL_BUTTON
         : ACTOR_SPELLS_TAB_LABELS.attackRoll,
@@ -333,6 +340,8 @@ export function openWeaponAttackRoll(
           ...modalContext,
           target: buildTargetHpContext(undefined, attacker.id),
           itemId: weapon.id,
+          // Свойства оружия — для условия «метательным оружием»
+          weaponProperties: weapon.weaponProperties ?? [],
         };
 
         // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — от

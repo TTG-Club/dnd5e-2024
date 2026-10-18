@@ -24,8 +24,6 @@ export const EFFECT_USE_SLOT_LABELS = {
 
 /** Подписи кнопки особенности на панели быстрого доступа */
 export const FEATURE_TOGGLE_SLOT_LABELS = {
-  /** Метка в углу слота, пока эффект включён */
-  activeBadge: 'вкл',
   activeHint: 'включено — нажмите, чтобы выключить',
   missingHint: 'эффекта умения больше нет на листе',
   noCounterHint: 'ресурс исчерпан',

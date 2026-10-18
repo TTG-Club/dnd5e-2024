@@ -22,6 +22,7 @@ import { useTargetStore } from '@/stores/targetStore';
 import {
   applyCreatureDamageOption,
   applySourceDamageTypeChoices,
+  areaOriginatesFromCaster,
   chooseCreatureActionDamage,
   combineDamagePartDisplays,
   creatureActionHasSave,
@@ -415,6 +416,10 @@ export function launchCreatureAction(
     creatureId,
     (templateId) => openRoll(templateId),
     null,
+    false,
+    // Исходит ли область от фишки, решает общее правило по виду источника —
+    // своего условия у действия существа нет
+    areaOriginatesFromCaster({ rollSource: 'creatureAction' }),
   );
 }
 

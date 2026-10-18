@@ -15,6 +15,11 @@ import type { SpeciesDefinition } from '@vtt/shared/system/dnd.js';
 import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 
+import { SYSTEM_ID } from '@vtt/shared/system/dnd.js';
+
+/** Имя хранилища: приставка — id системы из манифеста. */
+const STORE_ID = `${SYSTEM_ID}:system-data`;
+
 /**
  * Хранилище справочных данных D&D (свойства оружия, типы урона и т.д.) —
  * единственное своё хранилище системы. Наполняется один раз при подключении к
@@ -29,7 +34,7 @@ import { computed, ref } from 'vue';
  * окну и правда нужно записать, у того есть своё названное действие
  * (`rememberSource`, `rememberSpeciesDefinitions`).
  */
-export const useSystemDataStore = defineStore('dnd5e-2024:system-data', () => {
+export const useSystemDataStore = defineStore(STORE_ID, () => {
   /** Определения свойств оружия */
   const weaponProperties = ref<WeaponPropertyDefinition[]>([]);
 
@@ -215,6 +220,30 @@ export const useSystemDataStore = defineStore('dnd5e-2024:system-data', () => {
     speciesDefinitions.value = speciesList;
   }
 
+  /**
+   * Отпускает всё, что собрано за сессию мира: справочники сервера, источники
+   * паков и вписанные пользователем, виды из компендиума. Зовётся, когда
+   * пользователь ушёл из мира (`world:closed`): следующий мир может быть с
+   * другими паками и другим автором, и его данные не должны смешаться с
+   * прежними. На обрыв связи не зовётся — справочники приедут заново сами, а
+   * вписанный источник пропал бы на первом моргании сети.
+   */
+  function releaseWorldData(): void {
+    weaponProperties.value = [];
+    weaponBaseTypes.value = [];
+    damageTypes.value = [];
+    weaponCategories.value = [];
+    ammunitionTypes.value = [];
+    builtinSources.value = [];
+    packSources.value = [];
+    customSources.value = [];
+    armorCategories.value = [];
+    armorBaseTypes.value = [];
+    equipmentProperties.value = [];
+    toolProperties.value = [];
+    speciesDefinitions.value = [];
+  }
+
   return {
     // Списки — через `computed`: снаружи их видно, но не переписать целиком
     weaponProperties: computed(() => weaponProperties.value),
@@ -242,5 +271,6 @@ export const useSystemDataStore = defineStore('dnd5e-2024:system-data', () => {
     setToolProperties,
     rememberSource,
     rememberSpeciesDefinitions,
+    releaseWorldData,
   };
 });

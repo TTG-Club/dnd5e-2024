@@ -88,6 +88,7 @@ import {
   OWN_DEED_TRIGGER_EVENTS,
   PRESENCE_TRIGGER_EVENTS,
   TURN_TRIGGER_EVENTS,
+  WITNESS_TRIGGER_EVENTS,
 } from './effectTriggerTypes.js';
 import { writeTriggerCondition } from './triggerConditions.js';
 
@@ -1050,6 +1051,9 @@ function resolveTriggerListLayout(place: {
     // действует и с которого что-то снимают
     ...(place.actsWithCarrier ? CONDITION_LOST_TRIGGER_EVENTS : []),
     ...(place.actsWithCarrier ? OWN_DEED_TRIGGER_EVENTS : []),
+    // «На глазах ранили союзника» — про носителя с фишкой: кого он видит,
+    // знает только сцена
+    ...(place.actsWithCarrier ? WITNESS_TRIGGER_EVENTS : []),
     // «Прошёл N футов» — про носителя, у которого есть фишка и путь
     ...(place.actsWithCarrier ? MOVEMENT_TRIGGER_EVENTS : []),
     ...(place.endsWithCast ? (['castEnd'] as const) : []),

@@ -21,9 +21,9 @@ import type { ActiveEffect, EffectOrigin } from './activeEffectTypes.js';
 import type { EffectChanges } from './combatEffectChanges.js';
 import type { DamageHit } from './damageHits.js';
 import type {
-  DamageApplyResult,
   DamageDefenseOutcome,
   DamageDefenses,
+  DndDamageApplyResult,
 } from './damageUtils.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { IncomingAttackContext } from './effectPipeline.js';
@@ -80,6 +80,7 @@ import {
 import { stripDamageTypeTokens } from './formulaTokens.js';
 import { limitEntityHealing } from './healingLimits.js';
 import {
+  isEntityHpShownToPlayers,
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
   resolveEntityTempHp,
@@ -218,7 +219,7 @@ export function applyTargetDamage(
   isHealing: boolean,
   damageType?: string,
   details?: unknown,
-): DamageApplyResult {
+): DndDamageApplyResult {
   const hpBefore = resolveEntityCurrentHp(entity);
   const maxHp = resolveEntityMaxHp(entity);
 
@@ -284,6 +285,14 @@ export function applyTargetDamage(
     hpAfter: hpChange.hpAfter,
     tempAbsorbed: hpChange.tempAbsorbed,
     defenseOutcome,
+    ...(isHealing ? {} : { damageDealt: Math.max(0, finalAmount) }),
+    hpChange: {
+      hpBefore,
+      hpAfter: hpChange.hpAfter,
+      tempBefore,
+      tempAfter: hpChange.tempAfter,
+      isPublic: isEntityHpShownToPlayers(entity),
+    },
   };
 }
 
@@ -385,8 +394,9 @@ export interface DndCombatState {
  * лежащему на нуле хиты не меняет, но двигает спасброски от смерти).
  *
  * Тот же перечень, по которому сервер решает, принять ли снимок
- * ({@link applyCombatState}): снимок без изменений он отвергает, а ядро пишет
- * об этом предупреждение в журнал. Такой снимок клиент не шлёт.
+ * ({@link writeCombatState}): снимок без изменений он не записывает и отвечает
+ * `'unchanged'`. Такой снимок клиент не шлёт вовсе — незачем гонять по сети
+ * то, что ничего не меняет.
  *
  * @param base - сущность, от которой считали копию
  * @param next - копия после действия
@@ -448,6 +458,13 @@ export function pickCombatState(entity: DnDSceneEntity): DndCombatState {
 }
 
 /**
+ * Чем кончилась запись боевого снимка. «Менять нечего» и «снимок негоден»
+ * различаются: первое — штатный случай (удар по цели с нулём хитов), о
+ * втором ядро предупреждает в журнале.
+ */
+export type CombatStateWrite = 'applied' | 'unchanged' | 'invalid';
+
+/**
  * Записывает боевое состояние в сущность на сервере, мутируя её.
  *
  * Снимок пришёл от клиента, поэтому доверия ему нет: ХП проходят через границы
@@ -457,30 +474,31 @@ export function pickCombatState(entity: DnDSceneEntity): DndCombatState {
  *
  * @param entity - сущность-цель из состояния мира (мутируется)
  * @param state - снимок боевого состояния от клиента
- * @returns true, если снимок принят и сущность изменилась
+ * @returns `'applied'` — снимок записан; `'unchanged'` — форма верная, но
+ *   менять нечего; `'invalid'` — снимок негоден
  */
-export function applyCombatState(
+export function writeCombatState(
   entity: DnDSceneEntity,
   state: unknown,
-): boolean {
+): CombatStateWrite {
   if (!isRecord(state)) {
-    return false;
+    return 'invalid';
   }
 
   const { hpCurrent, hpTemp, activeEffects, effectUsage } = state;
 
   if (typeof hpCurrent !== 'number' || !Number.isFinite(hpCurrent)) {
-    return false;
+    return 'invalid';
   }
 
   if (typeof hpTemp !== 'number' || !Number.isFinite(hpTemp)) {
-    return false;
+    return 'invalid';
   }
 
   const parsedEffects = ActiveEffectsArraySchema.safeParse(activeEffects);
 
   if (!parsedEffects.success) {
-    return false;
+    return 'invalid';
   }
 
   const nextHp = Math.max(
@@ -499,7 +517,7 @@ export function applyCombatState(
   // Негодная разница — снимок целиком отвергнут: полный список от копии
   // клиента затёр бы то, что сервер изменил после неё
   if (nextEffects === null) {
-    return false;
+    return 'invalid';
   }
 
   const nextUsage = resolveNextTriggerUsage(
@@ -511,7 +529,7 @@ export function applyCombatState(
   // Негодная разница журнала — снимок отвергнут, как и с негодной разницей
   // эффектов
   if (nextUsage === null) {
-    return false;
+    return 'invalid';
   }
 
   const usageChanged =
@@ -533,7 +551,7 @@ export function applyCombatState(
     || usageChanged;
 
   if (!changed) {
-    return false;
+    return 'unchanged';
   }
 
   writeEntityHitPoints(entity, { current: nextHp, temp: nextTemp });
@@ -543,7 +561,22 @@ export function applyCombatState(
     writeTriggerUsage(entity, nextUsage);
   }
 
-  return true;
+  return 'applied';
+}
+
+/**
+ * Записывает боевое состояние в сущность на сервере — как
+ * {@link writeCombatState}, но отвечает одним признаком: изменилась ли она.
+ *
+ * @param entity - сущность-цель из состояния мира (мутируется)
+ * @param state - снимок боевого состояния от клиента
+ * @returns true, если снимок принят и сущность изменилась
+ */
+export function applyCombatState(
+  entity: DnDSceneEntity,
+  state: unknown,
+): boolean {
+  return writeCombatState(entity, state) === 'applied';
 }
 
 /**

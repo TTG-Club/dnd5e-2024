@@ -19,7 +19,6 @@ import type {
   CompendiumSeparator,
   DamagePart,
   DistanceUnit,
-  EquipmentCategory,
   Feature,
   SourceDefinition,
   SpellAreaOfEffect,
@@ -48,6 +47,7 @@ import type {
   BackgroundToolGrant,
 } from './backgroundTypes.js';
 import type { ClassDefinition, ClassKey } from './classTypes.js';
+import type { DND_EQUIPMENT_CATEGORIES } from './consts.js';
 import type { CreatureSystem } from './creatureTypes.js';
 import type { FeatData } from './featTypes.js';
 import type { SpeciesDefinition } from './speciesTypes.js';
@@ -87,14 +87,25 @@ export interface DnDCreature extends BaseCreature {
  */
 export type Creature = DnDCreature;
 /**
- * Категория снаряжения D&D 2024 — нейтральный список ядра плюс категории,
- * которые знает только система.
+ * Категория снаряжения D&D 2024 — список системы, единственный его источник.
  *
- * «Зелье» своё: ядро категорию не проверяет и хранит строкой, а список в
- * `@vtt/shared` — наследие встроенной системы, не контракт. Поэтому новая
- * категория добавляется здесь, без правки ядра.
+ * Ядро категорию не проверяет и хранит строкой: его тип `EquipmentCategory`
+ * открыт для любых ключей (VTTG 0.9.641), а перечисленные там литералы —
+ * подсказки редактора, не контракт. Поэтому список свой
+ * (`DND_EQUIPMENT_CATEGORIES`), и новая категория («Зелье») добавляется без
+ * оглядки на ядро.
  */
-export type DnDEquipmentCategory = EquipmentCategory | 'potion';
+export type DnDEquipmentCategory = (typeof DND_EQUIPMENT_CATEGORIES)[number];
+
+/**
+ * Кто выдал предмет стартовым снаряжением: класс или предыстория персонажа.
+ * Вид снаряжения не выдаёт.
+ */
+export interface ItemGrantSource {
+  kind: 'class' | 'background';
+  /** Ключ записи-источника: класса или предыстории */
+  key: string;
+}
 
 /**
  * Предмет D&D 5e — наследует нейтральную базу `BaseGameItem` и добавляет
@@ -118,6 +129,12 @@ export interface DnDGameItem extends BaseGameItem {
   activeEffects?: ActiveEffect[];
   /** Универсальное оружие держится двумя руками (только для versatile) */
   twoHandedGrip?: boolean;
+  /**
+   * Кем предмет выдан стартовым снаряжением. По этой пометке окно удаления
+   * класса или предыстории предлагает забрать выданное. Поля нет у предметов,
+   * добытых иначе, и у выданных до его появления.
+   */
+  grantedBy?: ItemGrantSource;
   // --- Weapon-specific (только для type === 'weapon') ---
   /** Базовый тип оружия (напр. 'longsword', 'dagger') */
   baseType?: string;
@@ -227,6 +244,11 @@ export interface DnDGameItem extends BaseGameItem {
    * количества, на нуле предмет остаётся в инвентаре закончившимся.
    */
   consumable?: boolean;
+  /**
+   * Магия предмета работает, пока он просто в инвентаре, без отметки «надет»:
+   * Камень удачи, Клинок удачи. Нет — эффекты включает отметка «надет».
+   */
+  activeWhenCarried?: boolean;
   // --- Feature-specific (только для type === 'feat') ---
   /** Можно ли выбрать черту повторно */
   repeatable?: boolean;

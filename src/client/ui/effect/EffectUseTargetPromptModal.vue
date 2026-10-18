@@ -11,6 +11,7 @@
 
   import { computed, onBeforeUnmount, watch } from 'vue';
 
+  import { HUD_PROMPT_TITLE_ATTR } from '@/shared_ui/consts';
   import { useProjectileStore } from '@/stores/projectileStore';
   import { useWorldStore } from '@/stores/worldStore';
 
@@ -199,6 +200,7 @@
       <div
         v-if="open && ownsTargeting"
         :class="HUD_PROMPT_PANEL_CLASS"
+        :[HUD_PROMPT_TITLE_ATTR]="title"
       >
         <div class="flex items-center gap-2 border-b border-muted/50 pb-2">
           <UIcon

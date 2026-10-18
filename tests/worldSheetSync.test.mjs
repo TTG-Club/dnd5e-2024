@@ -11,12 +11,13 @@ import { createCreature, engine } from './scenarios/_fixtures.mjs';
 
 /**
  * Каждый раздел, который система пишет в мир во время игры, подтягивает из
- * мира каждый, кто держит свою копию сущности и сохраняет её целиком.
+ * мира каждый, кто держит свою копию сущности.
  *
  * Лист существа синхронизировал `system`, эффекты и инвентарь, а заклинания —
  * нет. Заряд «N/день», списанный кастом через мир, на открытом листе не
- * уменьшался, а следующая правка листа отправляла черновик целиком и
- * возвращала заряд на сервер.
+ * уменьшался, а следующая правка листа возвращала заряд на сервер. Теперь
+ * лист шлёт только разницу с основой черновика, и раздел из мира кладётся и
+ * в черновик, и в основу.
  */
 
 // Модуль разделов без Vue: собирается тем же загрузчиком, что и движок
@@ -28,7 +29,7 @@ const sections = await loadEngineBundle(
 const SHEET_WRITE_PATH = 'src/client/composables/entitySheetWrite.ts';
 const CREATURE_CAST_PATH = 'src/client/composables/creatureSpellCast.ts';
 
-/** Листы с черновиком: правят глубокую копию и сохраняют её целиком */
+/** Листы с черновиком: правят глубокую копию и шлют её разницу с основой */
 const DRAFT_SHEET_FILES = [
   'src/client/ui/actor/Dnd5eActorSheet.vue',
   'src/client/ui/creature/CreatureSheet.vue',
@@ -48,9 +49,18 @@ const SHEET_SYNC_CALL = /\buseWorldSheetSync\(\{/u;
 const OWN_SECTION_WATCH =
   /\(\)\s*=>\s*store(?:Actor|Creature)\.value\?\.(?:system|equipment|spells|activeEffects)\b/u;
 
-/** Панель копирует сущность мира целиком и глубоко следит за ней */
+/** Общий помощник копии сущности мира для быстрых панелей */
+const WORLD_COPY_PATH = 'src/client/composables/useWorldEntityCopy.ts';
+
+/** Панель держит копию общим помощником */
+const WORLD_COPY_CALL = /\buseWorldEntityCopy\(\{/u;
+
+/**
+ * Помощник копирует сущность мира целиком, глубоко следит за ней и с каждой
+ * копией сдвигает основу: пришедшее из мира правкой панели не считается
+ */
 const WHOLE_ENTITY_SYNC =
-  /watch\(\s*store(?:Entity|Creature),\s*\(new\w+\)\s*=>\s*\{\s*if\s*\(new\w+\)\s*\{\s*local\w+\.value\s*=\s*JSON\.parse\(JSON\.stringify\(new\w+\)\);\s*\}\s*\},\s*\{\s*immediate:\s*true,\s*deep:\s*true\s*\}/u;
+  /watch\(\s*options\.readWorld,\s*\(worldEntity\)\s*=>\s*\{\s*if\s*\(worldEntity\)\s*\{\s*options\.copy\.value\s*=\s*cloneEntityData\(worldEntity\);\s*rebaseDraft\(\);\s*\}\s*\},\s*\{\s*immediate:\s*true,\s*deep:\s*true\s*\}/u;
 
 /**
  * Исходник от корня системы.
@@ -85,14 +95,12 @@ describe('разделы мира: кто пишет и кто синхрони�
   it('помощник записи листа кладёт в стор ровно разделы из списка', () => {
     const source = readSource(SHEET_WRITE_PATH);
 
-    const literal = source.slice(
-      source.indexOf('const sections: Pick<DnDSceneEntity, SheetWriteSection>'),
-    );
+    const literal = source.slice(source.indexOf('function pickSheetSections('));
 
     const written = [
       ...literal
         .slice(0, literal.indexOf('};'))
-        .matchAll(/^\s+(\w+): stored\.\1,$/gmu),
+        .matchAll(/^\s+(\w+): entity\.\1,$/gmu),
     ].map((match) => match[1]);
 
     assert.deepEqual(written.sort(), [...sections.SHEET_WRITE_SECTIONS].sort());
@@ -116,17 +124,94 @@ describe('разделы мира: кто пишет и кто синхрони�
     for (const path of QUICK_PANEL_FILES) {
       assert.match(
         readSource(path),
-        WHOLE_ENTITY_SYNC,
-        `${path}: панель не следит за всей сущностью`,
+        WORLD_COPY_CALL,
+        `${path}: панель держит копию мимо общего помощника`,
       );
     }
+
+    assert.match(
+      readSource(WORLD_COPY_PATH),
+      WHOLE_ENTITY_SYNC,
+      'помощник не следит за всей сущностью',
+    );
   });
 
   it('общий помощник следит за каждым разделом списка и молчит в режиме правки', () => {
     const source = readSource('src/client/composables/useWorldSheetSync.ts');
 
     assert.match(source, /for \(const section of WORLD_SHEET_SECTIONS\) \{/u);
-    assert.match(source, /!options\.isPaused\(\)/u);
+    assert.match(source, /options\.isPaused\(\)/u);
+  });
+
+  it('раздел из мира кладётся и в черновик, и в основу черновика', () => {
+    const source = readSource('src/client/composables/useWorldSheetSync.ts');
+
+    assert.match(
+      source,
+      /copyWorldSection\(options\.draft\.value, world, section\)/u,
+    );
+
+    assert.match(
+      source,
+      /copyWorldSection\(options\.base\.value, world, section\)/u,
+    );
+
+    for (const path of DRAFT_SHEET_FILES) {
+      assert.match(
+        readSource(path),
+        /base: draftBase,/u,
+        `${path}: основа черновика не синхронизируется с миром`,
+      );
+    }
+  });
+});
+
+describe('выход из правки без изменений', () => {
+  it('черновик и основа догоняют мир — разделы и токен', async () => {
+    const world = createCreature({
+      token: { showName: true, tint: '#00ff00' },
+      spells: [{ id: 'spell_fear', name: 'Страх' }],
+    });
+
+    // Лист вошёл в правку раньше: токен и заклинания у него прежние
+    const stale = { ...structuredClone(world), token: { showName: false } };
+
+    stale.spells = [];
+
+    const draft = { value: structuredClone(stale) };
+    const base = { value: structuredClone(stale) };
+
+    const useWorldSheetSync = await loadHandler(
+      'src/client/composables/useWorldSheetSync.ts',
+      'useWorldSheetSync',
+      {
+        // Наблюдатели в правке молчат — здесь проверяется только догон
+        watch: () => {},
+        WORLD_SHEET_SECTIONS: sections.WORLD_SHEET_SECTIONS,
+        copyWorldSection: sections.copyWorldSection,
+        copyWorldSections: sections.copyWorldSections,
+        copyWorldToken: await loadHandler(
+          'src/client/composables/useWorldSheetSync.ts',
+          'copyWorldToken',
+          { cloneEntityData: (value) => structuredClone(value) },
+        ),
+      },
+    );
+
+    const { pullFromWorld } = useWorldSheetSync({
+      readWorld: () => world,
+      draft,
+      base,
+      isPaused: () => true,
+    });
+
+    pullFromWorld();
+
+    for (const copy of [draft.value, base.value]) {
+      assert.deepEqual(copy.token, world.token);
+      assert.notEqual(copy.token, world.token, 'токен — своя копия');
+      assert.equal(copy.spells.length, 1);
+    }
   });
 });
 
@@ -190,7 +275,7 @@ describe('заряд заклинания существа доходит до �
       'черновик — своя копия, а не запись стора',
     );
 
-    // Следующая правка листа шлёт черновик целиком — заряд остаётся списан
+    // Следующая правка листа считается от черновика — заряд остаётся списан
     draft.system = { ...draft.system, languages: ['Общий'] };
 
     assert.equal(draft.spells[0].uses.current, 0);

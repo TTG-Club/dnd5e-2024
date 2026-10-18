@@ -540,7 +540,7 @@
     <!-- Линия под вкладками — тем же токеном, что и остальные линии листа
       (`default`): у `muted` свой, более светлый оттенок, и полоска выбивалась
       из рамок карточек и разделителей под ней -->
-    <div class="relative mb-8 shrink-0 border-b border-default">
+    <div class="relative mb-4 shrink-0 border-b border-default">
       <div
         ref="strip"
         class="sheet-tabs-strip overflow-x-auto overscroll-x-contain"

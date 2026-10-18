@@ -20,6 +20,10 @@
   } from '@vtt/shared/system/dnd.js';
 
   import type {
+    ParentRecordIndex,
+    ParentRecordInfo,
+  } from '../../../composables/parentRecordLookup';
+  import type {
     PickedCompendiumRef,
     PickerEntryFields,
   } from '../CompendiumRefPickerModal.vue';
@@ -51,8 +55,13 @@
     slugify,
     subclassCounterDefinitions,
     withUniqueSubclassKeys,
+    WORLD_PACK_ID,
   } from '@vtt/shared/system/dnd.js';
 
+  import {
+    findParentRecord,
+    rememberParentRecord,
+  } from '../../../composables/parentRecordLookup';
   import {
     findSpellInPacks,
     loadSpellPacks,
@@ -125,12 +134,6 @@
   import ClassLevelTableEditor from './ClassLevelTableEditor.vue';
   import ClassSpellcastingFields from './ClassSpellcastingFields.vue';
   import ClassSubclassesEditor from './ClassSubclassesEditor.vue';
-
-  /** Родительский класс, показанный в поле: как называется и откуда взят. */
-  interface ParentClassInfo {
-    name: string;
-    packName: string;
-  }
 
   const props = defineProps<{
     open: boolean;
@@ -231,6 +234,9 @@
   /** Ключ родительского класса: заполнен — запись является его подклассом. */
   const parentClassKey = ref('');
 
+  /** Пак родительского класса: один ключ класса есть в нескольких компендиумах */
+  const parentClassPackId = ref('');
+
   const armorProficiencies = ref<ArmorCategory[]>([]);
   const armorProficienciesCustom = ref('');
   const weaponProficiencies = ref<string[]>([]);
@@ -314,7 +320,7 @@
   // ── Родительский класс ─────────────────────────────────────
 
   /** Свежий выбор родителя: окно выбора отдаёт и название, и пак. */
-  const pickedParent = ref<ParentClassInfo | null>(null);
+  const pickedParent = ref<ParentRecordInfo | null>(null);
 
   /** Открыто ли окно выбора родительского класса. */
   const isParentPickerOpen = ref(false);
@@ -322,8 +328,8 @@
   /** z-index окна выбора родителя — оно встаёт поверх формы. */
   const parentPickerZIndex = ref<number | undefined>(undefined);
 
-  /** Классы справочника (компендиум + мир) по ключу — источник названий. */
-  const knownClassesByKey = ref(new Map<string, ParentClassInfo>());
+  /** Классы справочника (компендиум + мир) по паку и ключу — источник названий. */
+  const knownClasses = ref<ParentRecordIndex>(new Map());
 
   /**
    * Читает определение класса из записи: у предмета мира оно лежит во
@@ -373,7 +379,7 @@
 
   /** Загружает классы справочника — по ним поле узнаёт название родителя. */
   async function loadKnownClasses(): Promise<void> {
-    const known = new Map<string, ParentClassInfo>();
+    const known: ParentRecordIndex = new Map();
 
     if (props.socket) {
       const packs: PackKindEntries[] = await loadCompendiumKindByPack(
@@ -385,8 +391,8 @@
         for (const entry of pack.entries) {
           const definition = readClassDefinition(entry);
 
-          if (definition && !known.has(definition.key)) {
-            known.set(definition.key, {
+          if (definition) {
+            rememberParentRecord(known, definition.key, pack.packId, {
               name: definition.name,
               packName: pack.packName,
             });
@@ -398,21 +404,25 @@
     for (const worldItem of itemsStore.items) {
       const definition = readClassDefinition(worldItem);
 
-      if (definition && !known.has(definition.key)) {
-        known.set(definition.key, {
+      if (definition) {
+        rememberParentRecord(known, definition.key, WORLD_PACK_ID, {
           name: definition.name,
           packName: COMPENDIUM_PICKER_LABELS.worldPack,
         });
       }
     }
 
-    knownClassesByKey.value = known;
+    knownClasses.value = known;
   }
 
   /** Запись справочника, стоящая за выбранным ключом родителя. */
   const knownParent = computed(() =>
     parentClassKey.value
-      ? knownClassesByKey.value.get(parentClassKey.value)
+      ? findParentRecord(
+          knownClasses.value,
+          parentClassKey.value,
+          parentClassPackId.value,
+        )
       : undefined,
   );
 
@@ -464,12 +474,14 @@
     }
 
     parentClassKey.value = parent.url;
+    parentClassPackId.value = parent.packId;
     pickedParent.value = { name: parent.name, packName: parent.packName };
   }
 
   /** Снимает родителя — запись снова самостоятельный класс. */
   function clearParent(): void {
     parentClassKey.value = '';
+    parentClassPackId.value = '';
     pickedParent.value = null;
   }
 
@@ -502,6 +514,7 @@
     primaryAbilities.value = [];
     primaryAbilitiesDelimiter.value = undefined;
     parentClassKey.value = '';
+    parentClassPackId.value = '';
     pickedParent.value = null;
     armorProficiencies.value = [];
     armorProficienciesCustom.value = '';
@@ -551,6 +564,8 @@
     primaryAbilities.value = [...(definition.primaryAbilities ?? [])];
     primaryAbilitiesDelimiter.value = definition.primaryAbilitiesDelimiter;
     parentClassKey.value = definition.parentClassKey ?? '';
+    parentClassPackId.value = definition.parentClassPackId ?? '';
+    pickedParent.value = null;
     existingKey.value = definition.key;
 
     armorProficiencies.value = [...definition.armorProficiencies];
@@ -785,6 +800,10 @@
 
     if (parentClassKey.value) {
       definition.parentClassKey = parentClassKey.value;
+    }
+
+    if (parentClassKey.value && parentClassPackId.value) {
+      definition.parentClassPackId = parentClassPackId.value;
     }
 
     if (primaryAbilities.value.length > 0) {

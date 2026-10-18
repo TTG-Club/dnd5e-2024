@@ -49,6 +49,12 @@ const LOCK_TOAST_TITLE = 'Лист в режиме правки';
 const WRITE_MODULES = ['entitySheetWrite', 'entityCombatWrite'];
 
 /**
+ * Запросы ядра, которые меняют мир одним действием сервера: модуль, который
+ * зовёт такой запрос сам, пишет в мир и без помощников записи.
+ */
+const HOST_WRITE_REQUEST_PATTERN = /\brequestItemTransfer\(/u;
+
+/**
  * Полный перечень входов действий в общих модулях и чем их позвать так, чтобы
  * до проверки листа дошло только чтение своих аргументов. Любой другой вызов
  * упал бы на неизвестном имени: в окружении нет ничего, кроме проверки.
@@ -166,10 +172,14 @@ const UNGUARDED_REASONS = {
   createWeaponAttackPort: 'фабрика порта: пишет только охраняемый удар',
   hasActionSelfEffects: 'ничего не пишет',
   isItemTransferDrop: 'ничего не пишет: только читает нагрузку события',
+  describeItemTransfer:
+    'ничего не пишет: собирает сообщение игроку из ответа сервера',
   listEscapeHelpOffers: 'ничего не пишет',
   formatEscapeTitle: 'ничего не пишет',
   listSelfEscapeEffects: 'ничего не пишет',
   readEntityCounters: 'ничего не пишет',
+  sendGmRollRequest:
+    'запрос броска мастера из окна сцены, не с листа: сам пишет только броски в чат',
   runRestWithTriggers:
     'отдых останавливают входы листа (handleRest и «Применить» окна отдыха); тест ниже',
   dispatchAttackRollTriggers:
@@ -212,7 +222,7 @@ const DIRECT_WORLD_WRITES = {
 
 /** Чем интерфейс мог бы писать в мир сам, мимо входа действия */
 const DIRECT_WORLD_WRITE_PATTERN =
-  /\b(?:changeEntitySheet|changeEntityCombatState|sendComputedCombatState|sendTriggerUsageSpend|requestEndCasts|emitSystemClientEvent|emitEntityUpdate)\(|'(?:actor|creature):(?:updated|created|deleted)'/u;
+  /\b(?:changeEntitySheet|changeEntityCombatState|sendComputedCombatState|sendTriggerUsageSpend|requestEndCasts|emitSystemClientEvent|emitEntityUpdate|emitEntityPatch|emitEntityChange|requestItemTransfer|saveDraft|saveCopy|saveEntityFields)\(|'(?:actor|creature):(?:updated|created|deleted)'/u;
 
 /**
  * Исходник от корня системы.
@@ -225,7 +235,8 @@ function readSource(path) {
 }
 
 /**
- * Модули composables, которые сами или через соседей зовут помощники записи.
+ * Модули composables, которые сами или через соседей зовут помощники записи
+ * либо сами просят ядро изменить мир.
  *
  * @returns {string[]} имена модулей без расширения
  */
@@ -245,7 +256,14 @@ function listWritingModules() {
     ]),
   );
 
-  const writing = new Set(WRITE_MODULES);
+  const writing = new Set([
+    ...WRITE_MODULES,
+    ...modules.filter((name) =>
+      HOST_WRITE_REQUEST_PATTERN.test(
+        readSource(`${COMPOSABLES_DIR}/${name}.ts`),
+      ),
+    ),
+  ]);
 
   for (let grew = true; grew;) {
     grew = false;
@@ -1116,15 +1134,17 @@ describe('«Сохранить» сливает черновик с миром',
     assert.equal(saved.spells[0].uses.current, 1);
   });
 
-  it('оба листа шлют по «Сохранить» слитое', () => {
+  it('оба листа шлют по «Сохранить» правки от снимка входа и показывают слитое', () => {
+    // Серверу — разница «снимок входа в правку → черновик», листу — черновик,
+    // слитый с миром; основу двигает ответ сервера, а не лист
     assert.match(
       readSource('src/client/ui/actor/Dnd5eActorSheet.vue'),
-      /const saved = resolveActorToSave\(localActor\.value\);\s*localActor\.value = saved;\s*props\.socket\.emit\('actor:updated', withoutEntityOwnership\(saved\)\);/u,
+      /const saved = resolveActorToSave\(localActor\.value\);[^;]*?saveDraft\(props\.socket, isEditMode\.value \? savedSnapshot\.value : null\);\s*localActor\.value = saved;\s*\} else \{/u,
     );
 
     assert.match(
       readSource('src/client/ui/creature/CreatureSheet.vue'),
-      /const saved = resolveCreatureToSave\(localCreature\.value\);\s*localCreature\.value = saved;\s*props\.socket!\.emit\('creature:updated', withoutEntityOwnership\(saved\)\);/u,
+      /const saved = resolveCreatureToSave\(localCreature\.value\);[^;]*?saveDraft\(props\.socket, isEditMode\.value \? savedSnapshot\.value : null\);\s*localCreature\.value = saved;\s*\} else \{/u,
     );
   });
 });

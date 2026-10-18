@@ -35,12 +35,14 @@ import {
   computeSpeciesMovement,
   CREATURE_SIZE_TO_TOKEN_SCALE,
   EFFECT_FLAG_LABELS,
+  fromLevelLabel,
   getConditionEntry,
   getTotalLevel,
   getVisibleFeatChoices,
   hasNoFeatChoiceOptions,
   isFeatPickChoice,
   isSkillType,
+  isSpeciesSpellOpen,
   isTakenFeatAnswered,
   openFeatChoicesAtLevel,
   prepareFeatChoices,
@@ -50,6 +52,7 @@ import {
   resolveFeatChoiceCount,
   resolveFeatChoicesToAsk,
   resolveSpeciesVision,
+  speciesSpellOpensAt,
   withActivationDefaults,
   withTakenFeatAnswers,
 } from '@vtt/shared/system/dnd.js';
@@ -415,6 +418,11 @@ export function useSpeciesWizard(
   >([]),
   /** Пак записи вида — ложится на запись актора, см. `ActorSpeciesEntry.packId` */
   packId: import('vue').Ref<string | undefined> = ref(undefined),
+  /**
+   * Подвид, выбранный до мастера: его отметили в окне выбора, перенесли на лист
+   * или назвали в окне «какой подвид». Шаг подвида открывается уже с ним.
+   */
+  initialSubspeciesKey: import('vue').Ref<string | null> = ref(null),
 ) {
   /** Виды оружия мира — пул выбора оружия и оружейного приёма */
   const { weaponOptions } = useFeatChoiceWeapons();
@@ -428,10 +436,10 @@ export function useSpeciesWizard(
     featPickAnswers: {},
   });
 
-  // Инициализация при смене вида
+  // Инициализация при смене вида и подвида, выбранного до мастера
   watch(
-    () => speciesDef.value,
-    (definition) => {
+    [speciesDef, initialSubspeciesKey],
+    ([definition, subspeciesKey]) => {
       if (!definition) {
         state.value = {
           selectedSize: null,
@@ -458,7 +466,7 @@ export function useSpeciesWizard(
         selectedSize: definition.size.length === 1 ? definition.size[0] : null,
         grantSelections,
         featureChoices: {},
-        subspeciesKey: null,
+        subspeciesKey,
         featDataChoices: {},
         featPickAnswers: {},
       };
@@ -815,6 +823,7 @@ export function useSpeciesWizard(
   /**
    * Заклинания, автоматически предоставляемые особенностями вида
    * (поле `grantedSpells` особенности) — включая особенности записи-подвида.
+   * Только открытые на текущем уровне: остальные лист выдаст при повышении.
    */
   const grantedSpellSources = computed((): GrantedSpellSource[] => {
     if (!speciesDef.value) {
@@ -824,6 +833,7 @@ export function useSpeciesWizard(
     return collectSpeciesGrantedSpellSources(
       speciesDef.value,
       selectedSubspecies.value,
+      { characterLevel: totalLevel.value },
     );
   });
 
@@ -1103,7 +1113,8 @@ export function useSpeciesWizard(
     /**
      * Дописывает в описание блок заклинаний особенности: связанные и найденные
      * (или просто именованные) — как выдаваемые; связанные, но не найденные в
-     * компендиуме — как требующие ручного добавления.
+     * компендиуме — как требующие ручного добавления. Заклинание старше уровня
+     * персонажа ещё не выдано — оно идёт с пометкой уровня, а не в «не найдены».
      *
      * @param feature - особенность вида
      * @returns описание с приписанным блоком заклинаний (если есть)
@@ -1119,7 +1130,14 @@ export function useSpeciesWizard(
       const missing: string[] = [];
 
       for (const spellRef of refs) {
-        if (spellRef.spellId && !resolvedSpellIds.has(spellRef.spellId)) {
+        if (!isSpeciesSpellOpen(feature, spellRef, characterLevel)) {
+          const opensAt = speciesSpellOpensAt(feature, spellRef);
+
+          granted.push(`${spellRef.name} (${fromLevelLabel(opensAt)})`);
+        } else if (
+          spellRef.spellId
+          && !resolvedSpellIds.has(spellRef.spellId)
+        ) {
           missing.push(spellRef.name);
         } else {
           granted.push(spellRef.name);

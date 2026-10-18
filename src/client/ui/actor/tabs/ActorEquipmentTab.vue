@@ -2,6 +2,7 @@
   // Корневой вход `@nuxt/ui` — это Nuxt-модуль, типы компонентов он не отдаёт
   import type { DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue';
 
+  import type { CompendiumEntry } from '@vtt/shared';
   import type {
     DnDCarryingCapacity,
     DnDCurrency,
@@ -45,11 +46,13 @@
     isDnDGameItem,
     isItemDepleted,
     isThrowableMeleeWeapon,
+    itemCostInCopper,
     listItemToggles,
     listLoadableAmmunition,
     listSourceDamageTypeChoices,
     loadWeaponAmmunition,
     normalizeItemQuantity,
+    receiveIntoWallet,
     setItemUsesCurrent,
     spendItemUses,
     STARTING_EQUIPMENT_ITEM_KINDS,
@@ -98,6 +101,7 @@
     EQUIPMENT_AMMUNITION_BADGE,
     EQUIPMENT_EQUIP_ACTION_LABELS,
     EQUIPMENT_MENU_LABELS,
+    EQUIPMENT_PURCHASE_ICON,
     EQUIPMENT_STAT_HINTS,
     EQUIPMENT_STAT_LABELS,
     FILTER_ROW_CONTROL_SIZE,
@@ -109,6 +113,7 @@
     WEIGHT_UNIT_LABEL,
   } from '../constants';
   import CurrencyModal from '../CurrencyModal.vue';
+  import EquipmentPurchaseModal from '../EquipmentPurchaseModal.vue';
   import SheetStatTile from '../SheetStatTile.vue';
   import { extractSpellFromGameItem } from '../utils/extractSpellFromGameItem';
   import { formatMeleeOrRangedDistances } from '../utils/formatAttackDistances';
@@ -174,6 +179,23 @@
    * в быстром окне лист приезжает из стора хоста без нормализации
    */
   const inventory = computed<DnDGameItem[]>(() => props.entity.equipment ?? []);
+
+  /**
+   * Текущий кошелёк актёра. Нули подставляются намеренно: во вкладку попадает и
+   * актёр из `QuickEquipmentModal`, который берёт его из стора хоста без
+   * `normalizeActor`, — у записи из старого мира поля кошелька может не быть.
+   */
+  const currency = computed<DnDCurrency>(() => {
+    const wallet = props.entity.system.currency;
+
+    return {
+      cp: wallet?.cp ?? 0,
+      sp: wallet?.sp ?? 0,
+      ep: wallet?.ep ?? 0,
+      gp: wallet?.gp ?? 0,
+      pp: wallet?.pp ?? 0,
+    };
+  });
 
   /** Видна ли кнопка «Добавить»: чужой мешок только для чтения не пополняют */
   const canAddItems = computed(
@@ -794,6 +816,34 @@
     hotbarStore.removeByRef(itemId);
   }
 
+  /**
+   * Продаёт предмет: он уходит из инвентаря, его цена ложится в кошелёк. Обе
+   * правки уходят до сохранения — иначе лист на миг сохранился бы без
+   * предмета, но при прежних деньгах.
+   *
+   * @param item - продаваемый предмет
+   */
+  function sellItem(item: DnDGameItem): void {
+    if (props.isReadOnly) {
+      return;
+    }
+
+    emit(
+      'update:equipment',
+      inventory.value.filter((owned) => owned.id !== item.id),
+    );
+
+    emit(
+      'update:currency',
+      receiveIntoWallet(currency.value, itemCostInCopper(item.cost)),
+    );
+
+    triggerSaveIfNotEdit();
+
+    // Кнопка проданного предмета на панели быстрого доступа — как при удалении
+    hotbarStore.removeByRef(item.id);
+  }
+
   /** Типы записей, у которых на листе есть своя форма правки */
   const EDITABLE_ITEM_TYPES = new Set(['weapon', 'equipment', 'spell', 'tool']);
 
@@ -915,6 +965,20 @@
       icon: 'tabler:message-share',
       onSelect: () => shareItemToChat(item),
     });
+
+    // Продажа — только там, где показан кошелёк, и только у предмета с ценой:
+    // выручку больше некуда класть, а «Продать за 0» — это то же «Удалить»
+    if (
+      props.showCurrency
+      && !props.isReadOnly
+      && itemCostInCopper(item.cost)
+    ) {
+      sheetActions.push({
+        label: `${EQUIPMENT_MENU_LABELS.sellPrefix}${formatItemCost(item.cost)}`,
+        icon: EQUIPMENT_PURCHASE_ICON,
+        onSelect: () => sellItem(item),
+      });
+    }
 
     const removeAction: DropdownMenuItem[] = [
       {
@@ -1340,27 +1404,98 @@
     commitEquipment([...inventory.value, ...added]);
   }
 
+  /**
+   * Цена записи для строки окна. Запись читается со страховкой: окно отдаёт
+   * её как есть из компендиума, и цены у неё может не быть вовсе.
+   *
+   * @param entry - запись компендиума
+   * @returns цена вида «15 зм» либо прочерк
+   */
+  function formatEntryCost(entry: CompendiumEntry): string {
+    const cost = isDnDGameItem(entry) ? formatItemCost(entry.cost) : '';
+
+    return cost || ACTOR_EQUIPMENT_TAB_LABELS.noCost;
+  }
+
+  /**
+   * Открывает карточку записи из окна выбора — ту же, что у предмета в
+   * инвентаре.
+   *
+   * @param entry - запись компендиума
+   */
+  function openPickedEntry(entry: CompendiumEntry): void {
+    if (isDnDGameItem(entry)) {
+      openDetailModal(entry);
+    }
+  }
+
+  // --- Покупка из компендиума ---
+
+  /**
+   * Подпись кнопки «Купить» в окне выбора; пусто — кнопки нет. Покупают
+   * только там, где показан кошелёк: списывать больше неоткуда.
+   */
+  const buyActionLabel = computed(() =>
+    props.showCurrency ? ACTOR_EQUIPMENT_TAB_LABELS.buy : '',
+  );
+
+  /** Открыто ли окно покупки */
+  const isPurchaseOpen = ref(false);
+
+  /** Предметы, отмеченные к покупке в окне выбора */
+  const purchaseItems = ref<DnDGameItem[]>([]);
+
+  /**
+   * Открывает окно покупки поверх окна выбора. Окно выбора остаётся открытым:
+   * отказ от покупки возвращает к списку с теми же отметками.
+   *
+   * @param picked - отмеченные записи
+   */
+  function openPurchase(picked: PickedCompendiumEntry[]): void {
+    const items = picked
+      .map((pickedEntry) => pickedEntry.entry)
+      .filter(isDnDGameItem);
+
+    if (items.length === 0 || props.isReadOnly) {
+      return;
+    }
+
+    purchaseItems.value = items;
+    isPurchaseOpen.value = true;
+  }
+
+  /**
+   * Завершает покупку: предметы ложатся в инвентарь, кошелёк худеет на их
+   * цену. Обе правки уходят до сохранения — иначе лист на миг сохранился бы с
+   * предметами, но при прежних деньгах.
+   *
+   * @param bought - купленные предметы
+   * @param walletAfter - кошелёк после оплаты
+   */
+  function completePurchase(
+    bought: DnDGameItem[],
+    walletAfter: DnDCurrency,
+  ): void {
+    if (props.isReadOnly) {
+      return;
+    }
+
+    emit('update:equipment', [
+      ...inventory.value,
+      ...bought.map(createInventoryItem),
+    ]);
+
+    emit('update:currency', walletAfter);
+
+    triggerSaveIfNotEdit();
+
+    isItemPickerOpen.value = false;
+  }
+
   // --- Кошелёк ---
 
   /** Открыта ли модалка редактирования валюты */
   const isCurrencyModalOpen = ref(false);
-
-  /**
-   * Текущий кошелёк актёра. Нули подставляются намеренно: во вкладку попадает и
-   * актёр из `QuickEquipmentModal`, который берёт его из стора хоста без
-   * `normalizeActor`, — у записи из старого мира поля кошелька может не быть.
-   */
-  const currency = computed<DnDCurrency>(() => {
-    const wallet = props.entity.system.currency;
-
-    return {
-      cp: wallet?.cp ?? 0,
-      sp: wallet?.sp ?? 0,
-      ep: wallet?.ep ?? 0,
-      gp: wallet?.gp ?? 0,
-      pp: wallet?.pp ?? 0,
-    };
-  });
 
   /** Ячейки строки валюты: количество, сокращение и полное название монеты */
   const currencyCells = computed(() =>
@@ -1536,7 +1671,22 @@
     :filter-value="itemSectionFilterValue"
     :filter-label="ACTOR_EQUIPMENT_TAB_LABELS.sectionFilter"
     :filter-order="itemSectionOrder"
+    :entry-note="formatEntryCost"
+    show-entry-info
+    :extra-action-label="buyActionLabel"
+    :extra-action-icon="EQUIPMENT_PURCHASE_ICON"
     @select-entries="addPickedItems"
+    @open-entry="openPickedEntry"
+    @extra-action="openPurchase"
+  />
+
+  <!-- Покупка отмеченного: поверх окна выбора, со своим подтверждением -->
+  <EquipmentPurchaseModal
+    v-if="showCurrency"
+    v-model:open="isPurchaseOpen"
+    :currency="currency"
+    :items="purchaseItems"
+    @confirm="completePurchase"
   />
 
   <!-- Модалка настройки грузоподъёмности -->

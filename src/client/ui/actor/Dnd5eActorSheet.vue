@@ -13,6 +13,7 @@
     DnDGameItem,
     FeatAwaitingChoices,
     LongRestOptions,
+    ResolvedGrantedSpell,
     RestTriggerOptions,
     RestType,
     ShortRestHitDiceResult,
@@ -20,11 +21,17 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { ItemTransferResult } from '../../composables/useItemTransfer';
   import type { ActorSubclassBadgeEntry } from './ActorHeader.vue';
+  import type { ProficiencyHoldings } from './class/classRollback';
   import type { PickedDefinition } from './CompendiumPickerModal.vue';
   import type { MissingSheetSectionKey } from './constants';
   import type { AppliedFeatFeature } from './feat/featApply';
   import type { WizardQueueStep } from './levelUpTypes';
+  import type {
+    GrantRemovalOption,
+    GrantRemovalSubject,
+  } from './removal/grantRemovalPlan';
 
   import { useToast } from '@nuxt/ui/composables';
   import { createReusableTemplate } from '@vueuse/core';
@@ -36,7 +43,6 @@
   import { useActiveTab } from '@/shared_ui/composables/useActiveTab';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { Z_INDEX } from '@/shared_ui/consts';
-  import { useItemsStore } from '@/stores/itemsStore';
   import { useWorldStore } from '@/stores/worldStore';
   import { generateId, isEntityOwner, isRecord } from '@vtt/shared';
   import {
@@ -46,6 +52,7 @@
     calculateAbilityModifier,
     calculateMaxHP,
     checkFeatPrerequisites,
+    cloneActorProficiencies,
     collectClassCounterDefinitions,
     collectFeatsAwaitingLeveledChoices,
     collectRechoosableFeats,
@@ -59,20 +66,21 @@
     isClassDefinition,
     isDndActor,
     isDndActorRecord,
-    isDnDGameItem,
     isSameCounterList,
-    isSkillType,
     isSpell,
     mergeEntityDraft,
     normalizeActor,
     refreshFeatCounters,
     refreshSpeciesCounters,
+    removeFeatChoiceSelections,
+    removeFeatDataProficiencies,
     removeGrantedSpellsByFeatureNames,
     resolveActorStats,
     resolveEntityMaxHp,
     resolveFeatChoicesToAsk,
     resolveHitDiceSpendRules,
     spendShortRestHitDice,
+    subspeciesFitsPack,
   } from '@vtt/shared/system/dnd.js';
 
   import { runRestWithTriggers } from '../../composables/restTriggerPrompt';
@@ -81,24 +89,35 @@
     useSheetEditLock,
   } from '../../composables/sheetEditLock';
   import { useClassCatalog } from '../../composables/useClassCatalog';
-  import { useCompendiumCatalog } from '../../composables/useCompendiumCatalog';
+  import { useEntityDraftWrite } from '../../composables/useEntityDraftWrite';
   import {
+    describeItemTransfer,
     isItemTransferDrop,
     useItemTransfer,
   } from '../../composables/useItemTransfer';
   import { useSheetLayout } from '../../composables/useSheetLayout';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
+  import {
+    isSpeciesDefinitionEntry,
+    useSpeciesCatalog,
+  } from '../../composables/useSpeciesCatalog';
   import { useWorldSheetSync } from '../../composables/useWorldSheetSync';
   import { useSystemDataStore } from '../../stores/systemDataStore';
-  import { withoutEntityOwnership } from '../entity-ownership/utils';
   import ActorCenterPanel from './ActorCenterPanel.vue';
   import ActorHeader from './ActorHeader.vue';
   import ActorLeftPanel from './ActorLeftPanel.vue';
   import ActorRightPanel from './ActorRightPanel.vue';
   import ActorTabs from './ActorTabs.vue';
-  import { buildBackgroundRemovalUpdates } from './background/backgroundRollback';
+  import {
+    buildBackgroundRemovalUpdates,
+    rollbackBackgroundProficiencies,
+  } from './background/backgroundRollback';
   import BackgroundSetupWizard from './background/BackgroundSetupWizard.vue';
   import { isClassEffect } from './class/classEffects';
+  import {
+    diffProficiencyHoldings,
+    rollbackClassProficiencies,
+  } from './class/classRollback';
   import ClassSetupWizard from './class/ClassSetupWizard.vue';
   import CompendiumPickerModal from './CompendiumPickerModal.vue';
   import {
@@ -138,9 +157,44 @@
   import FeatChoicesModal from './feat/FeatChoicesModal.vue';
   import FeatRechooseModal from './feat/FeatRechooseModal.vue';
   import LongRestModal from './LongRestModal.vue';
+  import GrantRemovalModal from './removal/GrantRemovalModal.vue';
+  import {
+    applyGrantRemovalSelection,
+    collectGrantRemovalOptions,
+  } from './removal/grantRemovalPlan';
   import ShortRestModal from './ShortRestModal.vue';
-  import { buildSpeciesRemovalUpdates } from './species/speciesRollback';
+  import {
+    buildSpeciesRemovalUpdates,
+    rollbackSpeciesProficiencies,
+  } from './species/speciesRollback';
   import SpeciesSetupWizard from './species/SpeciesSetupWizard.vue';
+  import { resolveActorSpeciesSpells } from './species/speciesSpellUnlock';
+  import SubspeciesChoiceModal from './species/SubspeciesChoiceModal.vue';
+
+  /** Вид с подвидами, ждущий ответа «какой подвид» */
+  interface PendingSubspeciesChoice {
+    /** Вид, который ставится на лист */
+    species: SpeciesDefinition;
+    /** Пак вида */
+    packId?: string;
+    /** Подвиды вида — варианты окна */
+    options: SpeciesDefinition[];
+  }
+
+  /** Удаление записи, ждущее выбора в окне */
+  interface PendingGrantRemoval {
+    subject: GrantRemovalSubject;
+    options: GrantRemovalOption[];
+  }
+
+  /** Выбор игрока в окне удаления: применяется сразу после отката записи */
+  interface GrantRemovalChoice {
+    options: GrantRemovalOption[];
+    /** Ключи строк, отмеченных к удалению */
+    selectedIds: ReadonlySet<string>;
+    /** Заклинания листа до отката: оставленные выданные берутся отсюда */
+    spellsBefore: Spell[];
+  }
 
   interface Props {
     open: boolean;
@@ -168,7 +222,6 @@
 
   const worldStore = useWorldStore();
   const systemDataStore = useSystemDataStore();
-  const itemsStore = useItemsStore();
   const toast = useToast();
   const { openModal, updateModalProps } = useModalManager();
 
@@ -217,6 +270,17 @@
 
   /** Пак записи вида в мастере — на запись актора */
   const droppedSpeciesPackId = ref<string | undefined>(undefined);
+  /**
+   * Подвид, выбранный до мастера: отмечен в окне выбора, перенесён на лист сам
+   * или назван в окне «какой подвид».
+   */
+  const droppedSubspeciesKey = ref<string | null>(null);
+
+  /**
+   * Вид с подвидами, ждущий ответа «какой подвид»: окно открыто, пока это
+   * поле не пусто.
+   */
+  const pendingSubspeciesChoice = ref<PendingSubspeciesChoice | null>(null);
 
   // Модалка мастера предыстории
   const isBackgroundWizardOpen = ref(false);
@@ -281,10 +345,6 @@
     toRef(() => localActor.value?.id),
     'equipment',
   );
-
-  function isSpeciesDefinition(value: unknown): value is SpeciesDefinition {
-    return isRecord(value) && value.type === 'species';
-  }
 
   function isBackgroundDefinition(
     value: unknown,
@@ -362,32 +422,8 @@
    */
   const classCatalog = useClassCatalog(toRef(props, 'socket'));
 
-  /**
-   * Виды, созданные в мире (GameItem с type==='species'), развёрнутые в
-   * плоский SpeciesDefinition из вложенного speciesData.
-   *
-   * @returns массив определений видов мира
-   */
-  function getWorldSpeciesDefinitions(): SpeciesDefinition[] {
-    // Стор хоста отдаёт нейтральные предметы — D&D-форму подтверждает гвард
-    // (см. `getWorldClassDefinitions`).
-    return itemsStore.items
-      .filter(isDnDGameItem)
-      .filter((worldItem) => worldItem.type === 'species')
-      .map((worldItem) => worldItem.speciesData)
-      .filter((definition): definition is SpeciesDefinition =>
-        isSpeciesDefinition(definition),
-      );
-  }
-
   /** Виды по пакам: компендиум и мир порознь, запись ищется парой «пак + ключ» */
-  const speciesCatalog = useCompendiumCatalog<SpeciesDefinition>({
-    socket: toRef(props, 'socket'),
-    kind: 'species',
-    isEntry: isSpeciesDefinition,
-    worldEntries: getWorldSpeciesDefinitions,
-    worldPackName: COMPENDIUM_PICKER_LABELS.worldPack,
-  });
+  const speciesCatalog = useSpeciesCatalog(toRef(props, 'socket'));
 
   /**
    * Виды одним списком — мастеру вида и вкладке умений. При повторе ключа
@@ -408,9 +444,18 @@
   /**
    * Записи видов для мастера: подвиды берутся из пака выбранного вида — у
    * одноимённого вида в соседнем компендиуме подвиды могут быть другими.
+   * Подвиды мира, скопированные из другого компендиума, сюда не попадают.
    */
   const wizardSpeciesRecords = computed(() =>
-    speciesCatalog.flatPreferring(droppedSpeciesPackId.value),
+    speciesCatalog
+      .flatPreferring(droppedSpeciesPackId.value)
+      .filter((record) =>
+        subspeciesFitsPack(
+          record,
+          droppedSpeciesPackId.value,
+          speciesCatalog.packIds.value,
+        ),
+      ),
   );
 
   /**
@@ -597,6 +642,13 @@
     });
   });
 
+  // Основа черновика: от неё считается то, что сохранение шлёт серверу
+  const { draftBase, rebaseDraft, saveDraft } = useEntityDraftWrite({
+    readDraft: () => localActor.value,
+    readWorld: () => storeActor.value,
+    isEntity: isDndActorRecord,
+  });
+
   function initializeActor() {
     if (props.actorId) {
       const world = worldStore.getWorldById(props.worldId);
@@ -651,6 +703,7 @@
     }
 
     isDirty.value = false;
+    rebaseDraft();
   }
 
   watch(
@@ -664,25 +717,14 @@
     },
   );
 
-  watch(
-    () => storeActor.value?.token,
-    (newToken) => {
-      if (localActor.value && newToken) {
-        localActor.value.token = JSON.parse(JSON.stringify(newToken));
-      }
-    },
-    { deep: true },
-  );
-
   /**
    * Разделы, которые система пишет в мир во время игры (ресурсы листа,
    * предметы, заклинания, эффекты, хиты), подтягиваются из стора в localActor.
    *
-   * Зачем: localActor — глубокая копия на момент открытия листа, а все
-   * сохранения отправляют актёра ЦЕЛИКОМ (`actor:updated`). Без обратной
-   * синхронизации любое сохранение листа затирало бы на сервере изменения,
-   * пришедшие извне после открытия (потерянное обновление — так «слетали»
-   * формулы заклинаний).
+   * Зачем: localActor — глубокая копия на момент открытия листа, и лист
+   * показывает её, а не мир. Сохранение шлёт серверу только разницу с
+   * основой черновика, поэтому пришедшее из мира кладётся и в черновик, и в
+   * основу: иначе лист отправил бы чужое изменение как своё.
    *
    * В режиме редактирования синхронизация выключена: локальные правки имеют
    * приоритет до «Сохранить»/«Отменить».
@@ -690,6 +732,7 @@
   const { pullFromWorld } = useWorldSheetSync({
     readWorld: () => storeActor.value,
     draft: localActor,
+    base: draftBase,
     isPaused: () => isEditMode.value,
   });
 
@@ -703,13 +746,13 @@
   );
 
   /**
-   * Что уходит на сервер по «Сохранить». Черновик правки сливается с миром:
-   * правки владельца — из черновика, всё, что он не трогал, — из мира. Иначе
-   * сохранение вернуло бы то, что мир изменил за время правки (урон от
-   * другого клиента, срабатывание сервера, списанный ресурс).
+   * Что лист показывает после «Сохранить». Черновик правки сливается с миром:
+   * правки владельца — из черновика, всё, что он не трогал, — из мира (урон от
+   * другого клиента, срабатывание сервера, списанный ресурс). На сервер при
+   * этом уходят только правки владельца — разница со снимком входа в правку.
    *
    * @param draft - черновик листа
-   * @returns персонаж для записи
+   * @returns персонаж, каким он станет после записи
    */
   function resolveActorToSave(draft: DnDActor): DnDActor {
     const world = storeActor.value;
@@ -741,11 +784,7 @@
 
     try {
       requireSocket(props.socket);
-
-      props.socket.emit(
-        'actor:updated',
-        withoutEntityOwnership(localActor.value),
-      );
+      saveDraft(props.socket);
 
       isDirty.value = false;
     } catch (error) {
@@ -763,6 +802,14 @@
    * открывает его именно продолжительный отдых.
    */
   const isFeatRechooseOpen = ref(false);
+
+  /**
+   * Удаление класса, вида или предыстории, ждущее выбора игрока: что из
+   * выданного убрать вместе с записью. Пусто — спрашивать было не о чем.
+   */
+  const pendingGrantRemoval = ref<PendingGrantRemoval | null>(null);
+  /** Открыто ли окно выбора при удалении записи */
+  const isGrantRemovalOpen = ref(false);
 
   /**
    * Черты, у которых на новом уровне открылся выбор с уровнем доступа.
@@ -999,8 +1046,10 @@
       if (props.actorId) {
         const saved = resolveActorToSave(localActor.value);
 
+        // Основа правки — снимок входа в режим: синхронизация с миром на время
+        // правки стояла, и всё, чем черновик от него отличается, — правки листа
+        saveDraft(props.socket, isEditMode.value ? savedSnapshot.value : null);
         localActor.value = saved;
-        props.socket.emit('actor:updated', withoutEntityOwnership(saved));
       } else {
         const rawLocalActor = JSON.parse(JSON.stringify(localActor.value));
 
@@ -1012,6 +1061,8 @@
         props.socket.emit('actor:created', newActor);
         emit('save', newActor);
         isCreated.value = true;
+        // Сервер получил лист целиком — дальнейшие правки считаются от него
+        rebaseDraft();
 
         if (props.modalId) {
           updateModalProps(props.modalId, { actorId: newActor.id });
@@ -1302,7 +1353,12 @@
     // мастер не предложил бы хоумбрю-подкласс к компендиумному классу. Из того
     // пака, что назвали: одноимённый класс в соседнем компендиуме — не та
     // запись, которую выбрал игрок
-    const target = classCatalog.resolveWithPack({ key: targetKey, packId });
+    // У записи-подкласса пак родителя записан в ней самой: перенесённая из мира
+    // запись сама лежит в паке мира, а родитель — в компендиуме
+    const target = classCatalog.resolveWithPack({
+      key: targetKey,
+      packId: definition.parentClassPackId ?? packId,
+    });
 
     // Родителя нет среди записей (пак не подключён) — настройка не начинается:
     // у самого подкласса нет ни таблицы уровней, ни владений
@@ -1357,14 +1413,19 @@
    * Запускает настройку вида: у персонажа с видом сперва спрашиваем замену.
    *
    * Запись-подвид самостоятельным видом не применяется: вместо неё открывается
-   * мастер её родителя, а происхождение игрок выбирает шагом мастера. Родителя
-   * нет среди записей (пак не подключён) — настройка не начинается.
+   * мастер её родителя с этим подвидом на шаге происхождения. Родителя нет
+   * среди записей (пак не подключён) — настройка не начинается.
+   *
+   * Вид, у которого есть подвиды, по правилам сам не берут: сперва окно
+   * спрашивает, какой подвид, и мастер открывается уже с ним. Подвиды берутся
+   * из каталога по данным записей — свои виды мира спрашиваются так же.
    *
    * @param definition - определение вида
    * @param packId - пак, из которого запись взяли; пусто — не известен
    */
   function startSpeciesSetup(definition: SpeciesDefinition, packId?: string) {
     let target = definition;
+    let subspeciesKey: string | null = null;
 
     // Пак запоминается вместе с записью: по нему мастер найдёт подвиды из того
     // же компендиума, а лист — таблицу вида при следующем открытии
@@ -1375,7 +1436,7 @@
     if (definition.parentKey) {
       const parent = speciesCatalog.resolveWithPack({
         key: definition.parentKey,
-        packId,
+        packId: definition.parentPackId ?? packId,
       });
 
       if (!parent) {
@@ -1390,10 +1451,70 @@
 
       target = parent.entry;
       targetPackId = parent.packId;
+      subspeciesKey = definition.key;
     }
 
+    if (!subspeciesKey) {
+      const options = speciesCatalog.subspeciesOf({
+        key: target.key,
+        packId: targetPackId,
+      });
+
+      if (options.length > 0) {
+        pendingSubspeciesChoice.value = {
+          species: target,
+          packId: targetPackId,
+          options,
+        };
+
+        return;
+      }
+    }
+
+    proceedSpeciesSetup(target, targetPackId, subspeciesKey);
+  }
+
+  /**
+   * Подвид выбран в окне «какой подвид» — настройка вида идёт дальше с ним.
+   *
+   * @param subspecies - выбранный подвид
+   */
+  function handleSubspeciesChoice(subspecies: SpeciesDefinition) {
+    const pending = pendingSubspeciesChoice.value;
+
+    pendingSubspeciesChoice.value = null;
+
+    if (pending) {
+      proceedSpeciesSetup(pending.species, pending.packId, subspecies.key);
+    }
+  }
+
+  /**
+   * Окно «какой подвид» закрыли без выбора — вид на лист не ставится.
+   *
+   * @param isOpen - новое состояние окна
+   */
+  function handleSubspeciesChoiceOpen(isOpen: boolean) {
+    if (!isOpen) {
+      pendingSubspeciesChoice.value = null;
+    }
+  }
+
+  /**
+   * Открывает мастер вида (или сперва вопрос о замене прежнего вида).
+   *
+   * @param target - вид, который ставится на лист
+   * @param targetPackId - пак вида
+   * @param subspeciesKey - подвид, выбранный до мастера; `null` — не выбран
+   */
+  function proceedSpeciesSetup(
+    target: SpeciesDefinition,
+    targetPackId: string | undefined,
+    subspeciesKey: string | null,
+  ) {
     droppedSpeciesDef.value = target;
     droppedSpeciesPackId.value = targetPackId;
+    droppedSubspeciesKey.value = subspeciesKey;
 
     if (localActor.value?.system.species) {
       replaceConfirmTarget.value = 'species';
@@ -1429,17 +1550,16 @@
    * Принимает предмет, переданный с другого листа: предмет уходит из инвентаря
    * отправителя и появляется здесь.
    *
-   * Отправителя обновляет композабл переноса — его лист может быть закрыт.
-   * Сюда возвращается только новый инвентарь получателя.
+   * Обе стороны пишет сервер одним действием; лист узнаёт о новом предмете из
+   * обычной рассылки, а здесь только сообщает игроку итог.
    *
    * @param event - событие drop
    * @returns `true`, если нагрузка была передачей предмета
    */
   function handleItemTransferDrop(event: DragEvent): boolean {
-    // В режиме правки жест не принимается: у отправителя предмет уходит сразу и
-    // на сервер, а здесь правки копятся до «Сохранить» — «Отмена» стёрла бы
-    // предмет уже после того, как его отдали, и он пропал бы у обоих. Причину
-    // говорим: молчаливый отказ выглядел поломкой жеста
+    // В режиме правки жест не принимается: здесь открыт черновик, и его
+    // «Сохранить» положило бы поверх пришедшего предмета прежний инвентарь.
+    // Причину говорим: молчаливый отказ выглядел поломкой жеста
     if (isEditMode.value) {
       return (
         isItemTransferDrop(event)
@@ -1451,30 +1571,36 @@
       return false;
     }
 
-    const received = receiveTransferredItem(
+    const transfer = receiveTransferredItem(
       event,
       localActor.value,
       props.socket,
     );
 
-    if (!received) {
+    if (!transfer) {
       return false;
     }
 
-    localActor.value.equipment = received.equipment;
-    isDirty.value = true;
-
-    handleImmediateSave();
-
-    activeTab.value = 'equipment';
-
-    toast.add({
-      title: ACTOR_SHEET_LABELS.itemReceived,
-      description: received.itemName,
-      color: 'success',
-    });
+    void reportItemTransfer(transfer);
 
     return true;
+  }
+
+  /**
+   * Дожидается ответа сервера на передачу и говорит игроку итог.
+   *
+   * @param transfer - обещание итога передачи
+   */
+  async function reportItemTransfer(
+    transfer: Promise<ItemTransferResult>,
+  ): Promise<void> {
+    const result = await transfer;
+
+    if (result.outcome.ok) {
+      activeTab.value = 'equipment';
+    }
+
+    toast.add(describeItemTransfer(result, ACTOR_SHEET_LABELS.itemReceived));
   }
 
   function handleDrop(event: DragEvent) {
@@ -1521,7 +1647,7 @@
       try {
         const dropped = unwrapDroppedDefinition(JSON.parse(speciesDataStr));
 
-        if (!isSpeciesDefinition(dropped.definition)) {
+        if (!isSpeciesDefinitionEntry(dropped.definition)) {
           throw new Error('Dropped species definition has invalid shape');
         }
 
@@ -1933,12 +2059,39 @@
   }
 
   /**
-   * Открывает на новом уровне то, что черты выдают ступенями: заклинание с
-   * уровнем доступа («Малое восстановление» метки исцеления приходит на третьем)
-   * и выбор с уровнем открытия.
+   * Заклинания вида листа, открытые на его текущем уровне.
    *
-   * Без этого прохода такие заклинания не появились бы никогда: черту применяют
-   * один раз, на взятии, и повторно её дары никто не пересчитывает. Уже выданное
+   * @param actorData - лист персонажа с уже обновлённым уровнем
+   * @returns заклинания вида; вида нет или он не найден в компендиуме — пусто
+   */
+  async function resolveCurrentSpeciesSpells(
+    actorData: DnDActor,
+  ): Promise<ResolvedGrantedSpell[]> {
+    if (!actorData.system.species?.speciesKey) {
+      return [];
+    }
+
+    await loadCurrentSpeciesDefinition(actorData);
+
+    if (!appliedSpeciesDef.value) {
+      return [];
+    }
+
+    return resolveActorSpeciesSpells(
+      props.socket,
+      actorData,
+      appliedSpeciesDef.value,
+      appliedSubspeciesDef.value,
+    );
+  }
+
+  /**
+   * Открывает на новом уровне то, что черты и вид выдают ступенями: заклинание с
+   * уровнем доступа («Малое восстановление» метки исцеления приходит на третьем,
+   * «Псевдожизнь» чтонического тифлинга — тоже) и выбор черты с уровнем открытия.
+   *
+   * Без этого прохода такие заклинания не появились бы никогда: черту и вид
+   * применяют один раз, и повторно их дары никто не пересчитывает. Уже выданное
    * не задваивается — совпадения отсеиваются по названию. Расширение списка
    * заклинаний ничего не выдаёт — его показывает окно выбора заклинаний.
    */
@@ -1947,10 +2100,10 @@
       return;
     }
 
-    const resolved = await resolveActorFeatSpells(
-      props.socket,
-      localActor.value,
-    );
+    const [featSpells, speciesSpells] = await Promise.all([
+      resolveActorFeatSpells(props.socket, localActor.value),
+      resolveCurrentSpeciesSpells(localActor.value),
+    ]);
 
     if (!localActor.value) {
       return;
@@ -1958,7 +2111,11 @@
 
     const before = localActor.value.spells ?? [];
 
-    const spells = appendGrantedSpells(before, resolved, 'feat');
+    const spells = appendGrantedSpells(
+      appendGrantedSpells(before, featSpells, 'feat'),
+      speciesSpells,
+      'species',
+    );
 
     // Не только новые записи: выдача без подготовки отдаёт отметку уже лежащей
     // записи, и число заклинаний при этом не меняется
@@ -1984,134 +2141,108 @@
   }
 
   /**
-   * Пересобирает владения (armor, weapons, tools, savingThrows, skills)
-   * на основе SRD-данных оставшихся классов.
+   * Владения, которые класс держит на листе: стартовый набор у основного класса
+   * и сокращённый (PHB 2024) у взятого мультиклассом.
    *
-   * Первый класс в массиве получает полные стартовые владения,
-   * остальные — только мультикласс-владения (PHB 2024).
+   * Без определения класса (пак компендиума мог исчезнуть) известны только
+   * записанные на лист навыки и инструменты — доспехи, оружие и спасброски
+   * такого класса при его удалении остаются на листе.
    *
-   * @param actor - актор для обновления
-   * @param remainingClasses - оставшиеся записи классов
-   * @param removedSkills - навыки удалённого класса для исключения
+   * @param classEntry - запись класса на листе
+   * @param isPrimary - основной ли это класс (первый в списке)
+   * @returns владения класса
    */
-  function rebuildProficienciesFromRemainingClasses(
-    actor: DnDActor,
-    remainingClasses: DnDActor['system']['classes'],
-    removedSkills: string[],
-  ): void {
+  function collectClassHoldings(
+    classEntry: DnDActor['system']['classes'][number],
+    isPrimary: boolean,
+  ): ProficiencyHoldings {
+    const holdings: ProficiencyHoldings = {
+      armor: [],
+      weapons: [],
+      tools: [...(classEntry.grantedTools ?? [])],
+      savingThrows: [],
+      skills: [...classEntry.chosenSkills],
+    };
+
+    const classDef = classCatalog.resolve({
+      key: classEntry.classKey,
+      packId: classEntry.packId,
+    });
+
+    if (!classDef) {
+      return holdings;
+    }
+
+    // Через хелпер, а не индексацией таблицы: у хоумбрю-класса ключ вне
+    // `ClassKey`, и владения мультикласса лежат в его собственном поле
+    // `multiclassProficiencies` — прямая индексация их теряла
+    const multiclass = getMulticlassProficiencies(classDef);
+
+    const armorKeys = isPrimary
+      ? classDef.armorProficiencies
+      : (multiclass?.armor ?? []);
+
+    const weaponKeys = isPrimary
+      ? classDef.weaponProficiencies
+      : (multiclass?.weapons ?? []);
+
+    return {
+      ...holdings,
+      armor: unpackProficiencyKeys(armorKeys, systemDataStore.armorBaseTypes),
+      weapons: unpackProficiencyKeys(
+        weaponKeys,
+        systemDataStore.weaponBaseTypes,
+      ),
+      savingThrows: isPrimary ? [...classDef.savingThrowProficiencies] : [],
+    };
+  }
+
+  /**
+   * Владения, которые держат вид, предыстория и черты персонажа. Каждый
+   * источник узнаётся своим же откатом: что ушло бы с ним, тем он и владеет.
+   *
+   * @param actor - актёр, с которого снимается класс
+   * @returns владения по источникам
+   */
+  function collectNonClassHoldings(actor: DnDActor): ProficiencyHoldings[] {
     const proficiencies = actor.system.proficiencies;
 
-    if (remainingClasses.length === 0) {
-      // Удалён последний класс — полная очистка
-      proficiencies.armor = [];
-      proficiencies.weapons = [];
-      proficiencies.tools = [];
-      proficiencies.savingThrows = [];
-      proficiencies.skills = {};
+    // Массив объявлен типом черты: базовый `Feature` о `featData` не знает
+    const features: AppliedFeatFeature[] = actor.features;
 
-      return;
-    }
+    const featHoldings = features
+      .filter((feature) => feature.featData)
+      .map((feature) => {
+        const rolledBack = cloneActorProficiencies(proficiencies);
 
-    // Собираем все владения из оставшихся классов
-    const allArmor = new Set<string>();
-    const allWeapons = new Set<string>();
-    const allTools = new Set<string>();
-    const allSavingThrows = new Set<AbilityType>();
+        removeFeatDataProficiencies(rolledBack, feature.featData);
 
-    for (
-      let classIndex = 0;
-      classIndex < remainingClasses.length;
-      classIndex++
-    ) {
-      const classEntry = remainingClasses[classIndex];
+        removeFeatChoiceSelections(
+          rolledBack,
+          feature.featData,
+          feature.choices,
+        );
 
-      const classDef = classCatalog.resolve({
-        key: classEntry.classKey,
-        packId: classEntry.packId,
+        return diffProficiencyHoldings(proficiencies, rolledBack);
       });
 
-      if (!classDef) {
-        continue;
-      }
-
-      if (classIndex === 0) {
-        // Первый класс — полные стартовые владения
-        for (const armor of unpackProficiencyKeys(
-          classDef.armorProficiencies,
-          systemDataStore.armorBaseTypes,
-        )) {
-          allArmor.add(armor);
-        }
-
-        for (const weapon of unpackProficiencyKeys(
-          classDef.weaponProficiencies,
-          systemDataStore.weaponBaseTypes,
-        )) {
-          allWeapons.add(weapon);
-        }
-
-        for (const tool of classDef.toolProficiencies ?? []) {
-          allTools.add(tool);
-        }
-
-        for (const saving of classDef.savingThrowProficiencies) {
-          allSavingThrows.add(saving);
-        }
-      } else {
-        // Мультикласс — сокращённые владения (PHB 2024)
-        // Через хелпер, а не индексацией таблицы: у хоумбрю-класса ключ вне
-        // `ClassKey`, и владения мультикласса лежат в его собственном поле
-        // `multiclassProficiencies` — прямая индексация их теряла.
-        const multiProf = getMulticlassProficiencies(classDef);
-
-        if (multiProf) {
-          for (const armor of unpackProficiencyKeys(
-            multiProf.armor,
-            systemDataStore.armorBaseTypes,
-          )) {
-            allArmor.add(armor);
-          }
-
-          for (const weapon of unpackProficiencyKeys(
-            multiProf.weapons,
-            systemDataStore.weaponBaseTypes,
-          )) {
-            allWeapons.add(weapon);
-          }
-
-          for (const tool of multiProf.tools) {
-            allTools.add(tool);
-          }
-        }
-      }
-    }
-
-    proficiencies.armor = Array.from(allArmor);
-    proficiencies.weapons = Array.from(allWeapons);
-    proficiencies.tools = Array.from(allTools);
-    proficiencies.savingThrows = Array.from(allSavingThrows);
-
-    // Навыки — удаляем только те, которые были от удалённого класса
-    if (removedSkills.length > 0) {
-      // Проверяем, не дублируются ли навыки в оставшихся классах
-      const remainingChosenSkills = new Set<string>();
-
-      for (const classEntry of remainingClasses) {
-        for (const skill of classEntry.chosenSkills) {
-          remainingChosenSkills.add(skill);
-        }
-      }
-
-      for (const removedSkill of removedSkills) {
-        // Удаляем навык только если его нет ни в одном оставшемся классе
-        if (
-          isSkillType(removedSkill)
-          && !remainingChosenSkills.has(removedSkill)
-        ) {
-          delete proficiencies.skills[removedSkill];
-        }
-      }
-    }
+    return [
+      diffProficiencyHoldings(
+        proficiencies,
+        rollbackBackgroundProficiencies(proficiencies, actor.system.background),
+      ),
+      diffProficiencyHoldings(
+        proficiencies,
+        rollbackSpeciesProficiencies(
+          proficiencies,
+          actor.system.species,
+          appliedSpeciesDef.value,
+          appliedSubspeciesDef.value,
+          getTotalLevel(actor.system.classes),
+        ),
+      ),
+      ...featHoldings,
+    ];
   }
 
   /**
@@ -2157,12 +2288,186 @@
   }
 
   /**
+   * Принадлежит ли особенность классу: умение класса или его подкласса.
+   *
+   * Происхождение записи содержит название класса («Волшебник» или
+   * «Волшебник — Школа воплощения»).
+   *
+   * @param feature - особенность листа
+   * @param className - название класса
+   */
+  function isOwnClassFeature(feature: Feature, className: string): boolean {
+    const isClassFeature =
+      feature.featureType === 'class' || feature.featureType === 'subclass';
+
+    return isClassFeature && Boolean(feature.grantedBy?.includes(className));
+  }
+
+  /**
+   * Заклинания листа, какими они станут после отката записи. Считается тем же
+   * кодом, что и сам откат, но лист не трогает: по разнице окно удаления
+   * узнаёт выданные заклинания.
+   *
+   * @param actor - актёр до удаления
+   * @param subject - что снимается
+   * @returns заклинания без выданных снимаемой записью
+   */
+  function previewSpellsAfterRemoval(
+    actor: DnDActor,
+    subject: GrantRemovalSubject,
+  ): Spell[] {
+    if (subject.kind === 'species') {
+      return (
+        buildSpeciesRemovalUpdates(
+          actor,
+          appliedSpeciesDef.value,
+          appliedSubspeciesDef.value,
+        ).rootUpdates.spells ?? actor.spells
+      );
+    }
+
+    if (subject.kind === 'background') {
+      return (
+        buildBackgroundRemovalUpdates(actor).rootUpdates.spells ?? actor.spells
+      );
+    }
+
+    const className = actor.system.classes.find(
+      (entry) => entry.classKey === subject.key,
+    )?.className;
+
+    if (!className) {
+      return actor.spells;
+    }
+
+    return removeGrantedSpellsByFeatureNames(
+      actor.spells,
+      collectGrantedSpellSourceNames(
+        className,
+        actor.features.filter((feature) =>
+          isOwnClassFeature(feature, className),
+        ),
+      ),
+    );
+  }
+
+  /**
+   * Применяет к листу выбор из окна удаления: возвращает оставленные выданные
+   * заклинания и снимает отмеченные заклинания класса и предметы.
+   *
+   * @param choice - выбор игрока; пусто — окно не открывалось
+   */
+  function applyGrantRemovalChoice(choice?: GrantRemovalChoice): void {
+    if (!localActor.value || !choice) {
+      return;
+    }
+
+    const { spells, equipment } = applyGrantRemovalSelection(
+      choice.spellsBefore,
+      {
+        spells: localActor.value.spells,
+        equipment: localActor.value.equipment,
+      },
+      choice.options,
+      choice.selectedIds,
+    );
+
+    localActor.value.spells = spells;
+    localActor.value.equipment = equipment;
+  }
+
+  /**
+   * Снимает запись с листа — каждую своим обработчиком.
+   *
+   * @param subject - что снимается
+   * @param choice - выбор игрока из окна удаления; пусто — окно не открывалось
+   */
+  function removeGrant(
+    subject: GrantRemovalSubject,
+    choice?: GrantRemovalChoice,
+  ): void {
+    if (subject.kind === 'class') {
+      handleRemoveClass(subject.key, choice);
+    } else if (subject.kind === 'species') {
+      handleRemoveSpecies(choice);
+    } else {
+      handleRemoveBackground(choice);
+    }
+  }
+
+  /**
+   * Начинает удаление записи. Если вместе с ней можно убрать заклинания или
+   * стартовые предметы — сперва спрашивает, что именно; иначе снимает сразу:
+   * удаление уже подтверждено в окне, из которого пришло.
+   *
+   * @param subject - что снимается
+   */
+  function requestGrantRemoval(subject: GrantRemovalSubject): void {
+    const actor = localActor.value;
+
+    if (!actor) {
+      return;
+    }
+
+    const options = collectGrantRemovalOptions(
+      actor,
+      subject,
+      previewSpellsAfterRemoval(actor, subject),
+      actor.system.classes
+        .map((entry) => entry.classKey)
+        .filter((classKey) => classKey !== subject.key),
+    );
+
+    if (options.length === 0) {
+      removeGrant(subject);
+
+      return;
+    }
+
+    pendingGrantRemoval.value = { subject, options };
+    isGrantRemovalOpen.value = true;
+  }
+
+  /**
+   * Начинает удаление класса.
+   *
+   * @param classKey - ключ снимаемого класса
+   */
+  function requestClassRemoval(classKey: string): void {
+    requestGrantRemoval({ kind: 'class', key: classKey });
+  }
+
+  /**
+   * Доводит удаление до конца с выбором игрока.
+   *
+   * @param selectedIds - ключи строк, отмеченных в окне к удалению
+   */
+  function handleGrantRemovalConfirm(selectedIds: string[]): void {
+    const pending = pendingGrantRemoval.value;
+
+    if (!pending || !localActor.value) {
+      return;
+    }
+
+    pendingGrantRemoval.value = null;
+
+    removeGrant(pending.subject, {
+      options: pending.options,
+      selectedIds: new Set(selectedIds),
+      spellsBefore: localActor.value.spells,
+    });
+  }
+
+  /**
    * Удаляет класс у актёра и все связанные с ним данные:
    * - Запись из system.classes
    * - Особенности (features) с featureType 'class' или 'subclass', привязанные к этому классу
    * - Пересчёт HP
+   *
+   * @param classKey - ключ снимаемого класса
+   * @param choice - выбор игрока из окна удаления; пусто — окно не открывалось
    */
-  function handleRemoveClass(classKey: string) {
+  function handleRemoveClass(classKey: string, choice?: GrantRemovalChoice) {
     if (!localActor.value) {
       return;
     }
@@ -2185,31 +2490,13 @@
     localActor.value.system.classes = remainingClasses;
 
     // Удаляем все features, связанные с этим классом
-    const removedFeatures: Feature[] = [];
+    const removedFeatures = localActor.value.features.filter((feature) =>
+      isOwnClassFeature(feature, removedClassName),
+    );
 
-    if (localActor.value.features) {
-      localActor.value.features = localActor.value.features.filter(
-        (feature) => {
-          const isClassFeature =
-            feature.featureType === 'class'
-            || feature.featureType === 'subclass';
-
-          if (!isClassFeature) {
-            return true;
-          }
-
-          // grantedBy содержит название класса (напр. «Волшебник» или
-          // «Волшебник — Школа воплощения»)
-          const isOwn = Boolean(feature.grantedBy?.includes(removedClassName));
-
-          if (isOwn) {
-            removedFeatures.push(feature);
-          }
-
-          return !isOwn;
-        },
-      );
-    }
+    localActor.value.features = localActor.value.features.filter(
+      (feature) => !isOwnClassFeature(feature, removedClassName),
+    );
 
     // Заклинания, выданные снятыми умениями и их вариантами: воззвание колдуна
     // положило своё заклинание в книгу, и без класса ему там делать нечего
@@ -2243,11 +2530,16 @@
       ),
     );
 
-    // Пересобираем proficiencies из SRD-данных оставшихся классов
-    rebuildProficienciesFromRemainingClasses(
-      localActor.value,
-      remainingClasses,
-      removedEntry.chosenSkills,
+    // Владения: уходит только то, что держал сам класс и не держит никто
+    // другой — навыки и инструменты вида, предыстории и черт остаются. Черты
+    // считаются уже без снятых с классом записей
+    localActor.value.system.proficiencies = rollbackClassProficiencies(
+      localActor.value.system.proficiencies,
+      collectClassHoldings(removedEntry, classes[0] === removedEntry),
+      remainingClasses.map((classEntry, classIndex) =>
+        collectClassHoldings(classEntry, classIndex === 0),
+      ),
+      collectNonClassHoldings(localActor.value),
     );
 
     // Пересчитываем HP
@@ -2265,6 +2557,8 @@
         newMax,
       ),
     };
+
+    applyGrantRemovalChoice(choice);
 
     isDirty.value = true;
     handleImmediateSave();
@@ -2317,8 +2611,10 @@
    *
    * Без определения снимаемого вида (пак компендиума мог исчезнуть) владения
    * откатить нечем — снимаем всё остальное и предупреждаем об этом.
+   *
+   * @param choice - выбор игрока из окна удаления; пусто — окно не открывалось
    */
-  function handleRemoveSpecies() {
+  function handleRemoveSpecies(choice?: GrantRemovalChoice) {
     if (!localActor.value?.system.species) {
       return;
     }
@@ -2338,6 +2634,8 @@
     appliedSubspeciesDef.value = null;
     droppedSpeciesDef.value = null;
 
+    applyGrantRemovalChoice(choice);
+
     isDirty.value = true;
     handleImmediateSave();
 
@@ -2353,8 +2651,10 @@
   /**
    * Снимает с персонажа предысторию: бонусы характеристик, владения и
    * черта-происхождение уходят вместе с ней.
+   *
+   * @param choice - выбор игрока из окна удаления; пусто — окно не открывалось
    */
-  function handleRemoveBackground() {
+  function handleRemoveBackground(choice?: GrantRemovalChoice) {
     if (!localActor.value?.system.background) {
       return;
     }
@@ -2367,6 +2667,8 @@
     Object.assign(localActor.value, rootUpdates);
 
     droppedBackgroundDef.value = null;
+
+    applyGrantRemovalChoice(choice);
 
     isDirty.value = true;
     handleImmediateSave();
@@ -2383,10 +2685,18 @@
    * открыт в окне выбора. Класс снимается адресно, своим обработчиком.
    */
   function handleCompendiumPickerRemove() {
-    if (compendiumPickerKind.value === 'species') {
-      handleRemoveSpecies();
-    } else if (compendiumPickerKind.value === 'background') {
-      handleRemoveBackground();
+    const system = localActor.value?.system;
+
+    if (compendiumPickerKind.value === 'species' && system?.species) {
+      requestGrantRemoval({ kind: 'species', key: system.species.speciesKey });
+    } else if (
+      compendiumPickerKind.value === 'background'
+      && system?.background
+    ) {
+      requestGrantRemoval({
+        kind: 'background',
+        key: system.background.backgroundKey,
+      });
     }
   }
 
@@ -2688,7 +2998,7 @@
             @minimize="minimizeSheet"
             @toggle-pop-out="togglePopOutSheet"
             @start-wizard="handleStartWizardSequence"
-            @remove-class="handleRemoveClass"
+            @remove-class="requestClassRemoval"
             @open-compendium-picker="openCompendiumPicker"
           />
           <!-- Основной контент. Пока ширина листа не замерена, раскладка
@@ -2849,11 +3159,23 @@
     :actor="localActor"
     :species-definition="droppedSpeciesDef"
     :pack-id="droppedSpeciesPackId"
+    :subspecies-key="droppedSubspeciesKey"
     :previous-species-definition="appliedSpeciesDef"
     :previous-subspecies-definition="appliedSubspeciesDef"
     :species-records="wizardSpeciesRecords"
     :socket="socket"
     @apply="handleSpeciesSetupApply"
+  />
+
+  <!-- Вид с подвидами: сперва спрашиваем, какой подвид -->
+  <SubspeciesChoiceModal
+    v-if="pendingSubspeciesChoice"
+    :open="true"
+    :species-name="pendingSubspeciesChoice.species.name"
+    :options="pendingSubspeciesChoice.options"
+    :pack-id="pendingSubspeciesChoice.packId"
+    @update:open="handleSubspeciesChoiceOpen"
+    @choose="handleSubspeciesChoice"
   />
 
   <!-- Мастер настройки предыстории -->
@@ -2876,7 +3198,7 @@
     :socket="socket"
     @select="handleCompendiumPickerSelect"
     @remove-current="handleCompendiumPickerRemove"
-    @remove-class="handleRemoveClass"
+    @remove-class="requestClassRemoval"
   />
 
   <!-- Короткий отдых: трата костей хитов -->
@@ -2928,6 +3250,15 @@
     "
     :socket="socket"
     @apply="handleFeatRechooseApply"
+  />
+
+  <!-- Удаление класса, вида или предыстории: что убрать вместе с записью -->
+  <GrantRemovalModal
+    v-if="pendingGrantRemoval"
+    v-model:open="isGrantRemovalOpen"
+    :kind="pendingGrantRemoval.subject.kind"
+    :options="pendingGrantRemoval.options"
+    @confirm="handleGrantRemovalConfirm"
   />
 </template>
 

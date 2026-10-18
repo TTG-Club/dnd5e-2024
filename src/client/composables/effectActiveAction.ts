@@ -29,6 +29,8 @@ import {
   warnPayShortfall,
 } from './effectPayChoice';
 import { resolveCombatRound } from './encounterTurn';
+import { refuseWhilePaused } from './pauseLock';
+import { resolveClientSceneSight } from './sceneSightFacts';
 import { refuseWhileSheetEditing } from './sheetEditLock';
 import { emitSystemClientEvent } from './systemClientEvents';
 import { useWorldEntities } from './useWorldEntities';
@@ -49,6 +51,11 @@ export function runEntityEffectAction(
 ): void {
   // Лист в режиме правки — кнопка ждёт «Сохранить» или отмены
   if (refuseWhileSheetEditing(entityId)) {
+    return;
+  }
+
+  // Игра на паузе — действие не начинается
+  if (refuseWhilePaused()) {
     return;
   }
 
@@ -131,7 +138,11 @@ export function runEntityEffectAction(
       current,
       effectId,
       resolveCombatRound(),
-      { ...(payPickIds ? { payPickIds } : {}), report },
+      {
+        ...(payPickIds ? { payPickIds } : {}),
+        report,
+        sight: resolveClientSceneSight(),
+      },
     );
 
     emitActedEntity(current, acted);

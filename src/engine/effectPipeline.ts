@@ -70,7 +70,9 @@ import {
   TARGET_IS_SOURCE_CONDITION,
   TARGET_NOT_SOURCE_CONDITION,
   WEAPON_DAMAGE_DICE_KEY,
+  WEAPON_PROPERTY_CONDITION_PREFIX,
 } from './activeEffectTypes.js';
+import { isArmorProficient } from './armorProficiency.js';
 import {
   armorConditionMatches,
   getCarrierArmorState,
@@ -120,7 +122,11 @@ import {
   substituteFormulaVariables,
   withResolvedSheetNumbers,
 } from './formulaParser.js';
-import { isItemWorn } from './itemUses.js';
+import {
+  isAwaitingAttunement,
+  isItemDepleted,
+  isItemWorn,
+} from './itemUses.js';
 import {
   DEFAULT_PROFICIENCY_BONUS,
   getProficiencyBonusBreakdown,
@@ -411,7 +417,9 @@ export function prepareBaseData(
 /**
  * Работают ли свойства предмета прямо сейчас.
  *
- * Предмет должен быть надет и не закончиться (см. {@link isItemWorn}), а
+ * Предмет должен быть надет и не закончиться (см. {@link isItemWorn}) — либо,
+ * если его магия работает «при себе» (`activeWhenCarried`), просто лежать в
+ * инвентаре и не закончиться, — а
  * предмет с обязательной настройкой — ещё и настроен: по правилам 2024 без настройки магия такого предмета не действует.
  * Необязательная настройка (`optional`) ничего не гейтит — предмет работает и
  * без неё, настройка лишь добавляет свойства, описанные текстом.
@@ -422,11 +430,15 @@ export function prepareBaseData(
  * @param item - предмет инвентаря
  */
 export function itemEffectsActive(item: DnDGameItem): boolean {
-  if (!isItemWorn(item)) {
+  const present = item.activeWhenCarried
+    ? !isItemDepleted(item)
+    : isItemWorn(item);
+
+  if (!present) {
     return false;
   }
 
-  return item.magicAttunement !== 'required' || Boolean(item.isAttuned);
+  return !isAwaitingAttunement(item);
 }
 
 /** Вид записи, от которой эффект достался носителю */
@@ -942,6 +954,11 @@ export interface RollContext {
    */
   itemId?: string;
   /**
+   * Свойства оружия броска — для условий `weapon.property` («Сражение
+   * метательным оружием»). Не задано — бросок не оружием, условие не выполняется.
+   */
+  weaponProperties?: readonly string[];
+  /**
    * Состояние HP цели — для условий `target.hp.*` (напр. «Убийца»/«Окровавлен»),
    * и её тип — для условий `target.creatureType`. Отсутствует вне
    * таргет-контекста; такие условия тогда не срабатывают.
@@ -1389,6 +1406,15 @@ export function evaluateConditionPart(
 
   if (trimmed === 'roll.hasDisadvantage === true') {
     return rollContext.hasDisadvantage;
+  }
+
+  const weaponProperty = parseQuotedCondition(
+    trimmed,
+    WEAPON_PROPERTY_CONDITION_PREFIX,
+  );
+
+  if (weaponProperty) {
+    return rollContext.weaponProperties?.includes(weaponProperty) ?? false;
   }
 
   // Условия по состоянию HP цели
@@ -3495,20 +3521,9 @@ export function prepareDerivedData(
         continue;
       }
 
-      // Владение: в списке есть сам доспех (baseType) или его категория.
-      // Список пишут двумя способами: мастер класса и окно владений — по
-      // доспехам («leather»), черты и дары уровней — категорией («light»).
-      // Если baseType неизвестен (кастомный предмет) — не штрафуем.
-      // Списка нет (существо) — владение не проверяется вовсе.
-      if (
-        armorProficiencies
-        && item.baseType
-        && !armorProficiencies.includes(item.baseType)
-        && !(
-          item.equipmentCategory
-          && armorProficiencies.includes(item.equipmentCategory)
-        )
-      ) {
+      // Владение: сам доспех, его категория или все доспехи категории
+      // (см. isArmorProficient). Списка нет (существо) — не проверяется.
+      if (armorProficiencies && !isArmorProficient(item, armorProficiencies)) {
         lacksArmorProficiency = true;
       }
 

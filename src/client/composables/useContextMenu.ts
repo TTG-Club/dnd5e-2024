@@ -1,13 +1,24 @@
 import { computed, ref } from 'vue';
 
 /** Действие контекстного меню */
-export type ContextMenuAction = 'copy' | 'edit' | 'delete';
+export type ContextMenuAction =
+  'copy' | 'edit' | 'delete' | 'add-to-compendium' | 'share' | 'cast';
 
 /** Пропсы, необходимые для контекстного меню */
 export interface ContextMenuProps {
   showCopy?: boolean;
   showEdit?: boolean;
   showDelete?: boolean;
+  /**
+   * Показать «В компендиум». Флаг ставит ядро в «Мастерской» мастеру, когда
+   * запись можно положить в компендиум мира.
+   */
+  showAddToCompendium?: boolean;
+  /**
+   * Обработчик «Поделиться в чат». Ядро передаёт его в «Мастерской» тем типам,
+   * которым система разрешила `allowShareAttr`; есть обработчик — есть пункт.
+   */
+  onShare?: () => void;
 }
 
 /**
@@ -19,6 +30,8 @@ export interface ContextMenuProps {
  *
  * @param props - реактивный источник пропсов с флагами видимости пунктов
  * @param emit - функция эмита событий компонента (Vue defineEmits)
+ * @param onAddToCompendium - что делать по пункту «В компендиум»; у строк,
+ *   которые этот пункт не показывают, не передаётся
  */
 export function useContextMenu(
   props: ContextMenuProps,
@@ -27,14 +40,23 @@ export function useContextMenu(
     (event: 'edit'): void;
     (event: 'delete'): void;
   },
+  onAddToCompendium?: () => void,
 ) {
   const isMenuOpen = ref(false);
   const menuX = ref(0);
   const menuY = ref(0);
 
+  /** Есть ли кому отправить запись в чат */
+  const canShare = computed(() => props.onShare !== undefined);
+
   /** Есть ли пункты для контекстного меню */
   const hasContextMenu = computed(
-    () => props.showCopy || props.showEdit || props.showDelete,
+    () =>
+      props.showCopy
+      || props.showEdit
+      || props.showDelete
+      || props.showAddToCompendium
+      || canShare.value,
   );
 
   /**
@@ -58,7 +80,7 @@ export function useContextMenu(
   /**
    * Обработчик выбора пункта меню.
    *
-   * @param action - действие ('copy' | 'edit' | 'delete')
+   * @param action - выбранный пункт меню
    */
   function handleAction(action: ContextMenuAction): void {
     isMenuOpen.value = false;
@@ -67,7 +89,11 @@ export function useContextMenu(
       emit('copy');
     } else if (action === 'edit') {
       emit('edit');
-    } else {
+    } else if (action === 'add-to-compendium') {
+      onAddToCompendium?.();
+    } else if (action === 'share') {
+      props.onShare?.();
+    } else if (action === 'delete') {
       emit('delete');
     }
   }
@@ -82,6 +108,7 @@ export function useContextMenu(
     menuX,
     menuY,
     hasContextMenu,
+    canShare,
     openContextMenu,
     handleAction,
     closeMenu,

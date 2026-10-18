@@ -28,6 +28,7 @@ import {
 
 import { EFFECT_QUESTION_PROMPT_MODAL } from '../ui/effect/constants';
 import { sendSelfTriggerReport } from './effectPayChoice';
+import { resolveClientSceneSight } from './sceneSightFacts';
 import { requestEndCasts, waitForCastsEnded } from './spellCasts';
 
 /**
@@ -92,7 +93,7 @@ export async function runRestWithTriggers(
 
   const triggerReport: SelfTriggerReport = { notes: [], results: [] };
 
-  apply({ triggerAnswers, triggerReport });
+  apply({ triggerAnswers, triggerReport, sight: resolveClientSceneSight() });
 
   sendSelfTriggerReport(entity.name, triggerReport, REST_TRIGGER_SUMMARY_LABEL);
 }

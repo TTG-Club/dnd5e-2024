@@ -103,6 +103,7 @@ const TRIGGER_EVENT_LABELS: Record<EffectTriggerEvent, string> = {
   healed: 'когда носителя лечат',
   hpZero: 'когда хиты падают до 0',
   downedOther: 'когда носитель сваливает цель',
+  allyHurt: 'когда на глазах носителя ранят союзника',
   conditionLost: 'когда состояние снимается',
   rest: 'после отдыха',
   activate: 'при включении',
@@ -400,6 +401,14 @@ const TRIGGER_CONDITION_PHRASES: Record<
   combatRoundAtLeast: (value) => `с ${value}-го раунда боя`,
   movementOwn: () => 'носитель шёл сам',
   movementForced: () => 'носителя переставили толчком или переносом',
+  selfSeesOther: () => 'носитель видит другую сторону',
+  selfSeesOtherNot: () => 'носитель не видит другую сторону',
+  otherSeesSelf: () => 'другая сторона видит носителя',
+  otherSeesSelfNot: () => 'другая сторона не видит носителя',
+  selfInDarkness: () => 'носитель в темноте',
+  selfInLight: () => 'носитель на свету',
+  otherInDarkness: () => 'другая сторона в темноте',
+  otherInLight: () => 'другая сторона на свету',
 };
 
 /**

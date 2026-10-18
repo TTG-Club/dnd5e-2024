@@ -39,9 +39,13 @@ import type {
 import type { SceneOffset } from './forcedMovement.js';
 import type { FormulaContext } from './formulaParser.js';
 import type { SaveSourceTraits } from './saveSourceTraits.js';
+import type { SceneSight } from './sceneSight.js';
 import type { TriggerEventData } from './triggerConditions.js';
 
-import { isToggleActivatedEffect } from './activeEffectTypes.js';
+import {
+  isToggleActivatedEffect,
+  isUseActivatedEffect,
+} from './activeEffectTypes.js';
 import { stampApplyTimeFormulas } from './applyTimeFormulas.js';
 import {
   doubleDiceInFormula,
@@ -313,6 +317,19 @@ function passTurnBoundary(effect: ActiveEffect): ActiveEffect[] {
 }
 
 /**
+ * Истекает ли эффект на границе хода. Шаблон «при применении» на листе несёт
+ * срок той копии, которую наложит, — сам он не действует и истекать не
+ * должен: иначе первая же граница хода носителя снимала умение с листа
+ * («Защищающая вспышка» пропадала в бою, ресурс оставался).
+ *
+ * @param effect - эффект сущности
+ * @returns `true`, если эффект снимается на границе хода (или раунда вне боя)
+ */
+function expiresOnTurnBoundary(effect: ActiveEffect): boolean {
+  return effect.duration.type === 'turn' && !isUseActivatedEffect(effect);
+}
+
+/**
  * Наложивший, чьего хода эффект ждёт, — если этот ход вообще наступит. Без
  * `sourceActorId` (эффект наложен по пути без контекста кастера) и когда
  * наложившего нет в бою (не добавляли либо удалили после смерти) ждать нечего:
@@ -370,7 +387,10 @@ export function expireTurnEffects(
   entity.activeEffects = entity.activeEffects.flatMap((effect) => {
     const duration = effect.duration;
 
-    if (duration.type !== 'turn' || (duration.turnTiming ?? 'end') !== timing) {
+    if (
+      !expiresOnTurnBoundary(effect)
+      || (duration.turnTiming ?? 'end') !== timing
+    ) {
       return [effect];
     }
 
@@ -421,7 +441,7 @@ export function expireOutsiderTurnEffects(
   const effects = entity.activeEffects ?? [];
 
   const waitsForRound = (effect: ActiveEffect): boolean =>
-    effect.duration.type === 'turn'
+    expiresOnTurnBoundary(effect)
     && (isInCombat === undefined
       || resolveReachableSourceId(effect, isInCombat) === undefined);
 
@@ -563,6 +583,11 @@ export interface TurnEffectsOptions extends SceneMoveOptions {
    * опции номер неизвестен, и части расписания НЕ выполняются.
    */
   combatRound?: number;
+  /**
+   * Видимость и свет сцены: условия «вижу / не вижу», «на свету / в темноте».
+   * Без опции фактов нет, и такие части условия НЕ выполняются.
+   */
+  sight?: SceneSight;
   /**
    * Ауры чужих токенов, накрывающие сущность: их урон «пока внутри» тикает на
    * её ходу, а бонусы учитываются в спасбросках. Эффекты ауры на сущности не

@@ -30,6 +30,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { resolveCombatRound } from './encounterTurn';
+import { resolveClientSceneSight } from './sceneSightFacts';
 import { resolveSpellCastId, resolveSpellCastLevel } from './spellCasts';
 import {
   getPartKindLabel,
@@ -126,6 +127,7 @@ function buildLandingContext(input: TargetEffectsInput): EffectLandingContext {
     source: resolveLandingSource(input.casterId),
     weaponMastery: input.spell.weaponMastery,
     combatRound: resolveCombatRound(),
+    sight: resolveClientSceneSight(),
   };
 }
 

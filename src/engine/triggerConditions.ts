@@ -21,6 +21,7 @@ import type {
   EffectTriggerEvent,
 } from './effectTriggerTypes.js';
 import type { SceneOffset } from './forcedMovement.js';
+import type { SceneSight } from './sceneSight.js';
 
 import {
   ATTACK_ABILITY_CONDITION_PREFIX,
@@ -190,6 +191,12 @@ export interface TriggerEventData {
    * неизвестен, и части расписания НЕ выполняются.
    */
   combatRound?: number;
+  /**
+   * Видимость и свет сцены: кто кого видит и кто на свету. Их знает только
+   * ядро (`getSightBetween`, VTTG 0.9.700+), и не на всяком пути. Нет поля —
+   * неизвестно, и части условия о видимости и свете НЕ выполняются.
+   */
+  sight?: SceneSight;
   /** Перемещение носителя — у события «прошёл N футов» */
   movement?: {
     /** Фишку переставили правила (толчок, притягивание), а не носитель */
@@ -251,6 +258,14 @@ export const TRIGGER_CONDITION_KINDS = [
   'otherCreatureTypeChosen',
   'selfHpMaxAtMost',
   'otherIsSourceSide',
+  'selfSeesOther',
+  'selfSeesOtherNot',
+  'otherSeesSelf',
+  'otherSeesSelfNot',
+  'selfInDarkness',
+  'selfInLight',
+  'otherInDarkness',
+  'otherInLight',
 ] as const;
 
 /**
@@ -298,6 +313,14 @@ export const TRIGGER_CONDITION_KINDS = [
  * - `otherCreatureTypeChosen` — тип другой стороны из выбора владельца
  *   («существо из вашего Гримуара»);
  * - `selfHpMaxAtMost` — максимум хитов носителя не больше N;
+ * - `selfSeesOther` / `selfSeesOtherNot` — носитель видит / не видит другую
+ *   сторону (стены, свет, тёмное зрение, слепота и невидимость —
+ *   `sceneSight.ts`);
+ * - `otherSeesSelf` / `otherSeesSelfNot` — другая сторона видит / не видит
+ *   носителя;
+ * - `selfInDarkness` / `selfInLight` — носитель в темноте / на свету (ярком
+ *   или тусклом);
+ * - `otherInDarkness` / `otherInLight` — другая сторона в темноте / на свету;
  * - `otherIsSourceSide` — другая сторона — наложивший эффект или его союзник
  *   («пока вы или ваши союзники не нанесёте ей урон»).
  */
@@ -390,6 +413,14 @@ const KIND_EVENTS: Record<
   otherCreatureTypeChosen: OTHER_CONDITION_EVENTS,
   selfHpMaxAtMost: undefined,
   otherIsSourceSide: OTHER_CONDITION_EVENTS,
+  selfSeesOther: OTHER_CONDITION_EVENTS,
+  selfSeesOtherNot: OTHER_CONDITION_EVENTS,
+  otherSeesSelf: OTHER_CONDITION_EVENTS,
+  otherSeesSelfNot: OTHER_CONDITION_EVENTS,
+  selfInDarkness: undefined,
+  selfInLight: undefined,
+  otherInDarkness: OTHER_CONDITION_EVENTS,
+  otherInLight: OTHER_CONDITION_EVENTS,
 };
 
 /** Приставка части «тип урона события из списка» */
@@ -555,6 +586,14 @@ const FIXED_PARTS: Partial<Record<TriggerConditionKind, string>> = {
   attackMissed: 'attack.landed === false',
   movementOwn: 'move.forced === false',
   movementForced: 'move.forced === true',
+  selfSeesOther: 'self.canSee === true',
+  selfSeesOtherNot: 'self.canSee === false',
+  otherSeesSelf: 'target.canSee === true',
+  otherSeesSelfNot: 'target.canSee === false',
+  selfInDarkness: 'self.light === "dark"',
+  selfInLight: 'self.light !== "dark"',
+  otherInDarkness: 'target.light === "dark"',
+  otherInLight: 'target.light !== "dark"',
 };
 
 /** Целое неотрицательное число строкой */
@@ -1126,6 +1165,24 @@ function isConditionPartMet(
         eventData.combatRound !== undefined
         && eventData.combatRound >= Number(part.value)
       );
+    // Видимость и свет знает сцена. Нет фактов — неизвестно, и не выполняется
+    // ни «вижу», ни «не вижу»: молчание честнее догадки
+    case 'selfSeesOther':
+      return isSeen(eventData.sight, entity, other, true);
+    case 'selfSeesOtherNot':
+      return isSeen(eventData.sight, entity, other, false);
+    case 'otherSeesSelf':
+      return isSeen(eventData.sight, other, entity, true);
+    case 'otherSeesSelfNot':
+      return isSeen(eventData.sight, other, entity, false);
+    case 'selfInDarkness':
+      return isLit(eventData.sight, entity, false);
+    case 'selfInLight':
+      return isLit(eventData.sight, entity, true);
+    case 'otherInDarkness':
+      return isLit(eventData.sight, other, false);
+    case 'otherInLight':
+      return isLit(eventData.sight, other, true);
     case 'movementOwn':
       return eventData.movement?.forced === false;
     case 'movementForced':
@@ -1136,6 +1193,61 @@ function isConditionPartMet(
         buildTriggerRollContext(entity, eventData),
       );
   }
+}
+
+/**
+ * Совпал ли ответ «видит ли смотрящий цель» с ожидаемым.
+ *
+ * @param sight - видимость сцены; нет — неизвестно
+ * @param viewer - смотрящий
+ * @param target - цель
+ * @param expected - ожидаемый ответ
+ * @returns `true`, только если ответ известен и совпал
+ */
+function isSeen(
+  sight: SceneSight | undefined,
+  viewer: DnDSceneEntity | undefined,
+  target: DnDSceneEntity | undefined,
+  expected: boolean,
+): boolean {
+  if (!sight || !viewer || !target) {
+    return false;
+  }
+
+  return sight.canSee(viewer, target) === expected;
+}
+
+/**
+ * Совпало ли «существо на свету» с ожидаемым. Тусклый свет — тоже свет.
+ *
+ * @param sight - свет сцены; нет — неизвестно
+ * @param entity - существо
+ * @param expected - ожидается свет (`true`) или темнота (`false`)
+ * @returns `true`, только если освещённость известна и совпала
+ */
+function isLit(
+  sight: SceneSight | undefined,
+  entity: DnDSceneEntity | undefined,
+  expected: boolean,
+): boolean {
+  const level = entity ? sight?.lightOf(entity) : undefined;
+
+  return level !== undefined && (level !== 'dark') === expected;
+}
+
+/**
+ * Данные события с видимостью и светом сцены: их знает инициатор (ядро на
+ * сервере, модуль хоста на клиенте), а не сам построитель данных события.
+ *
+ * @param eventData - данные события
+ * @param sight - видимость и свет; `undefined` — фактов нет
+ * @returns данные события с видимостью либо те же данные
+ */
+export function withSceneSight(
+  eventData: TriggerEventData,
+  sight: SceneSight | undefined,
+): TriggerEventData {
+  return sight === undefined ? eventData : { ...eventData, sight };
 }
 
 /**
@@ -1161,6 +1273,8 @@ export interface EffectLandingContext {
   weaponMastery?: boolean;
   /** Номер идущего раунда: условие «на раунде N» */
   combatRound?: number;
+  /** Видимость и свет сцены: условие «цель видит наложившего», «в темноте» */
+  sight?: SceneSight;
 }
 
 /**
@@ -1179,13 +1293,16 @@ export function passesLandingCondition(
   return isTriggerConditionMet(
     target,
     { condition: effect.landingCondition },
-    withCombatRound(
-      {
-        other: landing.source,
-        sourceId: landing.source?.id ?? effect.sourceActorId,
-        weaponMastery: landing.weaponMastery,
-      },
-      landing.combatRound,
+    withSceneSight(
+      withCombatRound(
+        {
+          other: landing.source,
+          sourceId: landing.source?.id ?? effect.sourceActorId,
+          weaponMastery: landing.weaponMastery,
+        },
+        landing.combatRound,
+      ),
+      landing.sight,
     ),
   );
 }

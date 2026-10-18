@@ -94,8 +94,14 @@ export function useSpeciesGrantedSpellsResolver(
         source.packId,
       );
 
+      // Отметка подготовки едет вместе с заклинанием: без неё врождённое
+      // заклинание вида ложилось бы в книгу обычным и занимало место подготовки
       if (spell) {
-        resolved.push({ spell, featureName: source.featureName });
+        resolved.push({
+          spell,
+          featureName: source.featureName,
+          alwaysPrepared: source.alwaysPrepared,
+        });
       }
     }
 

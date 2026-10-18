@@ -7,9 +7,10 @@
  * ({@link module:system/dnd/dnd5eSystem} отдаёт ему готовую точку через
  * `SystemTriggerContext.moveToken`, VTTG 0.9.532+).
  *
- * Препятствия не учитываются: ядро только прижимает фишку к краю сцены, стены
- * геометрия перемещения не видит. Это записано в каталоге сценариев — толчок
- * пройдёт сквозь стену.
+ * Стены считает ядро (VTTG 0.9.663+): фишка идёт по прямой к названной точке и
+ * встаёт в последней клетке перед стеной или закрытой дверью. Толчок и
+ * притягивание — движение по земле, их стена держит; перенос — телепортация,
+ * ему стены не помеха ({@link resolveForcedMoveOptions}).
  *
  * Фишка встаёт в клетку: расстояние считается по счёту сетки сцены (диагональ
  * квадратной сетки стоит столько, сколько назначило её правило), а итоговая
@@ -20,7 +21,12 @@
  * @module system/dnd/forcedMovement
  */
 
-import type { GridSettings, SystemSceneSurroundings, Token } from '@vtt/shared';
+import type {
+  GridSettings,
+  SystemSceneSurroundings,
+  SystemTokenMoveOptions,
+  Token,
+} from '@vtt/shared';
 
 import type { EffectTriggerMoveAction } from './effectTriggerTypes.js';
 
@@ -150,6 +156,19 @@ const TELEPORT_MOVE_KINDS: readonly EffectTriggerMoveAction['kind'][] = [
   'teleport',
   'bring',
 ];
+
+/**
+ * Как ядру вести фишку: перенос проходит сквозь стены, толчок и притягивание
+ * останавливаются у первой.
+ *
+ * @param action - действие «Переместить»
+ * @returns настройки перемещения для ядра
+ */
+export function resolveForcedMoveOptions(
+  action: EffectTriggerMoveAction,
+): SystemTokenMoveOptions {
+  return TELEPORT_MOVE_KINDS.includes(action.kind) ? { ignoreWalls: true } : {};
+}
 
 /**
  * На сколько пикселей фишка идёт к опоре, чтобы встать к ней вплотную: центры

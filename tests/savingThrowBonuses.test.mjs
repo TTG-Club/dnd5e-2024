@@ -110,8 +110,20 @@ const bundle = await build({
             : { path: request.path, namespace: 'host-api' },
         );
 
+        // Уведомления Nuxt UI отдаёт хост: запись листа сообщает ими об отказе
+        // сервера, а сам пакет вне приложения не собирается
+        builder.onResolve(
+          { filter: /^@nuxt\/ui\/composables$/ },
+          (request) => ({
+            path: request.path,
+            namespace: 'host-api',
+          }),
+        );
+
         builder.onLoad({ filter: /.*/, namespace: 'host-api' }, (request) => {
           const modules = {
+            '@nuxt/ui/composables':
+              'export const useToast = () => ({ add: () => {} });',
             '@/core/api/rollRequestService':
               'import { requestService } from "test:host"; export const getRollRequestService = () => requestService;',
             '@/stores/chatStore':
@@ -133,7 +145,7 @@ const bundle = await build({
             '@/stores/auraStore':
               'import { fixture } from "test:host"; export const useAuraStore = () => ({ getAmbientEffectsForActor: () => fixture.ambient });',
             '@/core/entityUtils':
-              'export const emitEntityUpdate = () => {}; export const emitEntityCombatState = () => {}; export const collectWorldEntities = world => world?.actors ?? []; export const findEntityInWorld = (world, id) => world?.actors.find(entity => entity.id === id);',
+              'export const emitEntityUpdate = () => {}; export const emitEntityPatch = () => Promise.resolve({ ok: true, changed: true }); export const emitEntityChange = () => Promise.resolve({ ok: true, changed: true }); export const buildEntityPatchFailureToast = () => null; export const emitEntityCombatState = () => {}; export const collectWorldEntities = world => world?.actors ?? []; export const findEntityInWorld = (world, id) => world?.actors.find(entity => entity.id === id);',
           };
 
           if (!(request.path in modules)) {

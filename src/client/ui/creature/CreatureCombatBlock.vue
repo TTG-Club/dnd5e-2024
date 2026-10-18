@@ -30,6 +30,7 @@
     INITIATIVE_SETTINGS_LABELS,
     MOVEMENT_SETTINGS_LABELS,
     PROFICIENCY_SETTINGS_LABELS,
+    SHEET_TILE_ICONS,
     SHEET_TILE_LABELS,
     SHEET_TILE_SHORT_LABELS,
   } from '../actor/constants';
@@ -417,10 +418,17 @@
         </template>
 
         <div class="flex h-full flex-col items-center justify-center p-2 pt-0">
-          <div
-            class="text-center text-xl font-bold text-highlighted tabular-nums"
-          >
-            {{ effectiveArmorClass }}
+          <div class="flex items-center justify-center gap-1">
+            <UIcon
+              :name="SHEET_TILE_ICONS.armorClass"
+              class="size-5 shrink-0 text-primary"
+            />
+
+            <span
+              class="text-center text-xl font-bold text-highlighted tabular-nums"
+            >
+              {{ effectiveArmorClass }}
+            </span>
           </div>
 
           <div

@@ -11,9 +11,12 @@ import {
   collectRollConditionFlags,
   DEFAULT_CRIT_THRESHOLD,
   explainAttackRollMode,
+  isDndSceneEntity,
   resolveActorStats,
   resolveAttackRollMode,
+  resolveAttackSight,
   resolveRollCritThreshold,
+  UNSEEN_ATTACKER_ADVANTAGE_FLAG,
 } from '@vtt/shared/system/dnd.js';
 
 import {
@@ -21,6 +24,7 @@ import {
   collectDefenderAttackFlags,
   listDefenderEffects,
 } from './incomingAttack';
+import { resolveClientSceneSight } from './sceneSightFacts';
 import { useBonusDamageParts } from './useBonusDamageParts';
 import {
   buildEntityFormulaContext,
@@ -99,12 +103,26 @@ export function resolveTargetedAttackRoll(
 
   const isBeyondNormalRange = options.forceDisadvantage === true;
 
+  // Видимость знает сцена: атака по цели, которую не видишь, — с помехой, по
+  // цели, которая не видит тебя, — с преимуществом
+  const targetActor = target ? useTargetStore().getTargetActor() : null;
+
+  const attackSight = resolveAttackSight(
+    resolveClientSceneSight(),
+    attacker,
+    targetActor && isDndSceneEntity(targetActor) ? targetActor : undefined,
+  );
+
   return {
     mode: resolveAttackRollMode({
-      attackerFlags,
+      // Причины ниже считаются по флагам БЕЗ этой добавки: у неё своя подпись,
+      // а не название эффекта
+      attackerFlags: attackSight.isAttackerUnseen
+        ? new Set([...attackerFlags, UNSEEN_ATTACKER_ADVANTAGE_FLAG])
+        : attackerFlags,
       attackType,
       targetFlags,
-      forceDisadvantage: isBeyondNormalRange,
+      forceDisadvantage: isBeyondNormalRange || attackSight.isTargetUnseen,
     }),
     reasons: explainAttackRollMode({
       attackType,
@@ -117,6 +135,7 @@ export function resolveTargetedAttackRoll(
         ? buildIncomingAttackContext(attacker, attackType)
         : undefined,
       isBeyondNormalRange,
+      ...attackSight,
     }),
   };
 }

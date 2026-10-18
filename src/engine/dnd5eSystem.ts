@@ -50,6 +50,7 @@ import type { EffectTriggerArea } from './effectTriggerTypes.js';
 import type { DndEntityLight } from './entityLight.js';
 import type { DndEntityVision } from './entityVision.js';
 import type { AreaEffectsSyncResult } from './positionalEffects.js';
+import type { SceneSight } from './sceneSight.js';
 import type { SystemClientEvent } from './systemClientEvents.js';
 import type {
   EntryEffectOptions,
@@ -111,6 +112,7 @@ import {
   getEntityActiveFlags as getEntityActiveFlagsImpl,
   getEntityArmorClass as getEntityArmorClassImpl,
   pickCombatState as pickCombatStateImpl,
+  writeCombatState,
 } from './damageApplication.js';
 import {
   clampDamageHits,
@@ -134,6 +136,7 @@ import {
 import { rollDamageFormula as rollDamageFormulaImpl } from './diceFormula.js';
 import { SELF_TRIGGER_SUMMARY_LABEL } from './effectActivation.js';
 import {
+  settleAllyHurtEvents,
   settleAppliedEvents,
   settleAttackRollTriggers,
   settleConditionLostEvents,
@@ -176,9 +179,15 @@ import {
   runPresenceTriggerSources,
   syncActorAreaEffects,
 } from './positionalEffects.js';
+import {
+  reconcileScenePresence,
+  releaseOffSceneEffects,
+} from './scenePresence.js';
+import { createContextSightSource, createSceneSight } from './sceneSight.js';
 import { SPELL_SCHOOL_LABELS } from './spellTypes.js';
 import { damagePartIsHealing } from './spellUtils.js';
 import { parseSystemClientEvent } from './systemClientEvents.js';
+import { SYSTEM_ID } from './systemId.js';
 import { isPointInTemplate as isPointInTemplateGeometry } from './templateGeometry.js';
 import {
   entityIgnoresTerrainCost as entityIgnoresTerrainCostImpl,
@@ -272,6 +281,9 @@ const CONDITION_LOST_SUMMARY_LABEL = 'при снятии состояния';
 
 /** Подпись момента в сводке срабатываний «носитель свалил цель» */
 const DOWNED_OTHER_SUMMARY_LABEL = 'когда цель свалена';
+
+/** Подпись сводки события «на глазах носителя ранили союзника» */
+const ALLY_HURT_SUMMARY_LABEL = 'когда ранили союзника на глазах';
 
 /**
  * Состояния, снятые снимком: те, чьих эффектов в новом списке не стало.
@@ -462,6 +474,39 @@ function mergeTriggerResults(
 }
 
 /**
+ * Сверяет фишку сущности с её эффектами после срабатывания правил: эффект с
+ * флагом «убран со сцены» наложили — фишка уходит, сняли — возвращается.
+ *
+ * Стоит на выходе хуков, которые накладывают и снимают эффекты: боевой
+ * снимок, ход, срок, конец каста, событие клиента. В хуках зон, аур и пути её
+ * нет намеренно: уход фишки сам выводит её из зоны, и зона, которая убирает
+ * стоящих в ней, гоняла бы фишку туда-обратно.
+ *
+ * @param entity - сущность, чьи эффекты могли измениться
+ * @param context - возможности ядра
+ * @param result - исход срабатывания
+ * @returns тот же исход; со строкой в чат, если фишка вернулась поверх другой
+ */
+function withScenePresence<Result extends SystemDeferredTriggerResult>(
+  entity: SceneEntity,
+  context: SystemTriggerContext | undefined,
+  result: Result,
+): Result {
+  const note = isDndSceneEntity(entity)
+    ? reconcileScenePresence(entity, context)
+    : null;
+
+  if (!note) {
+    return result;
+  }
+
+  return {
+    ...result,
+    chatSummary: result.chatSummary ? `${result.chatSummary}\n${note}` : note,
+  };
+}
+
+/**
  * Итог событий урона или наложения в контракте ядра: сводка и кубики
  * субъекта, ожидания ответа и другие стороны, которым достались действия.
  *
@@ -613,6 +658,7 @@ function buildTriggerEventOptions(
     inCombat: context?.isInCombat?.(entity) ?? false,
     activeTurnActorId: context?.getActiveTurnActorId?.() ?? null,
     combatRound: toCombatRound(context),
+    sight: toSceneSight(context),
     getEntity: toDndEntityResolver(context?.getEntity),
     endCast: toCastEnder(context, entity.id),
     listEntitiesInArea: toAreaLister(context),
@@ -696,6 +742,20 @@ function toSourceProximityResolver(
     findEntitiesInArea(context.getSceneSurroundings?.(subject), {
       radius: feet,
     }).some((entity) => entity.id === sourceId);
+}
+
+/**
+ * Видимость и свет сцены из контекста ядра: правило D&D поверх его фактов
+ * (`sceneSight.ts`). Ядро старше 0.9.700 фактов не отдаёт — тогда условия
+ * «вижу / не вижу» и «на свету / в темноте» молчат.
+ *
+ * @param context - контекст срабатывания от ядра
+ * @returns видимость и свет либо `undefined`
+ */
+function toSceneSight(
+  context: SystemTriggerContext | undefined,
+): SceneSight | undefined {
+  return createSceneSight(createContextSightSource(context));
 }
 
 /**
@@ -1168,6 +1228,7 @@ function settleTurnEffects(
     isSourceInCombat: toSourceInCombatResolver(context),
     isSourceWithin: toSourceProximityResolver(entity, context),
     combatRound: toCombatRound(context),
+    sight: toSceneSight(context),
     endCast,
     ...toSceneMoveOptions(entity, context),
   });
@@ -1591,6 +1652,8 @@ function settleSnapshotEvents(
       ),
       CONDITION_LOST_SUMMARY_LABEL,
     ],
+    // Идёт на эффектах свидетелей: раненый для них — другая сторона
+    [settleAllyHurtEvents(entity, hits, options), ALLY_HURT_SUMMARY_LABEL],
     ...downedExtra,
   ];
 
@@ -1610,11 +1673,11 @@ function settleSnapshotEvents(
  * с Инициативой, Боевкой и т.д.
  */
 export class Dnd5eVttSystem implements VttSystem {
-  readonly id = 'dnd5e-2024';
+  readonly id = SYSTEM_ID;
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.256';
+  readonly version = '0.8.317';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -1799,7 +1862,11 @@ export class Dnd5eVttSystem implements VttSystem {
     timing: 'startOfTurn' | 'endOfTurn',
     context?: SystemTriggerContext,
   ): SystemDeferredTriggerResult {
-    return settleTurnEffects(entity, timing, context, this.pendingTurnSaveKeys);
+    return withScenePresence(
+      entity,
+      context,
+      settleTurnEffects(entity, timing, context, this.pendingTurnSaveKeys),
+    );
   }
 
   /**
@@ -1814,12 +1881,16 @@ export class Dnd5eVttSystem implements VttSystem {
     timing: 'startOfTurn' | 'endOfTurn',
     context?: SystemTriggerContext,
   ): SystemDeferredTriggerResult {
-    return settleTurnEffects(
+    return withScenePresence(
       entity,
-      timing,
       context,
-      this.pendingTurnSaveKeys,
-      turnActorId,
+      settleTurnEffects(
+        entity,
+        timing,
+        context,
+        this.pendingTurnSaveKeys,
+        turnActorId,
+      ),
     );
   }
 
@@ -1848,8 +1919,12 @@ export class Dnd5eVttSystem implements VttSystem {
       this.outsidersGetTurnBoundaries = true;
     }
 
-    return expireWithConcentration(entity, context, (carrier) =>
-      expireEntityTurnEffects(carrier, turnActorId, timing, participantIds),
+    return withScenePresence(
+      entity,
+      context,
+      expireWithConcentration(entity, context, (carrier) =>
+        expireEntityTurnEffects(carrier, turnActorId, timing, participantIds),
+      ),
     );
   }
 
@@ -1887,18 +1962,22 @@ export class Dnd5eVttSystem implements VttSystem {
       return other !== undefined && context?.isInCombat?.(other) === true;
     };
 
-    return expireWithConcentration(entity, context, (carrier) => {
-      const roundsChanged = decrementActorEffectDurations(carrier);
+    return withScenePresence(
+      entity,
+      context,
+      expireWithConcentration(entity, context, (carrier) => {
+        const roundsChanged = decrementActorEffectDurations(carrier);
 
-      const turnsChanged = isOutsider
-        ? expireOutsiderTurnEffects(
-            carrier,
-            this.outsidersGetTurnBoundaries ? isCombatantId : undefined,
-          )
-        : false;
+        const turnsChanged = isOutsider
+          ? expireOutsiderTurnEffects(
+              carrier,
+              this.outsidersGetTurnBoundaries ? isCombatantId : undefined,
+            )
+          : false;
 
-      return roundsChanged || turnsChanged;
-    });
+        return roundsChanged || turnsChanged;
+      }),
+    );
   }
 
   /**
@@ -1933,10 +2012,43 @@ export class Dnd5eVttSystem implements VttSystem {
       chatSummary: `${entity.name}: ${CAST_ENDED_SUMMARY_PREFIX}${removed.map((effect) => effect.name).join(', ')}`,
     };
 
-    return mergeTriggerResults(
-      removal,
-      runCastEndTriggers(entity, removed, hpBefore, context),
+    return withScenePresence(
+      entity,
+      context,
+      mergeTriggerResults(
+        removal,
+        runCastEndTriggers(entity, removed, hpBefore, context),
+      ),
     );
+  }
+
+  /**
+   * Сущность записана — и правкой листа тоже: эффект «убран со сцены» вписали
+   * руками или стёрли. Других хуков с возможностями ядра правка листа не будит,
+   * а фишка должна уйти или вернуться сразу. Сама сущность здесь не меняется.
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  settleEntityChange(
+    entity: SceneEntity,
+    context?: SystemTriggerContext,
+  ): SystemDeferredTriggerResult {
+    return withScenePresence(entity, context, {
+      changed: false,
+      chatSummary: null,
+    });
+  }
+
+  /**
+   * Мастер возвращает убранную фишку меткой на сцене: снимает с существа
+   * эффекты «убран со сцены». Иначе они остались бы, и фишка ушла бы снова.
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  releaseOffSceneToken(entity: SceneEntity): SystemDeferredTriggerResult {
+    const note = isDndSceneEntity(entity)
+      ? releaseOffSceneEffects(entity)
+      : null;
+
+    return { changed: note !== null, chatSummary: note };
   }
 
   /**
@@ -1956,11 +2068,15 @@ export class Dnd5eVttSystem implements VttSystem {
     }
 
     if (event.type === 'attackRoll') {
-      return settleAttackRollEvent(event, context);
+      return settleAttackRollEvent(event, context).map((outcome) =>
+        withScenePresence(outcome.entity, context, outcome),
+      );
     }
 
     if (event.type === 'effectAction') {
-      return settleEffectActionEvent(event, context);
+      return settleEffectActionEvent(event, context).map((outcome) =>
+        withScenePresence(outcome.entity, context, outcome),
+      );
     }
 
     const caster = context.getEntity(event.casterId);
@@ -2017,6 +2133,7 @@ export class Dnd5eVttSystem implements VttSystem {
         ...options,
         resolveAmbientEffects: toAmbientResolver(options),
         listEntitiesInArea: toAreaLister(options),
+        sight: toSceneSight(options),
         ...toSceneMoveOptions(entity, options),
       },
     );
@@ -2072,6 +2189,7 @@ export class Dnd5eVttSystem implements VttSystem {
         isInCombat: context?.isInCombat,
         getActiveTurnActorId: context?.getActiveTurnActorId,
         getCombatRound: context?.getCombatRound,
+        sight: toSceneSight(context),
         alreadyEnteredAuraKeys: context?.alreadyEnteredAuraKeys,
         listEntitiesInArea: toAreaLister(context),
       },
@@ -2232,11 +2350,9 @@ export class Dnd5eVttSystem implements VttSystem {
    * без них гейт считает не то же, что показывает лист, — аура, дающая скорость
    * неходячему, на листе видна, а токен ею не двинется.
    *
-   * ⚠️ Хост этот аргумент пока НЕ передаёт: в его контракте у метода одна
-   * сущность, а ауры лежат в его же сторе отдельно (README, § «Чего не хватает
-   * для полноценного SDK», п. 16). Правка контракта — на стороне хоста, и
-   * трогать его отсюда нельзя; со своей стороны метод к ней готов и посчитает
-   * ауры в тот же день, когда они начнут приходить.
+   * Хост передаёт их с VTTG 0.9.637 — и клиент (из своего стора аур), и
+   * сервер. На
+   * хосте старше аргумент не приходит, и гейт считает по одной сущности.
    *
    * @param entity - сущность токена
    * @param ambientEffects - эффекты аур, накрывающих токен
@@ -2279,8 +2395,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * «Рывок» даёт прибавку, равную Скорости, — отсюда удвоение предела.
    *
    * Ауры с карты приходят отдельным списком по той же причине, что и у
-   * {@link getTotalMovementSpeed}, и с той же оговоркой: хост их пока не
-   * передаёт, правка контракта — его.
+   * {@link getTotalMovementSpeed}; хост передаёт их с VTTG 0.9.637.
    *
    * @param entity - сущность токена
    * @param ambientEffects - эффекты аур, накрывающих токен
@@ -2362,8 +2477,9 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Свет сущности по правилам D&D — самый сильный свет действующих эффектов
    * поверх света фишки. Хук для сцены приложения по образцу
-   * `resolveEntityVision`: ядро его пока не зовёт (README § «Чего не хватает»,
-   * п. 33), и сцена видит только свет фишки.
+   * `resolveEntityVision`: ядро зовёт его при расчёте света фишки с VTTG 0.9.580;
+   * на хосте старше сцена видит только
+   * свет фишки.
    */
   // eslint-disable-next-line class-methods-use-this -- хук для ядра: вызывается на экземпляре системы
   resolveEntityLight(entity: SceneEntity): DndEntityLight | undefined {
@@ -2417,8 +2533,12 @@ export class Dnd5eVttSystem implements VttSystem {
 
     const effectIdsBefore = new Set(effectsBefore.map((effect) => effect.id));
 
-    if (!applyCombatStateImpl(entity, state)) {
-      return REJECTED_COMBAT_STATE;
+    const written = writeCombatState(entity, state);
+
+    // Причину отказа называем ядру (VTTG 0.9.643): «менять нечего» оно
+    // пропускает молча, о негодном снимке предупреждает
+    if (written !== 'applied') {
+      return { ...REJECTED_COMBAT_STATE, rejection: written };
     }
 
     // Подъём хитов закрывает серию спасбросков от смерти, падение — начинает
@@ -2464,7 +2584,7 @@ export class Dnd5eVttSystem implements VttSystem {
       options: buildTriggerEventOptions(entity, context),
     });
 
-    return { accepted: true, ...settled };
+    return withScenePresence(entity, context, { accepted: true, ...settled });
   }
 
   /**
@@ -2836,7 +2956,7 @@ export class Dnd5eVttSystem implements VttSystem {
       label: condition.nameRu,
       icon: condition.icon,
       description: condition.description,
-      systemId: 'dnd5e-2024',
+      systemId: SYSTEM_ID,
       customImage: condition.customImage,
       overlay: condition.overlay,
     }));

@@ -83,6 +83,8 @@
     sourceKey: string;
     /** Значение фильтра записи (напр. категория черты); пусто — не задано */
     filterValue: string;
+    /** Приписка слева от источника (напр. цена предмета); пусто — её нет */
+    note: string;
     /** Сама запись — уходит вызывающему вместе со ссылкой */
     entry: CompendiumEntry;
   }
@@ -157,6 +159,24 @@
        * годится: «Заговор» уехал бы в конец, за девятый круг.
        */
       filterOrder?: string[];
+      /**
+       * Приписка строки слева от источника — напр. цена предмета. Под неё у
+       * строки отводится колонка одной ширины, и приписки стоят вровень.
+       */
+      entryNote?: (entry: CompendiumEntry) => string;
+      /**
+       * Показывать в строке кнопку карточки записи. Саму карточку открывает
+       * вызывающий по событию `open-entry`: окно не знает, какой записи какое
+       * окно просмотра положено.
+       */
+      showEntryInfo?: boolean;
+      /**
+       * Подпись второго действия над отмеченными записями — рядом с
+       * подтверждением (напр. «Купить»). Пусто — кнопки нет.
+       */
+      extraActionLabel?: string;
+      /** Значок кнопки второго действия */
+      extraActionIcon?: string;
     }>(),
     {
       zIndex: undefined,
@@ -165,6 +185,10 @@
       filterValue: undefined,
       filterLabel: '',
       filterOrder: () => [],
+      entryNote: undefined,
+      showEntryInfo: false,
+      extraActionLabel: '',
+      extraActionIcon: undefined,
     },
   );
 
@@ -174,6 +198,14 @@
     'select': [refs: PickedCompendiumRef[]];
     /** Те же отмеченные записи целиком — приходит вместе с `select` */
     'select-entries': [entries: PickedCompendiumEntry[]];
+    /** Просят показать карточку записи */
+    'open-entry': [entry: CompendiumEntry];
+    /**
+     * Второе действие над отмеченными записями. Окно при этом НЕ закрывается:
+     * у действия своё подтверждение, и отказ от него должен вернуть к списку с
+     * теми же отметками. Закрывает окно вызывающий, когда действие состоялось.
+     */
+    'extra-action': [entries: PickedCompendiumEntry[]];
   }>();
 
   /** Типы записей списком: проп принимает и один тип, и несколько. */
@@ -247,6 +279,7 @@
           ? entry.sourceKey
           : '',
       filterValue: props.filterValue?.(entry)?.trim() ?? '',
+      note: props.entryNote?.(entry) ?? '',
       entry,
     };
   }
@@ -467,6 +500,24 @@
       : [entry];
   }
 
+  /** Отмеченные записи целиком — в том виде, в каком их ждёт вызывающий */
+  function listPickedEntries(): PickedCompendiumEntry[] {
+    return selectedEntries.value.map((entry) => ({
+      entry: entry.entry,
+      packId: entry.packId,
+      packName: entry.packName,
+    }));
+  }
+
+  /** Отдаёт отмеченные записи второму действию; окно остаётся открытым */
+  function runExtraAction(): void {
+    if (!canConfirm.value) {
+      return;
+    }
+
+    emit('extra-action', listPickedEntries());
+  }
+
   /** Отдаёт отмеченные записи вызывающему и закрывает окно */
   function confirmSelection(): void {
     if (!canConfirm.value) {
@@ -483,14 +534,7 @@
       })),
     );
 
-    emit(
-      'select-entries',
-      selectedEntries.value.map((entry) => ({
-        entry: entry.entry,
-        packId: entry.packId,
-        packName: entry.packName,
-      })),
-    );
+    emit('select-entries', listPickedEntries());
 
     emit('update:open', false);
   }
@@ -584,7 +628,7 @@
             v-model="searchQuery"
             icon="tabler:search"
             :placeholder="COMPENDIUM_LABELS.searchPlaceholder"
-            size="sm"
+            size="md"
             class="mb-2"
             :ui="{ root: 'w-full' }"
           />
@@ -646,16 +690,38 @@
               v-else-if="visibleEntries.length > 0"
               class="flex flex-col divide-y divide-accented/25"
             >
-              <PickerListRow
+              <div
                 v-for="entry in renderedEntries"
                 :key="entry.rowId"
-                :name="entry.name"
-                :name-en="entry.nameEn"
-                :pack-name="packLabel(entry)"
-                :badge="entryBadge(entry)"
-                :selected="selectedRowIds.has(entry.rowId)"
-                @toggle="toggleSelection(entry)"
-              />
+                class="flex items-stretch gap-1"
+              >
+                <PickerListRow
+                  class="min-w-0 flex-1"
+                  :name="entry.name"
+                  :name-en="entry.nameEn"
+                  :pack-name="packLabel(entry)"
+                  :badge="entryBadge(entry)"
+                  :note="entry.note"
+                  :selected="selectedRowIds.has(entry.rowId)"
+                  @toggle="toggleSelection(entry)"
+                />
+
+                <!-- Карточка записи: нажимается вся отведённая кнопке область,
+                  во всю высоту строки — в мелкий значок целиться неудобно.
+                  Без скругления: подсветка продолжает подсветку строки -->
+                <button
+                  v-if="showEntryInfo"
+                  type="button"
+                  class="flex shrink-0 cursor-pointer items-center justify-center px-3 text-dimmed transition-colors hover:bg-primary/10 hover:text-default"
+                  :aria-label="REF_PICKER_LABELS.openEntry"
+                  @click.left.exact.prevent="emit('open-entry', entry.entry)"
+                >
+                  <UIcon
+                    name="tabler:info-circle"
+                    class="size-5"
+                  />
+                </button>
+              </div>
 
               <!-- Метка конца показанной части: дойдя до неё, список
                 дорисовывает следующую порцию -->
@@ -689,6 +755,16 @@
             color="neutral"
             variant="ghost"
             @click.left.exact.prevent="handleModalClose"
+          />
+
+          <UButton
+            v-if="extraActionLabel"
+            :label="extraActionLabel"
+            :icon="extraActionIcon"
+            color="primary"
+            variant="soft"
+            :disabled="!canConfirm"
+            @click.left.exact.prevent="runExtraAction"
           />
 
           <UButton

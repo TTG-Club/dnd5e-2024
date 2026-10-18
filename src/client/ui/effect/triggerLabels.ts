@@ -200,6 +200,7 @@ export const EFFECT_TRIGGER_EVENT_LABELS: Partial<
   healed: 'Когда носителя лечат',
   hpZero: 'Когда хиты носителя падают до 0',
   downedOther: 'Когда носитель сваливает цель',
+  allyHurt: 'Когда на глазах носителя ранят союзника',
   conditionLost: 'Когда с носителя снимается состояние',
   castEnd: 'Когда заклинание заканчивается',
   moved: 'Когда носитель проходит путь',
@@ -488,6 +489,14 @@ export const EFFECT_TRIGGER_CONDITION_KIND_LABELS: Record<
   combatRoundAtLeast: 'Раунд боя не раньше',
   movementOwn: 'Носитель шёл сам',
   movementForced: 'Носителя переставили (толчок, перенос)',
+  selfSeesOther: 'Носитель видит другую сторону',
+  selfSeesOtherNot: 'Носитель не видит другую сторону',
+  otherSeesSelf: 'Другая сторона видит носителя',
+  otherSeesSelfNot: 'Другая сторона не видит носителя',
+  selfInDarkness: 'Носитель в темноте',
+  selfInLight: 'Носитель на свету',
+  otherInDarkness: 'Другая сторона в темноте',
+  otherInLight: 'Другая сторона на свету',
 };
 
 /**

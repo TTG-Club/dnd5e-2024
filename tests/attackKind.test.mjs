@@ -299,6 +299,32 @@ describe('метательное оружие', () => {
     assert.equal(effectsPart(JAVELIN), 1, 'без выбора — удар');
   });
 
+  it('бонус +N оружия с обязательной настройкой ждёт настройки', () => {
+    const hero = fighter(16, 10);
+
+    const magicPart = (weapon) => {
+      const parts = engine.describeWeaponAttack(hero, weapon, undefined);
+
+      return parts.find((part) => part.key === 'magic')?.value;
+    };
+
+    const sword = {
+      ...JAVELIN,
+      isMagical: true,
+      magicBonus: 2,
+      magicAttunement: 'required',
+    };
+
+    assert.equal(magicPart(sword), undefined, 'без настройки бонуса нет');
+    assert.equal(magicPart({ ...sword, isAttuned: true }), 2);
+
+    assert.equal(
+      magicPart({ ...sword, magicAttunement: 'none' }),
+      2,
+      'настройка не нужна — бонус есть',
+    );
+  });
+
   it('удар меряет досягаемость, бросок — дистанцию с помехой за обычной', () => {
     assert.equal(
       engine.checkRange(engine.withWeaponAttackKind(JAVELIN, 'melee'), 10)

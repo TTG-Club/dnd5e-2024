@@ -32,6 +32,7 @@
     MODAL_BUTTON_LABELS,
     SPELL_CHOICE_LABELS,
     SPELL_LIST_LABELS,
+    WINDOW_TAB_CONTENT_CLASS,
   } from './constants';
   import CounterRowsEditor from './CounterRowsEditor.vue';
   import EntityEffectsEditor from './EntityEffectsEditor.vue';
@@ -280,7 +281,6 @@
     :subtitle="nameEn || undefined"
     :initial-width="900"
     :min-width="640"
-    :resizable="false"
     :z-index="zIndex"
     :saved-position="initialPosition"
     @update:open="handleOpenChange"
@@ -294,7 +294,7 @@
         :ui="{
           list: 'mb-3',
           trigger: 'flex-1 justify-center',
-          content: 'overflow-y-auto max-h-150',
+          content: WINDOW_TAB_CONTENT_CLASS,
         }"
       >
         <!-- ОСНОВНОЕ -->

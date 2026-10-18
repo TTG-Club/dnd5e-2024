@@ -10,6 +10,7 @@
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
+  import { useChatStore } from '@/stores/chatStore';
   import {
     DAMAGE_DEFENSE_KIND_LABELS,
     DAMAGE_TYPE_LABELS,
@@ -17,7 +18,10 @@
     getConditionEntry,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useSpeciesCatalog } from '../../../composables/useSpeciesCatalog';
+  import { copySpeciesToWorkshop } from '../../../composables/workshopCopy';
   import {
+    COPY_TO_ITEMS_LABEL,
     CREATURE_SIZE_LABELS,
     CREATURE_TYPE_LABELS,
     GRANT_FIELD_LABELS,
@@ -38,11 +42,20 @@
     positionOffset?: number;
     /** Показать кнопку «Выбрать» (окно открыто из выбора вида для персонажа) */
     showSelectButton?: boolean;
+    /**
+     * Показать кнопки копирования в «Мастерскую» — у вида и у каждого его
+     * подвида (окно открыто из компендиума)
+     */
+    showCopyButton?: boolean;
+    /** Пак записи; пусто — не известен, подвиды берутся из первого пака с ней */
+    packId?: string;
   }>();
 
   const emit = defineEmits<{
     'update:open': [value: boolean];
     'bring-to-front': [];
+    /** Вид копируют в «Мастерскую» */
+    'copy': [];
     /** Запись выбрана для листа персонажа */
     'select': [];
   }>();
@@ -223,7 +236,41 @@
       }));
   });
 
-  const hasSubspecies = computed(() => subspeciesGroups.value.length > 0);
+  const speciesCatalog = useSpeciesCatalog();
+  const chatStore = useChatStore();
+
+  /**
+   * Подвиды отдельными записями (как на сайте TTG Club): из того же
+   * компендиума, что и вид, и скопированные в мир. У самого подвида своих
+   * подвидов нет.
+   */
+  const subspeciesRecords = computed<SpeciesDefinition[]>(() => {
+    const definition = props.speciesDefinition;
+
+    if (!definition || definition.parentKey) {
+      return [];
+    }
+
+    return speciesCatalog.subspeciesOf({
+      key: definition.key,
+      packId: props.packId,
+    });
+  });
+
+  const hasSubspecies = computed(
+    () =>
+      subspeciesGroups.value.length > 0 || subspeciesRecords.value.length > 0,
+  );
+
+  /**
+   * Копирует один подвид в «Мастерскую»: копия остаётся подвидом этого вида и
+   * помнит его компендиум.
+   *
+   * @param record - подвид показанного вида
+   */
+  function copySubspecies(record: SpeciesDefinition): void {
+    copySpeciesToWorkshop(chatStore.getSocket(), record, props.packId);
+  }
 
   /**
    * Краткие подписи защит подвида (сопротивления/иммунитеты/уязвимости и
@@ -333,6 +380,19 @@
       />
 
       <EffectsBySubscriptionBadge :automation="speciesDefinition?.automation" />
+
+      <UTooltip
+        v-if="showCopyButton"
+        :text="COPY_TO_ITEMS_LABEL"
+      >
+        <UButton
+          icon="tabler:copy"
+          size="xs"
+          color="primary"
+          variant="soft"
+          @click.left.exact.prevent="emit('copy')"
+        />
+      </UTooltip>
 
       <UTooltip
         v-if="showSelectButton"
@@ -479,6 +539,53 @@
           #subspecies
         >
           <div class="flex flex-col gap-5">
+            <!-- Подвиды отдельными записями -->
+            <div
+              v-if="subspeciesRecords.length > 0"
+              class="flex flex-col gap-3"
+            >
+              <div
+                v-for="record in subspeciesRecords"
+                :key="record.key"
+                class="rounded-lg border border-default/50 bg-elevated/30 p-3"
+              >
+                <div class="flex items-center gap-2">
+                  <span
+                    class="min-w-0 truncate text-sm font-medium text-primary"
+                  >
+                    {{ record.name }}
+                  </span>
+
+                  <span class="text-xs text-dimmed">{{ record.nameEn }}</span>
+
+                  <SourceBadge
+                    :source-key="record.sourceKey"
+                    :source="record.source"
+                  />
+
+                  <UTooltip
+                    v-if="showCopyButton"
+                    :text="SPECIES_DETAIL_LABELS.copySubspecies"
+                  >
+                    <UButton
+                      icon="tabler:copy"
+                      size="xs"
+                      color="primary"
+                      variant="ghost"
+                      class="ml-auto shrink-0"
+                      @click.left.exact.prevent="copySubspecies(record)"
+                    />
+                  </UTooltip>
+                </div>
+
+                <ItemDescriptionRenderer
+                  v-if="record.description"
+                  :content="record.description"
+                  class="mt-1"
+                />
+              </div>
+            </div>
+
             <div
               v-for="group in subspeciesGroups"
               :key="group.featureName"

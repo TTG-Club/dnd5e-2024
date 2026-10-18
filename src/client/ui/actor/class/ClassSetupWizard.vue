@@ -440,6 +440,9 @@
       props.socket,
       selectedEquipmentItems.value,
       props.packId,
+      props.classDefinition
+        ? { kind: 'class', key: props.classDefinition.key }
+        : undefined,
     );
 
     if (granted.length > 0) {
@@ -462,7 +465,6 @@
   <UDraggableModal
     v-model:open="isOpen"
     :draggable="true"
-    :resizable="false"
     :min-width="800"
     :initial-width="800"
     :min-height="400"

@@ -75,6 +75,7 @@ import type { EffectTriggerUsageLedger } from './effectTriggerUsage.js';
 import { EFFECT_FLAG_LABELS } from './activeEffectTypes.js';
 import { listConcentrationCastIds } from './concentration.js';
 import { INCAPACITATED_CONDITION_KEY } from './conditionKeys.js';
+import { creatureActionHasAttackRoll } from './creatureUtils.js';
 import {
   filterCastLevels,
   resolveSlotLevelLimit,
@@ -971,9 +972,9 @@ export function findCreatureSectionBlock(
  */
 export function isCreatureAttackAction(
   section: CreatureActionSectionKey | undefined,
-  action: Pick<CreatureAction, 'attackBonus'>,
+  action: CreatureAction,
 ): boolean {
-  return section === 'actions' && action.attackBonus !== undefined;
+  return section === 'actions' && creatureActionHasAttackRoll(action);
 }
 
 /**
@@ -988,7 +989,7 @@ export function isCreatureAttackAction(
  */
 export function resolveCreatureActionCost(
   section: CreatureActionSectionKey,
-  action: Pick<CreatureAction, 'attackBonus'>,
+  action: CreatureAction,
   isOwnTurn: boolean,
 ): RestrictedActionCost {
   const cost = CREATURE_SECTION_COSTS[section];
@@ -1012,7 +1013,7 @@ export function resolveCreatureActionCost(
 export function findCreatureActionBlock(
   blocks: EntityActionBlocks,
   section: CreatureActionSectionKey,
-  action: Pick<CreatureAction, 'attackBonus'>,
+  action: CreatureAction,
   isOwnTurn = true,
 ): string | null {
   const cost = resolveCreatureActionCost(section, action, isOwnTurn);

@@ -58,9 +58,11 @@ import {
 } from '../ui/effect/constants';
 import { EFFECT_ESCAPE_PROMPT_LABELS } from '../ui/effect/escapeLabels';
 import { recordEntityActionSpend } from './actionSpend';
+import { DAMAGE_CHAT_OPTIONS } from './damageChatMessage';
 import { isEntityOwnTurn } from './encounterTurn';
 import { changeEntityCombatState } from './entityCombatWrite';
 import { controlsEntityAsUser } from './gmApprovalRequest';
+import { refuseWhilePaused } from './pauseLock';
 import { refuseWhileSheetEditing } from './sheetEditLock';
 import { openSkillCheckModal } from './skillCheckRoll';
 import { resolveEntityStats } from './useResolvedStats';
@@ -362,6 +364,9 @@ function settleEscape(
   useChatStore().sendMessage(
     `${effect.name}${EFFECT_ESCAPE_PROMPT_LABELS.failDamageMiddle}${hurt.name}${EFFECT_ESCAPE_PROMPT_LABELS.failDamageSuffix}${dealt}`,
     'text',
+    undefined,
+    undefined,
+    DAMAGE_CHAT_OPTIONS,
   );
 }
 
@@ -389,7 +394,7 @@ function rollEscapeCheck(
 
   openSkillCheckModal(entity, skill, {
     modalKey: `${EFFECT_ESCAPE_MODAL_KEY_PREFIX}${effect.id}`,
-    title: `${formatEffectEscapeLabel(effect)}${EFFECT_ESCAPE_LABELS.titleSeparator}${entity.name}`,
+    title: formatEffectEscapeLabel(effect),
     rollButtonText: EFFECT_ESCAPE_LABELS.rollButton,
     targetDc: dc,
     resolveMode: (checkMode, flags) =>
@@ -427,6 +432,11 @@ export function runEscapeAs(
     refuseWhileSheetEditing(carrier.id)
     || refuseWhileSheetEditing(actor.entity.id)
   ) {
+    return false;
+  }
+
+  // Игра на паузе — действие не начинается
+  if (refuseWhilePaused()) {
     return false;
   }
 
@@ -537,6 +547,11 @@ export function runEscapeAs(
 export function runEffectEscape(carrierId: string, effectId: string): boolean {
   // Лист носителя в режиме правки — до вопроса «кто действует»
   if (refuseWhileSheetEditing(carrierId)) {
+    return false;
+  }
+
+  // Игра на паузе — действие не начинается
+  if (refuseWhilePaused()) {
     return false;
   }
 

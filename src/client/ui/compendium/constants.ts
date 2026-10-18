@@ -14,6 +14,8 @@ import {
   COMPENDIUM_SPELL_KIND,
 } from '@vtt/shared/system/dnd.js';
 
+import { CREATURE_ICON } from '../creature/constants';
+
 /**
  * Типы разделов, хранящих записи «Мастерской», в порядке выбора: заклинания,
  * затем предметы, затем определения персонажа.
@@ -28,7 +30,7 @@ export const COMPENDIUM_ITEM_SECTION_KINDS: readonly string[] = [
 /** Раздел существ: название и значок как у панели «Существа». */
 export const COMPENDIUM_CREATURE_SECTION = {
   label: 'Существа',
-  icon: 'tabler:alien',
+  icon: CREATURE_ICON,
 } as const;
 
 /** Значок раздела, если у его типа записей своего значка нет. */

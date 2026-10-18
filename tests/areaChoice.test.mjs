@@ -34,6 +34,20 @@ const CHOICE_PATH = 'src/client/composables/areaTargetChoice.ts';
 
 const ACTIVE_ACTION_PATH = 'src/client/composables/effectActiveAction.ts';
 
+/**
+ * Запросы шаблона области: заклинание персонажа и существа, действие
+ * существа, применение с областью. Признак «от применившего» они передают приложению.
+ */
+const PLACEMENT_PATHS = [
+  'src/client/composables/areaTemplateTargets.ts',
+  'src/client/composables/creatureDamageChoice.ts',
+  'src/client/composables/creatureSpellCast.ts',
+  'src/client/composables/spellCastFlow.ts',
+];
+
+/** Все, кто считает признак «от применившего»: разбор целей и запросы шаблона */
+const ORIGIN_USER_PATHS = [CHOICE_PATH, ...PLACEMENT_PATHS];
+
 /** Заклинание «на себя» из компендиума: «Волна грома» */
 const SELF_SPELL = {
   id: 'thunderwave',
@@ -644,10 +658,19 @@ describe('общий разбор целей области', () => {
       )
       .map(toSystemPath);
 
-    // Все точки входа (заклинание персонажа и существа, действие существа,
-    // применение с областью, «При действии») отдают источник общему разбору —
-    // своего условия ни у одной нет
-    assert.deepEqual(originUsers, [CHOICE_PATH]);
+    // Признак нужен дважды: общему разбору — чтобы не задеть применившего, и
+    // запросу шаблона — чтобы приложение поставило область у его фишки
+    // (`casterOrigin`). Оба считают его одной функцией по источнику: своего
+    // условия нет ни у одной точки входа
+    assert.deepEqual(originUsers.toSorted(), ORIGIN_USER_PATHS.toSorted());
+
+    for (const path of PLACEMENT_PATHS) {
+      assert.match(
+        readFileSync(path, 'utf8'),
+        /requestPlacement\([\s\S]*?areaOriginatesFromCaster\([^)]*\),\s*\);/u,
+        `${path}: признак уходит в запрос шаблона последним аргументом`,
+      );
+    }
 
     assert.match(
       readFileSync(CHOICE_PATH, 'utf8'),

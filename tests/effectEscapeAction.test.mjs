@@ -121,6 +121,13 @@ async function loadEscape({
     ports,
   );
 
+  // Числа проверки — общие для окна и броска без окна (`skillCheckRoll.ts`)
+  ports.resolveCheckRollSetup = await loadHandler(
+    'src/client/composables/skillCheckRoll.ts',
+    'resolveCheckRollSetup',
+    ports,
+  );
+
   // Окно проверки навыка — общее с Сл от проверки (`skillCheckRoll.ts`)
   ports.openSkillCheckModal = await loadHandler(
     'src/client/composables/skillCheckRoll.ts',
@@ -462,7 +469,7 @@ it('помощник бросает свой навык, а исход дост�
 
   runEscapeAs(hero, net, { entity: friend, role: 'adjacent' });
 
-  assert.equal(opened[0].props.title.endsWith('Friend'), true);
+  assert.equal(opened[0].props.actorName, 'Friend');
 
   opened[0].props.onCheckRoll({ total: 12 });
   opened[0].props.onCheckRoll({ total: 4 });

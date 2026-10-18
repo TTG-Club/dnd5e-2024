@@ -65,7 +65,7 @@ export function register(api: ClientSystemAPI): void {
       const system = isRecord(entry.system) ? entry.system : undefined;
       const challengeRating = system?.challengeRating;
 
-      // Картинка токена — вместо значка в строке списка: одинаковый «пришелец»
+      // Картинка токена — вместо значка в строке списка: одинаковый значок
       // у всех существ ничего не различал, а морда различает сразу.
       const token = isRecord(entry.token) ? entry.token : undefined;
 

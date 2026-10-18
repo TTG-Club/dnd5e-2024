@@ -110,6 +110,7 @@ export function useWeaponForm(
   const isSRD = ref(false);
   const magicAttunement = ref<'none' | 'required' | 'optional'>('none');
   const isAttuned = ref(false);
+  const activeWhenCarried = ref(false);
   const magicBonus = ref(0);
   const rarity = ref<ItemRarity>('none');
   const activeEffects = ref<ActiveEffect[]>([]);
@@ -283,6 +284,7 @@ export function useWeaponForm(
 
         magicAttunement.value = weapon.magicAttunement ?? 'none';
         isAttuned.value = weapon.isAttuned ?? false;
+        activeWhenCarried.value = weapon.activeWhenCarried ?? false;
         magicBonus.value = weapon.magicBonus ?? 0;
         isFocus.value = weapon.isFocus ?? false;
 
@@ -330,6 +332,7 @@ export function useWeaponForm(
         isSRD.value = false;
         magicAttunement.value = 'none';
         isAttuned.value = false;
+        activeWhenCarried.value = false;
         magicBonus.value = 0;
         isFocus.value = false;
         rarity.value = 'none';
@@ -519,6 +522,8 @@ export function useWeaponForm(
           ? magicAttunement.value
           : undefined,
       isAttuned: isMagical.value && isAttuned.value ? true : undefined,
+      activeWhenCarried:
+        isMagical.value && activeWhenCarried.value ? true : undefined,
       magicBonus:
         isMagical.value && magicBonus.value > 0 ? magicBonus.value : undefined,
       uses: itemUses.buildItemUses(),
@@ -565,6 +570,7 @@ export function useWeaponForm(
     isFocus,
     magicAttunement,
     isAttuned,
+    activeWhenCarried,
     magicBonus,
     rarity,
     activeEffects,

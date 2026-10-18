@@ -21,6 +21,34 @@ import { dnd5eSystemInstance } from '@vtt/shared/system/dnd.js';
 import { useSystemDataStore } from './stores/systemDataStore';
 
 /**
+ * Достаёт набор уже подписанных сокетов.
+ *
+ * В режиме разработки (`npm run dev:hot`) модуль исполняется заново при каждой
+ * правке движка, и набор, объявленный просто переменной, каждый раз был бы
+ * пустым. Поэтому там он лежит в `import.meta.hot.data`, которое повторное
+ * исполнение переживает. В собранном бандле это обычный набор на всю сессию.
+ *
+ * @returns набор сокетов, на которые система уже подписалась
+ */
+function readSubscribedSockets(): WeakSet<object> {
+  const hot = import.meta.hot;
+
+  if (!hot) {
+    return new WeakSet<object>();
+  }
+
+  const kept: unknown = hot.data.subscribedSockets;
+  const sockets = kept instanceof WeakSet ? kept : new WeakSet<object>();
+
+  hot.data.subscribedSockets = sockets;
+
+  return sockets;
+}
+
+/** Сокеты, на которые система уже подписалась. */
+const subscribedSockets = readSubscribedSockets();
+
+/**
  * Подписывает переданный сокет на все справочные `system:*` события D&D и
  * запрашивает данные (`system:request-all`). Идемпотентно на уровне экземпляра
  * сокета: `socket:setup` эмитится по одному разу на клиент (в т.ч. реконнект).
@@ -28,6 +56,14 @@ import { useSystemDataStore } from './stores/systemDataStore';
  * @param socket - активный WebSocket-клиент
  */
 function subscribeSystemData(socket: TypedWebSocketClient): void {
+  // Сокет уже подписан: приложение перерегистрировало систему при открытом
+  // мире (режим разработки). Вторая подписка задвоила бы каждый обработчик.
+  if (subscribedSockets.has(socket)) {
+    return;
+  }
+
+  subscribedSockets.add(socket);
+
   const store = useSystemDataStore();
 
   // Агрегированный ответ — все справочные данные одним пакетом
@@ -109,9 +145,10 @@ function isOwnSystemActive(): boolean {
 }
 
 /**
- * Обработчик `socket:setup`. Хук ядра живёт до конца сессии (механизма снятия при
- * выгрузке системы нет), поэтому гейтим по активной системе: код dnd5e не должен
- * подписываться на сокет мира ЧУЖОЙ системы и слать ему `system:request-all`.
+ * Обработчик `socket:setup`. Подписка ставится один раз и живёт до конца
+ * сессии — система её не снимает, — поэтому гейтим по активной системе: код
+ * dnd5e не должен подписываться на сокет мира ЧУЖОЙ системы и слать ему
+ * `system:request-all`.
  *
  * @param socket - создаваемый WebSocket-клиент
  */
@@ -121,6 +158,17 @@ function handleSocketSetup(socket: TypedWebSocketClient): void {
   }
 
   subscribeSystemData(socket);
+}
+
+/**
+ * Обработчик `world:closed`: пользователь ушёл из мира — данные мира
+ * отпускаются. Обычное переподключение сокета хук не зовёт, но зовёт отказ в
+ * авторизации при переподключении (сессия истекла, пока мир перезапускался):
+ * для ядра это тот же выход из мира. Справочники после нового входа приедут
+ * сами, вписанный пользователем источник — нет.
+ */
+function handleWorldClosed(): void {
+  useSystemDataStore().releaseWorldData();
 }
 
 /**
@@ -140,5 +188,6 @@ export function registerSystemDataSync(): void {
   if (!hookInstalled) {
     hookInstalled = true;
     ClientHooks.on('socket:setup', handleSocketSetup);
+    ClientHooks.on('world:closed', handleWorldClosed);
   }
 }

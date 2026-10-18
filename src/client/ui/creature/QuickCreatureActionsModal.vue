@@ -2,13 +2,17 @@
   import type { TypedWebSocketClient } from '@vtt/shared';
   import type { CreatureAction, DnDCreature } from '@vtt/shared/system/dnd.js';
 
-  import { computed, ref, watch } from 'vue';
+  import { computed, ref } from 'vue';
 
-  import { emitEntityUpdate, findEntityInWorld } from '@/core/entityUtils';
+  import { findEntityInWorld } from '@/core/entityUtils';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useWorldStore } from '@/stores/worldStore';
-  import { isDndCreature } from '@vtt/shared/system/dnd.js';
+  import {
+    isDndCreature,
+    isDndCreatureRecord,
+  } from '@vtt/shared/system/dnd.js';
 
+  import { useWorldEntityCopy } from '../../composables/useWorldEntityCopy';
   import {
     QUICK_PANEL_LABELS,
     QUICK_PANEL_MODAL_SIZE,
@@ -61,15 +65,12 @@
    */
   const localCreature = ref<DnDCreature | null>(null);
 
-  watch(
-    storeCreature,
-    (newCreature) => {
-      if (newCreature) {
-        localCreature.value = JSON.parse(JSON.stringify(newCreature));
-      }
-    },
-    { immediate: true, deep: true },
-  );
+  // Копия следует за миром; серверу уходит только то, чем её изменило окно
+  const { saveCopy } = useWorldEntityCopy({
+    copy: localCreature,
+    readWorld: () => storeCreature.value,
+    isEntity: isDndCreatureRecord,
+  });
 
   /** Заголовок окна: «Действия — Гоблин» */
   const modalTitle = computed(
@@ -88,8 +89,7 @@
       return;
     }
 
-    // Событие по типу сущности разводит ядро — своей развилки не держим
-    emitEntityUpdate(props.socket, localCreature.value);
+    saveCopy(props.socket);
   }
 
   /**

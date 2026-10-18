@@ -398,11 +398,7 @@ export function useSpellSavingThrows() {
   ): string | null {
     const info = resolveTargetSaveInfo(target);
 
-    const title = formatSavingThrowTitle(
-      target.ability,
-      target.entity.name,
-      target.dc,
-    );
+    const title = formatSavingThrowTitle(target.ability);
 
     return openDiceRollWindow(
       {
@@ -414,6 +410,7 @@ export function useSpellSavingThrows() {
           target.entity.name,
         ),
         rollButtonText: SAVING_THROW_ROLL_LABELS.button,
+        actorName: target.entity.name,
         modifier: info.modifier,
         initialRollMode: determineRollMode(
           info.hasAdvantage,

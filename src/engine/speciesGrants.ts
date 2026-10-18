@@ -3,10 +3,14 @@ import type { MovementType } from '@vtt/shared';
 import type { DnDActor } from './dndEntities.js';
 import type { FeatData } from './featTypes.js';
 import type { GrantedSpellSource } from './grantedSpells.js';
-import type { SpeciesDefinition, SpeciesFeature } from './speciesTypes.js';
+import type {
+  GrantedSpellRef,
+  SpeciesDefinition,
+  SpeciesFeature,
+} from './speciesTypes.js';
 import type { ActorCounterState } from './types.js';
 
-import { counterIdentity } from './counterResource.js';
+import { counterIdentity } from './counterIds.js';
 import {
   buildFeatCounters,
   isSpeciesCounter,
@@ -372,20 +376,69 @@ export function removeSpeciesCounters(
 }
 
 /**
+ * Уровень персонажа, на котором вид выдаёт заклинание: уровень особенности или
+ * уровень самого заклинания, смотря что позже.
+ *
+ * @param feature - особенность вида
+ * @param ref - заклинание особенности
+ * @returns уровень персонажа, с которого заклинание доступно
+ */
+export function speciesSpellOpensAt(
+  feature: Pick<SpeciesFeature, 'level'>,
+  ref: Pick<GrantedSpellRef, 'requiredLevel'>,
+): number {
+  return Math.max(feature.level ?? 1, ref.requiredLevel ?? 1);
+}
+
+/**
+ * Выдан ли видом заклинание на этом уровне персонажа.
+ *
+ * Вид выбирают и до класса, когда уровней ещё нет, — такой лист считается
+ * персонажем первого уровня, иначе вид не выдал бы даже заговор.
+ *
+ * @param feature - особенность вида
+ * @param ref - заклинание особенности
+ * @param characterLevel - суммарный уровень персонажа (0 — классов ещё нет)
+ * @returns true, если заклинание уже открыто
+ */
+export function isSpeciesSpellOpen(
+  feature: Pick<SpeciesFeature, 'level'>,
+  ref: Pick<GrantedSpellRef, 'requiredLevel'>,
+  characterLevel: number,
+): boolean {
+  return speciesSpellOpensAt(feature, ref) <= Math.max(1, characterLevel);
+}
+
+/**
  * Собирает связи «заклинание компендиума → особенность-источник» из вида —
  * включая особенности легаси-вариантов и записи-подвида. Берёт только
  * связанные с компендиумом (`spellId`) заклинания; дедуп по `spellId`.
  * Используется резолвером granted-заклинаний для подгрузки данных из
  * компендиума.
  *
+ * Заклинание открывается на уровне персонажа: на уровне особенности или на своём
+ * `requiredLevel`, смотря что позже. У «Наследия преисподней» особенность одна, а
+ * заклинания 3-го и 5-го уровня приходят позже заговора — без проверки вид
+ * выдавал бы их сразу.
+ *
  * @param definition - определение вида
  * @param subspecies - выбранная запись-подвид; пусто — не выбрана
+ * @param options - ограничения выдачи
+ * @param options.characterLevel - суммарный уровень персонажа (0 — классов ещё
+ *   нет, считается первым); пусто — без проверки уровня
+ * @param options.featureChoices - выбранные легаси-варианты (ключ особенности →
+ *   ключ варианта); пусто — особенности всех вариантов
  * @returns источники granted-заклинаний (только со `spellId`)
  */
 export function collectSpeciesGrantedSpellSources(
   definition: SpeciesDefinition,
   subspecies?: SpeciesDefinition | null,
+  options: {
+    characterLevel?: number;
+    featureChoices?: Record<string, string>;
+  } = {},
 ): GrantedSpellSource[] {
+  const { characterLevel, featureChoices } = options;
   const sources: GrantedSpellSource[] = [];
   const seenSpellIds = new Set<string>();
 
@@ -396,6 +449,13 @@ export function collectSpeciesGrantedSpellSources(
 
     for (const ref of feature.grantedSpells ?? []) {
       if (!ref.spellId || seenSpellIds.has(ref.spellId)) {
+        continue;
+      }
+
+      if (
+        characterLevel !== undefined
+        && !isSpeciesSpellOpen(feature, ref, characterLevel)
+      ) {
         continue;
       }
 
@@ -415,6 +475,10 @@ export function collectSpeciesGrantedSpellSources(
     addFromFeature(feature);
 
     for (const choice of feature.choices ?? []) {
+      if (featureChoices && featureChoices[feature.key] !== choice.key) {
+        continue;
+      }
+
       for (const choiceFeature of choice.features ?? []) {
         addFromFeature(choiceFeature);
       }

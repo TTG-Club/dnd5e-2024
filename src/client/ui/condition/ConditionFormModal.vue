@@ -342,7 +342,6 @@
     :subtitle="name || undefined"
     :initial-width="720"
     :min-width="560"
-    :resizable="false"
     :z-index="zIndex"
     @update:open="handleOpenChange"
     @bring-to-front="emit('bring-to-front')"

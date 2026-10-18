@@ -9,6 +9,7 @@
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import {
     currencyShortLabel,
+    startingEquipmentNote,
     startingEquipmentQuantity,
   } from '@vtt/shared/system/dnd.js';
 
@@ -39,9 +40,10 @@
   function itemLine(item: StartingEquipmentItem): string {
     const quantity = startingEquipmentQuantity(item);
     const count = quantity > 1 ? ` ×${quantity}` : '';
-    const note = item.note ? ` (${item.note})` : '';
+    const note = startingEquipmentNote(item);
+    const noteSuffix = note ? ` (${note})` : '';
 
-    return `${item.name}${count}${note}`;
+    return `${item.name}${count}${noteSuffix}`;
   }
 </script>
 

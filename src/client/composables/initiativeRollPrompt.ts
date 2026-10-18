@@ -44,10 +44,6 @@ export function promptInitiativeRoll(
     dnd5eSystemInstance.getEntityActiveFlags(entity),
   );
 
-  // Имя участника: в трекере их много — по одной «Инициативе» не видно ни за
-  // кого открыто окно, ни за кого ушёл бросок в чат
-  const nameSuffix = `${INITIATIVE_ROLL_LABELS.nameSeparator}${entity.name}`;
-
   // Окно видит только бросающий, а чат читают все: имя существа, скрытое от
   // игроков, в сообщение о броске не попадает — иначе бросок выдал бы то, что
   // ядро прячет в трекере. Правило то же, что у ядра: существо без явно
@@ -66,7 +62,10 @@ export function promptInitiativeRoll(
   // уже открытое окно, а не плодить второе
   const modalId = openDiceRollWindow(
     {
-      title: `${INITIATIVE_ROLL_LABELS.title}${nameSuffix}`,
+      title: INITIATIVE_ROLL_LABELS.title,
+      // Имя участника: в трекере их много — без него не видно, за кого
+      // открыто окно. Окно видит только бросающий, поэтому имя настоящее.
+      actorName: entity.name,
       rollLabel,
       rollButtonText: INITIATIVE_ROLL_LABELS.button,
       modifier,

@@ -19,11 +19,11 @@ const leatherArmor = {
 };
 
 /** Флаги персонажа в кожаном доспехе при заданном списке владений. */
-function flagsWithArmorProficiencies(armor) {
+function flagsWithArmorProficiencies(armor, armorItem = leatherArmor) {
   const actor = structuredClone(engine.DEFAULT_ACTOR);
 
   actor.system.proficiencies.armor = armor;
-  actor.equipment = [leatherArmor];
+  actor.equipment = [armorItem];
 
   return engine.resolveActorStats(actor).activeFlags;
 }
@@ -46,4 +46,36 @@ it('без владения доспехом штраф остаётся', () =>
 
   assert.equal(flags.has('abilityCheck.disadvantage.dexterity'), true);
   assert.equal(flags.has('attack.disadvantage'), true);
+});
+
+/** Кожаный доспех из компендиума с базовым типом, которого нет в справочнике. */
+const compendiumLeatherArmor = { ...leatherArmor, baseType: 'leather-armor' };
+
+it('все доспехи категории в списке снимают штраф с доспеха из компендиума', () => {
+  const flags = flagsWithArmorProficiencies(
+    ['padded', 'leather', 'studded-leather'],
+    compendiumLeatherArmor,
+  );
+
+  assert.equal(flags.has('abilityCheck.disadvantage.dexterity'), false);
+  assert.equal(flags.has('attack.disadvantage'), false);
+});
+
+it('часть доспехов категории не даёт владения доспехом из компендиума', () => {
+  const flags = flagsWithArmorProficiencies(
+    ['padded', 'leather'],
+    compendiumLeatherArmor,
+  );
+
+  assert.equal(flags.has('abilityCheck.disadvantage.dexterity'), true);
+});
+
+it('доспех без категории и известного типа не штрафуется', () => {
+  const flags = flagsWithArmorProficiencies([], {
+    ...leatherArmor,
+    equipmentCategory: undefined,
+    baseType: 'homebrew',
+  });
+
+  assert.equal(flags.has('abilityCheck.disadvantage.dexterity'), false);
 });

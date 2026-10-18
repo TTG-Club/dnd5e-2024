@@ -59,6 +59,7 @@ import {
 import { chooseUseTarget } from './effectUseTargetChoice';
 import { runWithEffectVariants } from './effectVariantChoice';
 import { changeEntitySheet } from './entitySheetWrite';
+import { refuseWhilePaused } from './pauseLock';
 import { refuseWhileSheetEditing } from './sheetEditLock';
 import { openSkillCheckModal } from './skillCheckRoll';
 import {
@@ -193,6 +194,11 @@ export function applyEffectSource(
   // Лист применившего в режиме правки — применение ждёт «Сохранить» или
   // отмены
   if (refuseWhileSheetEditing(user.id)) {
+    return;
+  }
+
+  // Игра на паузе — действие не начинается
+  if (refuseWhilePaused()) {
     return;
   }
 
@@ -532,6 +538,11 @@ export function applyEntityEffectUse(entityId: string, effectId: string): void {
     return;
   }
 
+  // Игра на паузе — действие не начинается
+  if (refuseWhilePaused()) {
+    return;
+  }
+
   const worldEntities = useWorldEntities();
   const entity = worldEntities.findCurrentDndEntity(entityId);
   const effects = entity?.activeEffects ?? [];
@@ -582,6 +593,11 @@ export function applyEntityItemUse(entityId: string, itemId: string): void {
   // Лист владельца в режиме правки — до чтения мира: предмета нового, ещё не
   // сохранённого листа там нет, и «Использовать» молчало
   if (refuseWhileSheetEditing(entityId)) {
+    return;
+  }
+
+  // Игра на паузе — действие не начинается
+  if (refuseWhilePaused()) {
     return;
   }
 

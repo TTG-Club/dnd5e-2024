@@ -65,6 +65,7 @@ import {
   MOVEMENT_LABELS,
   SELECTABLE_CONDITIONS,
   SKILLS_LABELS,
+  THROWN_WEAPON_PROPERTY,
 } from './consts.js';
 import {
   DAMAGE_PART_TARGETS,
@@ -606,6 +607,19 @@ export function parseWeaponBaseTypeCondition(
 /** Условие «Дубинки»: дубинка или боевой посох */
 export const SHILLELAGH_WEAPON_CONDITION = `${WEAPON_BASE_TYPE_CONDITION_PREFIX}"club, quarterstaff"`;
 
+/**
+ * Приставка условия «у оружия броска есть свойство»: `weapon.property === "thrown"`.
+ * Проверяется в броске — у атаки не оружием свойств нет, и условие не выполняется.
+ */
+export const WEAPON_PROPERTY_CONDITION_PREFIX = 'weapon.property === ';
+
+/**
+ * Условие «Сражения метательным оружием»: бросок метательным оружием. Вместе с
+ * ключом `damage.ranged` оно и даёт «+2 к урону, когда оружие брошено»: лук и
+ * арбалет свойства «Метательное» не имеют.
+ */
+export const THROWN_WEAPON_CONDITION = `${WEAPON_PROPERTY_CONDITION_PREFIX}"${THROWN_WEAPON_PROPERTY}"`;
+
 /** Приставка условия по типу ЦЕЛИ броска. */
 export const TARGET_TYPE_CONDITION_PREFIX = 'target.creatureType === ';
 
@@ -781,6 +795,11 @@ export const EFFECT_CONDITION_SUGGESTIONS: readonly EffectLibrarySuggestion[] =
         {
           value: `${ATTACK_ABILITY_CONDITION_PREFIX}"dexterity"`,
           label: 'Атака: Ловкостью (урон оружия)',
+        },
+        {
+          value: THROWN_WEAPON_CONDITION,
+          label: 'Оружие: метательное',
+          hint: 'Сражение метательным оружием: вместе с «Урон: дальнобойная атака».',
         },
         // Только для замен свойств оружия (`weapon.*`): каждое оружие листа
         // сверяется со списком само
@@ -1405,6 +1424,7 @@ export type EffectFlagKey =
   | 'hitPoints.maxReductionBlocked'
   | 'attacksAgainst.forceCritical'
   | 'movement.teleportBlocked'
+  | 'scene.offScene'
   | 'actions.noReaction'
   | 'actions.noBonusAction'
   | 'actions.oneActionOrBonus'
@@ -1584,6 +1604,7 @@ const BASE_EFFECT_FLAG_LABELS: Record<
   'hitPoints.maxReductionBlocked': 'Максимум хитов нельзя уменьшать',
   'attacksAgainst.forceCritical': 'Попадание по этому существу — крит',
   'movement.teleportBlocked': 'Не может телепортироваться',
+  'scene.offScene': 'Убран со сцены: фишки нет, пока эффект действует',
   'rest.noBenefit.short': 'Короткий отдых не приносит пользы',
   'rest.noBenefit.long': 'Продолжительный отдых не приносит пользы',
 
@@ -3068,7 +3089,7 @@ export interface ResolvedActorStats {
    * Это справка листа, а не механика сцены: зрение токена в контракте
    * приложения знает только тёмное зрение, поэтому числа отсюда показываются
    * бейджем в шапке, но на видимость не влияют (README, § «Чего не хватает для
-   * полноценного SDK», п. 12).
+   * полноценного SDK», п. 1).
    */
   senses: Record<SenseType, number>;
   /** Максимум хитов */

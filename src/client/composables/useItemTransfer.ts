@@ -3,25 +3,35 @@
  *
  * Жест начинается в строке инвентаря (`ActorEquipmentTab` кладёт нагрузку в
  * буфер перетаскивания) и заканчивается на другом ОТКРЫТОМ листе. Сцена здесь
- * ни при чём: перетаскивание токена на токен ведёт ядро, и на существе оно пока
- * не работает — см. README, § «Чего не хватает для полноценного SDK», п. 13.
+ * ни при чём: перетаскивание токена на токен ведёт ядро (с VTTG 0.9.635 — и на
+ * фишку существа).
  *
  * Стороны обмена — любые сущности с инвентарём: персонаж, существо и любой
  * будущий носитель предметов. Само правило переноса живёт в движке
- * (`transferItem`), здесь только доставка: найти отправителя в мире, отправить
- * его новую запись на сервер и вернуть листу-получателю новый инвентарь.
+ * (`transferItem`) и исполняется на СЕРВЕРЕ: лист только просит ядро передать
+ * предмет (`entity:transfer-item`, VTTG 0.9.649) — тем же запросом, что и
+ * перенос с фишки на фишку. Сервер сам проверяет права, берёт предмет из своих
+ * данных и пишет обе стороны, либо обе, либо ни одной; листы узнают итог из
+ * обычной рассылки сущностей. Поэтому отдать предмет можно и сущности, которой
+ * игрок не управляет, а потерять или размножить его нельзя.
  */
 
+import type { ItemTransferOutcome } from '@/core/entityUtils';
 import type { SceneEntity, TypedWebSocketClient } from '@vtt/shared';
 import type { DnDGameItem } from '@vtt/shared/system/dnd.js';
 
+import {
+  ITEM_TRANSFER_FAILURE_MESSAGES,
+  requestItemTransfer,
+} from '@/core/entityUtils';
 import { useHotbarStore } from '@/stores/hotbarStore';
 import { useWorldStore } from '@/stores/worldStore';
 import { isEntityOwner, isRecord } from '@vtt/shared';
-import { cloneEntityData, transferItem } from '@vtt/shared/system/dnd.js';
 
-import { GAME_ITEM_TRANSFER_MIME } from '../ui/actor/constants';
-import { changeEntitySheet } from './entitySheetWrite';
+import {
+  GAME_ITEM_TRANSFER_MIME,
+  ITEM_TRANSFER_REFUSED_TITLE,
+} from '../ui/actor/constants';
 import { useWorldEntities } from './useWorldEntities';
 
 /**
@@ -90,12 +100,46 @@ export function isItemTransferDrop(event: DragEvent): boolean {
   return readTransferPayload(event) !== null;
 }
 
-/** Что лист получил вместе с предметом */
-export interface ReceivedTransfer {
-  /** Новый инвентарь получателя — листу остаётся положить его и сохранить */
-  equipment: DnDGameItem[];
+/** Чем кончилась передача предмета на лист */
+export interface ItemTransferResult {
+  /** Ответ сервера: передан либо причина, по которой предмет остался на месте */
+  outcome: ItemTransferOutcome;
   /** Название предмета для сообщения игроку */
   itemName: string;
+}
+
+/** Сообщение игроку об итоге передачи */
+export interface ItemTransferNotice {
+  title: string;
+  description: string;
+  color: 'success' | 'error';
+}
+
+/**
+ * Собирает сообщение об итоге передачи: «передан» — только после согласия
+ * сервера, иначе причина словами ядра.
+ *
+ * @param result - итог передачи
+ * @param receivedTitle - заголовок удачной передачи у листа-получателя
+ * @returns сообщение для игрока
+ */
+export function describeItemTransfer(
+  result: ItemTransferResult,
+  receivedTitle: string,
+): ItemTransferNotice {
+  if (result.outcome.ok) {
+    return {
+      title: receivedTitle,
+      description: result.itemName,
+      color: 'success',
+    };
+  }
+
+  return {
+    title: ITEM_TRANSFER_REFUSED_TITLE,
+    description: ITEM_TRANSFER_FAILURE_MESSAGES[result.outcome.reason],
+    color: 'error',
+  };
 }
 
 /**
@@ -109,15 +153,12 @@ export function useItemTransfer() {
   const hotbarStore = useHotbarStore();
 
   /**
-   * Вправе ли текущий игрок ВЫНУТЬ предмет из этой сущности.
+   * Вправе ли текущий игрок ВЫНУТЬ предмет из этой сущности: ГМ либо владелец.
    *
-   * Проверка обязана быть здесь, а не только у листа-получателя: тот знает
-   * права на себя, а предмет уходит у другой стороны. Сервер такое обновление
-   * отвергает МОЛЧА, без ответа (`entityManager.updateActor`/`updateCreature`),
-   * поэтому без проверки предмет не переехал бы, а размножился: у отправителя
-   * остался, у получателя появился.
-   *
-   * Правило то же, что у ядра при переносе между токенами: ГМ либо владелец.
+   * Окончательно права проверяет сервер; здесь — та часть правила, которую
+   * клиент знает сам, чтобы отказ был виден сразу, без похода на сервер. Право
+   * на получателя сервер решает один: получить предмет может и сущность,
+   * которой игрок не управляет.
    *
    * @param entity - сущность-отправитель
    * @returns `true`, если предмет можно забрать
@@ -133,32 +174,70 @@ export function useItemTransfer() {
   }
 
   /**
+   * Просит сервер передать предмет и дожидается ответа.
+   *
+   * @param payload - нагрузка жеста
+   * @param target - сущность-получатель
+   * @param socket - сокет мира; без него спросить некого
+   * @returns итог передачи
+   */
+  async function requestTransfer(
+    payload: ItemTransferPayload,
+    target: SceneEntity,
+    socket: TypedWebSocketClient | null | undefined,
+  ): Promise<ItemTransferResult> {
+    const itemName = payload.item.name;
+    const source = findCurrentWorldEntity(payload.sourceActorId);
+
+    if (!socket) {
+      return { outcome: { ok: false, reason: 'noResponse' }, itemName };
+    }
+
+    if (!source) {
+      return { outcome: { ok: false, reason: 'notFound' }, itemName };
+    }
+
+    if (!canTakeFrom(source)) {
+      return { outcome: { ok: false, reason: 'sourceForbidden' }, itemName };
+    }
+
+    const outcome = await requestItemTransfer(socket, {
+      sourceEntityId: source.id,
+      targetEntityId: target.id,
+      item: payload.item,
+    });
+
+    if (outcome.ok) {
+      // Кнопка отданного предмета на панели быстрого доступа снимается: у
+      // получателя копия заводится с новым идентификатором, и прежняя кнопка
+      // осталась бы мёртвой. Тот же порядок, что при удалении предмета с листа
+      hotbarStore.removeByRef(payload.item.id);
+    }
+
+    return { outcome, itemName };
+  }
+
+  /**
    * Принимает предмет, переданный с другого листа.
    *
-   * Отправителя обновляет сама и сразу: его лист может быть закрыт, и записать
-   * его больше некому. Получателя не трогает — возвращает новый инвентарь, а
-   * положит его и сохранит лист своим обычным путём.
+   * Ни отправителя, ни получателя сама не пишет: обе стороны меняет сервер
+   * одним действием, а листы получают итог обычной рассылкой сущностей.
    *
-   * ⚠️ Отправитель обновляется НЕМЕДЛЕННО, поэтому получатель обязан сохранить
-   * инвентарь тоже немедленно. Лист в режиме правки этот жест принимать не
-   * должен: там правки копятся до «Сохранить», и «Отмена» стёрла бы предмет уже
-   * после того, как он ушёл у отправителя, — предмет пропал бы у обоих.
-   *
-   * Права на жест проверяет вызывающий лист: он и так знает, можно ли его
-   * править (режим просмотра, чужое существо без контроля).
+   * Лист в режиме правки этот жест принимать не должен: там открыт черновик, и
+   * его «Сохранить» положило бы поверх пришедшего предмета прежний инвентарь.
    *
    * @param event - событие drop
    * @param target - сущность-получатель (лист, на который бросили предмет)
-   * @param socket - сокет мира; без него отправителя обновить нечем
-   * @returns новый инвентарь и название предмета; `null` — переноса не вышло:
-   *   либо нагрузка не наша (и лист проверяет остальные её виды), либо перенос
-   *   невозможен. Нашу нагрузку событие к этому моменту уже погасило
+   * @param socket - сокет мира
+   * @returns обещание итога передачи; `null` — нагрузка не наша, и лист
+   *   проверяет остальные её виды. Нашу нагрузку событие к этому моменту уже
+   *   погасило
    */
   function receiveTransferredItem(
     event: DragEvent,
     target: SceneEntity,
     socket: TypedWebSocketClient | null | undefined,
-  ): ReceivedTransfer | null {
+  ): Promise<ItemTransferResult> | null {
     const payload = readTransferPayload(event);
 
     if (!payload) {
@@ -170,44 +249,7 @@ export function useItemTransfer() {
     event.preventDefault();
     event.stopPropagation();
 
-    if (!socket) {
-      return null;
-    }
-
-    const source = findCurrentWorldEntity(payload.sourceActorId);
-
-    if (!source || !canTakeFrom(source)) {
-      return null;
-    }
-
-    const transfer = transferItem(source, target, payload.item);
-
-    if (!transfer) {
-      return null;
-    }
-
-    // Полной заменой записи, как это делает и ядро при переносе между токенами:
-    // узкий боевой канал несёт только хиты и эффекты, инвентарь в него не
-    // входит. Отправитель перечитывается, меняется только его инвентарь.
-    //
-    // Глубокая копия: записи живут в сторе хоста (reactive-прокси), и
-    // поверхностная оставила бы прокси во вложенных полях
-    const sourceEquipment = cloneEntityData(transfer.source.equipment);
-
-    changeEntitySheet(source.id, (current) => ({
-      ...current,
-      equipment: sourceEquipment,
-    }));
-
-    // Кнопка отданного предмета на панели быстрого доступа снимается: у
-    // получателя копия заводится с новым идентификатором, и прежняя кнопка
-    // осталась бы мёртвой. Тот же порядок, что при удалении предмета с листа
-    hotbarStore.removeByRef(payload.item.id);
-
-    return {
-      equipment: transfer.target.equipment,
-      itemName: payload.item.name,
-    };
+    return requestTransfer(payload, target, socket);
   }
 
   return { receiveTransferredItem };

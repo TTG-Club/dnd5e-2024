@@ -23,6 +23,8 @@
     speciesDefinition: SpeciesDefinition | null;
     /** Пак записи вида: ложится на запись актора */
     packId?: string;
+    /** Подвид, выбранный до мастера: шаг подвида открывается уже с ним */
+    subspeciesKey?: string | null;
     previousSpeciesDefinition?: SpeciesDefinition | null;
     /** Прежний подвид-запись — для точного отката при смене вида */
     previousSubspeciesDefinition?: SpeciesDefinition | null;
@@ -86,6 +88,7 @@
     speciesRecordsRef,
     featChoiceFeats,
     computed(() => props.packId),
+    computed(() => props.subspeciesKey ?? null),
   );
 
   // Надобность каталога знает мастер, а грузит его composable выше: связываем

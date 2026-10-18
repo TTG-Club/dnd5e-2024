@@ -515,6 +515,45 @@ describe('каталог: предметы', () => {
     );
   });
 
+  it('[I21] предмет «при себе» действует без отметки «надет», настройку требует как прежде', () => {
+    const stone = {
+      ...wornItem('luckstone', [
+        createEffect('Удача', { changes: [change('save.wisdom', '1')] }),
+      ]),
+      equipped: false,
+      activeWhenCarried: true,
+    };
+
+    assert.equal(engine.itemEffectsActive(stone), true, 'в сумке работает');
+
+    assert.equal(
+      engine.itemEffectsActive({ ...stone, activeWhenCarried: undefined }),
+      false,
+      'обычный предмет в сумке не работает',
+    );
+
+    assert.equal(
+      engine.itemEffectsActive({ ...stone, quantity: 0 }),
+      false,
+      'закончившийся не работает',
+    );
+
+    assert.equal(
+      engine.itemEffectsActive({ ...stone, magicAttunement: 'required' }),
+      false,
+      'без настройки не работает',
+    );
+
+    assert.equal(
+      engine.itemEffectsActive({
+        ...stone,
+        magicAttunement: 'required',
+        isAttuned: true,
+      }),
+      true,
+    );
+  });
+
   it('[I16] закончившийся предмет не действует, не надет и не бьёт', () => {
     const cloak = wornItem('cloak', [
       createEffect('Защита', { changes: [change('armorClass', '1')] }),

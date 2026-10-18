@@ -21,6 +21,7 @@ import type {
 } from '@vtt/shared/system/dnd.js';
 
 import { generateId } from '@vtt/shared';
+import { startingEquipmentNote } from '@vtt/shared/system/dnd.js';
 
 import { CLASS_OPTION_KEYS } from './constants';
 
@@ -73,7 +74,9 @@ function toEditableItem(
       item.quantity !== undefined && item.quantity > 1
         ? Math.round(item.quantity)
         : 1,
-    note: item.note ?? '',
+    // Уточнение из компендиума становится уточнением мира: сохранённое
+    // формой, оно ложится в `note`
+    note: startingEquipmentNote(item),
   };
 }
 

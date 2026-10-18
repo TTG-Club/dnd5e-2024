@@ -286,8 +286,9 @@ function counterMaxLine(counter: FeatCounterDefinition): string {
  * рядом, и разнобой в написании уровня бросался бы в глаза.
  *
  * @param level - уровень персонажа
+ * @returns подпись вида «с 3 ур.»
  */
-function fromLevelLabel(level: number): string {
+export function fromLevelLabel(level: number): string {
   return `с ${level} ур.`;
 }
 

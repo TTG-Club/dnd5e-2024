@@ -8,23 +8,21 @@
     Spell,
   } from '@vtt/shared/system/dnd.js';
 
-  import { computed, ref, watch } from 'vue';
+  import { computed, ref } from 'vue';
 
-  import {
-    emitEntityUpdate,
-    findEntityInWorld,
-    requireSocket,
-  } from '@/core/entityUtils';
+  import { findEntityInWorld, requireSocket } from '@/core/entityUtils';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useWorldStore } from '@/stores/worldStore';
   import { generateId, isActorEntity } from '@vtt/shared';
   import {
     ensureCreatureSpellsInBlocks,
     isDndSceneEntity,
+    isDndSceneEntityRecord,
     isSpell,
     syncCreatureSpellcastingUses,
   } from '@vtt/shared/system/dnd.js';
 
+  import { useWorldEntityCopy } from '../../composables/useWorldEntityCopy';
   import CreatureSpellsBlock from '../creature/CreatureSpellsBlock.vue';
   import {
     QUICK_PANEL_LABELS,
@@ -71,15 +69,12 @@
   /** Локальная копия сущности для компонента (синхронизируется из store) */
   const localActor = ref<DnDSceneEntity | null>(null);
 
-  watch(
-    storeEntity,
-    (newEntity) => {
-      if (newEntity) {
-        localActor.value = JSON.parse(JSON.stringify(newEntity));
-      }
-    },
-    { immediate: true, deep: true },
-  );
+  // Копия следует за миром; серверу уходит только то, чем её изменило окно
+  const { saveCopy } = useWorldEntityCopy({
+    copy: localActor,
+    readWorld: () => storeEntity.value,
+    isEntity: isDndSceneEntityRecord,
+  });
 
   const isOpen = computed({
     get: () => props.open,
@@ -154,9 +149,7 @@
 
     try {
       requireSocket(props.socket);
-
-      // Событие по типу сущности разводит ядро — своей развилки не держим
-      emitEntityUpdate(props.socket, localActor.value);
+      saveCopy(props.socket);
     } catch (error) {
       console.error('[QuickSpellsModal] Immediate save failed:', error);
     }

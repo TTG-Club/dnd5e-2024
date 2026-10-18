@@ -12,7 +12,7 @@
  * ОДИН список: разойдись они, кнопка осталась бы недоступной при заполненном выборе.
  */
 
-import type { FeatChoiceOption } from '@vtt/shared/system/dnd.js';
+import type { FeatChoiceWeaponOption } from '@vtt/shared/system/dnd.js';
 
 import { computed } from 'vue';
 
@@ -21,15 +21,17 @@ import { useSystemDataStore } from '../stores/systemDataStore';
 /**
  * Виды оружия мира для пула выбора черты.
  *
- * @returns `weaponOptions` — варианты «ключ + название» в порядке справочника
+ * @returns `weaponOptions` — варианты «ключ + название + приём» в порядке
+ *   справочника
  */
 export function useFeatChoiceWeapons() {
   const systemDataStore = useSystemDataStore();
 
-  const weaponOptions = computed<FeatChoiceOption[]>(() =>
+  const weaponOptions = computed<FeatChoiceWeaponOption[]>(() =>
     systemDataStore.weaponBaseTypes.map((baseType) => ({
       value: baseType.key,
       name: baseType.name,
+      mastery: baseType.mastery,
     })),
   );
 

@@ -29,6 +29,7 @@
     listCreatureDamageAlternatives,
     listSourceDamageTypeChoices,
     readAlternativeShownParts,
+    resolveCreatureActionAttackBonus,
     resolveEntityActionBlocks,
     SAVE_TYPE_LABELS,
   } from '@vtt/shared/system/dnd.js';
@@ -64,6 +65,7 @@
     CREATURE_ACTION_MENU_LABELS,
     CREATURE_ACTIONS_BLOCK_LABELS,
     CREATURE_DAMAGE_CHOICE_LABELS,
+    CREATURE_ICON,
     CREATURE_RANGE_TYPE_LABELS,
     CREATURE_ROW_ICONS,
     CREATURE_ROW_STAT_HINTS,
@@ -408,14 +410,15 @@
   }
 
   /**
-   * Подпись применения записи: «Атаковать» — только у атаки; спасбросок и
-   * запись без броска «Используют».
+   * Подпись применения записи: «Атаковать» — только у атаки, в том числе без
+   * записанного бонуса; спасбросок, область, автопопадание и запись без
+   * броска «Используют».
    *
    * @param action - действие существа
    * @returns подпись кнопки или пункта меню
    */
   function getUseLabel(action: CreatureAction): string {
-    return hasCreatureActionRoll(action) && !creatureActionHasSave(action)
+    return resolveCreatureActionAttackBonus(action) !== undefined
       ? CREATURE_ACTION_MENU_LABELS.attack
       : CREATURE_ACTION_MENU_LABELS.use;
   }
@@ -458,7 +461,7 @@
       id: `${props.creatureId}-${action.name.replace(/\\s+/g, '-')}`,
       type: 'creature-action',
       label,
-      icon: 'tabler:alien',
+      icon: CREATURE_ICON,
       ref: action.name,
       actorId: props.creatureId,
     });
@@ -502,7 +505,7 @@
       return CREATURE_ROW_ICONS.save;
     }
 
-    if (action.attackBonus !== undefined) {
+    if (resolveCreatureActionAttackBonus(action) !== undefined) {
       return CREATURE_ROW_ICONS.attack;
     }
 
@@ -563,6 +566,8 @@
   function getActionStats(action: CreatureAction): SheetRowStat[] {
     const stats: SheetRowStat[] = [];
     const rollable = canUseAction(action);
+    // Нет бонуса в данных — плитка всё равно показывает атаку, с +0
+    const attackBonus = resolveCreatureActionAttackBonus(action);
 
     if (creatureActionHasSave(action) && action.saveType) {
       stats.push({
@@ -574,11 +579,11 @@
         accent: true,
         rollable,
       });
-    } else if (action.attackBonus !== undefined) {
+    } else if (attackBonus !== undefined) {
       stats.push({
         key: 'attack',
         label: CREATURE_ROW_STAT_LABELS.attack,
-        value: formatSignedNumber(action.attackBonus),
+        value: formatSignedNumber(attackBonus),
         tooltip: CREATURE_ROW_STAT_HINTS.attack,
         accent: true,
         rollable,

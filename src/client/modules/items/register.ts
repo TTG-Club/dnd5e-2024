@@ -104,6 +104,8 @@ export function register(api: ClientSystemAPI): void {
 
   api.entityCard({
     type: 'weapon',
+    // Пункт «Поделиться в чат» в меню строки «Мастерской»
+    allowShareAttr: true,
     listItemComponent: WeaponListItem,
     openDetail: (entry, options) => {
       if (isDnDGameItem(entry)) {
@@ -114,6 +116,8 @@ export function register(api: ClientSystemAPI): void {
 
   api.entityCard({
     type: 'equipment',
+    // Пункт «Поделиться в чат» в меню строки «Мастерской»
+    allowShareAttr: true,
     listItemComponent: EquipmentListItem,
     openDetail: (entry, options) => {
       if (isDnDGameItem(entry)) {
@@ -124,6 +128,8 @@ export function register(api: ClientSystemAPI): void {
 
   api.entityCard({
     type: 'tool',
+    // Пункт «Поделиться в чат» в меню строки «Мастерской»
+    allowShareAttr: true,
     listItemComponent: ToolListItem,
     openDetail: (entry, options) => {
       if (isDnDGameItem(entry)) {
@@ -134,6 +140,8 @@ export function register(api: ClientSystemAPI): void {
 
   api.entityCard({
     type: 'feat',
+    // Пункт «Поделиться в чат» в меню строки «Мастерской»
+    allowShareAttr: true,
     listItemComponent: FeatListItem,
     openDetail: (entry, options) => {
       if (isDnDGameItem(entry)) {
@@ -144,6 +152,8 @@ export function register(api: ClientSystemAPI): void {
 
   api.entityCard({
     type: 'background',
+    // Пункт «Поделиться в чат» в меню строки «Мастерской»
+    allowShareAttr: true,
     listItemComponent: BackgroundListItem,
     propsFor: (entry) => ({ backgroundDefinition: entry }),
     openDetail: (entry, options) => {
@@ -159,11 +169,11 @@ export function register(api: ClientSystemAPI): void {
     // GameItem мира несёт класс во вложенном classData; записи компендиума
     // уже плоские — поэтому fallback на сам entry.
     propsFor: (entry) => ({ classDefinition: entry.classData ?? entry }),
-    openDetail: (entry) => {
+    openDetail: (entry, options) => {
       const classDefinition = definitionOf(entry, 'classData');
 
       if (isKeyedDefinition(classDefinition)) {
-        useEntityDetailModals().openClassDetail(classDefinition);
+        useEntityDetailModals().openClassDetail(classDefinition, options);
       }
     },
   });
@@ -174,11 +184,11 @@ export function register(api: ClientSystemAPI): void {
     // GameItem мира несёт вид во вложенном speciesData; записи компендиума
     // уже плоские — поэтому fallback на сам entry.
     propsFor: (entry) => ({ speciesDefinition: entry.speciesData ?? entry }),
-    openDetail: (entry) => {
+    openDetail: (entry, options) => {
       const speciesDefinition = definitionOf(entry, 'speciesData');
 
       if (isSpeciesDefinition(speciesDefinition)) {
-        useEntityDetailModals().openSpeciesDetail(speciesDefinition);
+        useEntityDetailModals().openSpeciesDetail(speciesDefinition, options);
       }
     },
   });

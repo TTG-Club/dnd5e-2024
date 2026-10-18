@@ -2782,6 +2782,7 @@ export function useClassWizard(
           },
         ],
         chosenSkills: [...wizardState.selectedSkills],
+        grantedTools: [...wizardState.toolProficiencies],
         featureChoices: { ...wizardState.featureChoices },
         ...classChoiceAnswersField(undefined),
         ...(effectiveSpellcasting

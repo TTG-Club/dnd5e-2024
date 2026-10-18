@@ -6,6 +6,7 @@ import { defineAsyncComponent } from 'vue';
 
 import { dnd5eSystemInstance } from '@vtt/shared/system/dnd.js';
 
+import { promptGmRollRequest } from './composables/gmRollRequest';
 import { promptInitiativeRoll } from './composables/initiativeRollPrompt';
 import { promptRequestedRoll } from './composables/requestedRollPrompt';
 import { registerDnd5eMacros } from './macros/dnd5eMacros';
@@ -16,6 +17,7 @@ import QuickSpellsModal from './ui/actor/QuickSpellsModal.vue';
 import CreatureDeleteConfirmModal from './ui/creature/CreatureDeleteConfirmModal.vue';
 import QuickCreatureActionsModal from './ui/creature/QuickCreatureActionsModal.vue';
 import ActiveEffectFormModal from './ui/effect/ActiveEffectFormModal.vue';
+import SelectedEntityEscapeBar from './ui/effect/SelectedEntityEscapeBar.vue';
 
 /**
  * Ленивая карта ВСЕХ модалок и листов системы D&D 5e (по имени файла). Glob
@@ -102,7 +104,8 @@ export function registerClientSystem(api: ClientSystemAPI) {
   // UI-слоты системы: макросы + модалки удаления/эффектов/быстрые (их рендерит
   // ядро — custom-areas, удаление актёра/существа, быстрые окна) + два окна
   // броска, которые открывает ядро: инициатива (трекер боя) и спасбросок по
-  // чужому запросу (адресный канал «попроси владельца сущности бросить»).
+  // чужому запросу (адресный канал «попроси владельца сущности бросить»), и
+  // окно мастера «Запросить бросок» (меню фишки и меню карты).
   api.uiSystem({
     registerMacros: registerDnd5eMacros,
     actorDeleteConfirmModal: ActorDeleteConfirmModal,
@@ -111,8 +114,10 @@ export function registerClientSystem(api: ClientSystemAPI) {
     quickSpellsModal: QuickSpellsModal,
     quickEquipmentModal: QuickEquipmentModal,
     quickActionsModal: QuickCreatureActionsModal,
+    selectedEntityActions: SelectedEntityEscapeBar,
     promptInitiativeRoll,
     promptRequestedRoll,
+    promptGmRollRequest,
   });
 
   // Система «владеет» своими модалками (лист, просмотрщики, кубики) — регистрируем

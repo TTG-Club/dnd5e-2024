@@ -5,7 +5,8 @@
  * только у классов: записи-подклассы (`parentClassKey`) сворачиваются внутрь
  * родителя — и делается это ВНУТРИ пака. Подкласс из DEV-компендиума липнет к
  * DEV-волшебнику, из ПРОД — к ПРОД-волшебнику; подклассы, заведённые в самом
- * мире, — к родителю любого пака: хоумбрю к компендиумному классу и пишут.
+ * мире, — к родителю своего пака (`parentClassPackId`), а без него — к
+ * родителю любого пака: хоумбрю к компендиумному классу и пишут.
  *
  * Копия класса из компендиума получает НОВЫЙ ключ и ложится в предметы мира,
  * поэтому в паках она не находится — без записей мира лист не увидел бы ни
@@ -32,6 +33,7 @@ import {
   isDnDGameItem,
   isSubclassRecord,
   mergeSubclassRecords,
+  subclassFitsPack,
   WORLD_PACK_ID,
 } from '@vtt/shared/system/dnd.js';
 
@@ -75,7 +77,12 @@ export function useClassCatalog(socket?: Ref<TypedWebSocketClient | null>) {
     worldPackName: COMPENDIUM_PICKER_LABELS.worldPack,
   });
 
-  /** Подклассы, заведённые в мире: приклеиваются к родителю любого пака */
+  /** Подключённые паки — по ним видно, остался ли пак родителя подкласса */
+  const knownPackIds = computed(
+    () => new Set(catalog.packs.value.map((pack) => pack.packId)),
+  );
+
+  /** Подклассы, заведённые в мире: приклеиваются к родителю своего пака */
   const worldSubclassRecords = computed(() =>
     worldRecords.value.filter(isSubclassRecord),
   );
@@ -87,7 +94,11 @@ export function useClassCatalog(socket?: Ref<TypedWebSocketClient | null>) {
   const definitionPacks = computed<CatalogPack<ClassDefinition>[]>(() =>
     catalog.packs.value.map((pack) => ({
       ...pack,
-      entries: mergePackDefinitions(pack, worldSubclassRecords.value),
+      entries: mergePackDefinitions(
+        pack,
+        worldSubclassRecords.value,
+        knownPackIds.value,
+      ),
     })),
   );
 
@@ -109,9 +120,16 @@ export function useClassCatalog(socket?: Ref<TypedWebSocketClient | null>) {
       return worldSubclassRecords.value;
     }
 
-    return pack.packId === WORLD_PACK_ID
-      ? pack.entries
-      : [...pack.entries, ...worldSubclassRecords.value];
+    if (pack.packId === WORLD_PACK_ID) {
+      return pack.entries;
+    }
+
+    return [
+      ...pack.entries,
+      ...worldSubclassRecords.value.filter((record) =>
+        subclassFitsPack(record, pack.packId, knownPackIds.value),
+      ),
+    ];
   }
 
   /**
@@ -187,20 +205,30 @@ export function useClassCatalog(socket?: Ref<TypedWebSocketClient | null>) {
  * ссылкам, что и подмешали (`mergeSubclassRecords` отдаёт сирот тем же
  * объектом).
  *
+ * Подкласс мира, помнящий пак родителя, клеится только к родителю этого пака:
+ * копия подкласса из ПРОД-компендиума не должна появляться у DEV-класса.
+ *
  * @param pack - пак с записями как есть
  * @param worldSubclasses - записи-подклассы мира
+ * @param knownPackIds - подключённые паки: пак родителя, которого среди них
+ *   нет, не мешает подклассу найти родителя в другом
  */
 function mergePackDefinitions(
   pack: CatalogPack<ClassDefinition>,
   worldSubclasses: ReadonlyArray<ClassDefinition>,
+  knownPackIds: ReadonlySet<string>,
 ): ClassDefinition[] {
-  if (pack.packId === WORLD_PACK_ID || worldSubclasses.length === 0) {
+  const fitting = worldSubclasses.filter((record) =>
+    subclassFitsPack(record, pack.packId, knownPackIds),
+  );
+
+  if (pack.packId === WORLD_PACK_ID || fitting.length === 0) {
     return mergeSubclassRecords(pack.entries);
   }
 
-  const foreign = new Set<ClassDefinition>(worldSubclasses);
+  const foreign = new Set<ClassDefinition>(fitting);
 
-  return mergeSubclassRecords([...pack.entries, ...worldSubclasses]).filter(
+  return mergeSubclassRecords([...pack.entries, ...fitting]).filter(
     (definition) => !foreign.has(definition),
   );
 }

@@ -16,7 +16,6 @@
   import {
     GAME_ITEM_MIME,
     SHEET_ROW_TOOLTIP_LINE_BREAK,
-    WEAPON_RANGE_TYPE_SHORT_LABELS,
     WEIGHT_UNIT_LABEL,
   } from './constants';
   import ContextMenuOverlay from './ContextMenuOverlay.vue';
@@ -32,6 +31,13 @@
     showEdit?: boolean;
     /** Показывать «Удалить» в контекстном меню */
     showDelete?: boolean;
+    /** Показывать «В компендиум» в контекстном меню (ставит ядро в «Мастерской») */
+    showAddToCompendium?: boolean;
+    /**
+     * «Поделиться в чат» в контекстном меню. Это обработчик `@share`, а не
+     * событие: пункт показывается, только когда отправить есть кому.
+     */
+    onShare?: () => void;
     /** Показывать стоимость (по умолчанию true) */
     showCost?: boolean;
     /** Показывать вес (по умолчанию true) */
@@ -57,10 +63,19 @@
     edit: [];
     /** Удалить */
     delete: [];
+    /** Положить запись в компендиум мира */
+    addToCompendium: [];
   }>();
 
-  const { isMenuOpen, menuX, menuY, openContextMenu, handleAction, closeMenu } =
-    useContextMenu(props, emit);
+  const {
+    isMenuOpen,
+    menuX,
+    menuY,
+    canShare,
+    openContextMenu,
+    handleAction,
+    closeMenu,
+  } = useContextMenu(props, emit, () => emit('addToCompendium'));
 
   /**
    * Урон для бейджа — как в плитке строки листа: только то, что бросается
@@ -137,14 +152,6 @@
         {{ item.name }}
       </span>
 
-      <!-- Тип (дальнобойное/ближний) -->
-      <span
-        v-if="item.rangeType"
-        class="shrink-0 text-xs text-dimmed"
-      >
-        {{ WEAPON_RANGE_TYPE_SHORT_LABELS[item.rangeType] }}
-      </span>
-
       <!-- Урон -->
       <UBadge
         v-if="item.damageParts?.length"
@@ -183,6 +190,8 @@
     :show-copy="showCopy"
     :show-edit="showEdit"
     :show-delete="showDelete"
+    :show-add-to-compendium="showAddToCompendium"
+    :show-share="canShare"
     @action="handleAction"
     @close="closeMenu"
   />

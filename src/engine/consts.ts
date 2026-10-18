@@ -12,6 +12,7 @@ import type {
   SkillType,
   TokenDispositionSetting,
   ToolCategory,
+  WeaponProperty,
 } from '@vtt/shared';
 
 import type { ConditionKey, ConditionRef } from './conditionKeys.js';
@@ -61,6 +62,30 @@ export const WORLD_PACK_ID = 'world';
 export interface CompendiumRecordRef {
   key: string;
   packId?: string;
+}
+
+/**
+ * Годится ли родитель из пака `packId` для подкласса или подвида, помнящего
+ * пак своего родителя. Пак не известен с какой-либо стороны — годится: так
+ * читаются записи, сохранённые до появления поля. Записанного пака больше нет
+ * среди подключённых — тоже годится: иначе подкласс, скопированный из
+ * отключённого потом компендиума, не нашёл бы родителя нигде.
+ *
+ * @param parentPackId - пак родителя, записанный у подкласса или подвида
+ * @param packId - пак, в котором нашёлся родитель
+ * @param knownPackIds - подключённые паки; не заданы — считаются известными все
+ * @returns `true`, если родитель подходит
+ */
+export function matchesParentPack(
+  parentPackId: string | undefined,
+  packId: string | undefined,
+  knownPackIds?: ReadonlySet<string>,
+): boolean {
+  if (!parentPackId || !packId || parentPackId === packId) {
+    return true;
+  }
+
+  return knownPackIds ? !knownPackIds.has(parentPackId) : false;
 }
 
 // ============================================================
@@ -583,6 +608,27 @@ export const POTION_EQUIPMENT_CATEGORY: DnDEquipmentCategory = 'potion';
 
 /** Иконка экипировки по умолчанию (Iconify, формат `tabler:*`) */
 export const DEFAULT_EQUIPMENT_ICON = 'tabler:shirt';
+
+/**
+ * Ключи категорий снаряжения D&D 2024 — единственный список системы: из него
+ * выводится тип {@link DnDEquipmentCategory}, а совпадение со справочником
+ * `equipment-categories.json` стережёт тест.
+ */
+export const DND_EQUIPMENT_CATEGORIES = [
+  'light',
+  'medium',
+  'heavy',
+  'shield',
+  'trinket',
+  'ring',
+  'clothing',
+  'wand',
+  'wondrous',
+  'vehicle-equipment',
+  'food',
+  'adventurer-equipment',
+  'potion',
+] as const;
 
 /**
  * Иконки (Iconify `tabler:*`) для категорий экипировки.
@@ -1528,3 +1574,9 @@ export function normalizeSpellUsesRecovery(
 
 /** Буква кости в записи формулы хитов существа: «2к8» */
 export const HIT_DICE_FORMULA_LETTER = 'к';
+
+/**
+ * Свойство оружия «Метательное»: по нему выбирают вид атаки (ударить или
+ * бросить) и проверяют условие «метательным оружием».
+ */
+export const THROWN_WEAPON_PROPERTY: WeaponProperty = 'thrown';

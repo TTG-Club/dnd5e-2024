@@ -18,6 +18,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
+  import type { ItemTransferResult } from '../../composables/useItemTransfer';
   import type { SheetTabEntry } from '../actor/sheetTabsModel';
 
   import { useToast } from '@nuxt/ui/composables';
@@ -77,7 +78,9 @@
     refuseWhileSheetEditing,
     useSheetEditLock,
   } from '../../composables/sheetEditLock';
+  import { useEntityDraftWrite } from '../../composables/useEntityDraftWrite';
   import {
+    describeItemTransfer,
     isItemTransferDrop,
     useItemTransfer,
   } from '../../composables/useItemTransfer';
@@ -122,7 +125,6 @@
   import SkillSettingsModal from '../actor/SkillSettingsModal.vue';
   import { formatSignedNumber } from '../actor/utils/formatSignedNumber';
   import { getSheetBlockClass } from '../actor/utils/sheetBlockClass';
-  import { withoutEntityOwnership } from '../entity-ownership/utils';
   import {
     CREATURE_SHEET_DEFAULT_TAB_ID,
     CREATURE_SHEET_LABELS,
@@ -421,6 +423,13 @@
     set: (value) => emit('update:open', value),
   });
 
+  // Основа черновика: от неё считается то, что сохранение шлёт серверу
+  const { draftBase, rebaseDraft, saveDraft } = useEntityDraftWrite({
+    readDraft: () => localCreature.value,
+    readWorld: () => storeCreature.value,
+    isEntity: isDndCreatureRecord,
+  });
+
   /**
    * Инициализирует данные существа: загружает существующее или создаёт новое
    */
@@ -450,6 +459,7 @@
         localCreature.value = draft;
         isEditMode.value = false;
         isDirty.value = false;
+        rebaseDraft();
       } else {
         console.error(CREATURE_SHEET_LOG_PREFIX, props.initialData.id);
       }
@@ -492,6 +502,7 @@
     }
 
     isDirty.value = false;
+    rebaseDraft();
   }
 
   // Автоматическое обновление бонуса мастерства при смене CR
@@ -532,31 +543,20 @@
   );
 
   /**
-   * Синхронизация token из store в localCreature.
-   * Позволяет обновлять визуал/зрение, если они были изменены через настройки токена.
-   */
-  watch(
-    () => storeCreature.value?.token,
-    (newToken) => {
-      if (localCreature.value && newToken && !isEditMode.value) {
-        localCreature.value.token = JSON.parse(JSON.stringify(newToken));
-      }
-    },
-    { deep: true },
-  );
-
-  /**
    * Разделы, которые система пишет в мир во время игры (ресурсы листа,
    * предметы, заклинания, эффекты, хиты), подтягиваются из стора в
    * localCreature — тем же помощником, что у листа персонажа. Пока лист
    * открыт, их меняют снаружи: каст списывает заряд «N/день», бой накладывает
    * и снимает эффекты, передача предмета правит инвентарь. Без этого лист
-   * показывал бы прежнее, а следующая его правка отправила бы на сервер
-   * устаревший раздел и затёрла бы списанное.
+   * показывал бы прежнее. Пришедшее из мира кладётся и в основу черновика:
+   * сохранение шлёт серверу только разницу с ней, и чужое изменение не должно
+   * уйти как правка листа. Токен подтягивает тот же помощник: его меняют окно
+   * настроек и сцена.
    */
   const { pullFromWorld } = useWorldSheetSync({
     readWorld: () => storeCreature.value,
     draft: localCreature,
+    base: draftBase,
     isPaused: () => isEditMode.value,
   });
 
@@ -569,13 +569,13 @@
   );
 
   /**
-   * Что уходит на сервер по «Сохранить». Черновик правки сливается с миром:
-   * правки владельца — из черновика, всё, что он не трогал, — из мира. Иначе
-   * сохранение вернуло бы то, что мир изменил за время правки (урон, снятый
-   * эффект, списанный заряд).
+   * Что лист показывает после «Сохранить». Черновик правки сливается с миром:
+   * правки владельца — из черновика, всё, что он не трогал, — из мира (урон,
+   * снятый эффект, списанный заряд). На сервер при этом уходят только правки
+   * владельца — разница со снимком входа в правку.
    *
    * @param draft - черновик листа
-   * @returns существо для записи
+   * @returns существо, каким оно станет после записи
    */
   function resolveCreatureToSave(draft: DnDCreature): DnDCreature {
     const world = storeCreature.value;
@@ -600,10 +600,7 @@
     if (props.draftSave) {
       props.draftSave(JSON.parse(JSON.stringify(localCreature.value)));
     } else if (props.socket && props.creatureId) {
-      props.socket.emit(
-        'creature:updated',
-        withoutEntityOwnership(localCreature.value),
-      );
+      saveDraft(props.socket);
     }
 
     savedSnapshot.value = JSON.parse(JSON.stringify(localCreature.value));
@@ -1047,6 +1044,14 @@
               updates,
             );
           }
+
+          // Настройки записало само окно — правкой листа они не считаются
+          if (draftBase.value) {
+            draftBase.value = applyPersistedCreatureSettings(
+              draftBase.value,
+              updates,
+            );
+          }
         }
       },
       onSave: (updates: Partial<DnDCreature>) => {
@@ -1124,14 +1129,18 @@
       } else if (props.creatureId) {
         const saved = resolveCreatureToSave(localCreature.value);
 
+        // Основа правки — снимок входа в режим: синхронизация с миром на время
+        // правки стояла, и всё, чем черновик от него отличается, — правки листа
+        saveDraft(props.socket, isEditMode.value ? savedSnapshot.value : null);
         localCreature.value = saved;
-        props.socket!.emit('creature:updated', withoutEntityOwnership(saved));
       } else {
         const cleanCreature = JSON.parse(JSON.stringify(localCreature.value));
 
         props.socket!.emit('creature:created', cleanCreature);
         emit('save', cleanCreature);
         isCreated.value = true;
+        // Сервер получил лист целиком — дальнейшие правки считаются от него
+        rebaseDraft();
 
         if (props.modalId) {
           updateModalProps(props.modalId, { creatureId: cleanCreature.id });
@@ -1423,9 +1432,8 @@
    *   отброшена. `false` значит «это не передача», и лист идёт дальше по цепочке
    */
   function handleItemTransferDrop(event: DragEvent): boolean {
-    // В режиме правки жест не принимается: у отправителя предмет уходит сразу и
-    // на сервер, а здесь правки копятся до «Сохранить» — «Отмена» стёрла бы
-    // предмет уже после того, как его отдали, и он пропал бы у обоих
+    // В режиме правки жест не принимается: здесь открыт черновик, и его
+    // «Сохранить» положило бы поверх пришедшего предмета прежний инвентарь
     // Черновик своего компендиума предмет не принимает: у отправителя он ушёл бы
     // из мира насовсем — в запись компендиума, а не к существу на столе
     if (!localCreature.value || props.draftSave) {
@@ -1440,27 +1448,36 @@
       );
     }
 
-    const received = receiveTransferredItem(
+    const transfer = receiveTransferredItem(
       event,
       localCreature.value,
       props.socket,
     );
 
-    if (!received) {
+    if (!transfer) {
       return false;
     }
 
-    handleCreatureUpdate({ equipment: received.equipment });
-
-    activeTab.value = 'equipment';
-
-    toast.add({
-      title: CREATURE_SHEET_LABELS.itemReceived,
-      description: received.itemName,
-      color: 'success',
-    });
+    void reportItemTransfer(transfer);
 
     return true;
+  }
+
+  /**
+   * Дожидается ответа сервера на передачу и говорит игроку итог.
+   *
+   * @param transfer - обещание итога передачи
+   */
+  async function reportItemTransfer(
+    transfer: Promise<ItemTransferResult>,
+  ): Promise<void> {
+    const result = await transfer;
+
+    if (result.outcome.ok) {
+      activeTab.value = 'equipment';
+    }
+
+    toast.add(describeItemTransfer(result, CREATURE_SHEET_LABELS.itemReceived));
   }
 
   /**
@@ -2453,6 +2470,7 @@
     :modifier="diceRollConfig.modifier"
     :title="diceRollConfig.title"
     :roll-label="diceRollConfig.rollLabel"
+    :actor-name="localCreature?.name"
     :roll-button-text="diceRollConfig.rollButtonText"
     :initial-roll-mode="diceRollConfig.initialRollMode"
     :evaluate-bonus-roll-formulas="diceRollConfig.evaluateBonusRollFormulas"

@@ -1,7 +1,8 @@
 /**
  * Окно проверки навыка сущности — одно на все действия, где проверку бросают
- * не с листа: «вырваться» (`effectEscapeAction.ts`) и Сл от проверки навыка
- * применившего (`effectActivationUse.ts`).
+ * не с листа: «вырваться» (`effectEscapeAction.ts`), Сл от проверки навыка
+ * применившего (`effectActivationUse.ts`) и проверка по запросу мастера
+ * (`requestedCheckRoll.ts`).
  *
  * Модификатор, режим и кости к навыку считаются так же, как при броске навыка
  * на листе: характеристика берётся из настройки листа (Атлетику переводят на
@@ -9,14 +10,21 @@
  */
 
 import type { SkillType } from '@vtt/shared';
-import type { AttackRollMode, DnDSceneEntity } from '@vtt/shared/system/dnd.js';
+import type {
+  AbilityCheckSubject,
+  AttackRollMode,
+  DnDSceneEntity,
+} from '@vtt/shared/system/dnd.js';
 
 import type { CheckRollResult } from '../ui/actor/diceRollTypes';
+import type { RollBonusEvaluator } from './rollBonusEvaluator';
 
 import {
+  ABILITY_CHECK_KEY,
   getSkillCheckBonusKeys,
   getSkillSetting,
   getSkillSettingAbility,
+  resolveAbilityCheckModifier,
   resolveAbilityCheckRollMode,
   SKILLS_LABELS,
 } from '@vtt/shared/system/dnd.js';
@@ -24,6 +32,75 @@ import {
 import { openDiceRollWindow } from './diceRollWindow';
 import { buildRollBonusEvaluator } from './rollBonusEvaluator';
 import { resolveEntityStats } from './useResolvedStats';
+
+/**
+ * Числа броска проверки — одни для окна и для броска без окна: модификатор,
+ * режим по флагам бросающего и бонусные кости эффектов.
+ */
+export interface CheckRollSetup {
+  /** Модификатор проверки */
+  modifier: number;
+  /** Режим броска по флагам бросающего */
+  rollMode: AttackRollMode;
+  /** Бонусные кости эффектов в момент броска («Наставление») */
+  evaluateBonusRollFormulas: RollBonusEvaluator;
+  /** Действующие флаги бросающего — для режима поверх режима проверки */
+  activeFlags: ReadonlySet<string>;
+}
+
+/**
+ * Считает бросок проверки характеристики или навыка так же, как лист: у
+ * навыка характеристика берётся из настройки листа (Атлетику переводят на
+ * Телосложение — и флаги читаются по нему), у характеристики к модификатору
+ * прибавляется прибавка ко всем проверкам.
+ *
+ * @param entity - кто бросает
+ * @param subject - что проверяют
+ * @returns модификатор, режим и бонусные кости
+ */
+export function resolveCheckRollSetup(
+  entity: DnDSceneEntity,
+  subject: AbilityCheckSubject,
+): CheckRollSetup {
+  const stats = resolveEntityStats(entity);
+
+  if (subject.check === 'skill') {
+    const ability = getSkillSettingAbility(
+      getSkillSetting(entity.system.skillSettings, subject.skill),
+      subject.skill,
+    );
+
+    return {
+      modifier: stats.skills[subject.skill],
+      rollMode: resolveAbilityCheckRollMode({
+        flags: stats.activeFlags,
+        ability,
+        skill: subject.skill,
+      }),
+      evaluateBonusRollFormulas: buildRollBonusEvaluator(
+        () => entity,
+        getSkillCheckBonusKeys(subject.skill),
+      ),
+      activeFlags: stats.activeFlags,
+    };
+  }
+
+  return {
+    modifier: resolveAbilityCheckModifier(
+      stats.abilityMods[subject.ability],
+      stats,
+    ),
+    rollMode: resolveAbilityCheckRollMode({
+      flags: stats.activeFlags,
+      ability: subject.ability,
+    }),
+    evaluateBonusRollFormulas: buildRollBonusEvaluator(
+      () => entity,
+      ABILITY_CHECK_KEY,
+    ),
+    activeFlags: stats.activeFlags,
+  };
+}
 
 /** Разделитель навыка и имени в подписи броска */
 const SKILL_ROLL_LABEL_SEPARATOR = ' — ';
@@ -66,33 +143,19 @@ export function openSkillCheckModal(
   skill: SkillType,
   options: SkillCheckRollOptions,
 ): void {
-  const stats = resolveEntityStats(entity);
-
-  // Характеристику навыка берут из настройки листа, как при броске навыка на
-  // листе: Атлетику переводят на Телосложение — и флаги читаются по нему
-  const ability = getSkillSettingAbility(
-    getSkillSetting(entity.system.skillSettings, skill),
-    skill,
-  );
-
-  const checkMode = resolveAbilityCheckRollMode({
-    flags: stats.activeFlags,
-    ability,
-    skill,
-  });
+  const setup = resolveCheckRollSetup(entity, { check: 'skill', skill });
 
   openDiceRollWindow(
     {
       title: options.title,
       rollLabel: `${SKILLS_LABELS[skill]}${SKILL_ROLL_LABEL_SEPARATOR}${entity.name}`,
       rollButtonText: options.rollButtonText,
-      modifier: stats.skills[skill],
-      evaluateBonusRollFormulas: buildRollBonusEvaluator(
-        () => entity,
-        getSkillCheckBonusKeys(skill),
-      ),
+      actorName: entity.name,
+      modifier: setup.modifier,
+      evaluateBonusRollFormulas: setup.evaluateBonusRollFormulas,
       initialRollMode:
-        options.resolveMode?.(checkMode, stats.activeFlags) ?? checkMode,
+        options.resolveMode?.(setup.rollMode, setup.activeFlags)
+        ?? setup.rollMode,
       ...(options.targetDc === undefined ? {} : { targetDc: options.targetDc }),
       onCheckRoll: options.onRoll,
     },

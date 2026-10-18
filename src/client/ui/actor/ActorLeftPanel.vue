@@ -66,6 +66,7 @@
     SAVING_THROW_SETTINGS_LABELS,
     SHEET_SUMMARY_COMPACT_CLASSES,
     SHEET_SUMMARY_WIDE_CLASSES,
+    SHEET_TILE_ICONS,
     SHEET_TILE_LABELS,
     SHEET_TILE_SHORT_LABELS,
   } from './constants';
@@ -1035,7 +1036,12 @@
           :delay-duration="300"
           :ui="{ content: 'h-auto' }"
         >
-          <div class="flex items-center justify-center px-2 pb-2">
+          <div class="flex items-center justify-center gap-1 px-2 pb-2">
+            <UIcon
+              :name="SHEET_TILE_ICONS.armorClass"
+              class="size-5 shrink-0 text-primary"
+            />
+
             <span class="text-xl font-bold text-highlighted">{{
               effectiveAC
             }}</span>
@@ -1437,6 +1443,7 @@
     :modifier="diceRollConfig.modifier"
     :title="diceRollConfig.title"
     :roll-label="diceRollConfig.rollLabel"
+    :actor-name="actor.name"
     :roll-button-text="diceRollConfig.rollButtonText"
     :initial-roll-mode="diceRollConfig.initialRollMode"
     :auto-fail="diceRollConfig.autoFail"

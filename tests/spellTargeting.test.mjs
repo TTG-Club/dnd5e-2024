@@ -119,6 +119,8 @@ const bundle = await build({
               'export const getRollRequestService = () => null;',
             '@/stores/auraStore':
               'export const useAuraStore = () => ({ getAmbientEffectsForActor: () => [] });',
+            '@/system-runtime/sceneSight':
+              'export const getSightBetween = () => null;',
             '@/stores/initiativeStore':
               'export const useInitiativeStore = () => ({ encounter: null });',
             '@/stores/worldStore':
@@ -127,8 +129,11 @@ const bundle = await build({
               'import { chatStore } from "test:host"; export const useChatStore = () => chatStore;',
             '@/shared_ui/composables/useModalManager':
               'import { modalManager } from "test:host"; export const useModalManager = () => modalManager;',
+            // Плашки целей ставят заголовок для напоминания хоста о закрытой плашке
+            '@/shared_ui/consts':
+              'export const HUD_PROMPT_TITLE_ATTR = "data-hud-prompt-title";',
             '@/core/entityUtils':
-              'export { emitEntityCombatState } from "test:host"; export const emitEntityUpdate = () => {}; export const resolveTokenScale = (_world, token) => token.scale; export const collectWorldEntities = (world) => [...(world?.actors ?? []), ...(world?.creatures ?? [])]; export const findEntityInWorld = (world, entityId) => collectWorldEntities(world).find((entity) => entity.id === entityId);',
+              'export { emitEntityCombatState } from "test:host"; export const emitEntityUpdate = () => {}; export const emitEntityPatch = () => Promise.resolve({ ok: true, changed: true }); export const emitEntityChange = () => Promise.resolve({ ok: true, changed: true }); export const buildEntityPatchFailureToast = () => null; export const resolveTokenScale = (_world, token) => token.scale; export const collectWorldEntities = (world) => [...(world?.actors ?? []), ...(world?.creatures ?? [])]; export const findEntityInWorld = (world, entityId) => collectWorldEntities(world).find((entity) => entity.id === entityId);',
           };
 
           if (!(request.path in exports)) {

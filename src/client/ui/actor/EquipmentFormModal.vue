@@ -10,7 +10,6 @@
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
-  import { CURRENCY_OPTIONS, RARITY_OPTIONS } from '@vtt/shared/system/dnd.js';
 
   import { useEquipmentForm } from '../../composables/useEquipmentForm';
   import ActiveEffectFormModal from '../effect/ActiveEffectFormModal.vue';
@@ -21,9 +20,12 @@
     ITEM_FORM_LABELS,
     ITEM_USES_LABELS,
     MODAL_BUTTON_LABELS,
+    WINDOW_TAB_CONTENT_CLASS,
   } from './constants';
   import FormSection from './FormSection.vue';
+  import ItemActiveWhenCarriedField from './ItemActiveWhenCarriedField.vue';
   import ItemConsumableField from './ItemConsumableField.vue';
+  import ItemCostWeightFields from './ItemCostWeightFields.vue';
   import ItemUsesFields from './ItemUsesFields.vue';
   import SourceField from './SourceField.vue';
 
@@ -90,6 +92,7 @@
     isMagical,
     magicAttunement,
     isAttuned,
+    activeWhenCarried,
     magicBonus,
     rarity,
     isShield,
@@ -193,7 +196,6 @@
       item ? EQUIPMENT_FORM_LABELS.editTitle : EQUIPMENT_FORM_LABELS.createTitle
     "
     :initial-width="500"
-    :resizable="false"
     :z-index="zIndex"
     :saved-position="initialPosition"
     @update:open="
@@ -214,7 +216,7 @@
         :ui="{
           list: 'mb-3',
           trigger: 'flex-1 justify-center',
-          content: 'overflow-y-auto max-h-150',
+          content: WINDOW_TAB_CONTENT_CLASS,
         }"
       >
         <!-- Вкладка «Общие» -->
@@ -252,48 +254,12 @@
               :title="ITEM_FORM_LABELS.costWeightTitle"
               icon="tabler:coins"
             >
-              <div class="grid grid-cols-3 gap-3">
-                <UFormField :label="ITEM_FORM_LABELS.cost">
-                  <div class="flex gap-1.5">
-                    <UInput
-                      v-model.number="costValue"
-                      type="number"
-                      :min="0"
-                      :placeholder="ITEM_FORM_LABELS.zeroPlaceholder"
-                      class="flex-1"
-                    />
-
-                    <USelect
-                      v-model="costCurrency"
-                      :items="CURRENCY_OPTIONS"
-                      value-key="value"
-                      label-key="labelShort"
-                      class="w-20"
-                      :portal="false"
-                    />
-                  </div>
-                </UFormField>
-
-                <UFormField :label="ITEM_FORM_LABELS.weight">
-                  <UInput
-                    v-model.number="weight"
-                    type="number"
-                    :min="0"
-                    class="w-full"
-                  />
-                </UFormField>
-
-                <UFormField :label="ITEM_FORM_LABELS.rarity">
-                  <USelect
-                    v-model="rarity"
-                    :items="RARITY_OPTIONS"
-                    value-key="value"
-                    :placeholder="ITEM_FORM_LABELS.rarity"
-                    class="w-full"
-                    :portal="false"
-                  />
-                </UFormField>
-              </div>
+              <ItemCostWeightFields
+                v-model:cost-value="costValue"
+                v-model:cost-currency="costCurrency"
+                v-model:weight="weight"
+                v-model:rarity="rarity"
+              />
             </FormSection>
 
             <!-- Источник -->
@@ -507,6 +473,8 @@
                   v-model="isAttuned"
                   :label="ITEM_FORM_LABELS.attuned"
                 />
+
+                <ItemActiveWhenCarriedField v-model="activeWhenCarried" />
               </div>
             </FormSection>
 

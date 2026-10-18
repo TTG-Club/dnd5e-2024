@@ -10,12 +10,14 @@ import type {
   AbilityType,
   ArmorCalculation,
   ProficiencyLevel,
+  SpellCastingTimeUnit,
   WeaponRangeType,
 } from '@vtt/shared';
 import type {
   AbilityDelimiter,
   ActiveEffectDetailSectionKey,
   AttackKind,
+  AttackRollModeReasonLineKind,
   CarriedEffectSourceKind,
   CounterRecoveryChoice,
   CounterRestKey,
@@ -25,6 +27,7 @@ import type {
 } from '@vtt/shared/system/dnd.js';
 
 import {
+  CASTING_TIME_LABELS,
   COMPENDIUM_CLASS_KIND,
   COMPENDIUM_SPELL_KIND,
   COUNTER_RECOVERY_CHOICE_NONE,
@@ -74,6 +77,9 @@ export const GAME_ITEM_MIME = 'application/game-item';
 export const GAME_FEATURE_MIME = 'application/game-feature';
 /** Re-export: определение перенесено в core/mimeTypes.ts */
 export { GAME_ITEM_TRANSFER_MIME } from '@/core/mimeTypes';
+
+/** Заголовок сообщения, когда предмет на лист передать не удалось */
+export const ITEM_TRANSFER_REFUSED_TITLE = 'Предмет не передан';
 
 // ============================================================
 // Разделы шапки листа персонажа, заполняемые из компендиума
@@ -181,8 +187,6 @@ export const COMPENDIUM_PICKER_LABELS = {
   allPacks: 'Все компендиумы',
   worldPack: 'Предметы мира',
   taken: 'Уже взят',
-  /** Кнопка карточки записи в строке списка */
-  openDetail: 'Открыть карточку',
   /** Счётчик отмеченных записей — за ним идёт их число */
   selectedCount: 'Выбрано:',
   /**
@@ -255,7 +259,36 @@ export const LIST_ROW_SHEET_FEAT_CLASS =
  * остальных, и рамка отделяет наведённую от соседних.
  */
 export const LIST_ROW_CARD_BORDERED_CLASS =
-  'rounded-lg bg-elevated/30 px-3 hover:border-default/50 hover:bg-accented/40';
+  'rounded-lg border border-transparent bg-elevated/30 px-3 hover:border-default/50 hover:bg-accented/40';
+
+/**
+ * Колонка в начале строки списка — флажок окна выбора или стрелка подвидов.
+ * Одна ширина у обоих: флажки и стрелки стоят в одну линию, и строки окна
+ * выбора и компендиума совпадают. Нажимается колонка во всю высоту строки.
+ */
+export const LIST_ROW_LEADING_CLASS =
+  'flex w-9 shrink-0 items-center justify-center transition-colors';
+
+/** Нажимаемая колонка: подсвечивается отдельно от строки */
+export const LIST_ROW_LEADING_ACTIVE_CLASS =
+  'cursor-pointer text-muted hover:bg-primary/15 hover:text-default';
+
+/** Недоступная строка или флажок окна выбора: гаснет и не нажимается */
+export const LIST_ROW_DISABLED_CLASS = 'cursor-not-allowed opacity-60';
+
+/** Пустое место колонки у строки без стрелки — строки остаются в линию */
+export const LIST_ROW_LEADING_SPACER_CLASS = 'w-9 shrink-0';
+
+/** Раскрытые подвиды под строкой вида — с отступом и линией слева */
+export const LIST_ROW_CHILDREN_CLASS =
+  'ml-4 flex flex-col divide-y divide-accented/25 border-l border-accented/40 pl-2';
+
+/**
+ * Компендиум записи в строке — в режиме «все компендиумы». Не бейджем: у пака
+ * длинное имя, а бейдж рядом с бейджем источника читался бы как вторая книга.
+ */
+export const LIST_ROW_PACK_NAME_CLASS =
+  'max-w-40 shrink-0 truncate text-xs text-dimmed';
 
 /** Невыбранный компендиум: подсвечивается только под курсором */
 export const COMPENDIUM_PACK_BUTTON_IDLE_CLASS =
@@ -650,6 +683,14 @@ export const SHEET_TILE_SHORT_LABELS = {
 } as const;
 
 /**
+ * Значки рядом с числом плитки листа, общие для персонажа и существа: щит у
+ * класса доспеха узнаётся быстрее подписи, и в обоих листах он один и тот же.
+ */
+export const SHEET_TILE_ICONS = {
+  armorClass: 'tabler:shield-filled',
+} as const;
+
+/**
  * Цвет рамки блока листа в режиме правки: с одного взгляда видно, какие блоки
  * настраиваются. Без этого правку выдавали бы только шестерёнки — мелкие и
  * разбросанные по колонкам.
@@ -885,6 +926,10 @@ export const ITEM_FORM_LABELS = {
   attunementOptional: 'Опциональная',
   magicBonus: 'Бонус',
   attuned: 'Настроен',
+  activeWhenCarried: 'Действует при себе',
+  activeWhenCarriedDescription:
+    'Эффекты работают, пока предмет в инвентаре, отметка «надет» не нужна: '
+    + 'Камень удачи, Клинок удачи.',
   focus: 'Заклинательная фокусировка',
   /**
    * Тултип галочки фокусировки в форме оружия: у снаряжения это свойство из
@@ -1249,17 +1294,34 @@ export const SPELL_FILTER_LABELS: Record<
   | 'preparedHint'
   | 'cantrip'
   | 'cantripHint'
-  | 'properties'
-  | 'propertiesHint',
+  | 'filters'
+  | 'filtersHint'
+  | 'castingTime'
+  | 'properties',
   string
 > = {
-  prepared: 'Подготовленные',
+  prepared: 'Подгот.',
   preparedHint:
     'Оставить в списке только подготовленные заклинания; заговоры доступны всегда и остаются в нём',
-  cantrip: '0',
+  cantrip: 'Зг',
   cantripHint: 'Заговоры',
-  properties: 'Свойства заклинания',
-  propertiesHint: 'Отбор по свойствам: лечение, концентрация, ритуал',
+  filters: 'Отбор заклинаний',
+  filtersHint: 'Отбор по времени накладывания и свойствам заклинания',
+  castingTime: 'Время накладывания',
+  properties: 'Свойства',
+};
+
+/**
+ * Значки меню отбора на вкладке заклинаний: сам чип, раскрывающий меню, и его
+ * категории.
+ */
+export const SPELL_FILTER_MENU_ICONS: Record<
+  'menu' | 'castingTime' | 'properties',
+  string
+> = {
+  menu: 'tabler:filter',
+  castingTime: 'tabler:clock',
+  properties: 'tabler:adjustments-horizontal',
 };
 
 /** Свойство заклинания, по которому сужается список вкладки */
@@ -1285,6 +1347,67 @@ export const SPELL_PROPERTY_FILTERS: SpellPropertyFilter[] = [
   { key: 'concentration', label: 'Концентрация', icon: 'tabler:focus-2' },
   { key: 'ritual', label: 'Ритуал', icon: 'tabler:book' },
 ];
+
+/**
+ * Время накладывания, по которому сужается список вкладки. Это то, чем
+ * заклинание оплачивается в ходу, а не единица времени целиком: минуты и часы
+ * в бою неразличимы и сведены в одно «долгое».
+ */
+export type SpellCastingTimeFilterKey =
+  'action' | 'bonus-action' | 'reaction' | 'long';
+
+/** Пункт отбора по времени накладывания */
+export interface SpellCastingTimeFilter {
+  /** Ключ времени накладывания */
+  key: SpellCastingTimeFilterKey;
+  /** Название — подпись пункта меню */
+  label: string;
+  /** Значок пункта */
+  icon: string;
+}
+
+/**
+ * Пункты отбора по времени накладывания — в порядке, в каком ими платят в
+ * ходу. Названия действий берутся у движка, чтобы не разойтись с карточкой
+ * заклинания.
+ */
+export const SPELL_CASTING_TIME_FILTERS: SpellCastingTimeFilter[] = [
+  { key: 'action', label: CASTING_TIME_LABELS.action, icon: 'tabler:bolt' },
+  {
+    key: 'bonus-action',
+    label: CASTING_TIME_LABELS['bonus-action'],
+    icon: 'tabler:plus',
+  },
+  {
+    key: 'reaction',
+    label: CASTING_TIME_LABELS.reaction,
+    icon: 'tabler:arrow-back-up',
+  },
+  { key: 'long', label: 'Минута и дольше', icon: 'tabler:hourglass' },
+];
+
+/**
+ * Сколько разного времени накладывания должно быть в книге, чтобы категория
+ * встала в меню: из одного пункта выбирать нечего.
+ */
+export const SPELL_CASTING_TIME_FILTER_MIN_OPTIONS = 2;
+
+/**
+ * Пункт отбора для каждой единицы времени накладывания. Бонусное действие
+ * после попадания (кары паладина) оплачивается тем же бонусным действием,
+ * поэтому стоит под ним.
+ */
+export const SPELL_CASTING_TIME_FILTER_BY_UNIT: Record<
+  SpellCastingTimeUnit,
+  SpellCastingTimeFilterKey
+> = {
+  'action': 'action',
+  'bonus-action': 'bonus-action',
+  'bonus-action-after-hit': 'bonus-action',
+  'reaction': 'reaction',
+  'minute': 'long',
+  'hour': 'long',
+};
 
 /**
  * Источник особенности, по которому сужается список вкладки. Черты входят
@@ -1526,7 +1649,8 @@ export const EQUIPMENT_MENU_LABELS: Record<
   | 'attune'
   | 'unattune'
   | 'spendCharge'
-  | 'restoreCharge',
+  | 'restoreCharge'
+  | 'sellPrefix',
   string
 > = {
   attack: 'Атаковать',
@@ -1541,6 +1665,8 @@ export const EQUIPMENT_MENU_LABELS: Record<
   spendCharge: 'Потратить заряд',
   /** Ручной возврат заряда: отмена ошибочной траты, а не восстановление отдыхом */
   restoreCharge: 'Вернуть заряд',
+  /** Продажа предмета: дальше идёт цена, которая ляжет в кошелёк */
+  sellPrefix: 'Продать за ',
 };
 
 // ============================================================
@@ -2244,7 +2370,9 @@ export const TOKEN_SETTINGS_LABELS = {
   visionEnabled: 'Зрение включено',
   visionEnabledHint: 'Токен будет ограничен зрением',
   vision: 'Зрение',
-  visionRangeHint: 'Дальность зрения в футах (0 = безграничное)',
+  visionRangeHint:
+    'Дальность в футах (0 — без предела). При глобальном освещении сцены '
+    + 'не действует: днём видно всё до стен',
   visionAngle: 'Угол обзора',
   visionAngleFull: 'Круговой',
   visionAngleHint:
@@ -2888,6 +3016,11 @@ export const SHEET_EDIT_LOCK_LABELS = {
   description: 'Сохраните или отмените правку листа — и повторите действие.',
 } as const;
 
+export const PAUSE_LOCK_LABELS = {
+  title: 'Игра на паузе',
+  description: 'Мастер поставил игру на паузу — действие подождёт.',
+} as const;
+
 export const ACTOR_SHEET_LABELS = {
   confirmSave: 'Сохранить изменения перед закрытием?',
   /** Итог передачи предмета с другого листа — тот же жест, что у существа */
@@ -3392,11 +3525,6 @@ export const SOURCE_FIELD_LABELS = {
   namePlaceholder: 'Книга игрока',
 } as const;
 
-/** Подписи строки заклинания в списке компендиума */
-export const SPELL_LIST_ITEM_LABELS = {
-  copy: COPY_LABEL,
-} as const;
-
 /**
  * Подписи общей рамки карточек записей. Рамку эту делят карточки заклинания,
  * оружия, снаряжения, инструмента, класса, вида и предыстории — кнопки шапки у
@@ -3573,10 +3701,95 @@ export const QUICK_PANEL_LABELS = {
   actionsTitlePrefix: 'Действия — ',
 } as const;
 
+/**
+ * Кнопки под уроном атаки в карточке чата и строки, которые они оставляют:
+ * «Отменить урон» возвращает цели снятые хиты, «Нанести урон» перебрасывает
+ * только кости урона — попадание, крит и цели остаются прежними.
+ */
+export const ATTACK_DAMAGE_ACTION_LABELS = {
+  /** Действие отмены: идентификатор, подпись и значок кнопки */
+  revertId: 'revert',
+  revert: 'Отменить урон',
+  revertIcon: 'tabler:arrow-back-up',
+  /** Действие повторного урона: идентификатор, подпись и значок кнопки */
+  reapplyId: 'reapply',
+  reapply: 'Нанести урон',
+  reapplyIcon: 'tabler:sword',
+  /**
+   * Короткие подписи тех же кнопок для ряда из трёх («Отменить», «Половина»,
+   * «Крит») и полный текст — подсказкой
+   */
+  revertShort: 'Отменить',
+  revertTooltip:
+    'Отменить урон: вернуть целям снятые хиты и снять наложенное ударом',
+  reapplyShort: 'Нанести',
+  reapplyTooltip:
+    'Нанести урон: перебросить кости урона и нанести его тем же целям',
+  /** Переключатель половины урона: идентификатор, подписи, значки, подсказки */
+  halfId: 'half',
+  half: 'Половина',
+  halfIcon: 'tabler:circle-half-2',
+  halfTooltip:
+    'Половина урона: цели достаётся половина записанного урона (вниз), без нового броска',
+  full: 'Полный',
+  fullIcon: 'tabler:circle',
+  fullTooltip: 'Полный урон: вернуть урон к записанному, без нового броска',
+  /** Переключатель крита: идентификатор, подписи, значки, подсказки */
+  criticalId: 'critical',
+  critical: 'Крит',
+  criticalIcon: 'tabler:target-arrow',
+  criticalTooltip:
+    'Крит: бросить кости урона ещё раз (без модификаторов) и добавить к урону',
+  notCritical: 'Не крит',
+  notCriticalIcon: 'tabler:target-off',
+  notCriticalTooltip: 'Не крит: убрать из урона кости крита',
+  /** Плашки режима в строке урона и разделитель между ними */
+  halfBadge: '½',
+  criticalBadge: 'Крит',
+  badgeSeparator: ' · ',
+  /** Строки подробностей урона в режимах */
+  critDetail: 'крит: ',
+  halfDetail: 'половина: ',
+  extraDetail: 'сверх броска: ',
+  detailArrow: ' → ',
+  /** То же в текстовой строке карточки */
+  modeSuffixOpen: ' (',
+  modeSuffixClose: ')',
+  modeSuffixSeparator: ', ',
+  halfSuffix: 'половина',
+  criticalSuffix: 'крит',
+  /** Строка карточки на месте отменённого урона */
+  reverted: 'Урон отменён',
+  /** Возвращённые хиты цели в строке отмены */
+  restoredHpSuffix: ' HP',
+  restoredTempPrefix: ' (врем. +',
+  restoredTempSuffix: ')',
+  /** Снятые отменой эффекты удара в строке отмены */
+  removedEffectsPrefix: '; снято: ',
+  /** То же в подробностях строки блока карточки */
+  restoredTempDetail: 'врем. +',
+  removedEffectsDetail: 'снято: ',
+  /** Отказы: не автор или нет права, запись не читается, целей нет, запрет кубиков */
+  revertForbiddenTitle: 'У вашей роли нет права отменять урон из чата',
+  authorOnlyTitle: 'Менять урон в карточке может только автор атаки или мастер',
+  unreadableTitle: 'Урон этой атаки не записан',
+  unreadableDescription:
+    'Карточка создана другой версией системы — отменить или повторить урон по ней нельзя.',
+  noTargetsTitle: 'Целей этой атаки больше нет',
+  diceBannedTitle: 'Броски кубиков вам запрещены',
+  /** Отказы режимов: бросок не записан, костей у урона нет */
+  modesUnavailableTitle: 'Половина и крит для этого урона недоступны',
+  modesUnavailableDescription:
+    'Карточка создана версией системы, которая не записывала бросок урона.',
+  noCritDiceTitle: 'У этого урона нет костей — крит его не меняет',
+} as const;
+
 /** Строка чата о вычете из урона: «минус кость к урону атак носителя» */
 export const DAMAGE_DEDUCTION_LABELS = {
   /** Заголовок части-вычета — как «Колющий урон» у части урона */
   header: 'Вычет из урона',
+  /** Значок блока вычета в карточке чата */
+  icon: 'tabler:shield-minus',
 } as const;
 
 /**
@@ -3590,6 +3803,19 @@ export const SPELL_NO_TARGETS_LABELS = {
   emptyArea: 'в области никого нет',
   /** Ни области, ни выбранной цели */
   noTarget: 'цель не выбрана',
+} as const;
+
+/** Подписи карточки чата со сводкой заклинания */
+export const SPELL_SUMMARY_LABELS = {
+  /** Строка о бонус-части урона от эффекта под шапкой сводки */
+  bonusDamagePrefix: 'Бонус-урон: ',
+  /** Пометка броска атаки одного снаряда из серии: «Снаряд 2/3» */
+  projectile: 'Снаряд',
+  /** Пометка части урона от наложенного эффекта */
+  effectDamageSuffix: ' (эффект)',
+  /** Значок и название блока наложенных эффектов без урона */
+  effectsIcon: 'tabler:sparkles',
+  effects: 'Эффекты',
 } as const;
 
 /** Подписи окна выбора цели заклинания */
@@ -3853,6 +4079,23 @@ export const SPECIES_WIZARD_LABELS = {
 } as const;
 
 /**
+ * Подвиды в списках видов: в компендиуме и окне выбора они стоят не отдельной
+ * строкой, а под своим видом, и раскрываются стрелкой — как подклассы в окне
+ * класса.
+ */
+export const SUBSPECIES_LIST_LABELS = {
+  expand: 'Показать подвиды',
+  collapse: 'Скрыть подвиды',
+  /** Окно, которое спрашивает подвид при переносе вида на лист */
+  chooseTitle: 'Выбор подвида',
+  /** Пояснение окна выбора подвида — за ним идёт название вида */
+  chooseHintPrefix: 'У вида «',
+  chooseHintSuffix:
+    '» есть подвиды: по правилам персонаж берёт один из них. Выберите, с каким добавить вид на лист.',
+  confirm: 'Выбрать',
+} as const;
+
+/**
  * Сколько полос рисует скелетон на ленте шагов мастера класса. Точного числа
  * шагов до загрузки класса не знает никто: оно зависит от того, первый это
  * класс, мультикласс или повышение уровня.
@@ -4061,6 +4304,11 @@ export const CLASS_SPELLCASTING_FIELDS_LABELS = {
 /** Подписи строки класса в списке компендиума */
 export const CLASS_LIST_ITEM_LABELS = {
   spellcaster: 'Заклинатель',
+  /**
+   * Пометка записи-подкласса: кость хитов и спасброски у неё родительские, и
+   * без пометки она выглядела бы ещё одним классом
+   */
+  subclass: 'Подкласс',
 } as const;
 
 /** Подписи окна продолжительного отдыха */
@@ -4141,7 +4389,7 @@ export const COMPENDIUM_LABELS = {
   pinnedSection: 'Сверх списка класса',
   /** Заголовок выбора компендиума в колонке фильтров */
   packsSection: 'Компендиум',
-  searchPlaceholder: 'Поиск...',
+  searchPlaceholder: 'Поиск по названию…',
   resetAll: 'Сбросить всё',
   dragHint:
     'Перетащите на стол, чтобы поставить токен, или на правую панель — чтобы просто скопировать в мир',
@@ -4493,6 +4741,39 @@ export const ACTOR_EQUIPMENT_TAB_LABELS = {
   addTitle: 'Снаряжение компендиума',
   /** Заголовок фильтра окна: раздел компендиума (оружие, доспехи, зелья…) */
   sectionFilter: 'Раздел',
+  /** Второе действие окна: взять отмеченное за монеты кошелька */
+  buy: 'Купить',
+  /** Цена в строке окна у записи без цены */
+  noCost: '—',
+} as const;
+
+/**
+ * Нижние границы размера окна покупки. Высота низкая намеренно: окно берёт её
+ * по содержимому, и с одной покупкой под кнопками не должно оставаться пустоты.
+ */
+export const EQUIPMENT_PURCHASE_MODAL_SIZE = {
+  minWidth: 460,
+  minHeight: 200,
+} as const;
+
+/** Значок покупки и продажи: кнопки окон и пункт меню предмета */
+export const EQUIPMENT_PURCHASE_ICON = 'tabler:coins';
+
+/** Подписи окна покупки снаряжения (`EquipmentPurchaseModal`) */
+export const EQUIPMENT_PURCHASE_LABELS = {
+  title: 'Покупка снаряжения',
+  wallet: 'В кошельке',
+  cost: 'Будет списано',
+  remaining: 'Останется',
+  shortage: 'Не хватает',
+  /** Денег мало: дальше идёт сумма нехватки */
+  shortagePrefix: 'Не хватает денег: ',
+  shortageHint: 'Уберите что-нибудь из списка, чтобы хватило.',
+  itemsTitle: 'Покупки',
+  /** Цена в строке у предмета без цены */
+  free: 'Бесплатно',
+  removeItem: 'Убрать из покупки',
+  empty: 'Список покупок пуст.',
 } as const;
 
 /** Подписи редактора умения класса */
@@ -4788,6 +5069,11 @@ export const CLASS_DETAIL_LABELS = {
   /** Заголовок списка навыков на выбор: между частями идёт их число */
   skillChoicesPrefix: 'Можно выбрать ',
   skillChoicesSuffix: ' навыка',
+  /**
+   * Кнопка у подкласса: копирует его отдельной записью-подклассом, чтобы
+   * править, не трогая класс
+   */
+  copySubclass: 'Скопировать подкласс в предметы',
 } as const;
 
 /** Подписи карточки снаряжения — окна просмотра записи */
@@ -4830,6 +5116,8 @@ export const CONTEXT_MENU_LABELS = {
   copyToPrefix: 'Скопировать в ',
   /** Куда копируется запись, если вызывающий не сказал иначе */
   copyToDefaultTarget: 'предметы',
+  /** Положить запись «Мастерской» в компендиум мира */
+  addToCompendium: 'В компендиум',
 } as const;
 
 /**
@@ -4861,6 +5149,8 @@ export const SPECIES_DETAIL_LABELS = {
   size: 'Размер',
   speed: 'Скорость',
   subspeciesPrefix: 'Подвиды:',
+  /** Кнопка у подвида: копирует его отдельной записью, чтобы править */
+  copySubspecies: 'Скопировать подвид в предметы',
 } as const;
 
 /** Подписи редактора таблицы уровней класса */
@@ -5002,6 +5292,9 @@ export const SPELL_DETAIL_LABELS = {
   materialConsumed: ', расходуется',
 } as const;
 
+/** Значок того, кто бросает, — над формулой окна броска */
+export const DICE_ROLL_ACTOR_ICON = 'tabler:user';
+
 /**
  * Подписи окна броска кубиков. Окно одно у листов персонажа и существа, и
  * подписи в нём общие.
@@ -5025,11 +5318,15 @@ export const DICE_ROLL_LABELS = {
   damageVariant: 'Урон',
   damageType: 'Тип урона',
   formula: 'Формула',
+  /** Сложность над формулой: дальше идёт число */
+  targetDcPrefix: 'Сл ',
   extraBonus: 'Доп. бонус',
   rollMode: 'Режим броска',
   rollModeNormal: 'Обычный',
   rollModeAdvantage: 'Преим.',
   rollModeDisadvantage: 'Помеха',
+  /** Хвост заголовка строки причин: «Помеха» + это, дальше идут источники */
+  rollModeReasonTitleSuffix: ':',
   visibility: 'Кто увидит',
   visibilityAll: 'Все',
   visibilityGm: 'ГМ',
@@ -5047,6 +5344,19 @@ export const DICE_ROLL_LABELS = {
   outcomeSuccess: ' ✓ Успех',
   outcomeFail: ' ✗ Провал',
 } as const;
+
+/**
+ * Значок и цвет строки «откуда режим броска»: преимущество — как кнопка
+ * преимущества, помеха — как кнопка помехи, чтобы строка читалась с ними заодно.
+ */
+export const ROLL_MODE_REASON_STYLES: Record<
+  AttackRollModeReasonLineKind,
+  { icon: string; tone: string }
+> = {
+  advantage: { icon: 'tabler:arrow-big-up-filled', tone: 'text-success' },
+  disadvantage: { icon: 'tabler:arrow-big-down-filled', tone: 'text-error' },
+  cancelled: { icon: 'tabler:equal', tone: 'text-muted' },
+};
 
 /** Приставка сообщений окна броска в консоли — она одна на весь файл */
 export const DICE_ROLL_LOG_PREFIX = '[DiceRollModal] Ошибка броска:';
@@ -5736,3 +6046,14 @@ export const HUD_PROMPT_PANEL_CLASS =
 
 /** Итог спасброска согласной цели: провал с натуральной единицей */
 export const WILLING_SAVE_TOTAL = 1;
+
+/**
+ * Классы содержимого вкладок в окне: длинное содержимое прокручивается внутри
+ * вкладки, а потолок высоты действует, только пока окно само подбирает высоту
+ * по содержимому. Хост пишет габариты окна inline-стилем: `height: auto`, пока
+ * человек не растянул окно по высоте, и пиксели — после. У растянутого окна
+ * потолок обрезал бы содержимое на середине, поэтому там он снимается и
+ * прокручивается тело окна.
+ */
+export const WINDOW_TAB_CONTENT_CLASS =
+  "overflow-y-auto in-[[role=dialog][style*='height:_auto']]:max-h-150";

@@ -32,6 +32,7 @@
     MODAL_BUTTON_LABELS,
     SPELL_FORM_LABELS,
     UNSAVED_CHANGES_LABELS,
+    WINDOW_TAB_CONTENT_CLASS,
   } from './constants';
   import DamagePartRow from './DamagePartRow.vue';
   import DamagePartsEditor from './DamagePartsEditor.vue';
@@ -412,7 +413,6 @@
       isEditing ? SPELL_FORM_LABELS.editTitle : SPELL_FORM_LABELS.createTitle
     "
     :initial-width="700"
-    :resizable="false"
     :z-index="zIndex"
     :saved-position="initialPosition"
     @update:open="handleOpenChange"
@@ -426,7 +426,7 @@
         :ui="{
           list: 'mb-3',
           trigger: 'flex-1 justify-center',
-          content: 'overflow-y-auto max-h-150',
+          content: WINDOW_TAB_CONTENT_CLASS,
         }"
       >
         <!-- Вкладка «Основное» -->

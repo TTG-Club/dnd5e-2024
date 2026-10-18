@@ -57,6 +57,56 @@ function effectWithActions(name, actions, overrides = {}) {
   });
 }
 
+/**
+ * «Изгнание»: эффект с флагом «убран со сцены» на несколько раундов.
+ *
+ * @param {number} remaining - сколько раундов осталось
+ * @returns {object} эффект
+ */
+function banishment(remaining) {
+  return createEffect('Изгнание', {
+    flags: ['scene.offScene'],
+    duration: { type: 'rounds', value: 10, remaining },
+  });
+}
+
+/**
+ * Ядро глазами сверки присутствия: что стоит на сцене, что убрано, и журнал
+ * просьб убрать и вернуть фишку.
+ *
+ * @param {object} scene - что видит система
+ * @param {object | null} scene.standing - фишка сущности на сцене
+ * @param {object[]} scene.away - убранные фишки сущности
+ * @param {boolean} scene.overlapped - вернуться удастся только поверх другой
+ * @returns {object} контекст срабатывания и журнал
+ */
+function presenceContext({ standing = null, away = [], overlapped = false }) {
+  const taken = [];
+  const returned = [];
+
+  return {
+    taken,
+    returned,
+    context: {
+      getSceneSurroundings: () =>
+        standing
+          ? { token: standing, gridSettings: GRID, neighbors: [], areas: [] }
+          : null,
+      getOffSceneTokens: () => away,
+      takeTokenOffScene: (tokenId) => {
+        taken.push(tokenId);
+
+        return true;
+      },
+      returnTokenToScene: (tokenId) => {
+        returned.push(tokenId);
+
+        return { x: 0, y: 0, displaced: overlapped, overlapped };
+      },
+    },
+  };
+}
+
 describe('каталог: действия срабатываний', () => {
   it('[A01] Защита от яда: снятие состояния убирает эффект, а не только метку', () => {
     const cure = effectWithActions('Защита от яда', [
@@ -410,9 +460,8 @@ describe('каталог: действия срабатываний', () => {
     );
   });
 
-  // Пробелы: действиям нужен либо хост (движение фишки), либо события и окна,
-  // которых ещё нет. Заводить их в окне нельзя — они молча ничего не делали бы
-  it.todo('[A13] Убрать со сцены и вернуть');
+  // Пробелы: действиям нужны события и окна, которых ещё нет. Заводить их в
+  // окне нельзя — они молча ничего не делали бы
   it.todo('[A14] Действие «наложить другой эффект»');
   it.todo('[A15] Перенос эффекта на новую цель');
   it.todo('[A16] Переброс спасброска');
@@ -568,5 +617,157 @@ describe('каталог: действия срабатываний', () => {
     });
 
     assert.deepEqual(moves, [], 'старое ядро фишку не двигает');
+  });
+
+  it('[A12e] Перенос проходит сквозь стены, толчок — нет', () => {
+    /**
+     * С какими настройками система просит ядро подвинуть фишку.
+     *
+     * @param {string} kind - вид перемещения
+     * @returns {object | undefined} настройки перемещения
+     */
+    const moveOptionsOf = (kind) => {
+      const effect = effectWithActions('Перемещение', [
+        { type: 'move', kind, distance: 10 },
+      ]);
+
+      effect.sourceActorId = 'actor_caster';
+
+      const victim = withHp(createActor, 20, {
+        id: 'actor_victim',
+        activeEffects: [effect],
+      });
+
+      const asked = [];
+
+      runActions(victim, effect, false, {
+        surroundings: {
+          token: createToken(victim.id, 4, 0),
+          gridSettings: GRID,
+          neighbors: [
+            { token: createToken('actor_caster', 0, 0), entity: createActor() },
+          ],
+        },
+        moveToken: (tokenId, position, options) => asked.push(options),
+      });
+
+      return asked[0];
+    };
+
+    assert.deepEqual(moveOptionsOf('teleport'), { ignoreWalls: true });
+    assert.deepEqual(moveOptionsOf('bring'), { ignoreWalls: true });
+
+    assert.deepEqual(moveOptionsOf('push'), {}, 'толчок стена держит');
+    assert.deepEqual(moveOptionsOf('pull'), {}, 'притягивание тоже');
+  });
+
+  it('[A13] Изгнание: эффект с флагом убирает фишку со сцены', () => {
+    const system = new engine.Dnd5eVttSystem();
+    const hero = withHp(createActor, 20, { activeEffects: [banishment(10)] });
+    const standing = createToken(hero.id, 2, 2);
+    const { context, taken, returned } = presenceContext({ standing });
+
+    system.decrementEffectDurations(hero, context);
+
+    assert.deepEqual(taken, [standing.id], 'ядро просят убрать фишку');
+    assert.deepEqual(returned, [], 'возвращать нечего');
+  });
+
+  it('[A13b] Срок изгнания вышел — фишка возвращается', () => {
+    const system = new engine.Dnd5eVttSystem();
+    const hero = withHp(createActor, 20, { activeEffects: [banishment(1)] });
+    const away = createToken(hero.id, 2, 2);
+    const { context, taken, returned } = presenceContext({ away: [away] });
+
+    const result = system.decrementEffectDurations(hero, context);
+
+    assert.equal(hero.activeEffects.length, 0, 'эффект снят по сроку');
+    assert.deepEqual(returned, [away.id], 'ядро просят вернуть фишку');
+    assert.deepEqual(taken, []);
+
+    assert.doesNotMatch(
+      result.chatSummary ?? '',
+      /поверх/,
+      'встала на своё место — сообщать не о чем',
+    );
+  });
+
+  it('[A13c] Вернуться некуда — фишка встаёт поверх, об этом пишут в чат', () => {
+    const system = new engine.Dnd5eVttSystem();
+    const hero = withHp(createActor, 20, { activeEffects: [banishment(1)] });
+
+    const { context } = presenceContext({
+      away: [createToken(hero.id, 2, 2)],
+      overlapped: true,
+    });
+
+    const result = system.decrementEffectDurations(hero, context);
+
+    assert.match(result.chatSummary, new RegExp(hero.name));
+    assert.match(result.chatSummary, /поверх другой/);
+  });
+
+  it('[A13d] Без ядра изгнание фишку не трогает', () => {
+    const system = new engine.Dnd5eVttSystem();
+    const hero = withHp(createActor, 20, { activeEffects: [banishment(10)] });
+
+    assert.deepEqual(system.decrementEffectDurations(hero, {}), {
+      changed: true,
+      chatSummary: null,
+    });
+  });
+
+  it('[A13e] Изгнание вписали в лист руками — фишка уходит сразу', () => {
+    const system = new engine.Dnd5eVttSystem();
+    const hero = withHp(createActor, 20, { activeEffects: [banishment(10)] });
+    const standing = createToken(hero.id, 2, 2);
+    const { context, taken } = presenceContext({ standing });
+
+    // Ядро зовёт хук после записи листа: срока и ходов тут нет
+    const result = system.settleEntityChange(hero, context);
+
+    assert.deepEqual(taken, [standing.id]);
+
+    assert.deepEqual(
+      result,
+      { changed: false, chatSummary: null },
+      'сущность хук не меняет — запись не идёт по кругу',
+    );
+
+    hero.activeEffects = [];
+
+    const away = presenceContext({ away: [standing] });
+
+    system.settleEntityChange(hero, away.context);
+
+    assert.deepEqual(away.returned, [standing.id], 'стёрли — вернулась');
+  });
+
+  it('[A13f] Мастер возвращает фишку меткой — изгнание снимается', () => {
+    const system = new engine.Dnd5eVttSystem();
+
+    const blessing = createEffect('Благословение');
+
+    const hero = withHp(createActor, 20, {
+      activeEffects: [banishment(10), blessing],
+    });
+
+    const result = system.releaseOffSceneToken(hero);
+
+    assert.equal(result.changed, true);
+    assert.match(result.chatSummary, new RegExp(hero.name));
+    assert.match(result.chatSummary, /Изгнание/);
+
+    assert.deepEqual(
+      hero.activeEffects.map((effect) => effect.name),
+      ['Благословение'],
+      'остальные эффекты на месте',
+    );
+
+    assert.deepEqual(
+      system.releaseOffSceneToken(hero),
+      { changed: false, chatSummary: null },
+      'снимать больше нечего',
+    );
   });
 });

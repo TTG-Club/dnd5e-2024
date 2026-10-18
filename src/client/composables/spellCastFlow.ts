@@ -44,6 +44,7 @@ import { useTargetStore } from '@/stores/targetStore';
 import { useWorldStore } from '@/stores/worldStore';
 import { generateId } from '@vtt/shared';
 import {
+  areaOriginatesFromCaster,
   calculateSpellAttackModifier,
   findCastLevelBlock,
   findSpellCastBlock,
@@ -107,6 +108,7 @@ import {
 } from './diceRollWindow';
 import { runWithEffectVariants } from './effectVariantChoice';
 import { changeEntitySheet } from './entitySheetWrite';
+import { refuseWhilePaused } from './pauseLock';
 import {
   buildRollBonusEvaluator,
   collectProjectileRollBonuses,
@@ -386,6 +388,11 @@ export function startSpellCast(
 ): void {
   // Лист заклинателя в режиме правки — каст ждёт «Сохранить» или отмены
   if (refuseWhileSheetEditing(port.casterId)) {
+    return;
+  }
+
+  // Игра на паузе — действие не начинается
+  if (refuseWhilePaused()) {
     return;
   }
 
@@ -683,6 +690,7 @@ function proceedWithPaidSpellCast(
       }),
     getSpellMaxRangeOnScene(spell),
     isSpellAreaPlacedAtRange(spell),
+    areaOriginatesFromCaster(spell),
   );
 }
 
@@ -1269,6 +1277,7 @@ export function openSpellCastWindow(
       {
         title: `${ACTOR_SPELLS_TAB_LABELS.rollTitlePrefix}${sourceSpell.name}`,
         rollLabel: sourceSpell.name,
+        actorName: caster.name,
         rollButtonText: SPELL_MENU_LABELS.cast,
         skipRoll: true,
         damageTypeChoice,
@@ -1324,6 +1333,7 @@ export function openSpellCastWindow(
     {
       title: `${ACTOR_SPELLS_TAB_LABELS.rollTitlePrefix}${sourceSpell.name}`,
       rollLabel: sourceSpell.name,
+      actorName: caster.name,
       rollButtonText: SPELL_ROLL_BUTTON_LABELS[plan.rollKind ?? 'damage'],
       formula: resolvedDamageFormula,
       // Без известной цели ветки «полные / не полные хиты» показываются через

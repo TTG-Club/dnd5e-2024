@@ -383,7 +383,95 @@ describe('каталог: словарь условий', () => {
 
   // Пробелы словаря: части, которым нужны данные, которых ядро пока не даёт.
   // Заводить их в окне нельзя — они молча не выполнялись бы никогда
-  it.todo('[TC09] Условия видимости и освещённости');
+  it('[TC09] Условия видимости и освещённости', () => {
+    const hero = createActor();
+    const wolf = withHp(createCreature, 20, { id: 'creature_wolf' });
+
+    /**
+     * Видимость сцены: носитель видит другую сторону или нет, свет у обоих
+     * один.
+     *
+     * @param {boolean | undefined} sees - видит ли смотрящий цель
+     * @param {string | undefined} light - освещённость
+     * @returns {object} видимость и свет
+     */
+    const sightOf = (sees, light) => ({
+      canSee: () => sees,
+      lightOf: () => light,
+    });
+
+    const seen = { other: wolf, sight: sightOf(true, 'bright') };
+    const unseen = { other: wolf, sight: sightOf(false, 'dark') };
+
+    assert.equal(met(hero, 'self.canSee === true', seen), true);
+    assert.equal(met(hero, 'self.canSee === false', seen), false);
+    assert.equal(met(hero, 'self.canSee === true', unseen), false);
+    assert.equal(met(hero, 'self.canSee === false', unseen), true);
+    assert.equal(met(hero, 'target.canSee === true', seen), true);
+    assert.equal(met(hero, 'target.canSee === false', unseen), true);
+
+    assert.equal(met(hero, 'self.light === "dark"', unseen), true);
+    assert.equal(met(hero, 'self.light !== "dark"', unseen), false);
+    assert.equal(met(hero, 'target.light === "dark"', seen), false);
+    assert.equal(met(hero, 'target.light !== "dark"', seen), true);
+
+    assert.equal(
+      met(hero, 'self.light !== "dark"', { sight: sightOf(true, 'dim') }),
+      true,
+      'тусклый свет — тоже свет',
+    );
+
+    assert.equal(
+      met(hero, 'self.canSee === true', { other: wolf }),
+      false,
+      'без сцены видимость неизвестна — «вижу» не выполняется',
+    );
+
+    assert.equal(
+      met(hero, 'self.canSee === false', { other: wolf }),
+      false,
+      '...и «не вижу» тоже: молчание честнее догадки',
+    );
+
+    assert.equal(
+      met(hero, 'self.canSee === false', {
+        other: wolf,
+        sight: sightOf(undefined, undefined),
+      }),
+      false,
+      'сцена есть, а фактов о паре нет — часть не выполняется',
+    );
+
+    assert.equal(
+      met(hero, 'self.light === "dark"', { sight: sightOf(true, undefined) }),
+      false,
+      'освещённость неизвестна — «в темноте» не выполняется',
+    );
+
+    assert.equal(
+      met(hero, 'self.canSee === true', { sight: sightOf(true, 'bright') }),
+      false,
+      'без другой стороны смотреть не на кого',
+    );
+
+    assert.equal(
+      engine.listTriggerConditionKinds('damageTaken').includes('selfSeesOther'),
+      true,
+    );
+
+    assert.equal(
+      engine.listTriggerConditionKinds('turnStart').includes('selfSeesOther'),
+      false,
+      'на границе хода другой стороны нет — часть не предлагается',
+    );
+
+    assert.equal(
+      engine.listTriggerConditionKinds('turnStart').includes('selfInDarkness'),
+      true,
+      'освещённость носителя есть у любого события',
+    );
+  });
+
   it.todo('[TC10] Условие по прошлому броску к20');
   it.todo('[TC11] Условие сравнивает с формулой');
 });

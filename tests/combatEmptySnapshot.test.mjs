@@ -108,6 +108,37 @@ describe('пустой боевой снимок', () => {
     assert.equal(emitted.length, 1);
   });
 
+  it('сервер называет ядру причину отказа: менять нечего либо снимок негоден', async () => {
+    const { target, server } = await setup();
+    const system = new engine.Dnd5eVttSystem();
+
+    const unchanged = structuredClone(target);
+
+    engine.recordCombatBaseline(unchanged, target);
+
+    const untouched = system.settleCombatState(
+      server.entity,
+      engine.pickCombatState(unchanged),
+    );
+
+    // «Менять нечего» ядро пропускает молча, о негодном снимке предупреждает
+    assert.equal(untouched.accepted, false);
+    assert.equal(untouched.rejection, 'unchanged');
+
+    const broken = system.settleCombatState(server.entity, {
+      hpCurrent: 'много',
+    });
+
+    assert.equal(broken.accepted, false);
+    assert.equal(broken.rejection, 'invalid');
+
+    assert.equal(
+      engine.writeCombatState(server.entity, undefined),
+      'invalid',
+      'снимок не объектом — негоден',
+    );
+  });
+
   it('клиент не шлёт ровно то, что сервер отверг бы', async () => {
     const { target, server } = await setup();
 

@@ -5,6 +5,9 @@ import type {
   SubclassDefinition,
 } from './classTypes.js';
 
+import { subclassCounterDefinitions } from './classCounterDefinitions.js';
+import { matchesParentPack } from './consts.js';
+
 /**
  * Подклассы отдельными записями: подкласс — самостоятельная запись класса со
  * ссылкой `parentClassKey` на родителя, как на сайте TTG Club
@@ -37,6 +40,23 @@ export function isSubclassRecord(
   definition: ClassDefinition,
 ): definition is SubclassRecord {
   return Boolean(definition.parentClassKey);
+}
+
+/**
+ * Подходит ли запись-подкласс родителю из пака `packId` (см.
+ * {@link ClassDefinition.parentClassPackId}).
+ *
+ * @param record - запись-подкласс
+ * @param packId - пак родителя; пусто — не известен
+ * @param knownPackIds - подключённые паки (см. `matchesParentPack`)
+ * @returns `true`, если подкласс относится к родителю этого пака
+ */
+export function subclassFitsPack(
+  record: ClassDefinition,
+  packId: string | undefined,
+  knownPackIds?: ReadonlySet<string>,
+): boolean {
+  return matchesParentPack(record.parentClassPackId, packId, knownPackIds);
 }
 
 /**
@@ -133,6 +153,152 @@ export function toSubclassDefinition(
   }
 
   return subclass;
+}
+
+/**
+ * Копия значения без ссылки на подкласс. У записи-подкласса её умения и ресурсы
+ * свои по определению — ключ подкласса им проставит
+ * {@link toSubclassDefinition} уже новым ключом записи.
+ *
+ * @param value - умение или ресурс подкласса
+ * @returns копия без `subclassKey`
+ */
+function withoutSubclassKey<T extends { subclassKey?: string }>(
+  value: T,
+): Omit<T, 'subclassKey'> {
+  const { subclassKey: _subclassKey, ...rest } = value;
+
+  return rest;
+}
+
+/**
+ * Переводит подкласс, свёрнутый внутрь класса, в самостоятельную
+ * запись-подкласс — обратное к {@link toSubclassDefinition}. Так подкласс
+ * компендиума копируют в «Мастерскую» мира, чтобы править отдельно от класса.
+ *
+ * Ресурсы подкласса собираются из обоих мест, где их держит выгрузка: общего
+ * списка класса (помеченные ключом подкласса) и списка самого подкласса.
+ * Базовая механика (кость хитов, владения) берётся у родителя: у записи-
+ * подкласса она не читается, но форма класса без неё открылась бы пустой.
+ *
+ * @param parent - класс, внутри которого лежит подкласс
+ * @param subclass - подкласс этого класса
+ * @param key - ключ новой записи
+ * @param parentPackId - пак родителя; пусто — родитель из любого пака
+ * @returns запись-подкласс со ссылкой на родителя
+ */
+export function toSubclassRecord(
+  parent: ClassDefinition,
+  subclass: SubclassDefinition,
+  key: string,
+  parentPackId?: string,
+): SubclassRecord {
+  const counters = subclassCounterDefinitions(parent, subclass.key).map(
+    withoutSubclassKey,
+  );
+
+  const record: SubclassRecord = {
+    type: 'class',
+    key,
+    name: subclass.name,
+    nameEn: subclass.nameEn,
+    description: subclass.description,
+    parentClassKey: parent.key,
+    hitDie: parent.hitDie,
+    armorProficiencies: [...parent.armorProficiencies],
+    weaponProficiencies: [...parent.weaponProficiencies],
+    savingThrowProficiencies: [...parent.savingThrowProficiencies],
+    skillChoices: {
+      count: parent.skillChoices.count,
+      from: [...parent.skillChoices.from],
+    },
+    subclassLevel: parent.subclassLevel,
+    subclassLabel: parent.subclassLabel,
+    subclasses: [],
+    features: subclass.features.map(withoutSubclassKey),
+    levelTable: subclass.levelTable ?? [],
+  };
+
+  if (parentPackId) {
+    record.parentClassPackId = parentPackId;
+  }
+
+  if (subclass.sourceKey) {
+    record.sourceKey = subclass.sourceKey;
+  }
+
+  if (subclass.source) {
+    record.source = subclass.source;
+  }
+
+  if (subclass.spellcasting) {
+    record.spellcasting = { ...subclass.spellcasting };
+  }
+
+  if (subclass.tableColumns && subclass.tableColumns.length > 0) {
+    record.tableColumns = subclass.tableColumns;
+  }
+
+  if (counters.length > 0) {
+    record.counters = counters;
+  }
+
+  if (subclass.activeEffects && subclass.activeEffects.length > 0) {
+    record.activeEffects = subclass.activeEffects;
+  }
+
+  if (subclass.featData) {
+    record.featData = subclass.featData;
+  }
+
+  return record;
+}
+
+/** Класс, разложенный на самостоятельные записи: сам класс и его подклассы. */
+export interface SplitClassRecords {
+  /** Запись класса без свёрнутых подклассов */
+  classRecord: ClassDefinition;
+  /** Записи-подклассы со ссылкой на {@link SplitClassRecords.classRecord} */
+  subclassRecords: ClassDefinition[];
+}
+
+/**
+ * Раскладывает класс со свёрнутыми подклассами на самостоятельные записи —
+ * так, как их держит «Мастерская»: класс отдельно, каждый подкласс отдельно со
+ * ссылкой на класс. Тогда подкласс правится и сохраняется своей записью, а не
+ * внутри формы класса, — так же, как подвид у вида.
+ *
+ * Ресурсы подклассов уходят из общего списка класса в их записи: на листе они
+ * вернутся к классу через {@link withSubclassRecords}.
+ *
+ * @param definition - класс компендиума
+ * @param classKey - ключ записи класса
+ * @param subclassKeyOf - ключ записи по ключу подкласса
+ * @returns запись класса и записи его подклассов
+ */
+export function splitSubclassRecords(
+  definition: ClassDefinition,
+  classKey: string,
+  subclassKeyOf: (subclassKey: string) => string,
+): SplitClassRecords {
+  const parent: ClassDefinition = {
+    ...withUniqueSubclassKeys(definition),
+    key: classKey,
+  };
+
+  const subclassRecords = parent.subclasses.map((subclass) =>
+    toSubclassRecord(parent, subclass, subclassKeyOf(subclass.key)),
+  );
+
+  const classRecord: ClassDefinition = { ...parent, subclasses: [] };
+
+  if (parent.counters) {
+    classRecord.counters = parent.counters.filter(
+      (counter) => !counter.subclassKey,
+    );
+  }
+
+  return { classRecord, subclassRecords };
 }
 
 /**

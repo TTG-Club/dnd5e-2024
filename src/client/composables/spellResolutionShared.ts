@@ -11,6 +11,7 @@ import type {
   CreatureCategory,
   DamageDefenseOutcome,
   DamageTypeChoice,
+  HpChangeDetail,
   ProjectileOutcome,
   SaveDamageDefense,
   Spell,
@@ -75,6 +76,11 @@ export interface SpellTargetResult {
   hpBefore: number;
   /** HP после применения */
   hpAfter: number;
+  /**
+   * Хиты цели до и после вместе с временными — для подробностей строки
+   * сводки в чате; нет — хиты цели не менялись
+   */
+  hpChange?: HpChangeDetail;
   /** Полученные временные ХП (прирост; 0 — если текущие временные были выше) */
   tempHpGained?: number;
   /** Сработавшая защита от урона (иммунитет/сопротивление/уязвимость) */
@@ -230,22 +236,16 @@ export function formatSavingThrowRollLabel(
 }
 
 /**
- * Заголовок окна спасброска: подпись броска плюс сложность.
+ * Заголовок окна спасброска: «Спасбросок Ловкость».
  *
- * Общий у своего окна и у окна адресата по запросу — цель и сложность в них
- * одни и те же, и расходиться подписи не должны.
+ * Общий у своего окна и у окна адресата по запросу. Имени цели и сложности
+ * в нём нет: окно показывает их отдельно, над формулой.
  *
  * @param ability - характеристика спасброска
- * @param entityName - имя цели
- * @param dc - сложность
  * @returns заголовок окна
  */
-export function formatSavingThrowTitle(
-  ability: AbilityType,
-  entityName: string,
-  dc: number,
-): string {
-  return `${formatSavingThrowRollLabel(ability, entityName)}${SAVING_THROW_ROLL_LABELS.dcPrefix}${dc}${SAVING_THROW_ROLL_LABELS.dcSuffix}`;
+export function formatSavingThrowTitle(ability: AbilityType): string {
+  return `${SAVING_THROW_ROLL_LABELS.rollPrefix}${SAVE_TYPE_LABELS[ability]}`;
 }
 
 /**

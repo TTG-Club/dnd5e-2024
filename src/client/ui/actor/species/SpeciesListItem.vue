@@ -7,6 +7,7 @@
     CREATURE_TYPE_LABELS,
     FEET_UNIT_LABEL,
     LIST_ROW_CARD_BORDERED_CLASS,
+    LIST_ROW_PACK_NAME_CLASS,
     SPECIES_DEFINITION_MIME,
     SPECIES_DETAIL_LABELS,
   } from '../constants';
@@ -21,8 +22,15 @@
     speciesDefinition: SpeciesDefinition;
     /** Пак записи: уходит на лист вместе с определением при переносе */
     packId?: string;
+    /**
+     * Название компендиума в плоской строке — в режиме «все компендиумы», как
+     * в окне выбора: копии одной записи из разных паков иначе не различить.
+     */
+    packName?: string;
     showEdit?: boolean;
     showDelete?: boolean;
+    /** Показывать «В компендиум» в контекстном меню (ставит ядро в «Мастерской») */
+    showAddToCompendium?: boolean;
     showCopy?: boolean;
     showCost?: boolean;
     showWeight?: boolean;
@@ -44,11 +52,13 @@
     click: [];
     edit: [];
     delete: [];
+    /** Положить запись в компендиум мира */
+    addToCompendium: [];
     copy: [];
   }>();
 
   const { isMenuOpen, menuX, menuY, openContextMenu, handleAction, closeMenu } =
-    useContextMenu(props, emit);
+    useContextMenu(props, emit, () => emit('addToCompendium'));
 
   function handleDragStart(event: DragEvent): void {
     if (!event.dataTransfer) {
@@ -73,7 +83,7 @@
   <div
     v-bind="$attrs"
     draggable="true"
-    class="group flex cursor-grab items-center gap-3 border border-transparent py-2 transition-colors active:cursor-grabbing"
+    class="group flex cursor-grab items-center gap-3 py-2 transition-colors active:cursor-grabbing"
     :class="rowClass"
     @dragstart="handleDragStart"
     @click.left.exact.prevent="emit('click')"
@@ -86,20 +96,25 @@
       :name-en="speciesDefinition.nameEn"
       :source-key="speciesDefinition.sourceKey"
       :source="speciesDefinition.source"
-    />
+    >
+      <template #badges>
+        <span
+          v-if="packName"
+          :class="LIST_ROW_PACK_NAME_CLASS"
+        >
+          {{ packName }}
+        </span>
+      </template>
+    </EntityRowBody>
 
     <div
       v-else
       class="min-w-0 flex-1"
     >
-      <div class="flex items-center gap-2">
-        <span class="truncate text-sm font-medium text-highlighted">
-          {{ speciesDefinition.name }}
-        </span>
-
-        <span class="text-xs text-dimmed">
-          {{ speciesDefinition.nameEn }}
-        </span>
+      <!-- Английского названия здесь нет: в «Мастерской» и на листе оно
+           не нужно, а в списке компендиума его показывает плоская строка -->
+      <div class="truncate text-sm font-medium text-highlighted">
+        {{ speciesDefinition.name }}
       </div>
 
       <div class="flex items-center gap-3 text-xs text-muted">
@@ -116,11 +131,6 @@
         </span>
       </div>
     </div>
-
-    <UIcon
-      name="tabler:grip-vertical"
-      class="h-4 w-4 shrink-0 text-dimmed opacity-0 transition-opacity group-hover:opacity-100"
-    />
   </div>
 
   <ContextMenuOverlay
@@ -130,6 +140,7 @@
     :show-copy="showCopy"
     :show-edit="showEdit"
     :show-delete="showDelete"
+    :show-add-to-compendium="showAddToCompendium"
     @action="handleAction"
     @close="closeMenu"
   />

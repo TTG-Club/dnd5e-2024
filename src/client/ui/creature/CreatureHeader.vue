@@ -27,7 +27,11 @@
     SHEET_INLINE_EDITABLE_CLASS,
   } from '../actor/constants';
   import NameEditModal from '../actor/NameEditModal.vue';
-  import { CREATURE_HEADER_LABELS, CREATURE_NO_ALIGNMENT } from './constants';
+  import {
+    CREATURE_HEADER_LABELS,
+    CREATURE_ICON,
+    CREATURE_NO_ALIGNMENT,
+  } from './constants';
   import CreatureChallengeModal from './CreatureChallengeModal.vue';
   import CreatureKindModal from './CreatureKindModal.vue';
 
@@ -233,7 +237,7 @@
             class="absolute inset-0 flex items-center justify-center text-dimmed"
           >
             <UIcon
-              name="tabler:alien"
+              :name="CREATURE_ICON"
               class="h-1/2 w-1/2"
             />
           </div>

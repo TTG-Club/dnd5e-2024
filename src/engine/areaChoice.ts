@@ -114,6 +114,16 @@ export type AreaSource = Pick<Spell, 'id' | 'name' | 'level' | 'activeEffects'>
   & Partial<Pick<Spell, 'range' | 'rangeUnit' | 'deliveryType' | 'rollSource'>>;
 
 /**
+ * Что правило «область от применившего» читает у источника: вид источника и
+ * его дальность. Остального об источнике ему знать не нужно — поэтому его
+ * может позвать и тот, у кого под рукой только вид источника (действие
+ * существа до сборки броска).
+ */
+export type AreaOriginSource = Partial<
+  Pick<Spell, 'range' | 'rangeUnit' | 'deliveryType' | 'rollSource'>
+>;
+
+/**
  * Единица дальности «на себя» в выгрузке заклинаний. В единицах расстояния
  * ядра её нет — запись приходит из компендиума как есть
  */
@@ -134,7 +144,7 @@ const SELF_RANGE_UNIT: string = 'self';
  * @param source - что применяют
  * @returns `true`, если область исходит от применившего
  */
-export function areaOriginatesFromCaster(source: AreaSource): boolean {
+export function areaOriginatesFromCaster(source: AreaOriginSource): boolean {
   if (source.rollSource === undefined) {
     return (
       source.rangeUnit === SELF_RANGE_UNIT || source.deliveryType === 'self'

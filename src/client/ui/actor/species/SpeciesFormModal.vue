@@ -21,6 +21,10 @@
   } from '@vtt/shared/system/dnd.js';
 
   import type {
+    ParentRecordIndex,
+    ParentRecordInfo,
+  } from '../../../composables/parentRecordLookup';
+  import type {
     PickedCompendiumRef,
     PickerEntryFields,
   } from '../CompendiumRefPickerModal.vue';
@@ -39,8 +43,13 @@
     CREATURE_SIZE_LABELS,
     CREATURE_TYPE_LABELS,
     slugify,
+    WORLD_PACK_ID,
   } from '@vtt/shared/system/dnd.js';
 
+  import {
+    findParentRecord,
+    rememberParentRecord,
+  } from '../../../composables/parentRecordLookup';
   import {
     buildSpellLinkIndex,
     findSpellInPacks,
@@ -81,12 +90,6 @@
   import SpeciesFeaturesEditor from './SpeciesFeaturesEditor.vue';
 
   defineOptions({ inheritAttrs: false });
-
-  /** Основной вид, показанный в поле: как называется и откуда взят. */
-  interface ParentSpeciesInfo {
-    name: string;
-    packName: string;
-  }
 
   /** Строка роста в правке: обе границы всегда числа, 0 — «не указана». */
   interface EditableHeightRow {
@@ -167,8 +170,11 @@
   /** Ключ основного вида; пустая строка — запись самостоятельная. */
   const parentKey = ref('');
 
+  /** Пак основного вида: один ключ вида есть в нескольких компендиумах */
+  const parentPackId = ref('');
+
   /** Название и пак только что выбранного основного вида — для показа в поле. */
-  const pickedParent = ref<ParentSpeciesInfo | null>(null);
+  const pickedParent = ref<ParentRecordInfo | null>(null);
 
   /** Открыто ли окно выбора основного вида */
   const isParentPickerOpen = ref(false);
@@ -429,11 +435,11 @@
    * Виды справочника (компендиум + мир) по ключу. В записи лежит один ключ
    * родителя, а показать в поле надо название — вот откуда оно берётся.
    */
-  const knownSpeciesByKey = ref(new Map<string, ParentSpeciesInfo>());
+  const knownSpecies = ref<ParentRecordIndex>(new Map());
 
   /** Загружает виды справочника — по ним поле узнаёт название основного вида. */
   async function loadKnownSpecies(): Promise<void> {
-    const known = new Map<string, ParentSpeciesInfo>();
+    const known: ParentRecordIndex = new Map();
 
     if (props.socket) {
       const packs: PackKindEntries[] = await loadCompendiumKindByPack(
@@ -445,8 +451,8 @@
         for (const entry of pack.entries) {
           const definition = readSpeciesDefinition(entry);
 
-          if (definition && !known.has(definition.key)) {
-            known.set(definition.key, {
+          if (definition) {
+            rememberParentRecord(known, definition.key, pack.packId, {
               name: definition.name,
               packName: pack.packName,
             });
@@ -458,20 +464,26 @@
     for (const worldItem of itemsStore.items) {
       const definition = readSpeciesDefinition(worldItem);
 
-      if (definition && !known.has(definition.key)) {
-        known.set(definition.key, {
+      if (definition) {
+        rememberParentRecord(known, definition.key, WORLD_PACK_ID, {
           name: definition.name,
           packName: COMPENDIUM_PICKER_LABELS.worldPack,
         });
       }
     }
 
-    knownSpeciesByKey.value = known;
+    knownSpecies.value = known;
   }
 
   /** Запись справочника, стоящая за выбранным ключом родителя. */
   const knownParent = computed(() =>
-    parentKey.value ? knownSpeciesByKey.value.get(parentKey.value) : undefined,
+    parentKey.value
+      ? findParentRecord(
+          knownSpecies.value,
+          parentKey.value,
+          parentPackId.value,
+        )
+      : undefined,
   );
 
   /**
@@ -519,12 +531,14 @@
     }
 
     parentKey.value = parent.url;
+    parentPackId.value = parent.packId;
     pickedParent.value = { name: parent.name, packName: parent.packName };
   }
 
   /** Снимает основной вид — запись снова самостоятельная. */
   function clearParent(): void {
     parentKey.value = '';
+    parentPackId.value = '';
     pickedParent.value = null;
   }
 
@@ -792,10 +806,14 @@
         burrow: feature.movement?.burrow ?? 0,
       },
       darkvision: feature.darkvision ?? 0,
+      // Уровень доступа полем формы не правится, но переживает сохранение:
+      // иначе правка вида в мире молча выдавала бы заклинания 3-го и 5-го
+      // уровня с первого
       grantedSpells: (feature.grantedSpells ?? []).map((spell) => ({
         name: spell.name,
         spellId: spell.spellId,
         packId: spell.packId,
+        requiredLevel: spell.requiredLevel,
       })),
       grantedSpellsAlwaysPrepared: readGrantedSpellsAlwaysPrepared(
         feature.grantedSpells ?? [],
@@ -853,6 +871,9 @@
         name: spell.name.trim(),
         ...(spell.spellId ? { spellId: spell.spellId } : {}),
         ...(spell.packId ? { packId: spell.packId } : {}),
+        ...(spell.requiredLevel && spell.requiredLevel > 1
+          ? { requiredLevel: spell.requiredLevel }
+          : {}),
         ...writeGrantedSpellPreparation(fields.grantedSpellsAlwaysPrepared),
       }));
 
@@ -889,6 +910,7 @@
     selectedSizes.value = ['medium'];
     heightRows.value = {};
     parentKey.value = '';
+    parentPackId.value = '';
     pickedParent.value = null;
     speedWalk.value = 30;
     speedFly.value = 0;
@@ -914,6 +936,8 @@
     isSRD.value = definition.isSRD ?? false;
     creatureType.value = definition.creatureType || 'humanoid';
     parentKey.value = definition.parentKey ?? '';
+    parentPackId.value = definition.parentPackId ?? '';
+    pickedParent.value = null;
 
     selectedSizes.value =
       definition.size && definition.size.length > 0
@@ -1131,6 +1155,10 @@
       grants: [...preservedGrants.value],
       features: buildFeatures(),
     };
+
+    if (parentKey.value && parentPackId.value) {
+      definition.parentPackId = parentPackId.value;
+    }
 
     if (parentKey.value) {
       definition.parentKey = parentKey.value;

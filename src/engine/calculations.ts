@@ -60,6 +60,8 @@ import {
   normalizeSpellUsesRecovery,
   SKILL_ABILITY_MAP,
 } from './consts.js';
+import { stampCounterIds } from './counterIds.js';
+import { stampCreatureActionIds } from './creatureActionIds.js';
 import {
   ensureCreatureSpellsInBlocks,
   normalizeCreatureSpellcastingBlocks,
@@ -73,6 +75,7 @@ import {
   stripDamageTypeTokens,
   stripHealTokens,
 } from './formulaTokens.js';
+import { isAwaitingAttunement } from './itemUses.js';
 import {
   DEFAULT_PROFICIENCY_BONUS,
   getProficiencyBonusBreakdown,
@@ -695,13 +698,14 @@ function getWeaponFlatBonusParts(
 
 /**
  * Слагаемое магического бонуса предмета — одинаковое у атаки и урона: `+1`
- * магического оружия идёт и туда, и туда.
+ * магического оружия идёт и туда, и туда. Оружие с обязательной настройкой без
+ * неё бонуса не даёт — как и эффектов (см. `itemEffectsActive`).
  *
  * @param weapon - оружие
  * @returns слагаемое магии (пустой список — бонуса нет)
  */
 function getWeaponMagicParts(weapon: DnDGameItem): WeaponModifierPart[] {
-  return weapon.isMagical
+  return weapon.isMagical && !isAwaitingAttunement(weapon)
     ? getBonusParts(
         'magic',
         WEAPON_MODIFIER_PART_LABELS.magic,
@@ -1473,6 +1477,9 @@ export function normalizeActor(actor: BaseActor): void {
     existingSystem.size = normalizeCreatureSize(existingSystem.size);
 
     repairAbilityNumbers(existingSystem.abilities);
+
+    // Счётчикам — `id`: без него частичная запись шлёт их список целиком
+    stampCounterIds(existingSystem);
   } else {
     const system: DnDActorSystem = {
       species: parseLegacySpecies(raw.species),
@@ -1732,6 +1739,10 @@ export function normalizeCreature(creature: BaseCreature): void {
   }
 
   normalizeCreatureActionRangeTypes(system);
+
+  // Записям боевого блока — `id`: без него частичная запись шлёт их списки
+  // целиком
+  stampCreatureActionIds(system);
 
   // Нормализация movement: если отсутствует (legacy-существа) — дефолт 30 фт.
   if (!isRecord(system.movement)) {
