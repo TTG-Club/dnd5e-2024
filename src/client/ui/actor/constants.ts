@@ -2335,7 +2335,9 @@ export const TOKEN_SETTINGS_LABELS = {
   visionEnabled: 'Зрение включено',
   visionEnabledHint: 'Токен будет ограничен зрением',
   vision: 'Зрение',
-  visionRangeHint: 'Дальность зрения в футах (0 = безграничное)',
+  visionRangeHint:
+    'Дальность в футах (0 — без предела). При глобальном освещении сцены '
+    + 'не действует: днём видно всё до стен',
   visionAngle: 'Угол обзора',
   visionAngleFull: 'Круговой',
   visionAngleHint:
