@@ -29,6 +29,8 @@
     packName?: string;
     showEdit?: boolean;
     showDelete?: boolean;
+    /** Показывать «В компендиум» в контекстном меню (ставит ядро в «Мастерской») */
+    showAddToCompendium?: boolean;
     showCopy?: boolean;
     showCost?: boolean;
     showWeight?: boolean;
@@ -50,11 +52,13 @@
     click: [];
     edit: [];
     delete: [];
+    /** Положить запись в компендиум мира */
+    addToCompendium: [];
     copy: [];
   }>();
 
   const { isMenuOpen, menuX, menuY, openContextMenu, handleAction, closeMenu } =
-    useContextMenu(props, emit);
+    useContextMenu(props, emit, () => emit('addToCompendium'));
 
   function handleDragStart(event: DragEvent): void {
     if (!event.dataTransfer) {
@@ -107,14 +111,10 @@
       v-else
       class="min-w-0 flex-1"
     >
-      <div class="flex items-center gap-2">
-        <span class="truncate text-sm font-medium text-highlighted">
-          {{ speciesDefinition.name }}
-        </span>
-
-        <span class="text-xs text-dimmed">
-          {{ speciesDefinition.nameEn }}
-        </span>
+      <!-- Английского названия здесь нет: в «Мастерской» и на листе оно
+           не нужно, а в списке компендиума его показывает плоская строка -->
+      <div class="truncate text-sm font-medium text-highlighted">
+        {{ speciesDefinition.name }}
       </div>
 
       <div class="flex items-center gap-3 text-xs text-muted">
@@ -140,6 +140,7 @@
     :show-copy="showCopy"
     :show-edit="showEdit"
     :show-delete="showDelete"
+    :show-add-to-compendium="showAddToCompendium"
     @action="handleAction"
     @close="closeMenu"
   />

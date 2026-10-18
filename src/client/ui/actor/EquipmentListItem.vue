@@ -26,6 +26,13 @@
     showEdit?: boolean;
     /** Показывать «Удалить» в контекстном меню */
     showDelete?: boolean;
+    /** Показывать «В компендиум» в контекстном меню (ставит ядро в «Мастерской») */
+    showAddToCompendium?: boolean;
+    /**
+     * «Поделиться в чат» в контекстном меню. Это обработчик `@share`, а не
+     * событие: пункт показывается, только когда отправить есть кому.
+     */
+    onShare?: () => void;
     /** Показывать иконку категории (по умолчанию true) */
     showIcon?: boolean;
     /** Показывать стоимость (по умолчанию true) */
@@ -52,12 +59,21 @@
     edit: [];
     /** Удалить */
     delete: [];
+    /** Положить запись в компендиум мира */
+    addToCompendium: [];
   }>();
 
   const systemDataStore = useSystemDataStore();
 
-  const { isMenuOpen, menuX, menuY, openContextMenu, handleAction, closeMenu } =
-    useContextMenu(props, emit);
+  const {
+    isMenuOpen,
+    menuX,
+    menuY,
+    canShare,
+    openContextMenu,
+    handleAction,
+    closeMenu,
+  } = useContextMenu(props, emit, () => emit('addToCompendium'));
 
   /**
    * Отображаемый КД — базовый + магический бонус (`magicBonus`).
@@ -195,6 +211,8 @@
     :show-copy="showCopy"
     :show-edit="showEdit"
     :show-delete="showDelete"
+    :show-add-to-compendium="showAddToCompendium"
+    :show-share="canShare"
     @action="handleAction"
     @close="closeMenu"
   />

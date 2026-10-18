@@ -27,6 +27,13 @@
     item: FeatDisplayItem;
     showEdit?: boolean;
     showDelete?: boolean;
+    /** Показывать «В компендиум» в контекстном меню (ставит ядро в «Мастерской») */
+    showAddToCompendium?: boolean;
+    /**
+     * «Поделиться в чат» в контекстном меню. Это обработчик `@share`, а не
+     * событие: пункт показывается, только когда отправить есть кому.
+     */
+    onShare?: () => void;
     showCopy?: boolean;
     showCost?: boolean;
     showWeight?: boolean;
@@ -57,6 +64,8 @@
     click: [];
     edit: [];
     delete: [];
+    /** Положить запись в компендиум мира */
+    addToCompendium: [];
     copy: [];
   }>();
 
@@ -64,23 +73,39 @@
     showCopy: isSheet.value ? false : props.showCopy,
     showEdit: isSheet.value ? false : props.showEdit,
     showDelete: isSheet.value ? false : props.showDelete,
+    showAddToCompendium: isSheet.value ? false : props.showAddToCompendium,
+    onShare: isSheet.value ? undefined : props.onShare,
   }));
 
-  const { isMenuOpen, menuX, menuY, openContextMenu, handleAction, closeMenu } =
-    useContextMenu(
-      reactive({
-        get showCopy() {
-          return contextMenuProps.value.showCopy;
-        },
-        get showEdit() {
-          return contextMenuProps.value.showEdit;
-        },
-        get showDelete() {
-          return contextMenuProps.value.showDelete;
-        },
-      }),
-      emit,
-    );
+  const {
+    isMenuOpen,
+    menuX,
+    menuY,
+    canShare,
+    openContextMenu,
+    handleAction,
+    closeMenu,
+  } = useContextMenu(
+    reactive({
+      get showCopy() {
+        return contextMenuProps.value.showCopy;
+      },
+      get showEdit() {
+        return contextMenuProps.value.showEdit;
+      },
+      get showDelete() {
+        return contextMenuProps.value.showDelete;
+      },
+      get showAddToCompendium() {
+        return contextMenuProps.value.showAddToCompendium;
+      },
+      get onShare() {
+        return contextMenuProps.value.onShare;
+      },
+    }),
+    emit,
+    () => emit('addToCompendium'),
+  );
 
   /**
    * Обработчик начала перетаскивания черты из компендиума.
@@ -153,6 +178,8 @@
     :show-copy="contextMenuProps.showCopy"
     :show-edit="contextMenuProps.showEdit"
     :show-delete="contextMenuProps.showDelete"
+    :show-add-to-compendium="contextMenuProps.showAddToCompendium"
+    :show-share="canShare"
     @action="handleAction"
     @close="closeMenu"
   />

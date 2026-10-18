@@ -397,8 +397,11 @@ export function createDnd5eItemTypeProvider(): ItemTypeProvider {
   };
 
   /**
-   * Отправляет карточку предмета в чат. Пока share только у заклинаний: метаданные
-   * верхнего уровня сливаются со spellData (карточка чата ждёт объект Spell).
+   * Отправляет карточку записи «Мастерской» в чат — ту же, что кнопка «Поделиться
+   * в чат» в окне просмотра записи. У заклинания метаданные верхнего уровня
+   * сливаются со spellData (карточка чата ждёт объект Spell); оружие и снаряжение
+   * уходят карточкой снаряжения, черта — карточкой особенности. Классу, виду и
+   * состоянию карточки чата нет — для них ничего не отправляется.
    */
   const shareToChat = (baseItem: BaseGameItem): void => {
     // Ядро отдаёт нейтральный предмет — D&D-форму подтверждает гвард
@@ -408,6 +411,37 @@ export function createDnd5eItemTypeProvider(): ItemTypeProvider {
     }
 
     const item = baseItem;
+    const chatStore = useChatStore();
+
+    if (item.type === 'weapon' || item.type === 'equipment') {
+      chatStore.sendItemCard({
+        cardType: 'equipment',
+        title: item.name,
+        payload: JSON.stringify(item),
+      });
+
+      return;
+    }
+
+    if (item.type === 'tool' || item.type === 'background') {
+      chatStore.sendItemCard({
+        cardType: item.type,
+        title: item.name,
+        payload: JSON.stringify(item),
+      });
+
+      return;
+    }
+
+    if (item.type === 'feat') {
+      chatStore.sendItemCard({
+        cardType: 'feature',
+        title: item.name,
+        payload: JSON.stringify({ ...item, type: 'feat', featureType: 'feat' }),
+      });
+
+      return;
+    }
 
     if (item.type !== 'spell' || !item.spellData) {
       return;
@@ -423,7 +457,7 @@ export function createDnd5eItemTypeProvider(): ItemTypeProvider {
       sourceKey: item.sourceKey,
     };
 
-    useChatStore().sendItemCard({
+    chatStore.sendItemCard({
       cardType: 'spell',
       title: item.name,
       payload: JSON.stringify(spell),

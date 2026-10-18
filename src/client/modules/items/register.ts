@@ -104,6 +104,8 @@ export function register(api: ClientSystemAPI): void {
 
   api.entityCard({
     type: 'weapon',
+    // Пункт «Поделиться в чат» в меню строки «Мастерской»
+    allowShareAttr: true,
     listItemComponent: WeaponListItem,
     openDetail: (entry, options) => {
       if (isDnDGameItem(entry)) {
@@ -114,6 +116,8 @@ export function register(api: ClientSystemAPI): void {
 
   api.entityCard({
     type: 'equipment',
+    // Пункт «Поделиться в чат» в меню строки «Мастерской»
+    allowShareAttr: true,
     listItemComponent: EquipmentListItem,
     openDetail: (entry, options) => {
       if (isDnDGameItem(entry)) {
@@ -124,6 +128,8 @@ export function register(api: ClientSystemAPI): void {
 
   api.entityCard({
     type: 'tool',
+    // Пункт «Поделиться в чат» в меню строки «Мастерской»
+    allowShareAttr: true,
     listItemComponent: ToolListItem,
     openDetail: (entry, options) => {
       if (isDnDGameItem(entry)) {
@@ -134,6 +140,8 @@ export function register(api: ClientSystemAPI): void {
 
   api.entityCard({
     type: 'feat',
+    // Пункт «Поделиться в чат» в меню строки «Мастерской»
+    allowShareAttr: true,
     listItemComponent: FeatListItem,
     openDetail: (entry, options) => {
       if (isDnDGameItem(entry)) {
@@ -144,6 +152,8 @@ export function register(api: ClientSystemAPI): void {
 
   api.entityCard({
     type: 'background',
+    // Пункт «Поделиться в чат» в меню строки «Мастерской»
+    allowShareAttr: true,
     listItemComponent: BackgroundListItem,
     propsFor: (entry) => ({ backgroundDefinition: entry }),
     openDetail: (entry, options) => {

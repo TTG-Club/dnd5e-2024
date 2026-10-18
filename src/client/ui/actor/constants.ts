@@ -3525,11 +3525,6 @@ export const SOURCE_FIELD_LABELS = {
   namePlaceholder: 'Книга игрока',
 } as const;
 
-/** Подписи строки заклинания в списке компендиума */
-export const SPELL_LIST_ITEM_LABELS = {
-  copy: COPY_LABEL,
-} as const;
-
 /**
  * Подписи общей рамки карточек записей. Рамку эту делят карточки заклинания,
  * оружия, снаряжения, инструмента, класса, вида и предыстории — кнопки шапки у
@@ -5121,6 +5116,8 @@ export const CONTEXT_MENU_LABELS = {
   copyToPrefix: 'Скопировать в ',
   /** Куда копируется запись, если вызывающий не сказал иначе */
   copyToDefaultTarget: 'предметы',
+  /** Положить запись «Мастерской» в компендиум мира */
+  addToCompendium: 'В компендиум',
 } as const;
 
 /**

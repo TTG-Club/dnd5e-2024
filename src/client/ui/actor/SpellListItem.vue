@@ -1,10 +1,11 @@
 <script setup lang="ts">
   import type { DnDGameItem, Spell } from '@vtt/shared/system/dnd.js';
 
+  import type { ContextMenuAction } from '../../composables/useContextMenu';
+
   import { computed, ref } from 'vue';
 
   import { startHotbarDrag } from '@/core/utils/hotbarDrag';
-  import { ContextMenuDangerItem } from '@/shared_ui/components';
   import FieldGroupReset from '@/shared_ui/components/FieldGroupReset.vue';
   import {
     isSpell,
@@ -14,10 +15,10 @@
   import {
     SHEET_ROW_MENU_LABELS,
     SPELL_BADGE_LABELS,
-    SPELL_LIST_ITEM_LABELS,
     SPELL_MENU_LABELS,
     SPELL_MIME,
   } from './constants';
+  import ContextMenuOverlay from './ContextMenuOverlay.vue';
   import EntityRowBody from './EntityRowBody.vue';
   import { extractSpellFromGameItem } from './utils/extractSpellFromGameItem';
   import { formatSpellDamageDisplay } from './utils/formatSpellDamageDisplay';
@@ -38,7 +39,7 @@
   const props = defineProps<{
     /** Данные заклинания или предмет-заклинание */
     item: Spell | DnDGameItem;
-    /** Показывать «{{ SPELL_LIST_ITEM_LABELS.copy }}» в контекстном меню */
+    /** Показывать «Скопировать в предметы» в контекстном меню */
     showCopy?: boolean;
     /** Показывать «Редактировать» в контекстном меню */
     showEdit?: boolean;
@@ -46,6 +47,8 @@
     showDelete?: boolean;
     /** Показывать «Применить» в контекстном меню */
     showCast?: boolean;
+    /** Показывать «В компендиум» в контекстном меню (ставит ядро в «Мастерской») */
+    showAddToCompendium?: boolean;
     /**
      * ID существа-владельца. Если задан — перетаскивание на хотбар создаёт
      * макрос `creature-spell` (вместо `spell-cast` актора).
@@ -64,7 +67,7 @@
   const emit = defineEmits<{
     /** Клик по строке (открыть детальник) */
     click: [];
-    /** {{ SPELL_LIST_ITEM_LABELS.copy }} */
+    /** Скопировать в предметы */
     copy: [];
     /** Редактировать */
     edit: [];
@@ -74,6 +77,8 @@
     cast: [];
     /** Отправить в чат */
     share: [];
+    /** Положить запись в компендиум мира */
+    addToCompendium: [];
   }>();
 
   /**
@@ -165,7 +170,11 @@
   /** Есть ли пункты для контекстного меню */
   const hasContextMenu = computed(
     () =>
-      props.showCopy || props.showEdit || props.showDelete || props.showCast,
+      props.showCopy
+      || props.showEdit
+      || props.showDelete
+      || props.showCast
+      || props.showAddToCompendium,
   );
 
   /**
@@ -191,9 +200,7 @@
    *
    * @param action - действие
    */
-  function handleAction(
-    action: 'copy' | 'edit' | 'delete' | 'cast' | 'share',
-  ): void {
+  function handleAction(action: ContextMenuAction): void {
     isMenuOpen.value = false;
 
     if (action === 'copy') {
@@ -206,6 +213,8 @@
       emit('cast');
     } else if (action === 'share') {
       emit('share');
+    } else if (action === 'add-to-compendium') {
+      emit('addToCompendium');
     }
   }
 
@@ -372,85 +381,17 @@
     </UFieldGroup>
   </div>
 
-  <!-- Контекстное меню -->
-  <Teleport to="body">
-    <div
-      v-if="isMenuOpen"
-      class="fixed inset-0 z-10000"
-      @click.left.exact.prevent="closeMenu"
-      @contextmenu.prevent="closeMenu"
-    >
-      <div
-        class="absolute min-w-45 rounded-lg border border-default bg-default py-1 shadow-xl"
-        :style="{ left: `${menuX}px`, top: `${menuY}px` }"
-        @click.stop
-      >
-        <!-- Применить -->
-        <button
-          v-if="showCast"
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-highlighted transition-colors hover:bg-accented/50"
-          @click.left.exact.prevent="handleAction('cast')"
-        >
-          <UIcon
-            name="tabler:wand"
-            class="h-4 w-4 text-muted"
-          />
-          {{ SPELL_MENU_LABELS.cast }}
-        </button>
-
-        <!-- {{ SPELL_LIST_ITEM_LABELS.copy }} -->
-        <button
-          v-if="showCopy"
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-highlighted transition-colors hover:bg-accented/50"
-          @click.left.exact.prevent="handleAction('copy')"
-        >
-          <UIcon
-            name="tabler:copy"
-            class="h-4 w-4 text-muted"
-          />
-          {{ SPELL_LIST_ITEM_LABELS.copy }}
-        </button>
-
-        <!-- Редактировать -->
-        <button
-          v-if="showEdit"
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-highlighted transition-colors hover:bg-accented/50"
-          @click.left.exact.prevent="handleAction('edit')"
-        >
-          <UIcon
-            name="tabler:edit"
-            class="h-4 w-4 text-muted"
-          />
-          {{ SHEET_ROW_MENU_LABELS.edit }}
-        </button>
-
-        <!-- Разделитель -->
-        <div
-          v-if="showCopy || showEdit || showCast"
-          class="mx-2 my-1 border-t border-default/50"
-        />
-
-        <!-- Поделиться в чат -->
-        <button
-          class="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm text-highlighted transition-colors hover:bg-accented/50"
-          @click.left.exact.prevent="handleAction('share')"
-        >
-          <UIcon
-            name="tabler:message-share"
-            class="h-4 w-4 text-muted"
-          />
-          {{ SHEET_ROW_MENU_LABELS.share }}
-        </button>
-
-        <!-- Удалить -->
-        <ContextMenuDangerItem
-          v-if="showDelete"
-          icon="tabler:trash"
-          @click="handleAction('delete')"
-        >
-          {{ SHEET_ROW_MENU_LABELS.remove }}
-        </ContextMenuDangerItem>
-      </div>
-    </div>
-  </Teleport>
+  <ContextMenuOverlay
+    :is-open="isMenuOpen"
+    :pos-x="menuX"
+    :pos-y="menuY"
+    :show-cast="showCast"
+    :show-copy="showCopy"
+    :show-edit="showEdit"
+    :show-add-to-compendium="showAddToCompendium"
+    show-share
+    :show-delete="showDelete"
+    @action="handleAction"
+    @close="closeMenu"
+  />
 </template>

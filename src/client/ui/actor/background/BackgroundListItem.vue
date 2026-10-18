@@ -30,6 +30,13 @@
     packName?: string;
     showEdit?: boolean;
     showDelete?: boolean;
+    /** Показывать «В компендиум» в контекстном меню (ставит ядро в «Мастерской») */
+    showAddToCompendium?: boolean;
+    /**
+     * «Поделиться в чат» в контекстном меню. Это обработчик `@share`, а не
+     * событие: пункт показывается, только когда отправить есть кому.
+     */
+    onShare?: () => void;
     showCopy?: boolean;
     showCost?: boolean;
     showWeight?: boolean;
@@ -50,11 +57,20 @@
     click: [];
     edit: [];
     delete: [];
+    /** Положить запись в компендиум мира */
+    addToCompendium: [];
     copy: [];
   }>();
 
-  const { isMenuOpen, menuX, menuY, openContextMenu, handleAction, closeMenu } =
-    useContextMenu(props, emit);
+  const {
+    isMenuOpen,
+    menuX,
+    menuY,
+    canShare,
+    openContextMenu,
+    handleAction,
+    closeMenu,
+  } = useContextMenu(props, emit, () => emit('addToCompendium'));
 
   function onDragStart(event: DragEvent) {
     if (event.dataTransfer) {
@@ -153,6 +169,8 @@
     :show-copy="showCopy"
     :show-edit="showEdit"
     :show-delete="showDelete"
+    :show-add-to-compendium="showAddToCompendium"
+    :show-share="canShare"
     @action="handleAction"
     @close="closeMenu"
   />
