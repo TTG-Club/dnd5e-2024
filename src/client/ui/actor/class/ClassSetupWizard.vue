@@ -25,7 +25,7 @@
   import type { WizardAsiState } from './wizard';
   import type { ClassSpellListMode } from './wizard/useClassWizard';
 
-  import { computed, toRef } from 'vue';
+  import { computed, ref, toRef, watch } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import {
@@ -93,6 +93,12 @@
   const actorRef = toRef(props, 'actor');
 
   /**
+   * Ключи черт, которые уровень выдаёт без выбора. Заполняются после создания
+   * мастера: он сам строит их из каталога, который грузится здесь.
+   */
+  const grantedFeatIds = ref<string[]>([]);
+
+  /**
    * Черты компендиума для выборов черты умений и режима «Взять черту» шага
    * характеристик. Грузятся при открытии мастера — как в мастере предыстории.
    */
@@ -100,6 +106,11 @@
     toRef(props, 'socket'),
     toRef(props, 'open'),
     toRef(props, 'packId'),
+    {
+      actorId: computed(() => props.actor.id),
+      featIds: grantedFeatIds,
+      grantedBy: computed(() => props.classDefinition?.name ?? ''),
+    },
   );
 
   /**
@@ -150,6 +161,7 @@
     classSpellListOffers,
     preparedSpellsAtLevel,
     preparedSpellsRoom,
+    grantedFeatsByRow,
 
     nextStep,
     prevStep,
@@ -164,8 +176,16 @@
     classDefinitionOf,
   );
 
+  watch(
+    grantedFeatsByRow,
+    (rows) => {
+      grantedFeatIds.value = rows.map((row) => row.featId);
+    },
+    { immediate: true },
+  );
+
   /** Granted-заклинания умений текущего уровня с данными из компендиума */
-  const { resolvedGrantedSpells } = useGrantedSpellsResolver(
+  const { resolvedGrantedSpells, finalizeForActor } = useGrantedSpellsResolver(
     toRef(props, 'socket'),
     grantedSpellSources,
     grantedClassSpellRequests,
@@ -429,8 +449,11 @@
    * родителю через событие `apply` и закрывает модальное окно.
    */
   async function handleComplete(): Promise<void> {
+    // Заклинания из нескольких компендиумов игрок выбирает здесь же, до записи
+    const grantedSpells = await finalizeForActor(props.actor.id);
+
     const { systemUpdates, rootUpdates } = buildUpdates([
-      ...resolvedGrantedSpells.value,
+      ...grantedSpells,
       ...classSpellListGrants.value,
     ]);
 
@@ -443,6 +466,10 @@
       props.classDefinition
         ? { kind: 'class', key: props.classDefinition.key }
         : undefined,
+      {
+        actorId: props.actor.id,
+        grantedByName: props.classDefinition?.name ?? '',
+      },
     );
 
     if (granted.length > 0) {

@@ -20,11 +20,30 @@ import type { TypedWebSocketClient } from '@vtt/shared';
 import type { CompendiumFeat } from '../ui/actor/feat/featApply';
 import type { CatalogPack } from './useCompendiumCatalog';
 
-import { computed, ref, watch } from 'vue';
+import { computed, ref, shallowRef, watch } from 'vue';
 
 import { loadCompendiumKindByPack } from '@/core/compendiumDataClient';
+import { classifyRefInPacks } from '@vtt/shared/system/dnd.js';
 
 import { flattenPreferringBy } from './useCompendiumCatalog';
+import {
+  chooseCandidate,
+  describeCandidate,
+  reportMissingRecords,
+} from './usePackChoicePrompt';
+
+/**
+ * Черты, которые запись выдаёт без выбора, — ссылки по ключу. Чья копия
+ * выдаётся, решает правило «свой пак → единственный другой → выбор игрока».
+ */
+export interface GrantedFeatRefs {
+  /** Персонаж, которому выдаются черты: его лист покажет вопрос */
+  actorId: Ref<string>;
+  /** Ключи выдаваемых черт */
+  featIds: Ref<string[]>;
+  /** Что их выдаёт — подпись окна и уведомления */
+  grantedBy: Ref<string>;
+}
 
 /**
  * Запись компендиума — черта. Требования `source` нет: у записей компендиума есть только
@@ -57,17 +76,112 @@ export function useFeatChoiceFeats(
   socket: Ref<TypedWebSocketClient | null | undefined>,
   isNeeded: Ref<boolean>,
   preferredPackId?: Ref<string | undefined>,
+  grantedFeatRefs?: GrantedFeatRefs,
 ) {
   /** Черты компендиума по пакам — как приехали */
   const featPacks = ref<CatalogPack<CompendiumFeat>[]>([]);
 
-  const feats = computed<CompendiumFeat[]>(() =>
-    flattenPreferringBy(
+  /**
+   * Копии выдаваемых черт, выбранные игроком: черта лежит в нескольких чужих
+   * компендиумах. Подменяют в каталоге копию, которую дал бы порядок паков.
+   */
+  const chosenCopies = shallowRef(new Map<string, CompendiumFeat>());
+
+  /** Ключи, по которым уже спросили или сообщили, — в этом окне мастера */
+  const settledIds = new Set<string>();
+
+  const feats = computed<CompendiumFeat[]>(() => {
+    const flat = flattenPreferringBy(
       featPacks.value,
       preferredPackId?.value,
       (feat) => feat.id,
-    ),
-  );
+    );
+
+    if (chosenCopies.value.size === 0) {
+      return flat;
+    }
+
+    return flat.map((feat) => chosenCopies.value.get(feat.id) ?? feat);
+  });
+
+  /**
+   * Разбирает выдаваемые черты: однозначные остаются в каталоге как есть,
+   * неоднозначные спрашиваются по одной, ненайденные попадают в уведомление.
+   *
+   * @param refs - что выдаётся и кому
+   * @param featIds - ключи выдаваемых черт
+   */
+  async function settleGrantedFeats(
+    refs: GrantedFeatRefs,
+    featIds: string[],
+  ): Promise<void> {
+    const missing: string[] = [];
+
+    for (const featId of featIds) {
+      if (settledIds.has(featId)) {
+        continue;
+      }
+
+      settledIds.add(featId);
+
+      const resolution = classifyRefInPacks(
+        featPacks.value,
+        featId,
+        (feat) => feat.id,
+        preferredPackId?.value,
+      );
+
+      if (resolution.kind === 'missing') {
+        missing.push(featId);
+
+        continue;
+      }
+
+      if (resolution.kind === 'found') {
+        continue;
+      }
+
+      // Вопросы идут по одному: следующий ждёт ответа на предыдущий
+      const chosen = await chooseCandidate(
+        refs.actorId.value,
+        resolution.candidates,
+        refs.grantedBy.value,
+        describeCandidate,
+      );
+
+      if (chosen) {
+        chosenCopies.value = new Map(chosenCopies.value).set(
+          featId,
+          chosen.entry,
+        );
+      }
+    }
+
+    reportMissingRecords(
+      missing.map((key) => ({ grantedBy: refs.grantedBy.value, key })),
+    );
+  }
+
+  // Выбор не запоминается: закрытый мастер или запись из другого пака спросят
+  // заново
+  watch([isNeeded, () => preferredPackId?.value], () => {
+    settledIds.clear();
+    chosenCopies.value = new Map();
+  });
+
+  if (grantedFeatRefs) {
+    watch(
+      // Наблюдатель сброса объявлен выше — при повторном открытии он успевает
+      // очистить прошлые ответы до этого прохода
+      [grantedFeatRefs.featIds, featPacks, isNeeded],
+      ([featIds, packs, isRequired]) => {
+        if (isRequired && packs.length > 0 && featIds.length > 0) {
+          void settleGrantedFeats(grantedFeatRefs, featIds);
+        }
+      },
+      { immediate: true },
+    );
+  }
 
   watch(
     [isNeeded, socket],

@@ -39,6 +39,11 @@
     showWeight?: boolean;
     variant?: 'sheet' | 'compendium';
     /**
+     * Компендиум, в котором лежит черта (ставит окно компендиума). Едет с
+     * перетаскиванием на лист: выдаваемое чертой ищется сперва в нём.
+     */
+    packId?: string;
+    /**
      * Плоская строка списка: без своей плашки и скругления. Так строка встаёт в
      * список с разделителями (компендиум и окна выбора); на листе персонажа
      * строки стоят порознь, и плашка им нужна.
@@ -118,7 +123,14 @@
     }
 
     event.dataTransfer.effectAllowed = 'copy';
-    event.dataTransfer.setData(GAME_FEATURE_MIME, JSON.stringify(props.item));
+
+    // Вместе с паком: у черты, взятой из компендиума, выдаваемые ею заклинания
+    // ищутся сперва в нём. У черты листа пак уже лежит в ней самой
+    const dragged = props.packId
+      ? { ...props.item, packId: props.packId }
+      : props.item;
+
+    event.dataTransfer.setData(GAME_FEATURE_MIME, JSON.stringify(dragged));
   }
 </script>
 

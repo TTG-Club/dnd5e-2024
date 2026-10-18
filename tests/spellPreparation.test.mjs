@@ -1324,7 +1324,7 @@ it('creation and level up share one wizard and one preparation rule', () => {
 
   assert.match(
     componentDeclaration(setup, 'handleComplete'),
-    /buildUpdates\(\[\s*\.\.\.resolvedGrantedSpells\.value,\s*\.\.\.classSpellListGrants\.value,\s*\]\)/u,
+    /const grantedSpells = await finalizeForActor\(props\.actor\.id\);[\s\S]*buildUpdates\(\[\s*\.\.\.grantedSpells,\s*\.\.\.classSpellListGrants\.value,\s*\]\)/u,
   );
 
   // Создание, повышение уровня и мультикласс — один и тот же мастер: другого

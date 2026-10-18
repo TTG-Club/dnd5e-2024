@@ -20,10 +20,7 @@ import {
   getTotalLevel,
 } from '@vtt/shared/system/dnd.js';
 
-import {
-  findSpellInPacks,
-  loadSpellPacks,
-} from '../../../composables/spellCompendium';
+import { resolveSpellGrantsForActor } from '../../../composables/grantedSpellPacks';
 
 /**
  * Пере-собирает заклинания вида листа на текущем уровне персонажа.
@@ -49,23 +46,21 @@ export async function resolveActorSpeciesSpells(
     featureChoices: actor.system.species?.featureChoices ?? {},
   });
 
-  if (sources.length === 0 || !socket) {
-    return [];
-  }
+  // Своим паком заклинания без названного пака считается пак вида листа
+  const speciesPackId = actor.system.species?.packId;
 
-  const { packs } = await loadSpellPacks(socket);
-
-  return sources.flatMap((source): ResolvedGrantedSpell[] => {
-    const spell = findSpellInPacks(packs, source.spellId, source.packId);
-
-    return spell
-      ? [
-          {
-            spell,
-            featureName: source.featureName,
-            alwaysPrepared: source.alwaysPrepared,
-          },
-        ]
-      : [];
+  const resolved = await resolveSpellGrantsForActor(socket, actor, {
+    sources: sources.map((source) => ({
+      ...source,
+      packId: source.packId ?? speciesPackId,
+    })),
+    isLevelUnlock: true,
   });
+
+  // Прежняя форма выдачи вида: имя умения и отметка подготовки
+  return resolved.map((granted) => ({
+    spell: granted.spell,
+    featureName: granted.featureName,
+    alwaysPrepared: granted.alwaysPrepared,
+  }));
 }

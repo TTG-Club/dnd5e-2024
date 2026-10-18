@@ -95,6 +95,7 @@
     isItemTransferDrop,
     useItemTransfer,
   } from '../../composables/useItemTransfer';
+  import { usePackChoiceQueue } from '../../composables/usePackChoicePrompt';
   import { useSheetLayout } from '../../composables/useSheetLayout';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
   import {
@@ -113,6 +114,7 @@
     rollbackBackgroundProficiencies,
   } from './background/backgroundRollback';
   import BackgroundSetupWizard from './background/BackgroundSetupWizard.vue';
+  import ChoicePickerModal from './ChoicePickerModal.vue';
   import { isClassEffect } from './class/classEffects';
   import {
     diffProficiencyHoldings,
@@ -137,6 +139,8 @@
     GAME_FEATURE_MIME,
     GAME_ITEM_MIME,
     MODAL_BUTTON_LABELS,
+    PACK_CHOICE_INITIAL_SELECTION,
+    PACK_CHOICE_PICK_COUNT,
     REST_LABELS,
     SHEET_FRAME_CLASSES,
     SHEET_SUMMARY_COMPACT_CLASSES,
@@ -281,6 +285,15 @@
    * поле не пусто.
    */
   const pendingSubspeciesChoice = ref<PendingSubspeciesChoice | null>(null);
+
+  /**
+   * Вопросы «из какого компендиума взять запись» для этого персонажа: мастера и
+   * выдачи черт спрашивают через общую очередь, лист показывает по одному.
+   */
+  const {
+    currentQuestion: packChoiceQuestion,
+    answerCurrent: answerPackChoice,
+  } = usePackChoiceQueue(computed(() => localActor.value?.id));
 
   // Модалка мастера предыстории
   const isBackgroundWizardOpen = ref(false);
@@ -1263,6 +1276,9 @@
       isRecord(value)
       && typeof value.name === 'string'
       && typeof value.description === 'string'
+      // Пак черты приезжает с перетаскиванием из компендиума: чужая строка
+      // вместо него ушла бы на лист и сломала поиск выдаваемых записей
+      && (value.packId === undefined || typeof value.packId === 'string')
     );
   }
 
@@ -1486,6 +1502,26 @@
 
     if (pending) {
       proceedSpeciesSetup(pending.species, pending.packId, subspecies.key);
+    }
+  }
+
+  /**
+   * Игрок выбрал компендиум в окне «откуда взять».
+   *
+   * @param values - выбранное: один id компендиума
+   */
+  function handlePackChoiceApply(values: string[]) {
+    answerPackChoice(values[0] ?? null);
+  }
+
+  /**
+   * Окно «откуда взять» закрыли без выбора — запись не выдаётся.
+   *
+   * @param isOpen - новое состояние окна
+   */
+  function handlePackChoiceOpen(isOpen: boolean) {
+    if (!isOpen) {
+      answerPackChoice(null);
     }
   }
 
@@ -3176,6 +3212,20 @@
     :pack-id="pendingSubspeciesChoice.packId"
     @update:open="handleSubspeciesChoiceOpen"
     @choose="handleSubspeciesChoice"
+  />
+
+  <!-- Запись есть в нескольких компендиумах мира: откуда взять -->
+  <ChoicePickerModal
+    v-if="packChoiceQuestion"
+    :key="packChoiceQuestion.id"
+    :open="true"
+    :title="packChoiceQuestion.title"
+    :subtitle="packChoiceQuestion.subtitle"
+    :options="packChoiceQuestion.options"
+    :selected="PACK_CHOICE_INITIAL_SELECTION"
+    :max="PACK_CHOICE_PICK_COUNT"
+    @apply="handlePackChoiceApply"
+    @update:open="handlePackChoiceOpen"
   />
 
   <!-- Мастер настройки предыстории -->

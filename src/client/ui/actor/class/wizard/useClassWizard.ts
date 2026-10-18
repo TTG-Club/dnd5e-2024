@@ -3494,6 +3494,7 @@ export function useClassWizard(
   }
 
   return {
+    grantedFeatsByRow,
     // Контекст
     isFirstClass,
     isMulticlass,
