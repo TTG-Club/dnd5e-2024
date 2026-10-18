@@ -169,6 +169,17 @@
   } from './species/speciesRollback';
   import SpeciesSetupWizard from './species/SpeciesSetupWizard.vue';
   import { resolveActorSpeciesSpells } from './species/speciesSpellUnlock';
+  import SubspeciesChoiceModal from './species/SubspeciesChoiceModal.vue';
+
+  /** Вид с подвидами, ждущий ответа «какой подвид» */
+  interface PendingSubspeciesChoice {
+    /** Вид, который ставится на лист */
+    species: SpeciesDefinition;
+    /** Пак вида */
+    packId?: string;
+    /** Подвиды вида — варианты окна */
+    options: SpeciesDefinition[];
+  }
 
   /** Удаление записи, ждущее выбора в окне */
   interface PendingGrantRemoval {
@@ -259,6 +270,17 @@
 
   /** Пак записи вида в мастере — на запись актора */
   const droppedSpeciesPackId = ref<string | undefined>(undefined);
+  /**
+   * Подвид, выбранный до мастера: отмечен в окне выбора, перенесён на лист сам
+   * или назван в окне «какой подвид».
+   */
+  const droppedSubspeciesKey = ref<string | null>(null);
+
+  /**
+   * Вид с подвидами, ждущий ответа «какой подвид»: окно открыто, пока это
+   * поле не пусто.
+   */
+  const pendingSubspeciesChoice = ref<PendingSubspeciesChoice | null>(null);
 
   // Модалка мастера предыстории
   const isBackgroundWizardOpen = ref(false);
@@ -1391,14 +1413,19 @@
    * Запускает настройку вида: у персонажа с видом сперва спрашиваем замену.
    *
    * Запись-подвид самостоятельным видом не применяется: вместо неё открывается
-   * мастер её родителя, а происхождение игрок выбирает шагом мастера. Родителя
-   * нет среди записей (пак не подключён) — настройка не начинается.
+   * мастер её родителя с этим подвидом на шаге происхождения. Родителя нет
+   * среди записей (пак не подключён) — настройка не начинается.
+   *
+   * Вид, у которого есть подвиды, по правилам сам не берут: сперва окно
+   * спрашивает, какой подвид, и мастер открывается уже с ним. Подвиды берутся
+   * из каталога по данным записей — свои виды мира спрашиваются так же.
    *
    * @param definition - определение вида
    * @param packId - пак, из которого запись взяли; пусто — не известен
    */
   function startSpeciesSetup(definition: SpeciesDefinition, packId?: string) {
     let target = definition;
+    let subspeciesKey: string | null = null;
 
     // Пак запоминается вместе с записью: по нему мастер найдёт подвиды из того
     // же компендиума, а лист — таблицу вида при следующем открытии
@@ -1424,10 +1451,70 @@
 
       target = parent.entry;
       targetPackId = parent.packId;
+      subspeciesKey = definition.key;
     }
 
+    if (!subspeciesKey) {
+      const options = speciesCatalog.subspeciesOf({
+        key: target.key,
+        packId: targetPackId,
+      });
+
+      if (options.length > 0) {
+        pendingSubspeciesChoice.value = {
+          species: target,
+          packId: targetPackId,
+          options,
+        };
+
+        return;
+      }
+    }
+
+    proceedSpeciesSetup(target, targetPackId, subspeciesKey);
+  }
+
+  /**
+   * Подвид выбран в окне «какой подвид» — настройка вида идёт дальше с ним.
+   *
+   * @param subspecies - выбранный подвид
+   */
+  function handleSubspeciesChoice(subspecies: SpeciesDefinition) {
+    const pending = pendingSubspeciesChoice.value;
+
+    pendingSubspeciesChoice.value = null;
+
+    if (pending) {
+      proceedSpeciesSetup(pending.species, pending.packId, subspecies.key);
+    }
+  }
+
+  /**
+   * Окно «какой подвид» закрыли без выбора — вид на лист не ставится.
+   *
+   * @param isOpen - новое состояние окна
+   */
+  function handleSubspeciesChoiceOpen(isOpen: boolean) {
+    if (!isOpen) {
+      pendingSubspeciesChoice.value = null;
+    }
+  }
+
+  /**
+   * Открывает мастер вида (или сперва вопрос о замене прежнего вида).
+   *
+   * @param target - вид, который ставится на лист
+   * @param targetPackId - пак вида
+   * @param subspeciesKey - подвид, выбранный до мастера; `null` — не выбран
+   */
+  function proceedSpeciesSetup(
+    target: SpeciesDefinition,
+    targetPackId: string | undefined,
+    subspeciesKey: string | null,
+  ) {
     droppedSpeciesDef.value = target;
     droppedSpeciesPackId.value = targetPackId;
+    droppedSubspeciesKey.value = subspeciesKey;
 
     if (localActor.value?.system.species) {
       replaceConfirmTarget.value = 'species';
@@ -3072,11 +3159,23 @@
     :actor="localActor"
     :species-definition="droppedSpeciesDef"
     :pack-id="droppedSpeciesPackId"
+    :subspecies-key="droppedSubspeciesKey"
     :previous-species-definition="appliedSpeciesDef"
     :previous-subspecies-definition="appliedSubspeciesDef"
     :species-records="wizardSpeciesRecords"
     :socket="socket"
     @apply="handleSpeciesSetupApply"
+  />
+
+  <!-- Вид с подвидами: сперва спрашиваем, какой подвид -->
+  <SubspeciesChoiceModal
+    v-if="pendingSubspeciesChoice"
+    :open="true"
+    :species-name="pendingSubspeciesChoice.species.name"
+    :options="pendingSubspeciesChoice.options"
+    :pack-id="pendingSubspeciesChoice.packId"
+    @update:open="handleSubspeciesChoiceOpen"
+    @choose="handleSubspeciesChoice"
   />
 
   <!-- Мастер настройки предыстории -->

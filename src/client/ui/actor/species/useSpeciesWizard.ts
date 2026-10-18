@@ -418,6 +418,11 @@ export function useSpeciesWizard(
   >([]),
   /** Пак записи вида — ложится на запись актора, см. `ActorSpeciesEntry.packId` */
   packId: import('vue').Ref<string | undefined> = ref(undefined),
+  /**
+   * Подвид, выбранный до мастера: его отметили в окне выбора, перенесли на лист
+   * или назвали в окне «какой подвид». Шаг подвида открывается уже с ним.
+   */
+  initialSubspeciesKey: import('vue').Ref<string | null> = ref(null),
 ) {
   /** Виды оружия мира — пул выбора оружия и оружейного приёма */
   const { weaponOptions } = useFeatChoiceWeapons();
@@ -431,10 +436,10 @@ export function useSpeciesWizard(
     featPickAnswers: {},
   });
 
-  // Инициализация при смене вида
+  // Инициализация при смене вида и подвида, выбранного до мастера
   watch(
-    () => speciesDef.value,
-    (definition) => {
+    [speciesDef, initialSubspeciesKey],
+    ([definition, subspeciesKey]) => {
       if (!definition) {
         state.value = {
           selectedSize: null,
@@ -461,7 +466,7 @@ export function useSpeciesWizard(
         selectedSize: definition.size.length === 1 ? definition.size[0] : null,
         grantSelections,
         featureChoices: {},
-        subspeciesKey: null,
+        subspeciesKey,
         featDataChoices: {},
         featPickAnswers: {},
       };

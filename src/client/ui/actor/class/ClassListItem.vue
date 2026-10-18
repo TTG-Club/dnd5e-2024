@@ -13,6 +13,7 @@
     CLASS_LIST_ITEM_LABELS,
     HIT_DIE_LETTER,
     LIST_ROW_CARD_BORDERED_CLASS,
+    LIST_ROW_PACK_NAME_CLASS,
   } from '../constants';
   import ContextMenuOverlay from '../ContextMenuOverlay.vue';
   import EntityRowBody from '../EntityRowBody.vue';
@@ -33,6 +34,11 @@
     classDefinition: ClassDefinition;
     /** Пак записи: уходит на лист вместе с определением при переносе */
     packId?: string;
+    /**
+     * Название компендиума в плоской строке — в режиме «все компендиумы», как
+     * в окне выбора: копии одной записи из разных паков иначе не различить.
+     */
+    packName?: string;
     showEdit?: boolean;
     showDelete?: boolean;
     showCopy?: boolean;
@@ -98,7 +104,7 @@
   <div
     v-bind="$attrs"
     draggable="true"
-    class="group flex cursor-grab items-center gap-3 border border-transparent py-2 transition-colors active:cursor-grabbing"
+    class="group flex cursor-grab items-center gap-3 py-2 transition-colors active:cursor-grabbing"
     :class="rowClass"
     @dragstart="handleDragStart"
     @click.left.exact.prevent="emit('click')"
@@ -111,7 +117,16 @@
       :name-en="classDefinition.nameEn"
       :source-key="classDefinition.sourceKey"
       :source="classDefinition.source"
-    />
+    >
+      <template #badges>
+        <span
+          v-if="packName"
+          :class="LIST_ROW_PACK_NAME_CLASS"
+        >
+          {{ packName }}
+        </span>
+      </template>
+    </EntityRowBody>
 
     <!-- Название и описание -->
     <div
@@ -163,12 +178,6 @@
         </span>
       </div>
     </div>
-
-    <!-- Подсказка перетаскивания -->
-    <UIcon
-      name="tabler:grip-vertical"
-      class="h-4 w-4 shrink-0 text-dimmed opacity-0 transition-opacity group-hover:opacity-100"
-    />
   </div>
 
   <ContextMenuOverlay

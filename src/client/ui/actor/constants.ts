@@ -187,8 +187,6 @@ export const COMPENDIUM_PICKER_LABELS = {
   allPacks: 'Все компендиумы',
   worldPack: 'Предметы мира',
   taken: 'Уже взят',
-  /** Кнопка карточки записи в строке списка */
-  openDetail: 'Открыть карточку',
   /** Счётчик отмеченных записей — за ним идёт их число */
   selectedCount: 'Выбрано:',
   /**
@@ -261,7 +259,36 @@ export const LIST_ROW_SHEET_FEAT_CLASS =
  * остальных, и рамка отделяет наведённую от соседних.
  */
 export const LIST_ROW_CARD_BORDERED_CLASS =
-  'rounded-lg bg-elevated/30 px-3 hover:border-default/50 hover:bg-accented/40';
+  'rounded-lg border border-transparent bg-elevated/30 px-3 hover:border-default/50 hover:bg-accented/40';
+
+/**
+ * Колонка в начале строки списка — флажок окна выбора или стрелка подвидов.
+ * Одна ширина у обоих: флажки и стрелки стоят в одну линию, и строки окна
+ * выбора и компендиума совпадают. Нажимается колонка во всю высоту строки.
+ */
+export const LIST_ROW_LEADING_CLASS =
+  'flex w-9 shrink-0 items-center justify-center transition-colors';
+
+/** Нажимаемая колонка: подсвечивается отдельно от строки */
+export const LIST_ROW_LEADING_ACTIVE_CLASS =
+  'cursor-pointer text-muted hover:bg-primary/15 hover:text-default';
+
+/** Недоступная строка или флажок окна выбора: гаснет и не нажимается */
+export const LIST_ROW_DISABLED_CLASS = 'cursor-not-allowed opacity-60';
+
+/** Пустое место колонки у строки без стрелки — строки остаются в линию */
+export const LIST_ROW_LEADING_SPACER_CLASS = 'w-9 shrink-0';
+
+/** Раскрытые подвиды под строкой вида — с отступом и линией слева */
+export const LIST_ROW_CHILDREN_CLASS =
+  'ml-4 flex flex-col divide-y divide-accented/25 border-l border-accented/40 pl-2';
+
+/**
+ * Компендиум записи в строке — в режиме «все компендиумы». Не бейджем: у пака
+ * длинное имя, а бейдж рядом с бейджем источника читался бы как вторая книга.
+ */
+export const LIST_ROW_PACK_NAME_CLASS =
+  'max-w-40 shrink-0 truncate text-xs text-dimmed';
 
 /** Невыбранный компендиум: подсвечивается только под курсором */
 export const COMPENDIUM_PACK_BUTTON_IDLE_CLASS =
@@ -4049,6 +4076,23 @@ export const SPECIES_WIZARD_LABELS = {
 } as const;
 
 /**
+ * Подвиды в списках видов: в компендиуме и окне выбора они стоят не отдельной
+ * строкой, а под своим видом, и раскрываются стрелкой — как подклассы в окне
+ * класса.
+ */
+export const SUBSPECIES_LIST_LABELS = {
+  expand: 'Показать подвиды',
+  collapse: 'Скрыть подвиды',
+  /** Окно, которое спрашивает подвид при переносе вида на лист */
+  chooseTitle: 'Выбор подвида',
+  /** Пояснение окна выбора подвида — за ним идёт название вида */
+  chooseHintPrefix: 'У вида «',
+  chooseHintSuffix:
+    '» есть подвиды: по правилам персонаж берёт один из них. Выберите, с каким добавить вид на лист.',
+  confirm: 'Выбрать',
+} as const;
+
+/**
  * Сколько полос рисует скелетон на ленте шагов мастера класса. Точного числа
  * шагов до загрузки класса не знает никто: оно зависит от того, первый это
  * класс, мультикласс или повышение уровня.
@@ -4342,7 +4386,7 @@ export const COMPENDIUM_LABELS = {
   pinnedSection: 'Сверх списка класса',
   /** Заголовок выбора компендиума в колонке фильтров */
   packsSection: 'Компендиум',
-  searchPlaceholder: 'Поиск...',
+  searchPlaceholder: 'Поиск по названию…',
   resetAll: 'Сбросить всё',
   dragHint:
     'Перетащите на стол, чтобы поставить токен, или на правую панель — чтобы просто скопировать в мир',

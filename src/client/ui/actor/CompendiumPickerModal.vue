@@ -24,6 +24,7 @@
 
   import type { MissingSheetSectionKey } from './constants';
 
+  import { createReusableTemplate } from '@vueuse/core';
   import { computed, ref, watch } from 'vue';
 
   import { loadCompendiumKindByPack } from '@/core/compendiumDataClient';
@@ -31,17 +32,27 @@
   import { Z_INDEX } from '@/shared_ui/consts';
   import { useItemsStore } from '@/stores/itemsStore';
   import { isRecord } from '@vtt/shared';
-  import { isDnDGameItem, WORLD_PACK_ID } from '@vtt/shared/system/dnd.js';
+  import {
+    groupSubspeciesByParent,
+    isDnDGameItem,
+    isSubspeciesRecord,
+    subspeciesGroupKey,
+    WORLD_PACK_ID,
+  } from '@vtt/shared/system/dnd.js';
 
+  import { useExpandedRows } from '../../composables/useExpandedRows';
   import BackgroundDetailModal from './background/BackgroundDetailModal.vue';
   import ClassDetailModal from './class/ClassDetailModal.vue';
+  import CompendiumPackList from './CompendiumPackList.vue';
   import {
     ALL_PACKS_ID,
     COMPENDIUM_LABELS,
     COMPENDIUM_PICKER_CURRENT_TITLES,
     COMPENDIUM_PICKER_LABELS,
     COMPENDIUM_PICKER_TITLES,
+    LIST_ROW_CHILDREN_CLASS,
     MODAL_BUTTON_LABELS,
+    SUBSPECIES_LIST_LABELS,
   } from './constants';
   import PickerListRow from './PickerListRow.vue';
   import SpeciesDetailModal from './species/SpeciesDetailModal.vue';
@@ -119,6 +130,13 @@
 
   const itemsStore = useItemsStore();
 
+  /** Тело строки списка — одно у вида и у подвида под ним */
+  const [DefinePickerRow, ReusePickerRow] = createReusableTemplate<{
+    row: PickerRow;
+    /** Вид с подвидами: вместо флажка — стрелка раскрытия */
+    chooseSubspecies?: boolean;
+  }>();
+
   /** Записи компендиума по пакам (без записей мира) */
   const compendiumPacks = ref<PickerPack[]>([]);
   const isLoading = ref(false);
@@ -146,9 +164,10 @@
    * Проверяет, что запись — определение нужного нам типа. Дискриминант `type`
    * есть у всех трёх определений; по нему же их отбирает лист персонажа.
    *
-   * Записи-подвиды (`parentKey`) и записи-подклассы (`parentClassKey`)
-   * самостоятельной записью не предлагаются: и происхождение, и подкласс
-   * выбираются внутри мастера настройки после выбора родителя.
+   * Записи-подклассы (`parentClassKey`) самостоятельной записью не
+   * предлагаются: подкласс выбирается внутри мастера после выбора класса.
+   * Записи-подвиды остаются: они встают под свой вид (см. `subspeciesGrouping`)
+   * — по правилам персонаж берёт подвид, а не вид у которого они есть.
    *
    * @param value - запись компендиума или предмета мира
    * @param kind - тип выбираемой записи
@@ -163,10 +182,6 @@
       || typeof value.key !== 'string'
     ) {
       return false;
-    }
-
-    if (kind === 'species') {
-      return !value.parentKey;
     }
 
     if (kind === 'class') {
@@ -233,7 +248,7 @@
    * рабочей, и брать вместо неё «ту, что нашлась первой», нельзя — каждая копия
    * стоит своей строкой с названием пака.
    */
-  const packRows = computed<PickerRow[]>(() => {
+  const allPackRows = computed<PickerRow[]>(() => {
     const shownPacks = isAllPacks.value
       ? packs.value
       : packs.value.filter((pack) => pack.packId === selectedPackId.value);
@@ -253,7 +268,47 @@
     return isAllPacks.value ? sortPickerRowsByName(rows) : rows;
   });
 
-  /** Строки после поиска по названию (русскому и английскому) */
+  /**
+   * Подвиды по видам — по всем компендиумам сразу: подвид мира, скопированный
+   * из компендиума, встаёт под вид того компендиума. Подвид узнаётся только
+   * по данным записи (`parentKey`), так что свои виды мира раскладываются
+   * так же, как записи TTG Club.
+   */
+  const subspeciesGrouping = computed(() =>
+    groupSubspeciesByParent(
+      packs.value.map((pack) => ({
+        packId: pack.packId,
+        entries: pack.entries.filter(
+          (definition): definition is SpeciesDefinition =>
+            definition.type === 'species',
+        ),
+      })),
+    ),
+  );
+
+  /**
+   * Строка — подвид. Подвиды в общем списке не стоят: их берут из-под вида,
+   * а подвид без найденного вида взять нельзя вовсе — мастеру не из чего
+   * собрать особенности.
+   *
+   * @param row - строка списка
+   */
+  function isSubspeciesRow(row: PickerRow): boolean {
+    return (
+      row.definition.type === 'species' && isSubspeciesRecord(row.definition)
+    );
+  }
+
+  /** Строки выбранного компендиума без подвидов — те стоят под видом */
+  const packRows = computed<PickerRow[]>(() =>
+    allPackRows.value.filter((row) => !isSubspeciesRow(row)),
+  );
+
+  /**
+   * Строки после поиска по названию (русскому и английскому). Подвид с
+   * найденным видом при поиске показывается и сам: иначе по его названию не
+   * нашлось бы ничего.
+   */
   const visibleRows = computed<PickerRow[]>(() => {
     const query = searchQuery.value.trim().toLowerCase();
 
@@ -261,12 +316,73 @@
       return packRows.value;
     }
 
-    return packRows.value.filter(
+    const nested = subspeciesGrouping.value.nested;
+
+    return allPackRows.value.filter(
       (row) =>
-        row.name.toLowerCase().includes(query)
-        || (row.definition.nameEn ?? '').toLowerCase().includes(query),
+        (!isSubspeciesRow(row)
+          || (row.definition.type === 'species' && nested.has(row.definition)))
+        && (row.name.toLowerCase().includes(query)
+          || (row.definition.nameEn ?? '').toLowerCase().includes(query)),
     );
   });
+
+  /** Раскрытые виды — по `rowId` строки */
+  const expandedRows = useExpandedRows();
+
+  /**
+   * Строки подвидов вида. Подвид берётся с паком вида: по нему лист найдёт
+   * родителя и остальные подвиды того же компендиума.
+   *
+   * @param row - строка вида
+   * @returns строки подвидов; пусто — подвидов нет
+   */
+  function subspeciesRowsOf(row: PickerRow): PickerRow[] {
+    if (row.definition.type !== 'species') {
+      return [];
+    }
+
+    const children =
+      subspeciesGrouping.value.children.get(
+        subspeciesGroupKey(row.packId, row.definition.key),
+      ) ?? [];
+
+    return children.map((definition) => ({
+      rowId: pickerRowId(row.packId, definition.key),
+      packId: row.packId,
+      packName: row.packName,
+      name: definition.name,
+      definition,
+    }));
+  }
+
+  /**
+   * Есть ли у вида подвиды. Такой вид по правилам сам не берут — строка
+   * раскрывает подвиды вместо отметки.
+   *
+   * @param row - строка списка
+   */
+  function hasSubspecies(row: PickerRow): boolean {
+    return subspeciesRowsOf(row).length > 0;
+  }
+
+  /**
+   * Раскрыт ли вид.
+   *
+   * @param row - строка вида
+   */
+  function isRowExpanded(row: PickerRow): boolean {
+    return expandedRows.isExpanded(row.rowId);
+  }
+
+  /**
+   * Раскрывает или сворачивает подвиды вида.
+   *
+   * @param row - строка вида
+   */
+  function toggleRowExpanded(row: PickerRow): void {
+    expandedRows.toggle(row.rowId);
+  }
 
   /** Что у персонажа уже выбрано: вид, предыстория или список классов */
   const currentEntries = computed<CurrentEntry[]>(() => {
@@ -292,10 +408,24 @@
     }));
   });
 
-  /** Ключи записей, которые у персонажа уже есть */
-  const takenKeys = computed(
-    () => new Set(currentEntries.value.map((entry) => entry.key)),
-  );
+  /**
+   * Ключи записей, которые у персонажа уже есть. У вида сюда входит и его
+   * подвид: строка подвида под видом тоже помечается «Уже взят».
+   */
+  const takenKeys = computed(() => {
+    const keys = new Set(currentEntries.value.map((entry) => entry.key));
+
+    const subspeciesKey =
+      props.kind === 'species'
+        ? props.actor.system.species?.subspeciesKey
+        : undefined;
+
+    if (subspeciesKey) {
+      keys.add(subspeciesKey);
+    }
+
+    return keys;
+  });
 
   /**
    * Можно ли отметить несколько записей разом. Классов у персонажа бывает
@@ -443,7 +573,7 @@
 
   /**
    * Отмечает или снимает отметку со строки. У вида и предыстории отметка одна:
-   * новая заменяет прежнюю.
+   * новая заменяет прежнюю. Вид с подвидами не отмечается — раскрывается.
    *
    * Копии одной записи из разных компендиумов вытесняют друг друга и при
    * мультиклассе: класс-то один и тот же, взять его дважды нельзя — берётся
@@ -453,6 +583,13 @@
    */
   function toggleSelection(row: PickerRow): void {
     if (!isSelectable(row)) {
+      return;
+    }
+
+    // Вид с подвидами сам не берут: нажатие раскрывает его подвиды
+    if (hasSubspecies(row)) {
+      toggleRowExpanded(row);
+
       return;
     }
 
@@ -550,6 +687,7 @@
       searchQuery.value = '';
       selectedPackId.value = ALL_PACKS_ID;
       selectedRows.value = [];
+      expandedRows.clear();
       pendingRemovalKey.value = null;
       detailRow.value = null;
       isDetailOpen.value = false;
@@ -562,6 +700,39 @@
 </script>
 
 <template>
+  <!-- Тело строки: одно у вида и у подвида под ним -->
+  <DefinePickerRow v-slot="{ row, chooseSubspecies }">
+    <PickerListRow
+      class="min-w-0 flex-1"
+      :name="row.name"
+      :name-en="row.definition.nameEn"
+      :pack-name="packLabel(row)"
+      :source-key="row.definition.sourceKey"
+      :source="row.definition.source"
+      :selected="selectedRowIds.has(row.rowId)"
+      :disabled="!isSelectable(row)"
+      detail-on-click
+      :expandable="chooseSubspecies"
+      :expanded="isRowExpanded(row)"
+      :expand-labels="SUBSPECIES_LIST_LABELS"
+      @toggle="toggleSelection(row)"
+      @open="openDetail(row)"
+      @expand="toggleRowExpanded(row)"
+    >
+      <template #badges>
+        <UBadge
+          v-if="takenKeys.has(row.definition.key)"
+          color="success"
+          variant="subtle"
+          size="sm"
+          class="shrink-0"
+        >
+          {{ COMPENDIUM_PICKER_LABELS.taken }}
+        </UBadge>
+      </template>
+    </PickerListRow>
+  </DefinePickerRow>
+
   <UDraggableModal
     :open="open"
     :title="COMPENDIUM_PICKER_TITLES[kind]"
@@ -655,7 +826,7 @@
               v-model="searchQuery"
               icon="tabler:search"
               :placeholder="COMPENDIUM_LABELS.searchPlaceholder"
-              size="sm"
+              size="md"
               :ui="{ root: 'w-full' }"
             />
           </div>
@@ -679,47 +850,31 @@
               v-else-if="visibleRows.length > 0"
               class="flex flex-col divide-y divide-accented/25"
             >
-              <div
+              <template
                 v-for="row in visibleRows"
                 :key="row.rowId"
-                class="flex items-stretch gap-1"
               >
-                <PickerListRow
-                  class="min-w-0 flex-1"
-                  :name="row.name"
-                  :name-en="row.definition.nameEn"
-                  :pack-name="packLabel(row)"
-                  :source-key="row.definition.sourceKey"
-                  :source="row.definition.source"
-                  :selected="selectedRowIds.has(row.rowId)"
-                  :disabled="!isSelectable(row)"
-                  @toggle="toggleSelection(row)"
-                />
-
-                <UBadge
-                  v-if="takenKeys.has(row.definition.key)"
-                  color="success"
-                  variant="subtle"
-                  size="sm"
-                  class="shrink-0 self-center"
-                >
-                  {{ COMPENDIUM_PICKER_LABELS.taken }}
-                </UBadge>
-
-                <!-- Карточка записи: нажимается вся отведённая кнопке область,
-                  во всю высоту строки — в мелкий значок целиться неудобно -->
-                <button
-                  type="button"
-                  class="flex shrink-0 cursor-pointer items-center justify-center rounded-md px-3 text-dimmed transition-colors hover:bg-primary/10 hover:text-default"
-                  :aria-label="COMPENDIUM_PICKER_LABELS.openDetail"
-                  @click.left.exact.prevent="openDetail(row)"
-                >
-                  <UIcon
-                    name="tabler:info-circle"
-                    class="size-5"
+                <div class="flex items-stretch gap-1">
+                  <ReusePickerRow
+                    :row="row"
+                    :choose-subspecies="hasSubspecies(row)"
                   />
-                </button>
-              </div>
+                </div>
+
+                <!-- Подвиды раскрытого вида: их и отмечают -->
+                <div
+                  v-if="hasSubspecies(row) && isRowExpanded(row)"
+                  :class="LIST_ROW_CHILDREN_CLASS"
+                >
+                  <div
+                    v-for="subspeciesRow in subspeciesRowsOf(row)"
+                    :key="subspeciesRow.rowId"
+                    class="flex items-stretch gap-1"
+                  >
+                    <ReusePickerRow :row="subspeciesRow" />
+                  </div>
+                </div>
+              </template>
             </div>
 
             <div

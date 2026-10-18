@@ -18,6 +18,7 @@
     SpeciesDefinition,
     Spell,
     StartingEquipmentItem,
+    SubspeciesGrouping,
   } from '@vtt/shared/system/dnd.js';
 
   import type { CatalogPack } from '../../composables/useCompendiumCatalog';
@@ -48,12 +49,15 @@
   } from '@vtt/shared';
   import {
     COMPENDIUM_CREATURE_KIND,
+    groupSubspeciesByParent,
     rememberCompendiumClassLabels,
+    subspeciesGroupKey,
   } from '@vtt/shared/system/dnd.js';
 
   import { flattenPreferringBy } from '../../composables/useCompendiumCatalog';
   import { useCompendiumEntryAuthoring } from '../../composables/useCompendiumEntryAuthoring';
   import { useEntityDetailModals } from '../../composables/useEntityDetailModals';
+  import { useExpandedRows } from '../../composables/useExpandedRows';
   import { useProgressiveList } from '../../composables/useProgressiveList';
   import {
     buildEquipmentItems,
@@ -74,9 +78,12 @@
     COMPENDIUM_SPELL_KIND,
     GRANTED_SPELL_FEATURE_PREFIX,
     HEADER_ROUND_BUTTON_CLASS,
+    LIST_ROW_CHILDREN_CLASS,
+    LIST_ROW_LEADING_SPACER_CLASS,
     PINNED_SPELL_FEATURE_PREFIX,
-    SHEET_FILTER_LABELS,
+    SUBSPECIES_LIST_LABELS,
   } from '../actor/constants';
+  import ListRowExpandButton from '../actor/ListRowExpandButton.vue';
   import PickerSkeletonRows from '../actor/PickerSkeletonRows.vue';
   import { COMPENDIUM_AUTHORING_LABELS } from './constants';
 
@@ -98,6 +105,12 @@
     /** Инвентарь существа (верхний уровень, как `spells`) */
     equipment?: import('@vtt/shared/system/dnd.js').DnDGameItem[];
   }
+
+  /**
+   * Пак раскладки подвидов в окне на узле одного пака и у записи, чей пак не
+   * известен: все такие записи раскладываются как один пак.
+   */
+  const SINGLE_NODE_PACK_ID = '';
 
   /** Канонический тип записей существ в компендиуме */
   const CREATURE_KIND = COMPENDIUM_CREATURE_KIND;
@@ -270,12 +283,6 @@
     object,
     { packId: string; packName: string }
   >();
-
-  /**
-   * Ключи записей, встретившихся больше чем в одном паке, — им нужна подпись
-   * пака, иначе две одинаковые строки не отличить.
-   */
-  const duplicatedKeys = ref<Set<string>>(new Set());
 
   /**
    * Настройка показа, взятая из манифеста при загрузке по типу записей. Проп
@@ -631,6 +638,74 @@
     searchQuery,
   });
 
+  /** Узел определений видов (`dataKind: 'species'`) */
+  const isSpeciesData = computed(() => dataKind.value === 'species');
+
+  /**
+   * Подвиды видов по родителям: подвид стоит не отдельной строкой, а под своим
+   * видом и раскрывается стрелкой. Подвид узнаётся только по данным записи
+   * (`parentKey`), поэтому так же раскладываются и свои компендиумы мира.
+   *
+   * Окно, открытое на узле одного пака, раскладывает записи узла как один пак:
+   * пак узла приходит позже записей, а раскладка от него не зависит.
+   */
+  const speciesGrouping = computed<SubspeciesGrouping | null>(() => {
+    if (!isSpeciesData.value) {
+      return null;
+    }
+
+    const source =
+      kindPacks.value.length > 0
+        ? kindPacks.value.flatMap((pack) => pack.entries)
+        : items.value;
+
+    const byPack = new Map<string, SpeciesDefinition[]>();
+
+    for (const entry of source) {
+      const raw = toRaw(entry);
+
+      if (!isSpeciesDefinition(raw)) {
+        continue;
+      }
+
+      const packId = groupingPackIdOf(raw);
+      const packEntries = byPack.get(packId) ?? [];
+
+      packEntries.push(raw);
+      byPack.set(packId, packEntries);
+    }
+
+    return groupSubspeciesByParent(
+      [...byPack].map(([packId, entries]) => ({ packId, entries })),
+    );
+  });
+
+  /**
+   * Записи списка без подвидов, нашедших свой вид, — те стоят под ним. При
+   * поиске подвид показывается и сам: иначе по его названию не нашлось бы
+   * ничего.
+   */
+  const listedEntries = computed<CompendiumDataItem[]>(() => {
+    const grouping = speciesGrouping.value;
+
+    if (!grouping || searchQuery.value.trim()) {
+      return filteredEntries.value;
+    }
+
+    return filteredEntries.value.filter(
+      (entry) =>
+        !(isSpeciesDefinition(entry) && grouping.nested.has(toRaw(entry))),
+    );
+  });
+
+  /** Раскрытые виды — по ключу {@link subspeciesGroupKey} */
+  const expandedSpecies = useExpandedRows();
+
+  /** Есть ли в списке хоть один вид с подвидами — под стрелку держим место */
+  const hasAnySubspecies = computed(
+    () => (speciesGrouping.value?.children.size ?? 0) > 0,
+  );
+
   /**
    * Записи к показу: заклинания сверх списка класса — первыми, своей секцией и
    * независимо от фильтров. Расширение списка («Заклинания метки», заклинания
@@ -642,7 +717,7 @@
     const pinnedIds = pinnedFeatureNameBySpellId.value;
 
     if (pinnedIds.size === 0) {
-      return filteredEntries.value;
+      return listedEntries.value;
     }
 
     const pinned = items.value.filter(
@@ -651,12 +726,12 @@
     );
 
     if (pinned.length === 0) {
-      return filteredEntries.value;
+      return listedEntries.value;
     }
 
     const pinnedIdSet = new Set(pinned.map((spell) => spell.id));
 
-    const rest = filteredEntries.value.filter(
+    const rest = listedEntries.value.filter(
       (entry) => !(isSpellDataItem(entry) && pinnedIdSet.has(entry.id)),
     );
 
@@ -854,9 +929,6 @@
   /** Узел определений классов (`dataKind: 'class'`) */
   const isClassData = computed(() => dataKind.value === 'class');
 
-  /** Узел определений видов (`dataKind: 'species'`) */
-  const isSpeciesData = computed(() => dataKind.value === 'species');
-
   /** Узел определений черт (`dataKind: 'feat'`) */
   const isFeatsData = computed(() => dataKind.value === 'feat');
 
@@ -951,7 +1023,6 @@
       return;
     }
 
-    duplicatedKeys.value = new Set();
     items.value = loadedItems;
     isLoading.value = false;
     loadedFile.value = dataFile;
@@ -1250,8 +1321,6 @@
     }
 
     if (!KINDS_WITH_COPIES.has(kind)) {
-      duplicatedKeys.value = new Set();
-
       // Записи без ключа (разделители) уникальны сами по себе
       let unkeyed = 0;
 
@@ -1261,27 +1330,6 @@
         (entry) => entryKeyOf(entry) ?? `#${unkeyed++}`,
       );
     }
-
-    const seenKeys = new Set<string>();
-    const duplicates = new Set<string>();
-
-    for (const pack of catalogPacks) {
-      for (const entry of pack.entries) {
-        const key = entryKeyOf(entry);
-
-        if (key === undefined) {
-          continue;
-        }
-
-        if (seenKeys.has(key)) {
-          duplicates.add(key);
-        } else {
-          seenKeys.add(key);
-        }
-      }
-    }
-
-    duplicatedKeys.value = duplicates;
 
     return catalogPacks.flatMap((pack) => pack.entries);
   }
@@ -1313,19 +1361,14 @@
   }
 
   /**
-   * Подпись пака у строки — только когда та же запись есть и в другом паке: у
-   * единственной копии подпись лишняя. Внутри одного компендиума повторов нет.
+   * Компендиум записи в строке — в режиме «все компендиумы», как в окне выбора:
+   * строки двух окон должны совпадать. Внутри выбранного компендиума он и так
+   * назван слева, а при единственном компендиуме подпись лишняя.
    *
    * @param entry - запись списка
    */
   function packLabelFor(entry: CompendiumDataItem): string | undefined {
-    const key = entryKeyOf(entry);
-
-    if (
-      selectedPackId.value !== ALL_PACKS_ID
-      || key === undefined
-      || !duplicatedKeys.value.has(key)
-    ) {
+    if (selectedPackId.value !== ALL_PACKS_ID || !hasPackChoice.value) {
       return undefined;
     }
 
@@ -1354,6 +1397,56 @@
    */
   function packIdOf(entry: CompendiumDataItem): string | undefined {
     return packOf(entry)?.packId;
+  }
+
+  /**
+   * Пак вида в раскладке подвидов. В окне на узле одного пака все записи —
+   * один пак, и раскладка не ждёт, пока узнается его идентификатор.
+   *
+   * @param entry - запись вида
+   * @returns пак раскладки
+   */
+  function groupingPackIdOf(entry: SpeciesDefinition): string {
+    return kindPacks.value.length > 0
+      ? (packIdOf(entry) ?? SINGLE_NODE_PACK_ID)
+      : SINGLE_NODE_PACK_ID;
+  }
+
+  /**
+   * Ключ вида в раскладке подвидов и в наборе раскрытых.
+   *
+   * @param entry - запись вида
+   */
+  function speciesGroupKeyOf(entry: SpeciesDefinition): string {
+    return subspeciesGroupKey(groupingPackIdOf(entry), entry.key);
+  }
+
+  /**
+   * Подвиды вида — записи с его ключом в `parentKey` из того же пака.
+   *
+   * @param entry - запись вида
+   * @returns подвиды по алфавиту; пусто — подвидов нет
+   */
+  function subspeciesOfEntry(entry: SpeciesDefinition): SpeciesDefinition[] {
+    return speciesGrouping.value?.children.get(speciesGroupKeyOf(entry)) ?? [];
+  }
+
+  /**
+   * Раскрыт ли вид.
+   *
+   * @param entry - запись вида
+   */
+  function isSpeciesExpanded(entry: SpeciesDefinition): boolean {
+    return expandedSpecies.isExpanded(speciesGroupKeyOf(entry));
+  }
+
+  /**
+   * Раскрывает или сворачивает подвиды вида.
+   *
+   * @param entry - запись вида
+   */
+  function toggleSpeciesExpanded(entry: SpeciesDefinition): void {
+    expandedSpecies.toggle(speciesGroupKeyOf(entry));
   }
 
   /**
@@ -2110,7 +2203,7 @@
             v-model="searchQuery"
             icon="tabler:search"
             :placeholder="COMPENDIUM_LABELS.searchPlaceholder"
-            size="sm"
+            size="md"
             :ui="{ root: 'w-full' }"
           />
 
@@ -2245,13 +2338,13 @@
           <!-- Поиск (когда нет сайдбара с фильтрами) -->
           <div
             v-if="!showFilterSidebar"
-            class="shrink-0 px-4 pt-2 pb-2"
+            class="shrink-0 px-4 pt-3 pb-2"
           >
             <UInput
               v-model="searchQuery"
               icon="tabler:search"
-              :placeholder="SHEET_FILTER_LABELS.search"
-              size="sm"
+              :placeholder="COMPENDIUM_LABELS.searchPlaceholder"
+              size="md"
               :ui="{ root: 'w-full' }"
             />
           </div>
@@ -2321,13 +2414,28 @@
                   <!-- Предмет: Вид. Копии из разных паков стоят своей строкой,
                     подписанные паком, а пак уходит на лист вместе с записью -->
                   <template v-if="isSpeciesData && isSpeciesDefinition(entry)">
-                    <div class="flex items-center gap-2">
+                    <div class="flex items-stretch">
+                      <!-- Стрелка подвидов — та же колонка, что флажок в окне
+                        выбора: строки двух окон совпадают -->
+                      <ListRowExpandButton
+                        v-if="subspeciesOfEntry(entry).length > 0"
+                        :expanded="isSpeciesExpanded(entry)"
+                        :labels="SUBSPECIES_LIST_LABELS"
+                        @toggle="toggleSpeciesExpanded(entry)"
+                      />
+
+                      <span
+                        v-else-if="hasAnySubspecies"
+                        :class="LIST_ROW_LEADING_SPACER_CLASS"
+                      />
+
                       <EntityCard
                         flat
                         class="min-w-0 flex-1"
                         entity-type="species"
                         :entry="toCardEntry(entry)"
                         :pack-id="packIdOf(entry)"
+                        :pack-name="packLabelFor(entry)"
                         show-copy
                         :show-edit="canAuthor"
                         :show-delete="canAuthor"
@@ -2337,15 +2445,6 @@
                         "
                         @edit="editEntry(entry)"
                         @delete="askDeleteEntry(entry)"
-                      />
-
-                      <UBadge
-                        v-if="packLabelFor(entry)"
-                        :label="packLabelFor(entry)"
-                        size="sm"
-                        color="neutral"
-                        variant="subtle"
-                        class="shrink-0"
                       />
                     </div>
                   </template>
@@ -2363,6 +2462,7 @@
                         entity-type="background"
                         :entry="toCardEntry(entry)"
                         :pack-id="packIdOf(entry)"
+                        :pack-name="packLabelFor(entry)"
                         show-copy
                         :show-edit="canAuthor"
                         :show-delete="canAuthor"
@@ -2370,15 +2470,6 @@
                         @copy="copyToItems(backgroundCopyId(entry))"
                         @edit="editEntry(entry)"
                         @delete="askDeleteEntry(entry)"
-                      />
-
-                      <UBadge
-                        v-if="packLabelFor(entry)"
-                        :label="packLabelFor(entry)"
-                        size="sm"
-                        color="neutral"
-                        variant="subtle"
-                        class="shrink-0"
                       />
                     </div>
                   </template>
@@ -2392,6 +2483,7 @@
                         entity-type="class"
                         :entry="toCardEntry(entry)"
                         :pack-id="packIdOf(entry)"
+                        :pack-name="packLabelFor(entry)"
                         show-copy
                         :show-edit="canAuthor"
                         :show-delete="canAuthor"
@@ -2399,15 +2491,6 @@
                         @copy="copyClassToWorkshop(socket, entry)"
                         @edit="editEntry(entry)"
                         @delete="askDeleteEntry(entry)"
-                      />
-
-                      <UBadge
-                        v-if="packLabelFor(entry)"
-                        :label="packLabelFor(entry)"
-                        size="sm"
-                        color="neutral"
-                        variant="subtle"
-                        class="shrink-0"
                       />
                     </div>
                   </template>
@@ -2567,6 +2650,55 @@
                       @click="openRegisteredDetail(entry)"
                     />
                   </template>
+                </div>
+
+                <!-- Подвиды раскрытого вида: каждая строка тащится на лист
+                     сама — персонаж берёт подвид, а не вид целиком. Обёртка
+                     своя, не внутри строки вида: иначе её dragstart
+                     перекрыл бы перенос подвида переносом вида -->
+                <div
+                  v-if="
+                    isSpeciesData
+                    && isSpeciesDefinition(entry)
+                    && isSpeciesExpanded(entry)
+                  "
+                  :class="LIST_ROW_CHILDREN_CLASS"
+                >
+                  <div
+                    v-for="subspecies in subspeciesOfEntry(entry)"
+                    :key="speciesGroupKeyOf(subspecies)"
+                    :draggable="canDragEntry(subspecies)"
+                    :title="entryDragHint(subspecies)"
+                    class="flex items-stretch"
+                    @dragstart="onEntryDragStart(subspecies, $event)"
+                    @dragend="onEntryDragEnd"
+                  >
+                    <!-- Место флажка окна выбора: названия подвидов стоят там
+                      же, где в окне выбора -->
+                    <span :class="LIST_ROW_LEADING_SPACER_CLASS" />
+
+                    <EntityCard
+                      flat
+                      class="min-w-0 flex-1"
+                      entity-type="species"
+                      :entry="toCardEntry(subspecies)"
+                      :pack-id="packIdOf(subspecies)"
+                      :pack-name="packLabelFor(subspecies)"
+                      show-copy
+                      :show-edit="canAuthor"
+                      :show-delete="canAuthor"
+                      @click="openSpeciesDetail(subspecies)"
+                      @copy="
+                        copySpeciesToWorkshop(
+                          socket,
+                          subspecies,
+                          packIdOf(subspecies),
+                        )
+                      "
+                      @edit="editEntry(subspecies)"
+                      @delete="askDeleteEntry(subspecies)"
+                    />
+                  </div>
                 </div>
               </template>
 

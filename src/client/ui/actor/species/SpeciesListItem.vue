@@ -7,6 +7,7 @@
     CREATURE_TYPE_LABELS,
     FEET_UNIT_LABEL,
     LIST_ROW_CARD_BORDERED_CLASS,
+    LIST_ROW_PACK_NAME_CLASS,
     SPECIES_DEFINITION_MIME,
     SPECIES_DETAIL_LABELS,
   } from '../constants';
@@ -21,6 +22,11 @@
     speciesDefinition: SpeciesDefinition;
     /** Пак записи: уходит на лист вместе с определением при переносе */
     packId?: string;
+    /**
+     * Название компендиума в плоской строке — в режиме «все компендиумы», как
+     * в окне выбора: копии одной записи из разных паков иначе не различить.
+     */
+    packName?: string;
     showEdit?: boolean;
     showDelete?: boolean;
     showCopy?: boolean;
@@ -73,7 +79,7 @@
   <div
     v-bind="$attrs"
     draggable="true"
-    class="group flex cursor-grab items-center gap-3 border border-transparent py-2 transition-colors active:cursor-grabbing"
+    class="group flex cursor-grab items-center gap-3 py-2 transition-colors active:cursor-grabbing"
     :class="rowClass"
     @dragstart="handleDragStart"
     @click.left.exact.prevent="emit('click')"
@@ -86,7 +92,16 @@
       :name-en="speciesDefinition.nameEn"
       :source-key="speciesDefinition.sourceKey"
       :source="speciesDefinition.source"
-    />
+    >
+      <template #badges>
+        <span
+          v-if="packName"
+          :class="LIST_ROW_PACK_NAME_CLASS"
+        >
+          {{ packName }}
+        </span>
+      </template>
+    </EntityRowBody>
 
     <div
       v-else
@@ -116,11 +131,6 @@
         </span>
       </div>
     </div>
-
-    <UIcon
-      name="tabler:grip-vertical"
-      class="h-4 w-4 shrink-0 text-dimmed opacity-0 transition-opacity group-hover:opacity-100"
-    />
   </div>
 
   <ContextMenuOverlay

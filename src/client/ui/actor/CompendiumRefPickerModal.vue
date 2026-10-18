@@ -628,7 +628,7 @@
             v-model="searchQuery"
             icon="tabler:search"
             :placeholder="COMPENDIUM_LABELS.searchPlaceholder"
-            size="sm"
+            size="md"
             class="mb-2"
             :ui="{ root: 'w-full' }"
           />

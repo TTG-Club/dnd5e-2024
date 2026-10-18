@@ -8,6 +8,7 @@
   import {
     BACKGROUND_DEFINITION_MIME,
     BACKGROUND_LIST_ITEM_LABELS,
+    LIST_ROW_PACK_NAME_CLASS,
   } from '../constants';
   import ContextMenuOverlay from '../ContextMenuOverlay.vue';
   import EntityRowBody from '../EntityRowBody.vue';
@@ -22,6 +23,11 @@
     item?: BackgroundDefinition;
     /** Пак записи: уходит на лист вместе с определением при переносе */
     packId?: string;
+    /**
+     * Название компендиума в плоской строке — в режиме «все компендиумы», как
+     * в окне выбора: копии одной записи из разных паков иначе не различить.
+     */
+    packName?: string;
     showEdit?: boolean;
     showDelete?: boolean;
     showCopy?: boolean;
@@ -81,7 +87,16 @@
       :name-en="data.nameEn"
       :source-key="data.sourceKey"
       :source="data.source"
-    />
+    >
+      <template #badges>
+        <span
+          v-if="packName"
+          :class="LIST_ROW_PACK_NAME_CLASS"
+        >
+          {{ packName }}
+        </span>
+      </template>
+    </EntityRowBody>
 
     <div
       v-else
