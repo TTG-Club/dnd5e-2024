@@ -64,6 +64,30 @@ export interface CompendiumRecordRef {
   packId?: string;
 }
 
+/**
+ * Годится ли родитель из пака `packId` для подкласса или подвида, помнящего
+ * пак своего родителя. Пак не известен с какой-либо стороны — годится: так
+ * читаются записи, сохранённые до появления поля. Записанного пака больше нет
+ * среди подключённых — тоже годится: иначе подкласс, скопированный из
+ * отключённого потом компендиума, не нашёл бы родителя нигде.
+ *
+ * @param parentPackId - пак родителя, записанный у подкласса или подвида
+ * @param packId - пак, в котором нашёлся родитель
+ * @param knownPackIds - подключённые паки; не заданы — считаются известными все
+ * @returns `true`, если родитель подходит
+ */
+export function matchesParentPack(
+  parentPackId: string | undefined,
+  packId: string | undefined,
+  knownPackIds?: ReadonlySet<string>,
+): boolean {
+  if (!parentPackId || !packId || parentPackId === packId) {
+    return true;
+  }
+
+  return knownPackIds ? !knownPackIds.has(parentPackId) : false;
+}
+
 // ============================================================
 // Базовые параметры (Core Rules)
 // ============================================================

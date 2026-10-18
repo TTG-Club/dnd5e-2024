@@ -1,6 +1,7 @@
 import type { EntityDetailOptions } from '@/core/registries';
 import type { SourceDefinition } from '@vtt/shared';
 import type {
+  ClassDefinition,
   DnDGameItem,
   SpeciesDefinition,
   Spell,
@@ -94,18 +95,39 @@ export function useEntityDetailModals() {
    * Открывает класс.
    *
    * @param classDef - определение класса
+   * @param options - кнопка копирования в «Мастерскую» и её колбэк
+   * @param packId - пак записи: по нему окно берёт подклассы своего
+   *   компендиума, и их копии помнят, к какому классу относятся
    */
-  function openClassDetail(classDef: KeyedDefinition): void {
-    openModal('ClassDetailModal', { classDefinition: classDef });
+  function openClassDetail(
+    classDef: ClassDefinition | KeyedDefinition,
+    options?: EntityDetailOptions,
+    packId?: string,
+  ): void {
+    openModal('ClassDetailModal', {
+      classDefinition: classDef,
+      packId,
+      ...options,
+    });
   }
 
   /**
    * Открывает вид.
    *
    * @param species - определение вида
+   * @param options - кнопка копирования в «Мастерскую» и её колбэк
+   * @param packId - пак записи: по нему окно берёт подвиды своего компендиума
    */
-  function openSpeciesDetail(species: SpeciesDefinition): void {
-    openModal('SpeciesDetailModal', { speciesDefinition: species });
+  function openSpeciesDetail(
+    species: SpeciesDefinition,
+    options?: EntityDetailOptions,
+    packId?: string,
+  ): void {
+    openModal('SpeciesDetailModal', {
+      speciesDefinition: species,
+      packId,
+      ...options,
+    });
   }
 
   /**

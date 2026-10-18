@@ -23,7 +23,7 @@
   import type { CatalogPack } from '../../composables/useCompendiumCatalog';
   import type { EquipmentIndex } from '../../composables/useStartingEquipment';
 
-  import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+  import { computed, onMounted, onUnmounted, ref, toRaw, watch } from 'vue';
 
   import {
     clearActorDragPayload,
@@ -53,11 +53,16 @@
 
   import { flattenPreferringBy } from '../../composables/useCompendiumCatalog';
   import { useCompendiumEntryAuthoring } from '../../composables/useCompendiumEntryAuthoring';
+  import { useEntityDetailModals } from '../../composables/useEntityDetailModals';
   import { useProgressiveList } from '../../composables/useProgressiveList';
   import {
     buildEquipmentItems,
     loadEquipmentIndex,
   } from '../../composables/useStartingEquipment';
+  import {
+    copyClassToWorkshop,
+    copySpeciesToWorkshop,
+  } from '../../composables/workshopCopy';
   import CompendiumPackList from '../actor/CompendiumPackList.vue';
   import {
     ALL_PACKS_ID,
@@ -222,6 +227,11 @@
   }>();
 
   const items = ref<CompendiumDataItem[]>([]);
+
+  const {
+    openClassDetail: openClassDetailModal,
+    openSpeciesDetail: openSpeciesDetailModal,
+  } = useEntityDetailModals();
 
   /** Запись, удаление которой ждёт подтверждения */
   const entryPendingDelete = ref<CompendiumDataItem | null>(null);
@@ -1319,7 +1329,22 @@
       return undefined;
     }
 
-    return entryPacks.get(entry)?.packName;
+    return packOf(entry)?.packName;
+  }
+
+  /**
+   * Пак записи из справочника паков. Ищется по исходному объекту: список
+   * лежит в глубоком `ref`, и строка получает реактивную обёртку записи, а
+   * справочник помнит сами записи — по обёртке он не находил ничего, и пак
+   * терялся при переносе на лист и при копировании.
+   *
+   * @param entry - запись списка (как есть или реактивная обёртка)
+   * @returns пак записи; `undefined` — не известен
+   */
+  function packOf(
+    entry: CompendiumDataItem,
+  ): { packId: string; packName: string } | undefined {
+    return entryPacks.get(toRaw(entry));
   }
 
   /**
@@ -1328,7 +1353,7 @@
    * @param entry - запись списка
    */
   function packIdOf(entry: CompendiumDataItem): string | undefined {
-    return entryPacks.get(entry)?.packId;
+    return packOf(entry)?.packId;
   }
 
   /**
@@ -1544,83 +1569,40 @@
   }
 
   /**
-   * Копирует вид из компендиума в предметы, оборачивая плоский
-   * SpeciesDefinition в GameItem с вложенным speciesData. Ключу присваивается
-   * новое значение — копия становится самостоятельным видом и не перекрывается
-   * оригиналом SRD при слиянии видов в systemDataStore.
+   * Открывает детальный просмотр класса. Не через карточку ядра, а напрямую:
+   * окну нужен пак записи — по нему оно берёт подклассы своего компендиума, а
+   * копии подклассов запоминают, к какому классу относятся. Контракт карточки
+   * ядра пака не передаёт.
    *
-   * @param species - определение вида для копирования
-   */
-  function copySpeciesToItems(species: SpeciesDefinition): void {
-    if (!props.socket) {
-      return;
-    }
-
-    const itemData: Partial<DnDGameItem> = {
-      name: species.name,
-      nameEn: species.nameEn,
-      description: species.description,
-      type: 'species',
-      quantity: 1,
-      weight: 0,
-      cost: '',
-      rarity: 'common',
-      equipped: false,
-      sourceKey: species.sourceKey,
-      isSRD: species.isSRD,
-      isReadOnly: false,
-      speciesData: { ...species, key: generateId(species.key) },
-    };
-
-    props.socket.emit('items:create', itemData);
-  }
-
-  /**
-   * Копирует класс из компендиума в предметы, оборачивая плоский
-   * ClassDefinition в GameItem с вложенным classData. Ключу присваивается новое
-   * значение — копия становится самостоятельным классом и не перекрывает
-   * оригинал SRD при слиянии классов в актор-листе.
-   *
-   * @param classDef - определение класса для копирования
-   */
-  function copyClassToItems(classDef: ClassDefinition): void {
-    if (!props.socket) {
-      return;
-    }
-
-    const itemData: Partial<DnDGameItem> = {
-      name: classDef.name,
-      nameEn: classDef.nameEn,
-      description: classDef.description ?? '',
-      type: 'class',
-      quantity: 1,
-      weight: 0,
-      cost: '',
-      rarity: 'common',
-      equipped: false,
-      sourceKey: classDef.sourceKey,
-      isSRD: classDef.isSRD,
-      isReadOnly: false,
-      classData: { ...classDef, key: generateId(classDef.key) },
-    };
-
-    props.socket.emit('items:create', itemData);
-  }
-
-  /**
-   * Открывает детальный просмотр класса.
    * @param classDef - определение класса
    */
   function openClassDetail(classDef: ClassDefinition): void {
-    getEntityCard('class')?.openDetail?.(classDef);
+    openClassDetailModal(
+      classDef,
+      {
+        showCopyButton: true,
+        onCopy: () => copyClassToWorkshop(props.socket, classDef),
+      },
+      packIdOf(classDef),
+    );
   }
 
   /**
-   * Открывает детальный просмотр вида.
+   * Открывает детальный просмотр вида — напрямую, с паком записи, по той же
+   * причине, что и класс: окно показывает подвиды своего компендиума.
+   *
    * @param species - определение вида
    */
   function openSpeciesDetail(species: SpeciesDefinition): void {
-    getEntityCard('species')?.openDetail?.(species);
+    openSpeciesDetailModal(
+      species,
+      {
+        showCopyButton: true,
+        onCopy: () =>
+          copySpeciesToWorkshop(props.socket, species, packIdOf(species)),
+      },
+      packIdOf(species),
+    );
   }
 
   /**
@@ -1881,7 +1863,8 @@
         kind: entryKind(entry),
         title: entry.name,
         image: null,
-        copyToWorld: () => copySpeciesToItems(entry),
+        copyToWorld: () =>
+          copySpeciesToWorkshop(props.socket, entry, packIdOf(entry)),
       };
     }
 
@@ -1899,7 +1882,7 @@
         kind: entryKind(entry),
         title: entry.name,
         image: null,
-        copyToWorld: () => copyClassToItems(entry),
+        copyToWorld: () => copyClassToWorkshop(props.socket, entry),
       };
     }
 
@@ -2349,7 +2332,9 @@
                         :show-edit="canAuthor"
                         :show-delete="canAuthor"
                         @click="openSpeciesDetail(entry)"
-                        @copy="copySpeciesToItems(entry)"
+                        @copy="
+                          copySpeciesToWorkshop(socket, entry, packIdOf(entry))
+                        "
                         @edit="editEntry(entry)"
                         @delete="askDeleteEntry(entry)"
                       />
@@ -2411,7 +2396,7 @@
                         :show-edit="canAuthor"
                         :show-delete="canAuthor"
                         @click="openClassDetail(entry)"
-                        @copy="copyClassToItems(entry)"
+                        @copy="copyClassToWorkshop(socket, entry)"
                         @edit="editEntry(entry)"
                         @delete="askDeleteEntry(entry)"
                       />

@@ -12,6 +12,7 @@
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { stripDiceRollMarkers } from '@/shared_ui/utils/diceRollMarkup';
+  import { useChatStore } from '@/stores/chatStore';
   import {
     classOwnCounterDefinitions,
     subclassCounterDefinitions,
@@ -22,6 +23,7 @@
 
   import { useClassCatalog } from '../../../composables/useClassCatalog';
   import { useSourceLabels } from '../../../composables/useSourceLabel';
+  import { copySubclassToWorkshop } from '../../../composables/workshopCopy';
   import {
     ABILITY_DELIMITER_LABELS,
     ABILITY_LABELS,
@@ -29,6 +31,7 @@
     CASTER_TYPE_LABELS,
     CLASS_DETAIL_LABELS,
     CLASS_LEVEL_TABLE_LABELS,
+    COPY_TO_ITEMS_LABEL,
     FORM_TAB_LABELS,
     GRANT_SECTION_LABELS,
     HIT_DIE_LETTER,
@@ -105,11 +108,18 @@
     positionOffset?: number;
     /** Показать кнопку «Выбрать» (окно открыто из выбора класса для персонажа) */
     showSelectButton?: boolean;
+    /**
+     * Показать кнопки копирования в «Мастерскую» — у класса и у каждого его
+     * подкласса (окно открыто из компендиума)
+     */
+    showCopyButton?: boolean;
   }>();
 
   const emit = defineEmits<{
     'update:open': [value: boolean];
     'bring-to-front': [];
+    /** Класс копируют в «Мастерскую» */
+    'copy': [];
     /** Запись выбрана для листа персонажа */
     'select': [];
   }>();
@@ -470,6 +480,54 @@
     selectedSubclass.value ? subclassOptionLabel(selectedSubclass.value) : '',
   );
 
+  const chatStore = useChatStore();
+
+  /**
+   * Копирует подкласс отдельной записью. Копию собирает окно, а не тот, кто
+   * его открыл: контракт карточки ядра знает только копирование всей записи.
+   * Подкласс берётся у показанного класса — у него уже уникальные ключи
+   * подклассов и общий список ресурсов.
+   *
+   * @param subclass - подкласс показанного класса
+   */
+  function copySubclass(subclass: SubclassDefinition): void {
+    if (!displayedClass.value) {
+      return;
+    }
+
+    copySubclassToWorkshop(
+      chatStore.getSocket(),
+      displayedClass.value,
+      subclass,
+      props.packId,
+    );
+  }
+
+  /**
+   * Подсказка кнопки копирования в шапке: с выбранным подклассом она копирует
+   * только его.
+   */
+  const headerCopyLabel = computed(() =>
+    selectedSubclass.value
+      ? CLASS_DETAIL_LABELS.copySubclass
+      : COPY_TO_ITEMS_LABEL,
+  );
+
+  /**
+   * Копирование из шапки. Выбранный в окне подкласс — это то, что смотрят
+   * сейчас, и копировать ради него весь класс со всеми подклассами незачем:
+   * уходит один подкласс со ссылкой на класс компендиума.
+   */
+  function copyFromHeader(): void {
+    if (selectedSubclass.value) {
+      copySubclass(selectedSubclass.value);
+
+      return;
+    }
+
+    emit('copy');
+  }
+
   function toggleSubclass(key: string) {
     if (expandedSubclasses.value.has(key)) {
       expandedSubclasses.value.delete(key);
@@ -531,6 +589,19 @@
       />
 
       <EffectsBySubscriptionBadge :automation="displayedClass?.automation" />
+
+      <UTooltip
+        v-if="showCopyButton"
+        :text="headerCopyLabel"
+      >
+        <UButton
+          icon="tabler:copy"
+          size="xs"
+          color="primary"
+          variant="soft"
+          @click.left.exact.prevent="copyFromHeader"
+        />
+      </UTooltip>
 
       <UTooltip
         v-if="showSelectButton"
@@ -989,33 +1060,51 @@
               :key="subclass.key"
               class="flex flex-col overflow-hidden rounded-lg border border-default/50 bg-elevated/30 transition-colors"
             >
-              <button
-                class="flex w-full items-center justify-between p-3 text-left transition-colors hover:bg-accented/30"
-                @click.left.exact.prevent="toggleSubclass(subclass.key)"
-              >
-                <div class="flex items-center gap-2">
-                  <span class="text-sm font-medium text-highlighted">{{
-                    subclass.name
-                  }}</span>
+              <div class="flex items-center">
+                <button
+                  class="flex min-w-0 flex-1 items-center justify-between p-3 text-left transition-colors hover:bg-accented/30"
+                  @click.left.exact.prevent="toggleSubclass(subclass.key)"
+                >
+                  <div class="flex items-center gap-2">
+                    <span class="text-sm font-medium text-highlighted">{{
+                      subclass.name
+                    }}</span>
 
-                  <span class="text-xs text-dimmed">{{ subclass.nameEn }}</span>
+                    <span class="text-xs text-dimmed">{{
+                      subclass.nameEn
+                    }}</span>
 
-                  <SourceBadge
-                    :source-key="subclass.sourceKey"
-                    :source="subclass.source"
-                    class="ml-2"
+                    <SourceBadge
+                      :source-key="subclass.sourceKey"
+                      :source="subclass.source"
+                      class="ml-2"
+                    />
+                  </div>
+
+                  <UIcon
+                    :name="
+                      expandedSubclasses.has(subclass.key)
+                        ? 'tabler:chevron-down'
+                        : 'tabler:chevron-right'
+                    "
+                    class="h-5 w-5 text-dimmed"
                   />
-                </div>
+                </button>
 
-                <UIcon
-                  :name="
-                    expandedSubclasses.has(subclass.key)
-                      ? 'tabler:chevron-down'
-                      : 'tabler:chevron-right'
-                  "
-                  class="h-5 w-5 text-dimmed"
-                />
-              </button>
+                <UTooltip
+                  v-if="showCopyButton"
+                  :text="CLASS_DETAIL_LABELS.copySubclass"
+                >
+                  <UButton
+                    icon="tabler:copy"
+                    size="xs"
+                    color="primary"
+                    variant="ghost"
+                    class="mx-2 shrink-0"
+                    @click.left.exact.prevent="copySubclass(subclass)"
+                  />
+                </UTooltip>
+              </div>
 
               <div
                 v-if="expandedSubclasses.has(subclass.key)"

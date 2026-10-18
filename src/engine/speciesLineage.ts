@@ -1,5 +1,7 @@
 import type { SpeciesDefinition } from './speciesTypes.js';
 
+import { matchesParentPack } from './consts.js';
+
 /**
  * Подвиды (происхождения) вида в новой модели: подвид — самостоятельная запись
  * вида со ссылкой `parentKey` на родителя, как на сайте TTG Club.
@@ -17,6 +19,23 @@ import type { SpeciesDefinition } from './speciesTypes.js';
  */
 export function isSubspeciesRecord(definition: SpeciesDefinition): boolean {
   return Boolean(definition.parentKey);
+}
+
+/**
+ * Подходит ли запись-подвид родителю из пака `packId` (см.
+ * {@link SpeciesDefinition.parentPackId}).
+ *
+ * @param record - запись-подвид
+ * @param packId - пак родителя; пусто — не известен
+ * @param knownPackIds - подключённые паки (см. `matchesParentPack`)
+ * @returns `true`, если подвид относится к родителю этого пака
+ */
+export function subspeciesFitsPack(
+  record: SpeciesDefinition,
+  packId: string | undefined,
+  knownPackIds?: ReadonlySet<string>,
+): boolean {
+  return matchesParentPack(record.parentPackId, packId, knownPackIds);
 }
 
 /**

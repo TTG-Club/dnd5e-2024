@@ -43,7 +43,6 @@
   import { useActiveTab } from '@/shared_ui/composables/useActiveTab';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { Z_INDEX } from '@/shared_ui/consts';
-  import { useItemsStore } from '@/stores/itemsStore';
   import { useWorldStore } from '@/stores/worldStore';
   import { generateId, isEntityOwner, isRecord } from '@vtt/shared';
   import {
@@ -67,7 +66,6 @@
     isClassDefinition,
     isDndActor,
     isDndActorRecord,
-    isDnDGameItem,
     isSameCounterList,
     isSpell,
     mergeEntityDraft,
@@ -82,6 +80,7 @@
     resolveFeatChoicesToAsk,
     resolveHitDiceSpendRules,
     spendShortRestHitDice,
+    subspeciesFitsPack,
   } from '@vtt/shared/system/dnd.js';
 
   import { runRestWithTriggers } from '../../composables/restTriggerPrompt';
@@ -90,7 +89,6 @@
     useSheetEditLock,
   } from '../../composables/sheetEditLock';
   import { useClassCatalog } from '../../composables/useClassCatalog';
-  import { useCompendiumCatalog } from '../../composables/useCompendiumCatalog';
   import { useEntityDraftWrite } from '../../composables/useEntityDraftWrite';
   import {
     describeItemTransfer,
@@ -99,6 +97,10 @@
   } from '../../composables/useItemTransfer';
   import { useSheetLayout } from '../../composables/useSheetLayout';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
+  import {
+    isSpeciesDefinitionEntry,
+    useSpeciesCatalog,
+  } from '../../composables/useSpeciesCatalog';
   import { useWorldSheetSync } from '../../composables/useWorldSheetSync';
   import { useSystemDataStore } from '../../stores/systemDataStore';
   import ActorCenterPanel from './ActorCenterPanel.vue';
@@ -209,7 +211,6 @@
 
   const worldStore = useWorldStore();
   const systemDataStore = useSystemDataStore();
-  const itemsStore = useItemsStore();
   const toast = useToast();
   const { openModal, updateModalProps } = useModalManager();
 
@@ -323,10 +324,6 @@
     'equipment',
   );
 
-  function isSpeciesDefinition(value: unknown): value is SpeciesDefinition {
-    return isRecord(value) && value.type === 'species';
-  }
-
   function isBackgroundDefinition(
     value: unknown,
   ): value is BackgroundDefinition {
@@ -403,32 +400,8 @@
    */
   const classCatalog = useClassCatalog(toRef(props, 'socket'));
 
-  /**
-   * Виды, созданные в мире (GameItem с type==='species'), развёрнутые в
-   * плоский SpeciesDefinition из вложенного speciesData.
-   *
-   * @returns массив определений видов мира
-   */
-  function getWorldSpeciesDefinitions(): SpeciesDefinition[] {
-    // Стор хоста отдаёт нейтральные предметы — D&D-форму подтверждает гвард
-    // (см. `getWorldClassDefinitions`).
-    return itemsStore.items
-      .filter(isDnDGameItem)
-      .filter((worldItem) => worldItem.type === 'species')
-      .map((worldItem) => worldItem.speciesData)
-      .filter((definition): definition is SpeciesDefinition =>
-        isSpeciesDefinition(definition),
-      );
-  }
-
   /** Виды по пакам: компендиум и мир порознь, запись ищется парой «пак + ключ» */
-  const speciesCatalog = useCompendiumCatalog<SpeciesDefinition>({
-    socket: toRef(props, 'socket'),
-    kind: 'species',
-    isEntry: isSpeciesDefinition,
-    worldEntries: getWorldSpeciesDefinitions,
-    worldPackName: COMPENDIUM_PICKER_LABELS.worldPack,
-  });
+  const speciesCatalog = useSpeciesCatalog(toRef(props, 'socket'));
 
   /**
    * Виды одним списком — мастеру вида и вкладке умений. При повторе ключа
@@ -449,9 +422,18 @@
   /**
    * Записи видов для мастера: подвиды берутся из пака выбранного вида — у
    * одноимённого вида в соседнем компендиуме подвиды могут быть другими.
+   * Подвиды мира, скопированные из другого компендиума, сюда не попадают.
    */
   const wizardSpeciesRecords = computed(() =>
-    speciesCatalog.flatPreferring(droppedSpeciesPackId.value),
+    speciesCatalog
+      .flatPreferring(droppedSpeciesPackId.value)
+      .filter((record) =>
+        subspeciesFitsPack(
+          record,
+          droppedSpeciesPackId.value,
+          speciesCatalog.packIds.value,
+        ),
+      ),
   );
 
   /**
@@ -1349,7 +1331,12 @@
     // мастер не предложил бы хоумбрю-подкласс к компендиумному классу. Из того
     // пака, что назвали: одноимённый класс в соседнем компендиуме — не та
     // запись, которую выбрал игрок
-    const target = classCatalog.resolveWithPack({ key: targetKey, packId });
+    // У записи-подкласса пак родителя записан в ней самой: перенесённая из мира
+    // запись сама лежит в паке мира, а родитель — в компендиуме
+    const target = classCatalog.resolveWithPack({
+      key: targetKey,
+      packId: definition.parentClassPackId ?? packId,
+    });
 
     // Родителя нет среди записей (пак не подключён) — настройка не начинается:
     // у самого подкласса нет ни таблицы уровней, ни владений
@@ -1422,7 +1409,7 @@
     if (definition.parentKey) {
       const parent = speciesCatalog.resolveWithPack({
         key: definition.parentKey,
-        packId,
+        packId: definition.parentPackId ?? packId,
       });
 
       if (!parent) {
@@ -1573,7 +1560,7 @@
       try {
         const dropped = unwrapDroppedDefinition(JSON.parse(speciesDataStr));
 
-        if (!isSpeciesDefinition(dropped.definition)) {
+        if (!isSpeciesDefinitionEntry(dropped.definition)) {
           throw new Error('Dropped species definition has invalid shape');
         }
 

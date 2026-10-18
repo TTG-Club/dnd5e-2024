@@ -238,6 +238,12 @@ export interface SpeciesDefinition {
    * характеристиками, особенностями и дарами (как на сайте TTG Club).
    */
   parentKey?: SpeciesKey;
+  /**
+   * Пак родительского вида — по той же причине, что у подкласса
+   * (`ClassDefinition.parentClassPackId`): один ключ вида есть сразу в
+   * нескольких компендиумах. Пусто — родитель из любого пака.
+   */
+  parentPackId?: string;
   name: string;
   nameEn: string;
   description: string;

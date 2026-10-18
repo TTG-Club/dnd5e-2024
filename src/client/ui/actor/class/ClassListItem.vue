@@ -3,6 +3,8 @@
 
   import { computed } from 'vue';
 
+  import { isSubclassRecord } from '@vtt/shared/system/dnd.js';
+
   import { useContextMenu } from '../../../composables/useContextMenu';
   import { useListRowClass } from '../../../composables/useListRowClass';
   import {
@@ -66,6 +68,9 @@
     () => `${HIT_DIE_LETTER}${props.classDefinition.hitDie}`,
   );
 
+  /** Запись — подкласс другого класса, а не самостоятельный класс */
+  const isSubclass = computed(() => isSubclassRecord(props.classDefinition));
+
   /**
    * Начинает перетаскивание класса на лист персонажа
    * @param event - событие dragstart
@@ -123,7 +128,18 @@
         </span>
       </div>
 
-      <div class="flex items-center gap-3 text-xs text-muted">
+      <!-- Подкласс: своей механики у записи нет, она берётся у родителя -->
+      <div
+        v-if="isSubclass"
+        class="text-xs text-muted"
+      >
+        {{ CLASS_LIST_ITEM_LABELS.subclass }}
+      </div>
+
+      <div
+        v-else
+        class="flex items-center gap-3 text-xs text-muted"
+      >
         <!-- Кость хитов -->
         <span :class="HIT_DIE_COLORS[classDefinition.hitDie] ?? 'text-muted'">
           {{ hitDieLabel }}

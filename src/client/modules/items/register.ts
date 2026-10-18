@@ -159,11 +159,11 @@ export function register(api: ClientSystemAPI): void {
     // GameItem мира несёт класс во вложенном classData; записи компендиума
     // уже плоские — поэтому fallback на сам entry.
     propsFor: (entry) => ({ classDefinition: entry.classData ?? entry }),
-    openDetail: (entry) => {
+    openDetail: (entry, options) => {
       const classDefinition = definitionOf(entry, 'classData');
 
       if (isKeyedDefinition(classDefinition)) {
-        useEntityDetailModals().openClassDetail(classDefinition);
+        useEntityDetailModals().openClassDetail(classDefinition, options);
       }
     },
   });
@@ -174,11 +174,11 @@ export function register(api: ClientSystemAPI): void {
     // GameItem мира несёт вид во вложенном speciesData; записи компендиума
     // уже плоские — поэтому fallback на сам entry.
     propsFor: (entry) => ({ speciesDefinition: entry.speciesData ?? entry }),
-    openDetail: (entry) => {
+    openDetail: (entry, options) => {
       const speciesDefinition = definitionOf(entry, 'speciesData');
 
       if (isSpeciesDefinition(speciesDefinition)) {
-        useEntityDetailModals().openSpeciesDetail(speciesDefinition);
+        useEntityDetailModals().openSpeciesDetail(speciesDefinition, options);
       }
     },
   });
