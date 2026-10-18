@@ -375,6 +375,8 @@ export function useBonusDamageParts() {
    * @param resolveFormula - резолвер @-переменных сегмента
    * @param owner - бросающий: носитель эффектов (условия `self.*`) и владелец
    *   состояний `@self.status.*` в формулах бонус-урона
+   * @param weapon - оружие броска: «только этим предметом» и условия по
+   *   свойствам оружия; нет — бросок не оружием
    * @returns бонус-части урона
    */
   function collectParts(
@@ -385,7 +387,7 @@ export function useBonusDamageParts() {
     useTargetState: boolean,
     resolveFormula: (subFormula: string) => string,
     owner: DnDSceneEntity,
-    itemId?: string,
+    weapon?: Pick<DnDGameItem, 'id' | 'weaponProperties'>,
   ): SpellDamagePartInput[] {
     const carrier: CarrierContext = buildCarrierContext(owner);
 
@@ -400,8 +402,14 @@ export function useBonusDamageParts() {
       // Кость-формулы с условием о носителе в плоские статы не попадают —
       // здесь эти условия и оцениваются
       self: carrier,
-      // Предмет броска: по нему работает «только этим предметом»
-      ...(itemId === undefined ? {} : { itemId }),
+      // Предмет броска: по нему работает «только этим предметом», по его
+      // свойствам — условие «метательным оружием»
+      ...(weapon === undefined
+        ? {}
+        : {
+            itemId: weapon.id,
+            weaponProperties: weapon.weaponProperties ?? [],
+          }),
     };
 
     const formulas = collectBonusDamageFormulas(
@@ -498,7 +506,7 @@ export function useBonusDamageParts() {
         true,
         resolveFormula,
         actor,
-        weapon.id,
+        weapon,
       );
 
     return { baseParts, evaluateBonusDamageParts, pseudoSpell };

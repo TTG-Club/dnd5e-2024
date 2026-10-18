@@ -23,6 +23,7 @@
     WINDOW_TAB_CONTENT_CLASS,
   } from './constants';
   import FormSection from './FormSection.vue';
+  import ItemActiveWhenCarriedField from './ItemActiveWhenCarriedField.vue';
   import ItemConsumableField from './ItemConsumableField.vue';
   import ItemCostWeightFields from './ItemCostWeightFields.vue';
   import ItemUsesFields from './ItemUsesFields.vue';
@@ -91,6 +92,7 @@
     isMagical,
     magicAttunement,
     isAttuned,
+    activeWhenCarried,
     magicBonus,
     rarity,
     isShield,
@@ -471,6 +473,8 @@
                   v-model="isAttuned"
                   :label="ITEM_FORM_LABELS.attuned"
                 />
+
+                <ItemActiveWhenCarriedField v-model="activeWhenCarried" />
               </div>
             </FormSection>
 

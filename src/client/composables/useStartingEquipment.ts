@@ -24,6 +24,7 @@ import {
   isDnDGameItem,
   normalizeCompendiumItem,
   STARTING_EQUIPMENT_ITEM_KINDS,
+  startingEquipmentNote,
   startingEquipmentQuantity,
 } from '@vtt/shared/system/dnd.js';
 
@@ -44,9 +45,11 @@ function entrySrcUrl(entry: unknown): string | undefined {
  * проставит сам.
  */
 function fallbackItem(item: StartingEquipmentItem): DnDGameItem {
+  const note = startingEquipmentNote(item);
+
   return {
     id: generateId('eq'),
-    name: item.note ? `${item.name} (${item.note})` : item.name,
+    name: note ? `${item.name} (${note})` : item.name,
     type: 'equipment',
     description: '',
     quantity: startingEquipmentQuantity(item),

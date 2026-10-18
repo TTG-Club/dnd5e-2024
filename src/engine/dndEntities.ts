@@ -244,6 +244,11 @@ export interface DnDGameItem extends BaseGameItem {
    * количества, на нуле предмет остаётся в инвентаре закончившимся.
    */
   consumable?: boolean;
+  /**
+   * Магия предмета работает, пока он просто в инвентаре, без отметки «надет»:
+   * Камень удачи, Клинок удачи. Нет — эффекты включает отметка «надет».
+   */
+  activeWhenCarried?: boolean;
   // --- Feature-specific (только для type === 'feat') ---
   /** Можно ли выбрать черту повторно */
   repeatable?: boolean;

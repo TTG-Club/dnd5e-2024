@@ -21,12 +21,10 @@ import type { DnDGameItem } from './dndEntities.js';
 
 import { checkCreatureActionRange, checkRange } from './attackUtils.js';
 import { getDefaultWeaponAbility } from './calculations.js';
+import { THROWN_WEAPON_PROPERTY } from './consts.js';
 
 /** Вид атаки, которым идёт бросок */
 export type AttackKind = 'melee' | 'ranged';
-
-/** Свойство оружия «Метательное» */
-const THROWN_PROPERTY = 'thrown';
 
 /** Все виды атаки в порядке вопроса: сначала рукопашная */
 const BOTH_ATTACK_KINDS: readonly AttackKind[] = ['melee', 'ranged'];
@@ -42,7 +40,7 @@ const BOTH_ATTACK_KINDS: readonly AttackKind[] = ['melee', 'ranged'];
 export function isThrowableMeleeWeapon(weapon: DnDGameItem): boolean {
   return (
     weapon.rangeType !== 'ranged'
-    && !!weapon.weaponProperties?.includes(THROWN_PROPERTY)
+    && !!weapon.weaponProperties?.includes(THROWN_WEAPON_PROPERTY)
     && (weapon.range?.normal ?? 0) > 0
   );
 }

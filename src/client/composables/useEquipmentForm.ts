@@ -67,6 +67,7 @@ export function useEquipmentForm(
   const isSRD = ref(false);
   const magicAttunement = ref<'none' | 'required' | 'optional'>('none');
   const isAttuned = ref(false);
+  const activeWhenCarried = ref(false);
   const magicBonus = ref(0);
   const rarity = ref<ItemRarity>('none');
   const activeEffects = ref<ActiveEffect[]>([]);
@@ -285,6 +286,7 @@ export function useEquipmentForm(
 
         magicAttunement.value = armor.magicAttunement ?? 'none';
         isAttuned.value = armor.isAttuned ?? false;
+        activeWhenCarried.value = armor.activeWhenCarried ?? false;
         magicBonus.value = armor.magicBonus ?? 0;
         rarity.value = armor.rarity ?? 'none';
 
@@ -326,6 +328,7 @@ export function useEquipmentForm(
 
         magicAttunement.value = 'none';
         isAttuned.value = false;
+        activeWhenCarried.value = false;
         magicBonus.value = 0;
         rarity.value = 'none';
         activeEffects.value = [];
@@ -378,6 +381,8 @@ export function useEquipmentForm(
           ? magicAttunement.value
           : undefined,
       isAttuned: isMagical.value && isAttuned.value ? true : undefined,
+      activeWhenCarried:
+        isMagical.value && activeWhenCarried.value ? true : undefined,
       magicBonus:
         isMagical.value && magicBonus.value > 0 ? magicBonus.value : undefined,
       uses: itemUses.buildItemUses(),
@@ -410,6 +415,7 @@ export function useEquipmentForm(
     isFocus,
     magicAttunement,
     isAttuned,
+    activeWhenCarried,
     magicBonus,
     rarity,
     activeEffects,

@@ -35,8 +35,25 @@ export interface StartingEquipmentItem {
   name: string;
   /** Количество; по умолчанию 1 */
   quantity?: number;
-  /** Уточнение к позиции («по вашему выбору») */
+  /** Уточнение к позиции («по вашему выбору»), записанное в мире */
   note?: string;
+  /**
+   * То же уточнение из компендиума TTG: выгрузка сайта отдаёт его под этим
+   * именем. Читать через {@link startingEquipmentNote}.
+   */
+  description?: string;
+}
+
+/**
+ * Уточнение к позиции: записанное в мире (`note`) либо пришедшее из компендиума
+ * (`description`). Без второго «по вашему выбору» у позиций из компендиума
+ * терялось.
+ *
+ * @param item - позиция варианта
+ * @returns уточнение; нет — пустая строка
+ */
+export function startingEquipmentNote(item: StartingEquipmentItem): string {
+  return (item.note ?? item.description ?? '').trim();
 }
 
 /**

@@ -75,6 +75,7 @@ import {
   stripDamageTypeTokens,
   stripHealTokens,
 } from './formulaTokens.js';
+import { isAwaitingAttunement } from './itemUses.js';
 import {
   DEFAULT_PROFICIENCY_BONUS,
   getProficiencyBonusBreakdown,
@@ -697,13 +698,14 @@ function getWeaponFlatBonusParts(
 
 /**
  * Слагаемое магического бонуса предмета — одинаковое у атаки и урона: `+1`
- * магического оружия идёт и туда, и туда.
+ * магического оружия идёт и туда, и туда. Оружие с обязательной настройкой без
+ * неё бонуса не даёт — как и эффектов (см. `itemEffectsActive`).
  *
  * @param weapon - оружие
  * @returns слагаемое магии (пустой список — бонуса нет)
  */
 function getWeaponMagicParts(weapon: DnDGameItem): WeaponModifierPart[] {
-  return weapon.isMagical
+  return weapon.isMagical && !isAwaitingAttunement(weapon)
     ? getBonusParts(
         'magic',
         WEAPON_MODIFIER_PART_LABELS.magic,

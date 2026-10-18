@@ -65,6 +65,7 @@ import {
   MOVEMENT_LABELS,
   SELECTABLE_CONDITIONS,
   SKILLS_LABELS,
+  THROWN_WEAPON_PROPERTY,
 } from './consts.js';
 import {
   DAMAGE_PART_TARGETS,
@@ -606,6 +607,19 @@ export function parseWeaponBaseTypeCondition(
 /** Условие «Дубинки»: дубинка или боевой посох */
 export const SHILLELAGH_WEAPON_CONDITION = `${WEAPON_BASE_TYPE_CONDITION_PREFIX}"club, quarterstaff"`;
 
+/**
+ * Приставка условия «у оружия броска есть свойство»: `weapon.property === "thrown"`.
+ * Проверяется в броске — у атаки не оружием свойств нет, и условие не выполняется.
+ */
+export const WEAPON_PROPERTY_CONDITION_PREFIX = 'weapon.property === ';
+
+/**
+ * Условие «Сражения метательным оружием»: бросок метательным оружием. Вместе с
+ * ключом `damage.ranged` оно и даёт «+2 к урону, когда оружие брошено»: лук и
+ * арбалет свойства «Метательное» не имеют.
+ */
+export const THROWN_WEAPON_CONDITION = `${WEAPON_PROPERTY_CONDITION_PREFIX}"${THROWN_WEAPON_PROPERTY}"`;
+
 /** Приставка условия по типу ЦЕЛИ броска. */
 export const TARGET_TYPE_CONDITION_PREFIX = 'target.creatureType === ';
 
@@ -781,6 +795,11 @@ export const EFFECT_CONDITION_SUGGESTIONS: readonly EffectLibrarySuggestion[] =
         {
           value: `${ATTACK_ABILITY_CONDITION_PREFIX}"dexterity"`,
           label: 'Атака: Ловкостью (урон оружия)',
+        },
+        {
+          value: THROWN_WEAPON_CONDITION,
+          label: 'Оружие: метательное',
+          hint: 'Сражение метательным оружием: вместе с «Урон: дальнобойная атака».',
         },
         // Только для замен свойств оружия (`weapon.*`): каждое оружие листа
         // сверяется со списком само

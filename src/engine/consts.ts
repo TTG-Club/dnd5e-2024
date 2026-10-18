@@ -12,6 +12,7 @@ import type {
   SkillType,
   TokenDispositionSetting,
   ToolCategory,
+  WeaponProperty,
 } from '@vtt/shared';
 
 import type { ConditionKey, ConditionRef } from './conditionKeys.js';
@@ -1549,3 +1550,9 @@ export function normalizeSpellUsesRecovery(
 
 /** Буква кости в записи формулы хитов существа: «2к8» */
 export const HIT_DICE_FORMULA_LETTER = 'к';
+
+/**
+ * Свойство оружия «Метательное»: по нему выбирают вид атаки (ударить или
+ * бросить) и проверяют условие «метательным оружием».
+ */
+export const THROWN_WEAPON_PROPERTY: WeaponProperty = 'thrown';

@@ -340,6 +340,8 @@ export function openWeaponAttackRoll(
           ...modalContext,
           target: buildTargetHpContext(undefined, attacker.id),
           itemId: weapon.id,
+          // Свойства оружия — для условия «метательным оружием»
+          weaponProperties: weapon.weaponProperties ?? [],
         };
 
         // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — от

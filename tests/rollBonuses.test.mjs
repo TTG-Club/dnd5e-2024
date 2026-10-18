@@ -138,6 +138,22 @@ it('conditional dice are counted once, numeric bonuses stay numeric, disabled/un
   );
 });
 
+it('thrown weapon fighting adds damage only to a thrown weapon, not to a bow', () => {
+  const effects = [
+    effect([change('damage.ranged', '2', 'weapon.property === "thrown"')]),
+  ];
+
+  const roll = (weaponProperties) =>
+    engine.evaluateConditionalBonuses(effects, 'damage.ranged', {
+      ...normalContext,
+      ...(weaponProperties ? { weaponProperties } : {}),
+    });
+
+  assert.equal(roll(['thrown', 'light']), 2, 'thrown dagger');
+  assert.equal(roll(['ammunition', 'heavy', 'twoHanded']), 0, 'longbow');
+  assert.equal(roll(undefined), 0, 'attack without a weapon');
+});
+
 it('roll bonuses normalize Russian dice, signed penalties and actor formula variables', () => {
   const actor = structuredClone(engine.DEFAULT_ACTOR);
 
