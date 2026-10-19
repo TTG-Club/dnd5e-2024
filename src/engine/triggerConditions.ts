@@ -73,6 +73,7 @@ import {
   MOVEMENT_TRIGGER_EVENTS,
   OTHER_PARTY_TRIGGER_EVENTS,
   OWN_DEED_TRIGGER_EVENTS,
+  SPELL_CAST_TRIGGER_EVENTS,
 } from './effectTriggerTypes.js';
 import {
   isEntityBloodied,
@@ -200,6 +201,14 @@ export interface TriggerEventData {
    * неизвестно, и части условия о видимости и свете НЕ выполняются.
    */
   sight?: SceneSight;
+  /** Заклинание, которое накладывает носитель, — у события «накладывает заклинание» */
+  spell?: {
+    /**
+     * У заклинания есть вербальный компонент, и заклинатель его не опускает
+     * (статблок существа может колдовать без него)
+     */
+    verbal: boolean;
+  };
   /** Перемещение носителя — у события «прошёл N футов» */
   movement?: {
     /** Фишку переставили правила (толчок, притягивание), а не носитель */
@@ -269,6 +278,7 @@ export const TRIGGER_CONDITION_KINDS = [
   'selfInLight',
   'otherInDarkness',
   'otherInLight',
+  'spellVerbal',
 ] as const;
 
 /**
@@ -325,7 +335,9 @@ export const TRIGGER_CONDITION_KINDS = [
  *   или тусклом);
  * - `otherInDarkness` / `otherInLight` — другая сторона в темноте / на свету;
  * - `otherIsSourceSide` — другая сторона — наложивший эффект или его союзник
- *   («пока вы или ваши союзники не нанесёте ей урон»).
+ *   («пока вы или ваши союзники не нанесёте ей урон»);
+ * - `spellVerbal` — заклинание события с вербальным компонентом (засада
+ *   кончается заклинанием с вербальным компонентом).
  */
 export type TriggerConditionKind = (typeof TRIGGER_CONDITION_KINDS)[number];
 
@@ -424,6 +436,7 @@ const KIND_EVENTS: Record<
   selfInLight: undefined,
   otherInDarkness: OTHER_CONDITION_EVENTS,
   otherInLight: OTHER_CONDITION_EVENTS,
+  spellVerbal: SPELL_CAST_TRIGGER_EVENTS,
 };
 
 /** Приставка части «тип урона события из списка» */
@@ -597,6 +610,7 @@ const FIXED_PARTS: Partial<Record<TriggerConditionKind, string>> = {
   selfInLight: 'self.light !== "dark"',
   otherInDarkness: 'target.light === "dark"',
   otherInLight: 'target.light !== "dark"',
+  spellVerbal: 'spell.verbal === true',
 };
 
 /** Целое неотрицательное число строкой */
@@ -1208,6 +1222,8 @@ function isConditionPartMet(
       return eventData.movement?.forced === false;
     case 'movementForced':
       return eventData.movement?.forced === true;
+    case 'spellVerbal':
+      return eventData.spell?.verbal === true;
     default:
       return evaluateConditionPart(
         text.trim(),

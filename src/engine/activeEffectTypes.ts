@@ -29,6 +29,8 @@ import type {
   ConditionKey,
   ConditionRef,
   DEATH_CONDITION_KEY,
+  HIDDEN_CONDITION_KEY,
+  SURPRISED_CONDITION_KEY,
 } from './conditionKeys.js';
 // `AreaEffectTrigger`, `BaseActiveEffect`, `EffectAura`, `EffectDuration`,
 // `EffectDurationType`, `EffectTurnAnchor`, `EffectTurnTiming` — нейтральные
@@ -1521,11 +1523,16 @@ export type SkillFlagKey = SkillAdvantageFlagKey | SkillDisadvantageFlagKey;
  * Состояние, против которого бывает преимущество или помеха на спасбросок.
  *
  * Метка смерти и окровавленность сюда не идут: спасброска против них не
- * бывает — их ставит и снимает запас хитов существа.
+ * бывает — их ставит и снимает запас хитов существа. «В засаде» и
+ * «Застигнутый врасплох» — тоже: их даёт своё действие или начало боя, а не
+ * чужой эффект со спасброском.
  */
 export type SaveConditionKey = Exclude<
   ConditionKey,
-  typeof DEATH_CONDITION_KEY | typeof BLOODIED_CONDITION_KEY
+  | typeof DEATH_CONDITION_KEY
+  | typeof BLOODIED_CONDITION_KEY
+  | typeof HIDDEN_CONDITION_KEY
+  | typeof SURPRISED_CONDITION_KEY
 >;
 
 /** Флаг преимущества на спасбросок против состояния. */
@@ -1655,6 +1662,7 @@ export type EffectFlagKey =
   | 'actions.oneOfMoveActionBonus'
   | 'actions.oneAttackPerAction'
   | 'actions.noOpportunityAttack'
+  | 'hide.bonusAction'
   | 'spellcasting.blocked'
   | 'spellcasting.noVerbal'
   | 'spellcasting.noMagicAction'
@@ -1797,6 +1805,8 @@ const BASE_EFFECT_FLAG_LABELS: Record<
   'actions.oneAttackPerAction': 'Действием «Атака» — только одна атака за ход',
   'actions.noOpportunityAttack':
     'Не может совершать провоцированные атаки (остальные реакции доступны)',
+  'hide.bonusAction':
+    'Засада бонусным действием (Хитрое действие, Проворный побег)',
   'spellcasting.blocked': 'Не может накладывать заклинания',
   'spellcasting.noVerbal':
     'Не может накладывать заклинания с вербальным компонентом',
@@ -2944,6 +2954,13 @@ export interface ActiveEffect extends BaseActiveEffect {
    * атаки». Если не задан — эффект живёт по обычной длительности.
    */
   consumeOn?: EffectAttackTrigger;
+
+  /**
+   * Сл поиска у состояния «В засаде»: итог проверки Ловкости (Скрытность),
+   * которой носитель спрятался (правила 2024, действие «Засада»). Ищущий
+   * бросает Мудрость (Внимательность) против неё — успех снимает засаду.
+   */
+  searchDc?: number;
 
   /**
    * Урон, наносимый при наложении эффекта (гейтится `applySave`: провал —
@@ -4237,6 +4254,7 @@ export const ActiveEffectSchema = z.object({
   applyOnSuccess: z.boolean().optional(),
   applyOnSuccessOnly: z.boolean().optional(),
   consumeOn: z.enum(['carrierAttack', 'attackOnCarrier']).optional(),
+  searchDc: z.number().int().min(0).optional().catch(undefined),
   damageParts: z.array(EffectDamagePartSchema).optional(),
   recurringSave: RecurringSaveSchema.optional(),
   recurringDamage: RecurringDamageSchema.optional(),

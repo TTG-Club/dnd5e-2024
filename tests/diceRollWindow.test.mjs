@@ -568,6 +568,7 @@ async function loadCreatureSpell(windowOpens, overrides = {}) {
     hasLiveCreatureSpellUsesLeft: () => true,
     runWithCastFailure: (_spell, _caster, _options, proceed) => proceed(),
     recordEntityActionSpend: () => log.push('turn'),
+    dispatchSpellCastTriggers: () => {},
     resolveSpellAreaAtLevel: () => undefined,
     getDamageTemplateColor: () => 'red',
     useSpellTemplateStore: () => ({

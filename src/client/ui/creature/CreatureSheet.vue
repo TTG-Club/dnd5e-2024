@@ -1781,6 +1781,7 @@
           :ability-mods="skillAbilityMods"
           :proficiency-bonus="creatureProficiencyBonus"
           :armor-class="resolvedStats?.armorClass"
+          :active-flags="resolvedStats?.activeFlags"
           :resolved-movement="resolvedStats?.movement"
           :active-effects="combinedEffects"
           :hit-dice-bonus-context="hitDiceBonusContext"

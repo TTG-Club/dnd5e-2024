@@ -115,6 +115,7 @@ export * from './gmApproval.js';
 export * from './grantedSpellResolution.js';
 export * from './grantedSpells.js';
 export * from './healingLimits.js';
+export * from './hiding.js';
 export * from './hitDiceUtils.js';
 export * from './hitPoints.js';
 export * from './itemNormalize.js';

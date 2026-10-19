@@ -47,6 +47,7 @@ import {
   isDndSceneEntity,
   isSpellAreaPlacedAtRange,
   isTargetAtFullHp,
+  isVerbalSpellCast,
   resolveCreatureSpellSaveDC,
   resolveEntityCreatureType,
   resolveSpellAreaAtLevel,
@@ -87,6 +88,7 @@ import {
 import { beginSpellCast } from './spellCasts';
 import { discardSpellTemplate } from './spellResolutionShared';
 import { useBonusDamageParts } from './useBonusDamageParts';
+import { dispatchSpellCastTriggers } from './useEffectTriggerEvents';
 import { listAmbientEffects } from './useResolvedStats';
 import { useSpellResolution } from './useSpellResolution';
 import { useWorldEntities } from './useWorldEntities';
@@ -299,6 +301,16 @@ export function startCreatureSpellCast(
 
         spendTurn();
         spendUse();
+
+        // Каст состоялся: засада кончается заклинанием с вербальным
+        // компонентом — если группа статблока его не опускает
+        dispatchSpellCastTriggers(
+          caster.id,
+          isVerbalSpellCast(
+            spell,
+            placement?.block.ignoredComponents?.verbal === true,
+          ),
+        );
 
         return true;
       };

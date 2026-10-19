@@ -198,6 +198,9 @@ async function loadCastEnvironment(entities, { windowOpens = true } = {}) {
     ...engine,
     ...constants,
     console,
+    // Снятие засады кастом — свои тесты (`stealth.test.mjs`); у этих
+    // заклинателей засады нет
+    dispatchSpellCastTriggers: () => {},
     world,
     changeEntitySheet: writes.changeEntitySheet,
     changeEntityCombatState: writes.changeEntityCombatState,

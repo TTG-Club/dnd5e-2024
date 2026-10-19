@@ -3201,9 +3201,6 @@ export function runAttackRollTriggers(
   role: EffectTriggerAttackRole,
   options: AttackRollTriggerOptions = {},
 ): AttackRollTriggersResult {
-  const usageBefore = JSON.stringify(entity.system.effectUsage ?? null);
-  const removedIds = new Set<string>();
-
   const eventData = withSceneSight(
     withCombatRound(
       {
@@ -3216,9 +3213,38 @@ export function runAttackRollTriggers(
     options.sight,
   );
 
+  return runClientCarrierTriggers(
+    entity,
+    listAttackRollSources(entity, role, 'client'),
+    eventData,
+    options,
+  );
+}
+
+/**
+ * Выполняет на клиенте срабатывания поступка носителя: снятие и наложения на
+ * нём самом. Общая часть броска атаки и каста. Мутирует сущность.
+ *
+ * @param entity - носитель
+ * @param sources - срабатывания события, которые выполняет клиент
+ * @param eventData - что известно о событии
+ * @param options - бой и чей ход
+ * @param options.inCombat - носитель участвует в идущем бою
+ * @param options.activeTurnActorId - чей сейчас ход
+ * @returns что изменилось
+ */
+function runClientCarrierTriggers(
+  entity: DnDSceneEntity,
+  sources: readonly EffectTriggerSource[],
+  eventData: TriggerEventData,
+  options: Pick<AttackRollTriggerOptions, 'inCombat' | 'activeTurnActorId'>,
+): AttackRollTriggersResult {
+  const usageBefore = JSON.stringify(entity.system.effectUsage ?? null);
+  const removedIds = new Set<string>();
+
   let applied = false;
 
-  for (const source of listAttackRollSources(entity, role, 'client')) {
+  for (const source of sources) {
     if (!admitTrigger(entity, source, eventData, options.inCombat)) {
       continue;
     }
@@ -3243,4 +3269,53 @@ export function runAttackRollTriggers(
     changed: removedIds.size > 0 || applied || usageChanged,
     usageChanged,
   };
+}
+
+/** С чем прогоняются срабатывания «носитель накладывает заклинание» */
+export interface SpellCastTriggerOptions extends Pick<
+  AttackRollTriggerOptions,
+  'inCombat' | 'activeTurnActorId' | 'combatRound'
+> {
+  /** Заклинание каста: есть ли вербальный компонент */
+  spell: NonNullable<TriggerEventData['spell']>;
+}
+
+/**
+ * Срабатывания «носитель накладывает заклинание», которые выполняет клиент
+ * того, кто колдует: снятие и наложения на нём самом. Засада кончается
+ * заклинанием с вербальным компонентом, «Невидимость» 2024 — любым.
+ *
+ * Срабатывание с уроном, спасброском, вопросом или действиями другим на этом
+ * событии не выполняется: сервер о касте не узнаёт.
+ *
+ * @param entity - заклинатель
+ * @returns срабатывания события, которые выполняет клиент
+ */
+export function listSpellCastSources(
+  entity: DnDSceneEntity,
+): EffectTriggerSource[] {
+  return listCarrierEventSources(entity, (effect) =>
+    listEffectEventTriggers(effect, 'spellCast').filter(
+      isClientAttackRollTrigger,
+    ),
+  );
+}
+
+/**
+ * Прогоняет срабатывания «носитель накладывает заклинание». Мутирует сущность.
+ *
+ * @param entity - заклинатель
+ * @param options - заклинание, бой и чей ход
+ * @returns что изменилось
+ */
+export function runSpellCastTriggers(
+  entity: DnDSceneEntity,
+  options: SpellCastTriggerOptions,
+): AttackRollTriggersResult {
+  return runClientCarrierTriggers(
+    entity,
+    listSpellCastSources(entity),
+    withCombatRound({ spell: options.spell }, options.combatRound),
+    options,
+  );
 }

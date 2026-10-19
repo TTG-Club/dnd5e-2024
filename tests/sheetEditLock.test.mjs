@@ -126,6 +126,11 @@ const GUARDED_ENTRIES = [
       ),
   },
   {
+    path: `${COMPOSABLES_DIR}/hideAction.ts`,
+    name: 'startHide',
+    call: (entry) => entry({ id: 'hero' }),
+  },
+  {
     path: `${COMPOSABLES_DIR}/spellCasts.ts`,
     name: 'endEntityConcentration',
     call: (entry) =>
@@ -176,6 +181,7 @@ const UNGUARDED_REASONS = {
     'ничего не пишет: собирает сообщение игроку из ответа сервера',
   listEscapeHelpOffers: 'ничего не пишет',
   formatEscapeTitle: 'ничего не пишет',
+  findLiveHide: 'ничего не пишет: только читает засаду из мира',
   listSelfEscapeEffects: 'ничего не пишет',
   readEntityCounters: 'ничего не пишет',
   sendGmRollRequest:

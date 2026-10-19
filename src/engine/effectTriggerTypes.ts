@@ -36,9 +36,11 @@ export const EFFECT_TRIGGER_EVENTS = [
   'healed',
   'hpZero',
   'downedOther',
+  'damageDealt',
   'allyHurt',
   'conditionLost',
   'castEnd',
+  'spellCast',
   'moved',
   'rest',
   'activate',
@@ -83,9 +85,28 @@ export const DAMAGE_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
 /**
  * События, где носитель — действующая сторона, а другая сторона события —
  * тот, кого он задел. Сюда же смотрят условия о другой стороне.
+ *
+ * «Носитель нанёс урон» (`damageDealt`) идёт на сервере по каждому удару с
+ * известным источником (`DamageHit.sourceId`): другая сторона — раненый, урон
+ * события — удар по нему. Им кончается «Невидимость» 2024 («цель наносит
+ * урон»). Урон без источника (срабатывания сервера, правка хитов рукой)
+ * событие не будит — некого назвать нанёсшим.
  */
 export const OWN_DEED_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
   'downedOther',
+  'damageDealt',
+];
+
+/**
+ * Событие «носитель накладывает заклинание»: идёт на клиенте того, кто
+ * колдует, в момент, когда каст состоялся (трата хода и ячейки), — раньше
+ * спасбросков и урона. Несёт признак вербального компонента (`spell.verbal`):
+ * им кончается засада («заклинание с вербальным компонентом»), а
+ * «Невидимость» 2024 — любым заклинанием. Выполняются только действия самому
+ * носителю (снятие, наложения на себя), как у броска атаки на клиенте.
+ */
+export const SPELL_CAST_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
+  'spellCast',
 ];
 
 /**
@@ -119,6 +140,7 @@ export const DAMAGE_DATA_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
   ...DAMAGE_TRIGGER_EVENTS,
   'applied',
   'allyHurt',
+  'damageDealt',
 ];
 
 /**

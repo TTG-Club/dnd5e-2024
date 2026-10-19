@@ -42,6 +42,21 @@ export const BLOODIED_CONDITION_KEY = 'bloodied';
  */
 export const BLOODIED_AUTO_APPLY = 'self.hp.value <= (self.hp.max / 2)';
 
+/**
+ * «В засаде» — итог действия «Засада» (Hide, правила 2024): преимущество своим
+ * атакам, помеха атакам по носителю и преимущество на инициативу, как у
+ * «Невидимого», но фишка остаётся видна союзникам. Своё состояние, а не
+ * «Невидимый»: ядро прячет от всех игроков фишку с «Невидимым» (по имени и
+ * флагу `vision.invisible`), а спрятавшегося союзники видят.
+ */
+export const HIDDEN_CONDITION_KEY = 'hidden';
+
+/**
+ * «Застигнутый врасплох» (Surprised, правила 2024): помеха на бросок
+ * инициативы, если начало боя для существа — неожиданность.
+ */
+export const SURPRISED_CONDITION_KEY = 'surprised';
+
 /** Полный список ключей состояний — единственный источник правды. */
 export const CONDITION_KEYS = [
   'blinded',
@@ -51,6 +66,7 @@ export const CONDITION_KEYS = [
   'exhaustion',
   'frightened',
   'grappled',
+  HIDDEN_CONDITION_KEY,
   'incapacitated',
   'invisible',
   'paralyzed',
@@ -59,6 +75,7 @@ export const CONDITION_KEYS = [
   'prone',
   'restrained',
   'stunned',
+  SURPRISED_CONDITION_KEY,
   'unconscious',
   // Метка смерти — вне перечня PHB, поэтому в конце списка, а не по алфавиту
   DEATH_CONDITION_KEY,

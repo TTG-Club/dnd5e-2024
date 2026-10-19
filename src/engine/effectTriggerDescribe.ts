@@ -108,11 +108,13 @@ const TRIGGER_EVENT_LABELS: Record<EffectTriggerEvent, string> = {
   healed: 'когда носителя лечат',
   hpZero: 'когда хиты падают до 0',
   downedOther: 'когда носитель сваливает цель',
+  damageDealt: 'когда носитель наносит урон',
   allyHurt: 'когда на глазах носителя ранят союзника',
   conditionLost: 'когда состояние снимается',
   rest: 'после отдыха',
   activate: 'при включении',
   castEnd: 'когда заклинание заканчивается',
+  spellCast: 'когда носитель накладывает заклинание',
   moved: 'когда носитель проходит путь',
 };
 
@@ -414,6 +416,7 @@ const TRIGGER_CONDITION_PHRASES: Record<
   selfInLight: () => 'носитель на свету',
   otherInDarkness: () => 'другая сторона в темноте',
   otherInLight: () => 'другая сторона на свету',
+  spellVerbal: () => 'у заклинания вербальный компонент',
 };
 
 /**

@@ -27,6 +27,7 @@ import type {
 } from '@vtt/shared';
 
 import type { ActiveEffect, EffectSaveTiming } from './activeEffectTypes.js';
+import type { AttackRollMode } from './attackUtils.js';
 import type { BackgroundDefinition } from './backgroundTypes.js';
 import type { DndCombatState } from './damageApplication.js';
 import type { DamageHit } from './damageHits.js';
@@ -76,6 +77,7 @@ import {
   normalizeActorData as normalizeDndActorData,
   validateActorData as validateDndActorData,
 } from './actorValidation.js';
+import { resolveInitiativeRollMode } from './attackUtils.js';
 import { shapeAuraCondition } from './auraCondition.js';
 import {
   collectAllAuraEffects,
@@ -140,6 +142,7 @@ import {
   settleAppliedEvents,
   settleAttackRollTriggers,
   settleConditionLostEvents,
+  settleDamageDealtEvents,
   settleDamageEvents,
   settleDownedOtherEvents,
   settleEffectActionEvents,
@@ -284,6 +287,39 @@ const DOWNED_OTHER_SUMMARY_LABEL = 'когда цель свалена';
 
 /** Подпись сводки события «на глазах носителя ранили союзника» */
 const ALLY_HURT_SUMMARY_LABEL = 'когда ранили союзника на глазах';
+
+/** Кость инициативы по режиму броска, без модификатора */
+const INITIATIVE_DICE_BY_MODE: Record<AttackRollMode, string> = {
+  normal: '1к20',
+  advantage: '2к20kh1',
+  disadvantage: '2к20kl1',
+};
+
+/** Граней у кости инициативы */
+const D20_SIDES = 20;
+
+/**
+ * Бросает к20 на сервере: с преимуществом — большая из двух, с помехой —
+ * меньшая.
+ *
+ * @param rollMode - режим броска
+ * @returns значение кости
+ */
+function rollD20WithMode(rollMode: AttackRollMode): number {
+  /** Одна к20 */
+  const rollOne = (): number => Math.floor(Math.random() * D20_SIDES) + 1;
+
+  if (rollMode === 'normal') {
+    return rollOne();
+  }
+
+  const pair = [rollOne(), rollOne()];
+
+  return rollMode === 'advantage' ? Math.max(...pair) : Math.min(...pair);
+}
+
+/** Подпись сводки события «носитель нанёс урон» */
+const DAMAGE_DEALT_SUMMARY_LABEL = 'когда нанёс урон';
 
 /**
  * Состояния, снятые снимком: те, чьих эффектов в новом списке не стало.
@@ -1654,6 +1690,11 @@ function settleSnapshotEvents(
     ],
     // Идёт на эффектах свидетелей: раненый для них — другая сторона
     [settleAllyHurtEvents(entity, hits, options), ALLY_HURT_SUMMARY_LABEL],
+    // Идёт на эффектах нанёсших: раненый для них — другая сторона
+    [
+      settleDamageDealtEvents(entity, hits, options),
+      DAMAGE_DEALT_SUMMARY_LABEL,
+    ],
     ...downedExtra,
   ];
 
@@ -1677,7 +1718,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.320';
+  readonly version = '0.8.321';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -1789,7 +1830,9 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * Совершает бросок инициативы (1к20 + модификатор)
+   * Совершает бросок инициативы (1к20 + модификатор) — с преимуществом или
+   * помехой по флагам сущности: «Невидимый» и «В засаде» бросают с
+   * преимуществом, «Застигнутый врасплох» и «Недееспособный» — с помехой.
    */
   rollInitiative(
     actor: BaseActor,
@@ -1797,9 +1840,14 @@ export class Dnd5eVttSystem implements VttSystem {
   ): SystemRollResult {
     const modifier = this.getInitiativeModifier(actor);
 
+    const rollMode = isDndSceneEntity(actor)
+      ? resolveInitiativeRollMode(resolveActorStats(actor).activeFlags)
+      : 'normal';
+
     if (rollFn) {
-      // Клиент: Делаем бросок через стор (DiceRoller)
-      const rollData = rollFn('1к20');
+      // Клиент: Делаем бросок через стор (DiceRoller); формула без
+      // модификатора — итог броска и есть значение кости
+      const rollData = rollFn(INITIATIVE_DICE_BY_MODE[rollMode]);
 
       return {
         roll: rollData.total, // Это чистое значение кубика от 1 до 20
@@ -1810,7 +1858,7 @@ export class Dnd5eVttSystem implements VttSystem {
     }
 
     // Сервер (или если rollFn не передан): Автоматический математический бросок
-    const roll = Math.floor(Math.random() * 20) + 1;
+    const roll = rollD20WithMode(rollMode);
 
     return {
       roll,

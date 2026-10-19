@@ -113,7 +113,11 @@ async function loadEscape({
     EFFECT_ESCAPE_MODAL_KEY_PREFIX: 'effect-escape:',
   };
 
-  ports.chooseOne = await loadHandler(helperPath, 'chooseOne', ports);
+  ports.chooseOne = await loadHandler(
+    'src/client/composables/questionChoice.ts',
+    'chooseOne',
+    ports,
+  );
 
   ports.warnEscapeUnavailable = await loadHandler(
     helperPath,

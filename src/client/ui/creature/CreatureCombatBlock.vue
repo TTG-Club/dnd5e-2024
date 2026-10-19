@@ -18,6 +18,7 @@
     getCustomBonusesValue,
     getDisplayMovement,
     getMovementList,
+    resolveInitiativeRollMode,
     rollDamageFormula,
   } from '@vtt/shared/system/dnd.js';
 
@@ -72,6 +73,11 @@
      * здоровья считает по ним бонус за кость и свои бонусы формулы.
      */
     hitDiceBonusContext: DnDCustomBonusContext | null;
+    /**
+     * Действующие флаги листа: преимущество и помеха на инициативу («В
+     * засаде», «Застигнутый врасплох») — тем же правилом, что у персонажа
+     */
+    activeFlags?: ReadonlySet<string>;
   }
 
   const props = defineProps<Props>();
@@ -355,6 +361,11 @@
   function openInitiativeSettings(): void {
     isInitiativeOpen.value = true;
   }
+
+  /** Режим броска инициативы по флагам листа */
+  const initiativeRollMode = computed(() =>
+    resolveInitiativeRollMode(props.activeFlags ?? new Set<string>()),
+  );
 
   function handleInitiativeClick() {
     if (props.isEditMode) {
@@ -734,6 +745,6 @@
     :title="diceRollConfig.title"
     :roll-label="diceRollConfig.rollLabel"
     :roll-button-text="INITIATIVE_ROLL_LABELS.button"
-    initial-roll-mode="normal"
+    :initial-roll-mode="initiativeRollMode"
   />
 </template>

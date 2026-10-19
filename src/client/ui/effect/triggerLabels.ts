@@ -200,9 +200,11 @@ export const EFFECT_TRIGGER_EVENT_LABELS: Partial<
   healed: 'Когда носителя лечат',
   hpZero: 'Когда хиты носителя падают до 0',
   downedOther: 'Когда носитель сваливает цель',
+  damageDealt: 'Когда носитель наносит урон',
   allyHurt: 'Когда на глазах носителя ранят союзника',
   conditionLost: 'Когда с носителя снимается состояние',
   castEnd: 'Когда заклинание заканчивается',
+  spellCast: 'Когда носитель накладывает заклинание',
   moved: 'Когда носитель проходит путь',
   rest: 'После отдыха',
 };
@@ -497,6 +499,7 @@ export const EFFECT_TRIGGER_CONDITION_KIND_LABELS: Record<
   selfInLight: 'Носитель на свету',
   otherInDarkness: 'Другая сторона в темноте',
   otherInLight: 'Другая сторона на свету',
+  spellVerbal: 'Заклинание с вербальным компонентом',
 };
 
 /**

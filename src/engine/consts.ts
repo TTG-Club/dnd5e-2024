@@ -24,7 +24,12 @@ import type {
 import type { CreatureSize } from './types.js';
 
 import { DEFAULT_CARRYING_CAPACITY } from './carryingCapacity.js';
-import { BLOODIED_AUTO_APPLY, DEATH_CONDITION_KEY } from './conditionKeys.js';
+import {
+  BLOODIED_AUTO_APPLY,
+  DEATH_CONDITION_KEY,
+  HIDDEN_CONDITION_KEY,
+  SURPRISED_CONDITION_KEY,
+} from './conditionKeys.js';
 import { DEFAULT_PREPARED_LIMIT } from './preparedSpells.js';
 
 /** Общий предел бонусных костей одной d20-проверки; соответствует пределу группы клиентского роллера. */
@@ -883,6 +888,14 @@ export const CONDITIONS: readonly ConditionEntry[] = [
       'Скорость равна 0. Помеха на броски атаки по любой цели, кроме схватившего. Схвативший может тащить существо за собой.',
   },
   {
+    key: HIDDEN_CONDITION_KEY,
+    nameRu: 'В засаде',
+    nameEn: 'Hidden',
+    icon: 'tabler:spy',
+    description:
+      'Итог действия «Засада»: преимущество на инициативу, ваши атаки — с преимуществом, атаки против вас — с помехой. Кончается, когда вы атакуете, накладываете заклинание с вербальным компонентом, издаёте звук громче шёпота или враг находит вас проверкой Мудрости (Внимательность) против Сл поиска.',
+  },
+  {
     key: 'incapacitated',
     nameRu: 'Недееспособный',
     nameEn: 'Incapacitated',
@@ -950,6 +963,14 @@ export const CONDITIONS: readonly ConditionEntry[] = [
     customImage: '/assets/status/stunned.svg',
     description:
       'Недееспособен. Автопровал спасбросков СИЛ и ЛОВ. Атаки по вам с преимуществом.',
+  },
+  {
+    key: SURPRISED_CONDITION_KEY,
+    nameRu: 'Застигнутый врасплох',
+    nameEn: 'Surprised',
+    icon: 'tabler:mood-surprised',
+    description:
+      'Начало боя для вас — неожиданность: помеха на бросок инициативы. Снимается в начале вашего первого хода.',
   },
   {
     key: 'unconscious',

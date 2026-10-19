@@ -1492,3 +1492,62 @@ export function settleAllyHurtEvents(
 
   return result;
 }
+
+/**
+ * «Носитель нанёс урон»: срабатывания тех, чей удар лёг в снимок. Событие
+ * идёт на ЭФФЕКТАХ НАНЁСШЕГО, по разу на удар: раненый — другая сторона, урон
+ * события — удар по нему. Им кончается «Невидимость» 2024 («цель наносит
+ * урон»).
+ *
+ * Нанёсшего называет удар (`DamageHit.sourceId`), а сущность отдаёт ядро
+ * (`getEntity`). Удар без источника (урон срабатываний сервера, правка хитов
+ * рукой) и удар по себе событие не будят: назвать нанёсшего некого, а «нанёс
+ * урон себе» правила нанесённым другим не считают.
+ *
+ * @param hurt - раненый: в него уже записан урон
+ * @param hits - удары снимка
+ * @param options - с чем прогоняются события
+ * @returns итог: нанёсшие, которых изменило срабатывание
+ */
+export function settleDamageDealtEvents(
+  hurt: DnDSceneEntity,
+  hits: readonly DamageHit[],
+  options: TriggerEventOptions,
+): DamageEventsResult {
+  const result = createDamageEventsResult();
+  const dealers = new Map<string, DamageHit[]>();
+
+  for (const hit of hits) {
+    if (hit.amount > 0 && hit.sourceId && hit.sourceId !== hurt.id) {
+      dealers.set(hit.sourceId, [...(dealers.get(hit.sourceId) ?? []), hit]);
+    }
+  }
+
+  for (const [dealerId, dealt] of dealers) {
+    const dealer = options.getEntity?.(dealerId);
+    const sources = dealer ? listOwnEventSources(dealer, 'damageDealt') : [];
+
+    if (!dealer || sources.length === 0) {
+      continue;
+    }
+
+    // Срабатывания идут на нанёсшем: он субъект своих эффектов
+    const own = createDamageEventsResult();
+
+    for (const hit of dealt) {
+      for (const source of sources) {
+        runTriggerEventSource(
+          dealer,
+          source,
+          { damage: hit, other: hurt },
+          options,
+          own,
+        );
+      }
+    }
+
+    mergeRelatedRun(result, dealer, own);
+  }
+
+  return result;
+}
