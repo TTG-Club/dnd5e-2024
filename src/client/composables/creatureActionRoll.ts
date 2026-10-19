@@ -17,6 +17,7 @@ import type {
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
+import type { TargetedAttackRoll } from './attackRollMode';
 import type { AttackRollSnapshot } from './attackRollSnapshot';
 import type { CreatureDamageVariant } from './creatureDamageChoice';
 import type { CreatureRollSetup } from './useBonusDamageParts';
@@ -423,6 +424,23 @@ export function openCreatureActionRoll(
       )
     : undefined;
 
+  // Цель сменили при открытом окне: режим и помеха дистанции — по новой цели
+  const resolveRollMode = (): TargetedAttackRoll => {
+    const current = readCreature(creature.id) ?? creature;
+    const { targetTokenId } = useTargetStore();
+
+    const rangeCheck =
+      !action.areaOfEffect && targetTokenId
+        ? checkCreatureActionRangeOnScene(action, current.id, targetTokenId)
+        : null;
+
+    return resolveTargetedAttackRoll(
+      current,
+      getAttackFlagCategory(action.rangeType),
+      { forceDisadvantage: Boolean(rangeCheck?.disadvantage) },
+    );
+  };
+
   const opened = openDiceRollWindow(
     {
       title: hasAttackRoll
@@ -443,6 +461,8 @@ export function openCreatureActionRoll(
         : undefined,
       initialRollMode: actionAttackRoll?.mode ?? 'normal',
       rollModeReasons: actionAttackRoll?.reasons,
+      resolveRollMode: hasAttackRoll ? resolveRollMode : undefined,
+      sneakAttack: hasAttackRoll ? buildSetup(action).sneakAttack : undefined,
       incomingAttackType: getAttackFlagCategory(action.rangeType),
       damageType: primary.damageType,
       damageParts: primary.damageParts,

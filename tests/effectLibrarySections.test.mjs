@@ -84,8 +84,10 @@ describe('библиотеки условий, ключей и правил', ()
   });
 
   it('составное условие без доспеха и щита читается подписью', () => {
-    const composite = engine.EFFECT_CONDITION_SUGGESTIONS.find((suggestion) =>
-      suggestion.value.includes(engine.CONDITION_AND_SEPARATOR),
+    const composite = engine.EFFECT_CONDITION_SUGGESTIONS.find(
+      (suggestion) =>
+        suggestion.value.includes(engine.CONDITION_AND_SEPARATOR)
+        && !suggestion.value.includes(engine.CONDITION_OR_SEPARATOR),
     );
 
     assert.ok(composite);

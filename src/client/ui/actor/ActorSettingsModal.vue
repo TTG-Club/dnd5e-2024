@@ -39,6 +39,7 @@
     isCreatureCategory,
     isDndActor,
     isTokenVisionEnabled,
+    readSneakAttackAutoAdd,
     resolveCreatureTokenScale,
     resolveTokenDarkvision,
     TOKEN_SCALE_TO_CREATURE_SIZE,
@@ -113,6 +114,8 @@
 
   const isPublic = ref(false);
   const autoSaves = ref(false);
+  /** Скрытая атака добавляется в окне атаки сама — настройка листа */
+  const sneakAttackAutoAdd = ref(true);
   const selectedCreatureType = ref<CreatureType>(DEFAULT_ACTOR_CREATURE_TYPE);
   const isSaving = ref(false);
   const isDeleteConfirmOpen = ref(false);
@@ -438,7 +441,8 @@
     const publicChanged = isPublic.value !== (actor.value.isPublic || false);
 
     const autoSavesChanged =
-      autoSaves.value !== (actor.value.autoSaves ?? false);
+      autoSaves.value !== (actor.value.autoSaves ?? false)
+      || sneakAttackAutoAdd.value !== readSneakAttackAutoAdd(actor.value);
 
     const tokenChanged =
       tokenSettings.value.imageUrl !== (actor.value.token?.imageUrl || '')
@@ -554,6 +558,7 @@
       resetOwnership();
       isPublic.value = actor.value.isPublic || false;
       autoSaves.value = actor.value.autoSaves ?? false;
+      sneakAttackAutoAdd.value = readSneakAttackAutoAdd(actor.value);
       selectedCreatureType.value = effectiveCreatureType.value;
 
       tokenSettings.value = {
@@ -638,6 +643,8 @@
 
       const updatedSystem = {
         ...actor.value.system,
+        // «Добавлять сама» — по умолчанию: поле хранится только у отказа
+        sneakAttackAutoAdd: sneakAttackAutoAdd.value ? undefined : false,
         size:
           TOKEN_SCALE_TO_CREATURE_SIZE[tokenSettings.value.scale]
           ?? actor.value.system.size,
@@ -834,6 +841,26 @@
 
                   <USwitch
                     v-model="autoSaves"
+                    :disabled="!(isAdmin || isOwner)"
+                  />
+                </div>
+
+                <!-- Скрытая атака: включён ли переключатель в окне атаки -->
+                <div
+                  class="flex items-center justify-between rounded border border-default/50 bg-elevated/30 p-3"
+                >
+                  <div class="space-y-0.5">
+                    <label class="text-sm font-medium text-toned">
+                      {{ TOKEN_SETTINGS_LABELS.sneakAttackAutoAdd }}
+                    </label>
+
+                    <p class="text-xs text-dimmed">
+                      {{ TOKEN_SETTINGS_LABELS.sneakAttackAutoAddHint }}
+                    </p>
+                  </div>
+
+                  <USwitch
+                    v-model="sneakAttackAutoAdd"
                     :disabled="!(isAdmin || isOwner)"
                   />
                 </div>

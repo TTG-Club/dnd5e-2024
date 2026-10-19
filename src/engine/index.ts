@@ -142,6 +142,7 @@ export * from './sceneSight.js';
 export * from './skillEffectInfluences.js';
 export * from './skills.js';
 export * from './slugify.js';
+export * from './sneakAttack.js';
 export * from './sourceFormulaBinding.js';
 export * from './sourceKeys.js';
 export * from './speciesCondition.js';

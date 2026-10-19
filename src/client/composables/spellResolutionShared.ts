@@ -152,6 +152,10 @@ export interface SpellDamagePartInput {
   targetStatusGate?: string;
   /** Часть получает усиление высших кругов (слот-скейлинг) при броске */
   applySlotScaling?: boolean;
+  /** Своя подпись части в окне и чате: «Скрытая атака» */
+  label?: string;
+  /** Кости Скрытой атаки: их бросок тратит её лимит хода */
+  sneakAttack?: true;
 }
 
 /**
@@ -184,6 +188,10 @@ export interface RolledSpellDamagePart {
   targetStatusGate?: string;
   /** Часть брошена критом: событиям урона цели нужен крит */
   critical?: boolean;
+  /** Своя подпись части в чате: «Скрытая атака» */
+  label?: string;
+  /** Кости Скрытой атаки */
+  sneakAttack?: true;
 }
 
 /** Контекст AoE шаблона */
@@ -520,15 +528,39 @@ export function getDamageTypeLabel(
 
 /**
  * Лейбл вида части: «Лечение» / «Временные ХП» / локализованный тип урона.
+ * У части со своей подписью — подпись и вид: «Скрытая атака (Колющий)».
  *
  * @param part - часть урона/лечения (брошенная или входная)
  * @param part.isHealing - является ли часть лечением
  * @param part.healTemp - лечение временными ХП (`@heal.temp`)
  * @param part.type - тип урона (для лечения не используется)
  * @param part.types - все типы урона части, если их несколько (рубящий+огонь)
+ * @param part.label - своя подпись части
  * @returns подпись вида для чата и описаний
  */
 export function getPartKindLabel(part: {
+  isHealing: boolean;
+  healTemp?: boolean;
+  type?: string;
+  types?: string[];
+  label?: string;
+}): string {
+  const kind = getPartKindOnlyLabel(part);
+
+  return part.label ? `${part.label} (${kind})` : kind;
+}
+
+/**
+ * Вид части без своей подписи: «Лечение», «Временные ХП» или тип урона.
+ *
+ * @param part - часть урона/лечения
+ * @param part.isHealing - является ли часть лечением
+ * @param part.healTemp - лечение временными ХП
+ * @param part.type - тип урона
+ * @param part.types - все типы урона части
+ * @returns подпись вида
+ */
+function getPartKindOnlyLabel(part: {
   isHealing: boolean;
   healTemp?: boolean;
   type?: string;

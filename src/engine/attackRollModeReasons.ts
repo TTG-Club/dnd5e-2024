@@ -141,6 +141,28 @@ function describeAttackerFlagWithoutEffect(flag: string): string {
     : describeEffectFlag(flag);
 }
 
+/** Флаг невидимости: по нему сцена и не видит сторону */
+const INVISIBLE_FLAG = 'vision.invisible';
+
+/**
+ * Объясняет ли невидимость стороны режим уже эффектом: у стороны есть
+ * эффект-причина этого режима и эффект с флагом невидимости. Тогда строка
+ * «цель не видна» или «цель не видит атакующего» повторила бы его.
+ *
+ * @param effectReasonCount - сколько причин этой стороны дали эффекты
+ * @param entries - эффекты стороны и их флаги в этом броске
+ * @returns `true`, если строку о зрении показывать не нужно
+ */
+function explainsBySightFlag(
+  effectReasonCount: number,
+  entries: ReadonlyArray<{ flags: readonly string[] }>,
+): boolean {
+  return (
+    effectReasonCount > 0
+    && entries.some((entry) => entry.flags.includes(INVISIBLE_FLAG))
+  );
+}
+
 /**
  * Причины одной стороны режима: преимущества или помехи.
  *
@@ -186,11 +208,17 @@ function listReasonsOfKind(
       ? [REASON_LABELS.beyondNormalRange]
       : [];
 
+  // Невидимость стороны — уже названная причина («Невидимый»): сцена не
+  // видит её по той же невидимости, и вторая строка о том же только путала
   const fromSight = [
-    ...(kind === 'disadvantage' && params.isTargetUnseen === true
+    ...(kind === 'disadvantage'
+    && params.isTargetUnseen === true
+    && !explainsBySightFlag(fromTarget.length, targetEntries)
       ? [REASON_LABELS.targetUnseen]
       : []),
-    ...(kind === 'advantage' && params.isAttackerUnseen === true
+    ...(kind === 'advantage'
+    && params.isAttackerUnseen === true
+    && !explainsBySightFlag(fromAttacker.length, attackerEntries)
       ? [REASON_LABELS.attackerUnseen]
       : []),
   ];

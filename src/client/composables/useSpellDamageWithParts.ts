@@ -1037,7 +1037,11 @@ export function useSpellDamageWithParts() {
         ...(ignoredResistances.length > 0
           ? { ignoredResistances: [...ignoredResistances] }
           : {}),
+        ...(context.attack?.sneakAttackTurn && context.casterId
+          ? { sneakAttackTurn: context.attack.sneakAttackTurn }
+          : {}),
         parts: damageParts.map((part) => ({
+          ...(part.label ? { label: part.label } : {}),
           formula: part.formula,
           types: part.types ?? (part.type ? [part.type] : []),
           roll: describeDamagePartRoll({

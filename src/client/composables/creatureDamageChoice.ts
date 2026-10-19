@@ -276,6 +276,8 @@ export interface CreatureDamageVariant {
   label: string;
   /** Действие с уроном этого варианта */
   action: CreatureAction;
+  /** Вариант «если у атаки преимущество»: окно выбирает его по режиму */
+  whenAdvantage?: true;
 }
 
 /**
@@ -354,10 +356,13 @@ export function runWithCreatureDamageChoice(
     ),
   );
 
-  const variants = choice.options.map((option, index) => ({
-    label: labels[index] ?? '',
-    action: applyCreatureDamageOption(action, option),
-  }));
+  const variants = choice.options.map(
+    (option, index): CreatureDamageVariant => ({
+      label: labels[index] ?? '',
+      action: applyCreatureDamageOption(action, option),
+      ...(option.whenAdvantage ? { whenAdvantage: true } : {}),
+    }),
+  );
 
   const [firstVariant] = variants;
 
@@ -448,7 +453,7 @@ export function buildCreatureRollVariants(
     attack?: AttackRollSnapshot,
   ) => void,
 ): RollDamageVariant[] {
-  const damageSets =
+  const damageSets: readonly CreatureDamageVariant[] =
     variants.length > 0 ? variants : [{ label: action.name, action }];
 
   return damageSets.map((variant) => {
@@ -467,6 +472,7 @@ export function buildCreatureRollVariants(
 
     return {
       label: variant.label,
+      ...(variant.whenAdvantage ? { whenAdvantage: true } : {}),
       formula: setup.baseParts[0]?.formula ?? '',
       damageType: getDamagePartsPrimaryType(variant.action.damageParts),
       damageParts: setup.baseParts,

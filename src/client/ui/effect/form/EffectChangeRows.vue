@@ -39,6 +39,8 @@
     isOptionValueKey,
     isRollTimeDiceKey,
     MAX_EFFECT_CHANGE_STEP,
+    SNEAK_ATTACK_DAMAGE_KEY,
+    SNEAK_ATTACK_DICE_KEY,
     toStoredEffectChangeValue,
     validateChangeOptionValue,
     validateFormula,
@@ -149,6 +151,14 @@
    * @returns текст пояснения либо пустая строка
    */
   function describeValueHelp(change: EffectChange): string {
+    if (change.key === SNEAK_ATTACK_DAMAGE_KEY) {
+      return EFFECT_CHANGE_ROW_LABELS.sneakAttackDamageHint;
+    }
+
+    if (change.key === SNEAK_ATTACK_DICE_KEY) {
+      return EFFECT_CHANGE_ROW_LABELS.sneakAttackDiceHint;
+    }
+
     if (change.key.startsWith(DAMAGE_CHANGE_KEY_PREFIX)) {
       return EFFECT_CHANGE_ROW_LABELS.damageFormulaHint;
     }

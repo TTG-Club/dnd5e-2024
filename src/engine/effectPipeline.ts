@@ -52,8 +52,10 @@ import {
   ATTACKS_AGAINST_KEY,
   CARRIER_ARMOR_CONDITION_PREFIX,
   CONCENTRATION_SAVE_KEY,
+  conditionHolds,
   DEATH_SAVE_KEY,
   DEFAULT_CRIT_THRESHOLD,
+  hasConditionAlternatives,
   INCOMING_ATTACKER_IS_SOURCE_CONDITION,
   INCOMING_ATTACKER_NOT_SOURCE_CONDITION,
   isCarrierEffect,
@@ -62,6 +64,12 @@ import {
   isSenseType,
   isWeaponOverrideKey,
   parseWeaponBaseTypeCondition,
+  ROLL_ADVANTAGE_CONDITION,
+  ROLL_DISADVANTAGE_CONDITION,
+  ROLL_NO_DISADVANTAGE_CONDITION,
+  SNEAK_ATTACK_APPLIED_CONDITION,
+  SNEAK_ATTACK_DAMAGE_KEY,
+  splitConditionGroups,
   splitConditionParts,
   TARGET_ALLY_ADJACENT_CONDITION,
   TARGET_ALLY_WITH_CONDITION_PREFIX,
@@ -71,6 +79,7 @@ import {
   TARGET_NOT_SOURCE_CONDITION,
   WEAPON_DAMAGE_DICE_KEY,
   WEAPON_PROPERTY_CONDITION_PREFIX,
+  WEAPON_RANGE_CONDITION_PREFIX,
 } from './activeEffectTypes.js';
 import { isArmorProficient } from './armorProficiency.js';
 import {
@@ -858,6 +867,12 @@ function buildWeaponOverrideEntry(
     return undefined;
   }
 
+  // «Или» замене кости не подходит: оружие листа сверяется с видами одним
+  // списком, а не перебором веток
+  if (change.condition && hasConditionAlternatives(change.condition)) {
+    return undefined;
+  }
+
   let baseTypes: string[] | undefined;
 
   for (const part of splitConditionParts(change.condition ?? '')) {
@@ -958,6 +973,20 @@ export interface RollContext {
    * метательным оружием»). Не задано — бросок не оружием, условие не выполняется.
    */
   weaponProperties?: readonly string[];
+  /**
+   * Дальность САМОГО оружия броска — для условия `weapon.rangeType`
+   * («Скрытая атака» дальнобойным оружием). Не вид атаки: у брошенного
+   * кинжала атака дальнобойная, а оружие рукопашное. Не задано — бросок не
+   * оружием, условие не выполняется.
+   */
+  weaponRangeType?: 'melee' | 'ranged';
+  /**
+   * В этой атаке идёт Скрытая атака — для зависимых строк (условие
+   * `attack.sneakAttack === true`). Ставит тот, кто её решил
+   * (`resolveSneakAttack`): условия выполнены, переключатель включён, лимит
+   * хода свободен.
+   */
+  sneakAttack?: boolean;
   /**
    * Состояние HP цели — для условий `target.hp.*` (напр. «Убийца»/«Окровавлен»),
    * и её тип — для условий `target.creatureType`. Отсутствует вне
@@ -1205,6 +1234,12 @@ function isCarrierConditionPart(part: string): boolean {
  * @returns `true`, если условие о носителе
  */
 function isCarrierCondition(condition: string): boolean {
+  // «Или» по листу не считается: ветки пришлось бы класть в постоянные числа
+  // по отдельности. Такое условие целиком уходит в бросок
+  if (hasConditionAlternatives(condition)) {
+    return false;
+  }
+
   const parts = splitConditionParts(condition);
 
   return parts.length > 0 && parts.every(isCarrierConditionPart);
@@ -1260,11 +1295,8 @@ function carrierConditionMatches(
   condition: string,
   carrier: CarrierContext | undefined,
 ): boolean {
-  const parts = splitConditionParts(condition);
-
-  return (
-    parts.length > 0
-    && parts.every((part) => carrierConditionPartMatches(part, carrier))
+  return conditionHolds(condition, (part) =>
+    carrierConditionPartMatches(part, carrier),
   );
 }
 
@@ -1309,21 +1341,19 @@ function skipChangeOnSheet(
  * per-target гейт ({@link collectBonusDamageFormulas}); отложить умеет только
  * одиночное условие, составное с частью о цели там просто не сработает.
  *
- * Части, соединённые `&&`, обязаны выполниться все.
+ * Части, соединённые `&&`, обязаны выполниться все; группы, соединённые
+ * `||`, — хоть одна.
  *
  * @param condition - строка условия
  * @param rollContext - контекст текущего броска
  * @returns true если условие выполняется
  */
-function evaluateCondition(
+export function evaluateCondition(
   condition: string,
   rollContext: RollContext,
 ): boolean {
-  const parts = splitConditionParts(condition);
-
-  return (
-    parts.length > 0
-    && parts.every((part) => evaluateConditionPart(part, rollContext))
+  return conditionHolds(condition, (part) =>
+    evaluateConditionPart(part, rollContext),
   );
 }
 
@@ -1400,12 +1430,29 @@ export function evaluateConditionPart(
   trimmed: string,
   rollContext: RollContext,
 ): boolean {
-  if (trimmed === 'roll.hasAdvantage === true') {
+  if (trimmed === ROLL_ADVANTAGE_CONDITION) {
     return rollContext.hasAdvantage;
   }
 
-  if (trimmed === 'roll.hasDisadvantage === true') {
+  if (trimmed === ROLL_DISADVANTAGE_CONDITION) {
     return rollContext.hasDisadvantage;
+  }
+
+  if (trimmed === ROLL_NO_DISADVANTAGE_CONDITION) {
+    return !rollContext.hasDisadvantage;
+  }
+
+  if (trimmed === SNEAK_ATTACK_APPLIED_CONDITION) {
+    return rollContext.sneakAttack === true;
+  }
+
+  const weaponRange = parseQuotedCondition(
+    trimmed,
+    WEAPON_RANGE_CONDITION_PREFIX,
+  );
+
+  if (weaponRange) {
+    return rollContext.weaponRangeType === weaponRange;
   }
 
   const weaponProperty = parseQuotedCondition(
@@ -1538,13 +1585,8 @@ function evaluateDefensiveCondition(
   attackContext: DndIncomingAttackContext,
   effectSourceId?: string,
 ): boolean {
-  const parts = splitConditionParts(condition);
-
-  return (
-    parts.length > 0
-    && parts.every((part) =>
-      evaluateDefensiveConditionPart(part, attackContext, effectSourceId),
-    )
+  return conditionHolds(condition, (part) =>
+    evaluateDefensiveConditionPart(part, attackContext, effectSourceId),
   );
 }
 
@@ -2087,6 +2129,7 @@ function isRollBonusKey(key: string): boolean {
 export function isRollTimeDiceKey(key: string): boolean {
   return (
     key === ATTACKS_AGAINST_KEY
+    || key === SNEAK_ATTACK_DAMAGE_KEY
     || key.startsWith('damage.')
     || isRollBonusKey(key)
   );
@@ -2125,9 +2168,10 @@ export function readAbilityDamageScope(
     return undefined;
   }
 
+  // Только одиночное условие: и «и», и «или» оставляют строку условием броска
   const parts = splitConditionParts(change.condition);
 
-  if (parts.length !== 1) {
+  if (parts.length !== 1 || hasConditionAlternatives(change.condition)) {
     return undefined;
   }
 
@@ -2420,6 +2464,9 @@ export function hasBonusDamageFormulas(
  * Особый случай — условие `target.hp.*` БЕЗ HP цели в контексте (AoE / снаряды:
  * единой цели нет): формула не гасится, а возвращается с отложенным гейтом
  * `conditionGate` — оркестратор оценит HP каждой цели в момент применения.
+ * Откладывается только одиночное условие: с «или» ({@link evaluateCondition})
+ * ветку цели в гейт не разложить, и без единой цели такая строка оценивается
+ * сразу — её часть о хитах цели не выполняется.
  * Токены `@dmg.<type>`/`@target.*` остаются в формуле — их разбирает
  * `resolveBonusDamageParts` (spellUtils).
  *
@@ -2490,6 +2537,45 @@ export function collectBonusDamageFormulas(
   }
 
   return formulas;
+}
+
+/** Строка эффекта, выполненная в этом броске, вместе со своим эффектом */
+export interface RollChangeMatch {
+  /** Строка */
+  change: EffectChange;
+  /** Эффект строки — его имя и наложивший */
+  effect: ActiveEffect;
+}
+
+/**
+ * Строки с этим ключом, которые действуют в броске: эффект не спит, его
+ * условие броска выполнено, условие строки — тоже (без условия — всегда).
+ * Для ключей, которые читает сам бросок, а не лист (`sneakAttack.*`).
+ *
+ * @param effects - эффекты бросающего (с аурами)
+ * @param key - ключ строки
+ * @param rollContext - контекст броска
+ * @returns подходящие строки по порядку эффектов
+ */
+export function collectRollTimeChanges(
+  effects: readonly ActiveEffect[],
+  key: EffectTargetKey,
+  rollContext: RollContext,
+): RollChangeMatch[] {
+  return effects.flatMap((effect) => {
+    if (isEffectDormant(effect) || !rollConditionHolds(effect, rollContext)) {
+      return [];
+    }
+
+    const scoped = scopeRollContext(rollContext, effect);
+
+    return effect.changes.flatMap((change) =>
+      change.key === key
+      && (!change.condition || evaluateCondition(change.condition, scoped))
+        ? [{ change, effect }]
+        : [],
+    );
+  });
 }
 
 /**
@@ -3146,10 +3232,12 @@ function sourceImmunityHolds(
 
   if (
     rollCondition === undefined
-    || !splitConditionParts(rollCondition).some(
-      (part) =>
-        parseCreatureTypeCondition(part, 'source.creatureType') !== undefined,
-    )
+    || !splitConditionGroups(rollCondition)
+      .flat()
+      .some(
+        (part) =>
+          parseCreatureTypeCondition(part, 'source.creatureType') !== undefined,
+      )
   ) {
     return true;
   }

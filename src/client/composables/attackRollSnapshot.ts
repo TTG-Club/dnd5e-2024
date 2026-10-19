@@ -41,6 +41,12 @@ export interface AttackRollSnapshot {
   held: ReadonlyMap<string, readonly HeldAttackEffect[]>;
   /** Сообщение чата с броском атаки: урон дописывается в его карточку */
   chatMessageId?: string;
+  /**
+   * Ход боя, в котором этот удар потратил Скрытую атаку атакующего. По нему
+   * «Отменить урон» в чате возвращает её — в том же ходу. Нет — Скрытой
+   * атаки в уроне не было или бой не шёл
+   */
+  sneakAttackTurn?: string;
 }
 
 /**

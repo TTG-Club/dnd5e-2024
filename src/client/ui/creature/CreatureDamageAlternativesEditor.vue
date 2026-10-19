@@ -19,6 +19,7 @@
     DEFAULT_CREATURE_DAMAGE_CONDITION,
     describeCreatureDamageCondition,
     FORMULA_CREATURE_DAMAGE_CONDITION,
+    isAutomaticAlternative,
     listAlternativeStatuses,
     MAX_CREATURE_DAMAGE_ALTERNATIVES,
   } from '@vtt/shared/system/dnd.js';
@@ -57,9 +58,9 @@
 
       return {
         alternative,
-        isAutomatic: statuses.length > 0,
+        isAutomatic: isAutomaticAlternative(alternative),
         lacksStatus:
-          statuses.length === 0
+          !isAutomaticAlternative(alternative)
           && alternative.condition === FORMULA_CREATURE_DAMAGE_CONDITION,
         autoCaption: `${CREATURE_DAMAGE_ALTERNATIVE_LABELS.autoPrefix}${describeCreatureDamageCondition(alternative)}`,
         // Состояние цели у действия с областью не проверить: цель там не одна
@@ -176,10 +177,9 @@
       return;
     }
 
-    const condition =
-      listAlternativeStatuses({ damageParts }).length > 0
-        ? FORMULA_CREATURE_DAMAGE_CONDITION
-        : alternative.condition;
+    const condition = isAutomaticAlternative({ damageParts })
+      ? FORMULA_CREATURE_DAMAGE_CONDITION
+      : alternative.condition;
 
     replaceAlternative(index, { ...alternative, condition, damageParts });
   }

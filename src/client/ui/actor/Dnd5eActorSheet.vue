@@ -83,6 +83,7 @@
     subspeciesFitsPack,
   } from '@vtt/shared/system/dnd.js';
 
+  import { changeEntityCombatState } from '../../composables/entityCombatWrite';
   import { runRestWithTriggers } from '../../composables/restTriggerPrompt';
   import {
     refuseWhileSheetEditing,
@@ -121,6 +122,7 @@
     rollbackClassProficiencies,
   } from './class/classRollback';
   import ClassSetupWizard from './class/ClassSetupWizard.vue';
+  import { buildSneakAttackMigration } from './class/sneakAttackMigration';
   import CompendiumPickerModal from './CompendiumPickerModal.vue';
   import {
     ACTOR_SHEET_LABELS,
@@ -617,6 +619,46 @@
       ).filter((counter) => classEntry.level >= counter.startLevel);
     });
   });
+
+  /**
+   * Старая кнопка Скрытой атаки на листе заменяется новой строкой из
+   * определения класса — при открытии листа, тем, кто вправе его менять.
+   * Эффекты пишет боевой канал: запись листа их не трогает. Повтор безвреден:
+   * после замены менять уже нечего.
+   */
+  const pendingSneakAttackMigration = computed(() => {
+    const actor = storeActor.value;
+
+    if (!actor || !canEdit.value) {
+      return undefined;
+    }
+
+    return buildSneakAttackMigration(actor, (entry) =>
+      classCatalog.resolve({ key: entry.classKey, packId: entry.packId }),
+    );
+  });
+
+  watch(
+    pendingSneakAttackMigration,
+    (migrated) => {
+      if (!migrated) {
+        return;
+      }
+
+      changeEntityCombatState(props.actorId, (current) => {
+        if (!isDndActor(current)) {
+          return null;
+        }
+
+        const effects = buildSneakAttackMigration(current, (entry) =>
+          classCatalog.resolve({ key: entry.classKey, packId: entry.packId }),
+        );
+
+        return effects ? { ...current, activeEffects: effects } : null;
+      });
+    },
+    { immediate: true },
+  );
 
   /**
    * Выбранные подклассы для значка в шапке. На записи актора лежит только

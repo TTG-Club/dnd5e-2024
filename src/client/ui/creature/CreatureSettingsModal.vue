@@ -33,6 +33,7 @@
     CREATURE_SIZE_LABELS,
     getAlignmentLabel,
     isDndCreature,
+    readSneakAttackAutoAdd,
     resolveCreatureHitPointsByRules,
     resolveCreatureTokenScale,
     TOKEN_SCALE_TO_CREATURE_SIZE,
@@ -124,6 +125,8 @@
 
   const isSaving = ref(false);
   const autoSaves = ref(true);
+  /** Скрытая атака добавляется в окне атаки сама — настройка листа */
+  const sneakAttackAutoAdd = ref(true);
   const isPublic = ref(false);
 
   const currentUser = computed(() => {
@@ -387,7 +390,8 @@
       || visionSettings.value.angle !== savedVision.angle;
 
     const autoSavesChanged =
-      autoSaves.value !== (creature.value.autoSaves ?? true);
+      autoSaves.value !== (creature.value.autoSaves ?? true)
+      || sneakAttackAutoAdd.value !== readSneakAttackAutoAdd(creature.value);
 
     const ownerChanged = isAdmin.value && ownersChanged.value;
     const publicChanged = isPublic.value !== (creature.value.isPublic || false);
@@ -501,6 +505,7 @@
         : createDefaultLightEmitter();
 
       autoSaves.value = creature.value.autoSaves ?? true;
+      sneakAttackAutoAdd.value = readSneakAttackAutoAdd(creature.value);
       resetOwnership();
       isPublic.value = creature.value.isPublic || false;
     }
@@ -553,7 +558,13 @@
         size:
           TOKEN_SCALE_TO_CREATURE_SIZE[tokenSettings.value.scale]
           ?? creature.value.system.size,
+        // «Добавлять сама» — по умолчанию: поле хранится только у отказа
+        sneakAttackAutoAdd: sneakAttackAutoAdd.value ? undefined : false,
       };
+
+      const systemChanged =
+        updatedSystem.size !== creature.value.system.size
+        || sneakAttackAutoAdd.value !== readSneakAttackAutoAdd(creature.value);
 
       const adjustedHitPoints =
         updatedSystem.size !== creature.value.system.size
@@ -566,7 +577,7 @@
 
       const updates: Partial<DnDCreature> = {
         token: updatedToken,
-        ...(updatedSystem.size !== creature.value.system.size
+        ...(systemChanged
           ? {
               system: {
                 ...updatedSystem,
@@ -765,6 +776,26 @@
 
                   <USwitch
                     v-model="autoSaves"
+                    :disabled="!(isAdmin || isOwner)"
+                  />
+                </div>
+
+                <!-- Скрытая атака: включён ли переключатель в окне атаки -->
+                <div
+                  class="flex items-center justify-between rounded border border-default/50 bg-elevated/30 p-3"
+                >
+                  <div class="space-y-0.5">
+                    <label class="text-sm font-medium text-toned">
+                      {{ TOKEN_SETTINGS_LABELS.sneakAttackAutoAdd }}
+                    </label>
+
+                    <p class="text-xs text-dimmed">
+                      {{ TOKEN_SETTINGS_LABELS.sneakAttackAutoAddHint }}
+                    </p>
+                  </div>
+
+                  <USwitch
+                    v-model="sneakAttackAutoAdd"
                     :disabled="!(isAdmin || isOwner)"
                   />
                 </div>

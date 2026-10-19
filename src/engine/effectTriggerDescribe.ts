@@ -29,12 +29,17 @@ import type {
 } from './triggerConditions.js';
 
 import {
+  CONDITION_OR_JOINER,
   describeConditionName,
   describeEffectChangeCondition,
   describeEffectDamageParts,
   describeEffectDuration,
   formatEffectSaveDc,
 } from './activeEffectDescribe.js';
+import {
+  joinConditionGroups,
+  splitConditionGroups,
+} from './activeEffectTypes.js';
 import {
   ABILITY_GENITIVE_LABELS,
   ABILITY_LABELS,
@@ -492,16 +497,20 @@ function describeCreatureTypeNot(value: string): string {
  * @returns подпись
  */
 export function describeTriggerCondition(condition: string): string {
-  return readTriggerConditionParts(condition)
-    .map((part) =>
-      typeof part === 'string'
-        ? describeEffectChangeCondition(part)
-        : TRIGGER_CONDITION_PHRASES[part.kind](
-            part.value ?? '',
-            part.amount ?? DEFAULT_TAG_COUNT_THRESHOLD,
-          ),
+  return splitConditionGroups(condition)
+    .map((group) =>
+      readTriggerConditionParts(joinConditionGroups([group]))
+        .map((part) =>
+          typeof part === 'string'
+            ? describeEffectChangeCondition(part)
+            : TRIGGER_CONDITION_PHRASES[part.kind](
+                part.value ?? '',
+                part.amount ?? DEFAULT_TAG_COUNT_THRESHOLD,
+              ),
+        )
+        .join(TRIGGER_LABELS.conditionJoiner),
     )
-    .join(TRIGGER_LABELS.conditionJoiner);
+    .join(CONDITION_OR_JOINER);
 }
 
 /**

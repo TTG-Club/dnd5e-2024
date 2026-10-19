@@ -17,7 +17,9 @@ import type {
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
+import type { TargetedAttackRoll } from './attackRollMode';
 import type { AttackRollSnapshot } from './attackRollSnapshot';
+import type { BonusPartsRollContext } from './useBonusDamageParts';
 import type { RolledSpellDamagePart } from './useSpellResolution';
 
 import { useChatStore } from '@/stores/chatStore';
@@ -278,6 +280,22 @@ export function openWeaponAttackRoll(
     { forceDisadvantage: options.isDisadvantage },
   );
 
+  // Цель сменили при открытом окне: режим считается по новой цели, и помеха
+  // дистанции — тоже по ней. Атакующий перечитывается: окно живёт дольше
+  // момента открытия
+  const resolveRollMode = (): TargetedAttackRoll => {
+    const current = port.readAttacker() ?? attacker;
+    const { targetTokenId } = useTargetStore();
+
+    const rangeCheck = targetTokenId
+      ? checkWeaponRangeOnScene(weapon, current.id, targetTokenId)
+      : null;
+
+    return resolveTargetedAttackRoll(current, incomingAttackType, {
+      forceDisadvantage: Boolean(rangeCheck?.disadvantage),
+    });
+  };
+
   const { buildWeaponRollSetup, buildTargetHpContext, buildTargetTypeContext } =
     useBonusDamageParts();
 
@@ -325,23 +343,24 @@ export function openWeaponAttackRoll(
           ),
       initialRollMode: weaponAttackRoll.mode,
       rollModeReasons: weaponAttackRoll.reasons,
+      resolveRollMode,
+      sneakAttack: hasSave ? undefined : weaponPartsSetup.sneakAttack,
       critThreshold: resolveTargetedCritThreshold(
         attacker,
         resolvedStats.critThreshold,
       ),
       incomingAttackType,
-      evaluateConditionalBonuses: (modalContext: {
-        hasAdvantage: boolean;
-        hasDisadvantage: boolean;
-      }) => {
+      evaluateConditionalBonuses: (modalContext: BonusPartsRollContext) => {
         // Хиты цели читаются в момент броска — для условий target.hp.*
         // («Убийца»); предмет броска — для «только этим предметом»
         const rollContext = {
           ...modalContext,
           target: buildTargetHpContext(undefined, attacker.id),
           itemId: weapon.id,
-          // Свойства оружия — для условия «метательным оружием»
+          // Свойства оружия — для условия «метательным оружием», дальность
+          // самого оружия — для «дальнобойного оружия»
           weaponProperties: weapon.weaponProperties ?? [],
+          weaponRangeType: weapon.sourceRangeType ?? weapon.rangeType,
         };
 
         // Условный бонус может быть формулой (`@prof`, `@mod.dex`) — от

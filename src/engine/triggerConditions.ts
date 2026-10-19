@@ -27,9 +27,12 @@ import {
   ATTACK_ABILITY_CONDITION_PREFIX,
   CARRIER_TYPE_CONDITION_PREFIX,
   CARRIER_TYPE_NOT_CONDITION_PREFIX,
-  CONDITION_AND_SEPARATOR,
+  conditionHolds,
+  hasConditionAlternatives,
   hasEntityCondition,
+  joinConditionGroups,
   listLiveEffects,
+  splitConditionGroups,
   splitConditionParts,
   TARGET_TYPE_CONDITION_PREFIX,
   TARGET_TYPE_NOT_CONDITION_PREFIX,
@@ -885,12 +888,20 @@ export function parseTriggerConditionPart(
  * Части условия срабатывания: разобранные и строки, которых словарь не знает
  * (их окно показывает как есть, чтобы не терять).
  *
+ * Условие с «или» окно по частям не разбирает: оно приходит одной строкой как
+ * есть, а {@link writeTriggerCondition} при добавлении к нему частей
+ * раскрывает скобки сам — «(a или b) и c» становится «a и c или b и c».
+ *
  * @param condition - условие срабатывания
  * @returns части по порядку
  */
 export function readTriggerConditionParts(
   condition: string | undefined,
 ): Array<TriggerConditionPart | string> {
+  if (condition && hasConditionAlternatives(condition)) {
+    return [condition.trim()];
+  }
+
   return splitConditionParts(condition ?? '').map(
     (text) => parseTriggerConditionPart(text) ?? text,
   );
@@ -905,15 +916,25 @@ export function readTriggerConditionParts(
 export function writeTriggerCondition(
   parts: ReadonlyArray<TriggerConditionPart | string>,
 ): string | undefined {
-  const texts = parts
+  // Части соединяются «и»; часть с «или» умножает группы: скобок в условии
+  // нет, и «(a или b) и c» пишется как «a и c или b и c»
+  const groups = parts
     .map((part) =>
       typeof part === 'string' ? part : buildTriggerConditionPart(part),
     )
-    .filter((text) => text.length > 0);
+    .map(splitConditionGroups)
+    .filter((alternatives) => alternatives.length > 0)
+    .reduce<string[][]>(
+      (combined, alternatives) =>
+        combined.flatMap((group) =>
+          alternatives.map((alternative) => [...group, ...alternative]),
+        ),
+      [[]],
+    );
 
-  return texts.length > 0
-    ? texts.join(` ${CONDITION_AND_SEPARATOR} `)
-    : undefined;
+  const condition = joinConditionGroups(groups);
+
+  return condition.length > 0 ? condition : undefined;
 }
 
 /**
@@ -1309,7 +1330,7 @@ export function passesLandingCondition(
 
 /**
  * Выполняется ли условие срабатывания. Нет условия — выполняется всегда;
- * части соединены «и».
+ * части соединены «и», группы — «или».
  *
  * @param entity - субъект срабатывания
  * @param trigger - срабатывание
@@ -1325,10 +1346,7 @@ export function isTriggerConditionMet(
     return true;
   }
 
-  const parts = splitConditionParts(trigger.condition);
-
-  return (
-    parts.length > 0
-    && parts.every((part) => isConditionPartMet(entity, part, eventData))
+  return conditionHolds(trigger.condition, (part) =>
+    isConditionPartMet(entity, part, eventData),
   );
 }

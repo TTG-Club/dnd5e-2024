@@ -102,8 +102,10 @@ import {
   DAMAGE_DEDUCTION_LABELS,
 } from '../ui/actor/constants';
 import { buildAttackDamageChatOptions } from './damageChatMessage';
+import { resolveTurnStamp } from './encounterTurn';
 import { changeEntityCombatState } from './entityCombatWrite';
 import { changeEntitySheet } from './entitySheetWrite';
+import { releaseSneakAttack, spendSneakAttack } from './sneakAttackUsage';
 import { getPartKindLabel } from './spellResolutionShared';
 
 /** Повторный урон одной цели: что с неё снято и чем это показать в чате */
@@ -419,6 +421,11 @@ export function revertAttackDamage(context: ChatFollowUpActionContext): void {
     return;
   }
 
+  // Урон отменён — потраченная им Скрытая атака возвращается (в том же ходу)
+  if (record.sneakAttackTurn && record.sourceId) {
+    releaseSneakAttack(record.sourceId, record.sneakAttackTurn);
+  }
+
   replaceFollowUp(context, {
     type: 'text',
     content: lines.join('\n'),
@@ -554,6 +561,7 @@ function buildSummaryFollowUp(
             isHealing: false,
             type: part.types[0],
             types: part.types,
+            label: part.label,
           }),
     );
 
@@ -1170,9 +1178,19 @@ export function reapplyAttackDamage(context: ChatFollowUpActionContext): void {
     return;
   }
 
+  // Урон нанесён заново — Скрытая атака в нём тратится снова, если ход тот
+  // же; в другом ходу лимит уже новый, и тратить его старым ударом нельзя
+  const sneakAttackTurn =
+    record.sneakAttackTurn
+    && record.sourceId
+    && record.sneakAttackTurn === resolveTurnStamp()
+      ? spendSneakAttack(record.sourceId)
+      : undefined;
+
   // Новая запись — с новыми снятыми хитами: следующая отмена вернёт их
   const nextRecord: AttackDamageRecord = {
     ...rerolledRecord,
+    sneakAttackTurn,
     targets: reapplied.map((entry) => entry.target),
   };
 

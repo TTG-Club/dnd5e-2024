@@ -52,8 +52,12 @@ export function buildTriggerUsageKey(
   return `${scope}${USAGE_KEY_SEPARATOR}${trigger.limit?.key ?? trigger.id}`;
 }
 
-/** Чей счётчик лимита: зона, копия ауры, черта существа, предмет */
-export type TriggerUsageScopeKind = 'area' | 'aura' | 'trait' | 'item';
+/**
+ * Чей счётчик лимита: зона, копия ауры, черта существа, предмет либо метка —
+ * общий счётчик всех источников одного правила («Скрытая атака раз в ход» у
+ * плута-мультиклассера с кинжалом, дающим её же)
+ */
+export type TriggerUsageScopeKind = 'area' | 'aura' | 'trait' | 'item' | 'tag';
 
 /**
  * Источник счётчика лимита. Ключи сохраняются в сущность, и общий лимит («вход

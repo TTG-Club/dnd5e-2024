@@ -1580,3 +1580,6 @@ export const HIT_DICE_FORMULA_LETTER = 'к';
  * бросить) и проверяют условие «метательным оружием».
  */
 export const THROWN_WEAPON_PROPERTY: WeaponProperty = 'thrown';
+
+/** Свойство оружия «Фехтовальное»: по нему работает условие Скрытой атаки */
+export const FINESSE_WEAPON_PROPERTY: WeaponProperty = 'finesse';

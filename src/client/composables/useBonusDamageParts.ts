@@ -10,6 +10,7 @@ import type {
   DnDGameItem,
   DnDSceneEntity,
   EffectTargetKey,
+  FormulaContext,
   ResolvedActorStats,
   RollContext,
   Spell,
@@ -44,11 +45,13 @@ import {
   getWeaponDamageParts,
   getWeaponPrimaryDamageType,
   hasBonusDamageFormulas,
+  hasSneakAttackSource,
   isDnDEffect,
   isDndSceneEntity,
   isUseActivatedEffect,
   listEnabledEffects,
   listEntityMarkSources,
+  readSneakAttackAutoAdd,
   resolveBonusDamageParts,
   resolveCreatureDamageParts,
   resolveCreatureSpellDamageParts,
@@ -57,24 +60,66 @@ import {
   resolveEntityCurrentHp,
   resolveEntityExtraCreatureTypes,
   resolveEntityMaxHp,
+  resolveSneakAttack,
   resolveSpellDamageFormula,
+  SNEAK_ATTACK_LABEL,
   substituteFormulaVariables,
   withFlatDamageBonus,
 } from '@vtt/shared/system/dnd.js';
 
+import { isSneakAttackSpentNow, spendSneakAttack } from './sneakAttackUsage';
 import { findAlliesAdjacentToTarget } from './targetAllyAdjacent';
 import { buildEntityFormulaContext } from './useResolvedStats';
 
-/** Контекст броска из модалки (фактический режим преимущества/помехи) */
-interface ModalRollContext {
+/** Контекст броска из окна: фактический режим и решённое окном */
+export interface BonusPartsRollContext {
+  /** Бросок с преимуществом */
   hasAdvantage: boolean;
+  /** Бросок с помехой */
   hasDisadvantage: boolean;
+  /**
+   * Скрытая атака идёт в этом броске: переключатель окна включён, а её
+   * условия и лимит окно уже проверило ({@link SneakAttackRollPort})
+   */
+  sneakAttack?: boolean;
 }
 
 /** Roll-time сборщик бонус-частей (проп DiceRollModal) */
 type BonusPartsEvaluator = (
-  context: ModalRollContext,
+  context: BonusPartsRollContext,
 ) => SpellDamagePartInput[];
+
+/** Оружие броска — то, что читают условия и ключи «только этим предметом» */
+type BonusPartsWeapon = Pick<
+  DnDGameItem,
+  'id' | 'weaponProperties' | 'rangeType' | 'sourceRangeType'
+>;
+
+/** Скрытая атака, которую окно атаки показывает переключателем */
+export interface SneakAttackPreview {
+  /** Кости для показа: «3к6» */
+  formula: string;
+  /** Чья она: эффект-источник */
+  sourceName: string;
+  /** В этом ходу уже потрачена: переключатель неактивен */
+  spent: boolean;
+}
+
+/**
+ * Скрытая атака в окне атаки: есть ли она при текущем режиме и цели, включена
+ * ли по умолчанию и как тратится. Окно зовёт `preview` при каждой смене
+ * режима и цели, а `spend` — когда кости брошены в урон.
+ */
+export interface SneakAttackRollPort {
+  /** Переключатель включён при открытии: настройка листа */
+  defaultEnabled: boolean;
+  /** Доступна ли сейчас; `undefined` — условия не выполнены */
+  preview: (
+    context: Pick<BonusPartsRollContext, 'hasAdvantage' | 'hasDisadvantage'>,
+  ) => SneakAttackPreview | undefined;
+  /** Тратит лимит хода; возвращает ход расхода (вне боя — `undefined`) */
+  spend: () => string | undefined;
+}
 
 /** Параметры сборки многочастного броска оружия */
 interface WeaponRollSetupOptions {
@@ -104,6 +149,8 @@ interface WeaponRollSetup {
   baseParts: SpellDamagePartInput[];
   /** Roll-time сборщик бонус-частей от эффектов (для DiceRollModal) */
   evaluateBonusDamageParts: BonusPartsEvaluator;
+  /** Скрытая атака для окна; нет — её источников у владельца нет */
+  sneakAttack?: SneakAttackRollPort;
   /**
    * Псевдо-заклинание для оркестратора `resolveSpellDamageWithParts`:
    * без спасброска и эффектов, имя — для подписи в чате. Позволяет
@@ -142,6 +189,8 @@ export interface CreatureRollSetup {
   evaluateBonusDamageParts: BonusPartsEvaluator;
   /** Псевдо-заклинание для оркестратора (saveType/saveEffect/areaOfEffect действия) */
   pseudoSpell: Spell;
+  /** Скрытая атака для окна; нет — её источников у существа нет */
+  sneakAttack?: SneakAttackRollPort;
 }
 
 /** Параметры сборки многочастного броска заклинания существа */
@@ -377,18 +426,93 @@ export function useBonusDamageParts() {
    *   состояний `@self.status.*` в формулах бонус-урона
    * @param weapon - оружие броска: «только этим предметом» и условия по
    *   свойствам оружия; нет — бросок не оружием
-   * @returns бонус-части урона
+   * @param sneakAttackContext - числа бросающего для костей Скрытой атаки;
+   *   нет — этот бросок Скрытой атакой не бывает (заклинание)
+   * @returns бонус-части урона; Скрытая атака — первой, со своей подписью
    */
   function collectParts(
     effects: readonly ActiveEffect[],
     damageKey: EffectTargetKey,
-    modalContext: ModalRollContext,
+    modalContext: BonusPartsRollContext,
     defaultType: string | undefined,
     useTargetState: boolean,
     resolveFormula: (subFormula: string) => string,
     owner: DnDSceneEntity,
-    weapon?: Pick<DnDGameItem, 'id' | 'weaponProperties'>,
+    weapon?: BonusPartsWeapon,
+    sneakAttackContext?: FormulaContext,
   ): SpellDamagePartInput[] {
+    const { rollContext, targetHp } = buildBonusRollContext(
+      owner,
+      modalContext,
+      useTargetState,
+      weapon,
+    );
+
+    // Скрытую атаку окно включило, только если она доступна; здесь она
+    // решается заново тем же правилом — сборщик не хранит состояния окна
+    const sneakAttack =
+      modalContext.sneakAttack && sneakAttackContext
+        ? resolveSneakAttack(effects, rollContext, sneakAttackContext)
+        : undefined;
+
+    // Зависимые строки («+1к6 этим ножом, если идёт Скрытая атака») видят,
+    // применена ли она в этой атаке
+    const formulas = collectBonusDamageFormulas(effects, damageKey, {
+      ...rollContext,
+      sneakAttack: sneakAttack !== undefined,
+    });
+
+    const targetIsFull = targetHp
+      ? targetHp.currentHp >= targetHp.maxHp
+      : undefined;
+
+    const resolveParts = (
+      partFormulas: Parameters<typeof resolveBonusDamageParts>[0],
+    ): SpellDamagePartInput[] =>
+      resolveBonusDamageParts(
+        partFormulas,
+        defaultType,
+        targetIsFull,
+        resolveFormula,
+        targetHp?.creatureType,
+        (status) => entityHasDamageStatus(owner, status),
+      );
+
+    // Кости Скрытой атаки — отдельной частью с типом оружия: крит их удваивает
+    // так же, как кости удара, а окно и чат подписывают её по названию
+    const sneakAttackParts = sneakAttack
+      ? resolveParts([{ formula: sneakAttack.formula }]).map((part) => ({
+          ...part,
+          label: SNEAK_ATTACK_LABEL,
+          sneakAttack: true as const,
+        }))
+      : [];
+
+    return [...sneakAttackParts, ...resolveParts(formulas)];
+  }
+
+  /**
+   * Контекст броска для условий эффектов: режим окна, цель (хиты, тип,
+   * союзник рядом), носитель и оружие.
+   *
+   * @param owner - бросающий
+   * @param modalContext - режим броска из окна
+   * @param useTargetState - оценивать ли состояние единой цели
+   * @param weapon - оружие броска; нет — бросок не оружием
+   * @returns контекст и цель, по которой он собран
+   */
+  function buildBonusRollContext(
+    owner: DnDSceneEntity,
+    modalContext: Pick<
+      BonusPartsRollContext,
+      'hasAdvantage' | 'hasDisadvantage'
+    >,
+    useTargetState: boolean,
+    weapon?: BonusPartsWeapon,
+  ): {
+    rollContext: RollContext;
+    targetHp: ReturnType<typeof buildTargetHpContext>;
+  } {
     const carrier: CarrierContext = buildCarrierContext(owner);
 
     const targetHp = useTargetState
@@ -403,33 +527,62 @@ export function useBonusDamageParts() {
       // здесь эти условия и оцениваются
       self: carrier,
       // Предмет броска: по нему работает «только этим предметом», по его
-      // свойствам — условие «метательным оружием»
+      // свойствам — условие «метательным оружием», по его дальности —
+      // «дальнобойное оружие» (самого оружия, а не вида атаки)
       ...(weapon === undefined
         ? {}
         : {
             itemId: weapon.id,
             weaponProperties: weapon.weaponProperties ?? [],
+            weaponRangeType: weapon.sourceRangeType ?? weapon.rangeType,
           }),
     };
 
-    const formulas = collectBonusDamageFormulas(
-      effects,
-      damageKey,
-      rollContext,
-    );
+    return { rollContext, targetHp };
+  }
 
-    const targetIsFull = targetHp
-      ? targetHp.currentHp >= targetHp.maxHp
-      : undefined;
+  /**
+   * Порт Скрытой атаки для окна атаки. Без строк `sneakAttack.damage` у
+   * бросающего порта нет — окну нечего показывать.
+   *
+   * Без выбранной цели «союзник рядом с целью» не проверить: работает только
+   * ветка «преимущество», а без неё переключателя нет.
+   *
+   * @param owner - бросающий
+   * @param effects - его эффекты (с аурами)
+   * @param formulaContext - его числа для костей
+   * @param weapon - оружие броска; у действия существа его нет, и условия
+   *   про оружие не выполняются
+   * @returns порт либо `undefined`
+   */
+  function buildSneakAttackPort(
+    owner: DnDSceneEntity,
+    effects: readonly ActiveEffect[],
+    formulaContext: FormulaContext,
+    weapon?: BonusPartsWeapon,
+  ): SneakAttackRollPort | undefined {
+    if (!hasSneakAttackSource(effects)) {
+      return undefined;
+    }
 
-    return resolveBonusDamageParts(
-      formulas,
-      defaultType,
-      targetIsFull,
-      resolveFormula,
-      targetHp?.creatureType,
-      (status) => entityHasDamageStatus(owner, status),
-    );
+    return {
+      defaultEnabled: readSneakAttackAutoAdd(owner),
+      preview: (modalContext) => {
+        const { rollContext } = buildBonusRollContext(
+          owner,
+          modalContext,
+          true,
+          weapon,
+        );
+
+        const plan = resolveSneakAttack(effects, rollContext, formulaContext);
+
+        return plan
+          ? { ...plan, spent: isSneakAttackSpentNow(owner.id) }
+          : undefined;
+      },
+      spend: () => spendSneakAttack(owner.id),
+    };
   }
 
   /**
@@ -507,9 +660,15 @@ export function useBonusDamageParts() {
         resolveFormula,
         actor,
         weapon,
+        formulaContext,
       );
 
-    return { baseParts, evaluateBonusDamageParts, pseudoSpell };
+    return {
+      baseParts,
+      evaluateBonusDamageParts,
+      pseudoSpell,
+      sneakAttack: buildSneakAttackPort(actor, effects, formulaContext, weapon),
+    };
   }
 
   /**
@@ -601,6 +760,8 @@ export function useBonusDamageParts() {
         substituteFormulaVariables(formula, formulaContext),
       );
 
+    // У действия существа оружия нет: условия про оружие у Скрытой атаки
+    // существа не выполняются, работают остальные (преимущество, союзник)
     const evaluateBonusDamageParts: BonusPartsEvaluator = (modalContext) =>
       collectParts(
         effects,
@@ -610,9 +771,16 @@ export function useBonusDamageParts() {
         true,
         resolveFormula,
         creature,
+        undefined,
+        formulaContext,
       );
 
-    return { baseParts, evaluateBonusDamageParts, pseudoSpell };
+    return {
+      baseParts,
+      evaluateBonusDamageParts,
+      pseudoSpell,
+      sneakAttack: buildSneakAttackPort(creature, effects, formulaContext),
+    };
   }
 
   /**

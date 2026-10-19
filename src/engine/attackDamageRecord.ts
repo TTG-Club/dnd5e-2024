@@ -71,6 +71,9 @@ const MAX_RECORD_TARGETS = 32;
 /** Сколько наложенных ударом эффектов помнит запись по одной цели */
 const MAX_RECORD_EFFECTS = 32;
 
+/** Предел своей подписи части и метки хода в записи */
+const MAX_RECORD_LABEL_LENGTH = 64;
+
 /**
  * Предел строки записи: ядро не принимает дополнение чата с данными длиннее
  * (`CHAT_FOLLOW_UP_PAYLOAD_MAX_LENGTH`). Число продублировано: старое ядро
@@ -86,6 +89,12 @@ const AttackDamagePartSchema = z.object({
   formula: z.string().min(1),
   types: z.array(z.string().min(1)),
   roll: AttackDamagePartRollSchema.optional().catch(undefined),
+  label: z
+    .string()
+    .min(1)
+    .max(MAX_RECORD_LABEL_LENGTH)
+    .optional()
+    .catch(undefined),
 });
 
 /** Zod-схема полного урона цели по режимам */
@@ -136,6 +145,12 @@ const AttackDamageRecordSchema = z.object({
   ignoredResistances: z.array(z.string().min(1)).optional(),
   parts: z.array(AttackDamagePartSchema).min(1).max(MAX_RECORD_PARTS),
   targets: z.array(AttackDamageTargetSchema).min(1).max(MAX_RECORD_TARGETS),
+  sneakAttackTurn: z
+    .string()
+    .min(1)
+    .max(MAX_RECORD_LABEL_LENGTH)
+    .optional()
+    .catch(undefined),
 });
 
 /** Часть урона атаки: чем брошена и какого типа */
@@ -149,6 +164,8 @@ export interface AttackDamagePart {
    * уроном работают «Половина» и «Крит»; у записи без него этих кнопок нет
    */
   roll?: AttackDamagePartRoll;
+  /** Своя подпись части: «Скрытая атака» */
+  label?: string;
 }
 
 /**
@@ -234,6 +251,12 @@ export interface AttackDamageRecord {
   parts: AttackDamagePart[];
   /** Цели, получившие урон */
   targets: AttackDamageTarget[];
+  /**
+   * Ход боя, в котором удар потратил Скрытую атаку того, кто бил
+   * (`sourceId`). «Отменить урон» возвращает её, «Нанести урон» тратит снова
+   * — оба только в том же ходу
+   */
+  sneakAttackTurn?: string;
 }
 
 /** Итог одной части урона для цели */

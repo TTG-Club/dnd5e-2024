@@ -508,6 +508,12 @@ export interface DnDActorSystem {
   /** Счётчики лимита «не чаще N раз» у срабатываний эффектов */
   effectUsage?: EffectTriggerUsageLedger;
 
+  /**
+   * Скрытая атака добавляется в окне атаки сама (переключатель включён при
+   * открытии). `false` — игрок включает её руками. Поля нет — добавляется сама
+   */
+  sneakAttackAutoAdd?: boolean;
+
   /** Ручные кости хитов (для NPC и кастомных актёров без классов) */
   manualHitDice?: ManualHitDieGroup[];
 

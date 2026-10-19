@@ -10,9 +10,14 @@
     RollContext,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { TargetedAttackRoll } from '../../composables/attackRollMode';
   import type { AttackRollSnapshot } from '../../composables/attackRollSnapshot';
   import type { DamageTypeChoiceRequest } from '../../composables/damageTypeChoice';
   import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
+  import type {
+    BonusPartsRollContext,
+    SneakAttackRollPort,
+  } from '../../composables/useBonusDamageParts';
   import type {
     ProjectileAttackContext,
     RolledSpellDamagePart,
@@ -125,10 +130,10 @@
     attackModifier?: number;
     /** Функция для вычисления условных бонусов в момент броска */
     // eslint-disable-next-line vue/require-default-prop -- отсутствие расчёта и означает «условных бонусов нет», пустышка по умолчанию это бы скрыла
-    evaluateConditionalBonuses?: (context: {
-      hasAdvantage: boolean;
-      hasDisadvantage: boolean;
-    }) => { attackBonus: number; damageBonus: number };
+    evaluateConditionalBonuses?: (context: BonusPartsRollContext) => {
+      attackBonus: number;
+      damageBonus: number;
+    };
     /** Кубиковые бонусы к атаке или стандартному d20-спасброску на момент броска. */
     evaluateBonusRollFormulas?: RollBonusEvaluator;
     /** Бонусы назначенных целей снарядов, собранные до расхода одноразовых эффектов. */
@@ -141,6 +146,19 @@
      * Без них окно показывало помеху «без причины».
      */
     rollModeReasons?: AttackRollModeReasons;
+    /**
+     * Режим атаки и его причины по текущей цели. Окно зовёт его, когда цель
+     * меняется при открытом окне: иначе режим остался бы от прежней цели
+     * («союзник рядом», невидимость, дистанция). Нет — режим считается один
+     * раз, при открытии
+     */
+    resolveRollMode?: () => TargetedAttackRoll;
+    /**
+     * Скрытая атака бросающего: переключатель «Скрытая атака +Nк6» показывается,
+     * пока её условия выполнены при текущем режиме и цели. Нет — источников у
+     * бросающего нет
+     */
+    sneakAttack?: SneakAttackRollPort;
     /** С какой натуральной кости атака — крит (у оружия Чемпиона 19) */
     critThreshold?: number;
     /** Тип входящей атаки для расчёта условных бонусов к AC цели (melee/ranged/spell) */
@@ -218,10 +236,9 @@
      * броска с фактическим режимом (преимущество/помеха); результат добавляется
      * к `damageParts`. Работает только в многочастном пути.
      */
-    evaluateBonusDamageParts?: (context: {
-      hasAdvantage: boolean;
-      hasDisadvantage: boolean;
-    }) => SpellDamagePartInput[];
+    evaluateBonusDamageParts?: (
+      context: BonusPartsRollContext,
+    ) => SpellDamagePartInput[];
     /**
      * Коллбэк чистой d20-проверки (окно без `formula`, без частей урона и без
      * броска попадания): отдаёт бросок В РАЗБИВКЕ — натуральную кость и
@@ -295,6 +312,8 @@
     attackModifier: undefined,
     initialRollMode: 'normal',
     rollModeReasons: undefined,
+    resolveRollMode: undefined,
+    sneakAttack: undefined,
     evaluateBonusRollFormulas: undefined,
     evaluateProjectileBonusRollFormulas: undefined,
     incomingAttackType: undefined,
@@ -421,6 +440,31 @@
       : props.onRollParts,
   );
 
+  /** Есть ли среди наборов урона набор «если у атаки преимущество» */
+  const hasAdvantageVariant = computed(() =>
+    (props.damageVariants ?? []).some((variant) => variant.whenAdvantage),
+  );
+
+  /**
+   * Выбирает набор урона по режиму броска: «с преимуществом» — пока режим
+   * преимущество, основной — пока нет. Выбор руками держится до следующей
+   * смены режима.
+   *
+   * @param mode - режим броска
+   */
+  function selectVariantForMode(mode: AttackRollMode): void {
+    if (!hasAdvantageVariant.value) {
+      return;
+    }
+
+    const advantageIndex = (props.damageVariants ?? []).findIndex(
+      (variant) => variant.whenAdvantage,
+    );
+
+    selectedDamageVariantIndex.value =
+      mode === 'advantage' && advantageIndex >= 0 ? advantageIndex : 0;
+  }
+
   // --- Стейт выбора типа урона ---
   const selectedChoiceDamageType = ref<DamageType>('fire');
 
@@ -493,6 +537,12 @@
   /** Режим броска атаки (обычный / преимущество / помеха) */
   const attackRollMode = ref<AttackRollMode>('normal');
 
+  /** Причины режима: со сменой цели при открытом окне считаются заново */
+  const currentRollModeReasons = ref<AttackRollModeReasons | undefined>();
+
+  /** Переключатель «Скрытая атака»: включён при открытии по настройке листа */
+  const applySneakAttack = ref(true);
+
   // --- Тип урона на выбор у частей (`@dmg.choice(…)`) ---
   const getDamageTypeLabel = useDamageTypeLabel();
 
@@ -508,10 +558,7 @@
    */
   const partTypeChoiceRows = computed(() => {
     const bonusParts = rollDamageParts.value?.length
-      ? (rollEvaluateBonusDamageParts.value?.({
-          hasAdvantage: attackRollMode.value === 'advantage',
-          hasDisadvantage: attackRollMode.value === 'disadvantage',
-        }) ?? [])
+      ? (rollEvaluateBonusDamageParts.value?.(buildRollContext()) ?? [])
       : [];
 
     return uniqueDamageTypeChoices([
@@ -627,14 +674,83 @@
    * причины посчитал вызывающий — по цели, а без неё только со стороны атакующего.
    */
   const rollModeReasonLines = computed(() =>
-    hasAttackRoll.value && props.rollModeReasons
-      ? formatAttackRollModeReasons(props.rollModeReasons).map((line) => ({
-          ...line,
-          ...ROLL_MODE_REASON_STYLES[line.kind],
-          heading: `${line.title}${DICE_ROLL_LABELS.rollModeReasonTitleSuffix}`,
-        }))
+    hasAttackRoll.value && currentRollModeReasons.value
+      ? formatAttackRollModeReasons(currentRollModeReasons.value).map(
+          (line) => ({
+            ...line,
+            ...ROLL_MODE_REASON_STYLES[line.kind],
+            heading: `${line.title}${DICE_ROLL_LABELS.rollModeReasonTitleSuffix}`,
+          }),
+        )
       : [],
   );
+
+  /**
+   * Скрытая атака при текущем режиме и цели. Только у атаки с частями урона:
+   * без броска попадания (спасбросок, лечение) её не бывает.
+   */
+  const sneakAttackPreview = computed(() =>
+    hasAttackRoll.value && rollDamageParts.value?.length
+      ? props.sneakAttack?.preview({
+          hasAdvantage: attackRollMode.value === 'advantage',
+          hasDisadvantage: attackRollMode.value === 'disadvantage',
+        })
+      : undefined,
+  );
+
+  /** Идёт ли Скрытая атака в этом броске: доступна, не потрачена, включена */
+  const isSneakAttackApplied = computed(
+    () =>
+      applySneakAttack.value
+      && sneakAttackPreview.value !== undefined
+      && !sneakAttackPreview.value.spent,
+  );
+
+  /** Пояснение переключателя: потрачена в этом ходу либо чья она */
+  const sneakAttackToggleDescription = computed(() => {
+    if (!sneakAttackPreview.value) {
+      return '';
+    }
+
+    if (sneakAttackPreview.value.spent) {
+      return DICE_ROLL_LABELS.sneakAttackSpent;
+    }
+
+    // Источник называется, только если он не сама «Скрытая атака» плута
+    return sneakAttackPreview.value.sourceName === DICE_ROLL_LABELS.sneakAttack
+      ? ''
+      : sneakAttackPreview.value.sourceName;
+  });
+
+  /**
+   * Переключатель Скрытой атаки. Показывает, пойдёт ли она в этом броске:
+   * потраченная в этом ходу стоит выключенной, а не включённой и серой.
+   *
+   * @param value - новое положение переключателя
+   */
+  function setSneakAttackApplied(value: boolean): void {
+    applySneakAttack.value = value;
+  }
+
+  /** Подпись переключателя: «Скрытая атака +3к6» */
+  const sneakAttackToggleLabel = computed(() =>
+    sneakAttackPreview.value
+      ? `${DICE_ROLL_LABELS.sneakAttack}${DICE_ROLL_LABELS.sneakAttackDicePrefix}${sneakAttackPreview.value.formula}`
+      : '',
+  );
+
+  /**
+   * Контекст броска для сборщиков окна: режим и решённая окном Скрытая атака.
+   *
+   * @returns контекст для бонусов и бонус-частей
+   */
+  function buildRollContext(): BonusPartsRollContext {
+    return {
+      hasAdvantage: attackRollMode.value === 'advantage',
+      hasDisadvantage: attackRollMode.value === 'disadvantage',
+      sneakAttack: isSneakAttackApplied.value,
+    };
+  }
 
   /** Динамически вычисляемые условные бонусы (срабатывают, если условия соблюдены) */
   const currentConditionalBonuses = computed(() => {
@@ -642,10 +758,7 @@
       return { attackBonus: 0, damageBonus: 0 };
     }
 
-    return props.evaluateConditionalBonuses({
-      hasAdvantage: attackRollMode.value === 'advantage',
-      hasDisadvantage: attackRollMode.value === 'disadvantage',
-    });
+    return props.evaluateConditionalBonuses(buildRollContext());
   });
 
   /** Кубиковые бонусы не входят в числовой модификатор листа. */
@@ -751,8 +864,11 @@
         bonusValue.value = 0;
         rollType.value = 'public';
         attackRollMode.value = props.initialRollMode;
+        currentRollModeReasons.value = props.rollModeReasons;
+        applySneakAttack.value = props.sneakAttack?.defaultEnabled ?? true;
         partTypePicks.value = {};
         selectedDamageVariantIndex.value = 0;
+        selectVariantForMode(props.initialRollMode);
 
         // Сброс стейта заклинания
         if (props.spellLevel !== undefined) {
@@ -775,6 +891,35 @@
       }
     },
     { immediate: true },
+  );
+
+  // Набор «с преимуществом» идёт за режимом броска: сменил режим — сменился
+  // набор; выбор руками держится до следующей смены
+  watch(attackRollMode, (mode) => {
+    if (props.open) {
+      selectVariantForMode(mode);
+    }
+  });
+
+  // Цель сменилась при открытом окне — режим и причины считаются по новой
+  // цели: «союзник рядом», невидимость и дистанция у неё свои
+  watch(
+    () => targetStore.targetActorId,
+    (targetId, previousTargetId) => {
+      if (
+        !props.open
+        || !props.resolveRollMode
+        || hasRolled.value
+        || targetId === previousTargetId
+      ) {
+        return;
+      }
+
+      const { mode, reasons } = props.resolveRollMode();
+
+      attackRollMode.value = mode;
+      currentRollModeReasons.value = reasons;
+    },
   );
 
   // Окно может уйти и без смены `open` — например, по концу сессии мира
@@ -957,10 +1102,7 @@
         // условия (преимущество/помеха, HP цели) оцениваются по фактическому
         // режиму, выбранному в модалке.
         const bonusParts =
-          rollEvaluateBonusDamageParts.value?.({
-            hasAdvantage: attackRollMode.value === 'advantage',
-            hasDisadvantage: attackRollMode.value === 'disadvantage',
-          }) ?? [];
+          rollEvaluateBonusDamageParts.value?.(buildRollContext()) ?? [];
 
         // Тип на выбор решается до броска: выбранный в окне, у случайного —
         // выпавший; дальше часть идёт обычным типом (защиты, чат)
@@ -1541,6 +1683,8 @@
         targetTypeGate: part.targetTypeGate,
         targetStatusGate: part.targetStatusGate,
         critical: isCrit,
+        ...(part.label ? { label: part.label } : {}),
+        ...(part.sneakAttack ? { sneakAttack: true as const } : {}),
       });
     }
 
@@ -1619,7 +1763,7 @@
       props.onHit(attack);
     }
 
-    // На промахе урона нет
+    // На промахе урона нет — и Скрытая атака не тратится
     if (!attackOutput.attackResult.isHit) {
       finishAttackRoll(attack, false);
 
@@ -1627,6 +1771,13 @@
     }
 
     const isCrit = attackOutput.attackResult.isCriticalHit;
+
+    // Кости Скрытой атаки пойдут в урон — лимит хода тратится сейчас, в тике
+    // броска: второе окно этого клиента увидит расход до своего броска. Без
+    // цели попал ли удар, решает мастер; урон брошен — значит, потрачена
+    const sneakAttackTurn = parts.some((part) => part.sneakAttack)
+      ? props.sneakAttack?.spend()
+      : undefined;
 
     // Сначала показываем бросок атаки, затем по очереди — части урона; сервер
     // узнаёт о броске после урона. За время показа ответ сервера убирает
@@ -1636,7 +1787,7 @@
         rollPartsSequentially(
           parts,
           isCrit,
-          attack ? { ...attack, chatMessageId } : undefined,
+          attack ? { ...attack, chatMessageId, sneakAttackTurn } : undefined,
         ),
       )
       .then(() =>
@@ -1927,6 +2078,16 @@
               </span>
             </li>
           </ul>
+
+          <!-- Скрытая атака: есть, пока её условия выполнены при этом режиме -->
+          <USwitch
+            v-if="sneakAttackPreview"
+            :model-value="isSneakAttackApplied"
+            :label="sneakAttackToggleLabel"
+            :description="sneakAttackToggleDescription"
+            :disabled="sneakAttackPreview.spent"
+            @update:model-value="setSneakAttackApplied"
+          />
         </div>
 
         <!-- Разделитель -->

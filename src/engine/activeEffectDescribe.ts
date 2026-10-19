@@ -39,7 +39,7 @@ import {
   EFFECT_FLAG_LABELS,
   EFFECT_TARGET_SUGGESTIONS,
   isUseActivatedEffect,
-  splitConditionParts,
+  splitConditionGroups,
 } from './activeEffectTypes.js';
 import { getConditionEntry } from './conditionTemplates.js';
 import {
@@ -86,6 +86,9 @@ import { describeChangeOptionValue } from './weaponOverrides.js';
 const TARGET_LABELS = new Map(
   EFFECT_TARGET_SUGGESTIONS.map((entry) => [entry.value, entry.label]),
 );
+
+/** Между группами условия, соединёнными «или» */
+export const CONDITION_OR_JOINER = ' или ';
 
 /** Подпись кода-условия (`roll.isCritical === true` → «… Крит»). */
 const CONDITION_LABELS = new Map(
@@ -342,7 +345,30 @@ function describeSpellSchoolKey(key: string): string {
  * @returns человекочитаемая подпись
  */
 export function describeEffectChangeCondition(condition: string): string {
-  return splitConditionParts(condition)
+  // Условие целиком из словаря (Скрытая атака по правилам) — его подписью:
+  // четыре ветки «или» по частям читались бы хуже
+  const groups = splitConditionGroups(condition);
+
+  const wholeLabel =
+    groups.length > 1 ? CONDITION_LABELS.get(condition.trim()) : undefined;
+
+  if (wholeLabel) {
+    return wholeLabel;
+  }
+
+  return groups
+    .map((group) => describeConditionGroup(group))
+    .join(CONDITION_OR_JOINER);
+}
+
+/**
+ * Подпись одной группы «и»: части через «и».
+ *
+ * @param group - части группы
+ * @returns подпись группы
+ */
+function describeConditionGroup(group: readonly string[]): string {
+  return group
     .map((part) => {
       // Школа и типы урона источника спасброска — свои значения автора:
       // раньше словаря, иначе образец из подсказок отдал бы свою подпись

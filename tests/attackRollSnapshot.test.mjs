@@ -603,7 +603,7 @@ describe('снимок броска доходит до разбора на вс
     // Части после показа броска идут со снимком (и id карточки атаки в чате)
     assert.match(
       modal,
-      /\.then\(\(\) =>\s*rollPartsSequentially\(\s*parts,\s*isCrit,\s*attack \? \{ \.\.\.attack, chatMessageId \} : undefined,\s*\),\s*\)/u,
+      /\.then\(\(\) =>\s*rollPartsSequentially\(\s*parts,\s*isCrit,\s*attack\s*\?\s*\{ \.\.\.attack, chatMessageId, sneakAttackTurn \}\s*:\s*undefined,\s*\),\s*\)/u,
     );
   });
 });
