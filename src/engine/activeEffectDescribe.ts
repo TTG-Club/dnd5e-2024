@@ -52,6 +52,7 @@ import {
   parseAnyCreatureTypeCondition,
 } from './creatureTypeCondition.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
+import { renderReadableDiceExpressions } from './diceCountExpressions.js';
 import { describeCastRule } from './effectCastRule.js';
 import {
   describeEscapeChecks,
@@ -211,13 +212,15 @@ export function describeRecurringDamageSave(save: EffectSave): string {
 
 /**
  * Формула словами. Чистая арифметика разбирается парсером — функции
- * `floor`/`min` читаются словами, а не кодом; формула с токенами урона
- * описывается как часть урона; кости с переменными — заменой токенов.
+ * `floor`/`min`/`steps` читаются словами, а не кодом; формула с токенами урона
+ * описывается как часть урона; кости с выражением в числе или грани —
+ * рядом правил («1к6, +1к6 на 3 и 5 уровнях в классе»); прочее — заменой
+ * токенов.
  *
  * @param value - формула
  * @returns читаемая запись
  */
-function prettifyFormula(value: string): string {
+export function prettifyFormula(value: string): string {
   const readable = renderReadableFormula(value, labelFormulaVariable);
 
   if (readable !== null) {
@@ -232,7 +235,10 @@ function prettifyFormula(value: string): string {
     return describeEffectDamageParts([{ formula: value }]);
   }
 
-  return labelFormulaVariables(value);
+  return (
+    renderReadableDiceExpressions(value, labelFormulaVariable)
+    ?? labelFormulaVariables(value)
+  );
 }
 
 /**

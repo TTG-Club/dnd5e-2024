@@ -1378,6 +1378,113 @@ const READABLE_OPERATORS: Readonly<Record<string, string>> = {
   '/': '/',
 };
 
+/** Начало подписи уровня, которую можно просклонять: «уровень в классе» */
+const READABLE_LEVEL_PREFIX = 'уровень';
+
+/** Формы слова «уровень» после порогов: «на 9 уровне», «на 9 и 16 уровнях» */
+const READABLE_LEVEL_FORMS = { one: 'уровне', many: 'уровнях' } as const;
+
+/** Прибавка за ступень внутри выражения: «(по 1 на 9 и 16 уровнях)» */
+const STEPS_PER_STEP_LABEL = 'по 1';
+
+/** Буква кости в читаемой записи — как в чате и на листе */
+const READABLE_DIE_LETTER = 'к';
+
+/**
+ * Перечисление словами: «3, 5 и 7».
+ *
+ * @param items - элементы
+ * @returns перечисление
+ */
+function joinReadableList(items: string[]): string {
+  if (items.length < 2) {
+    return items.join('');
+  }
+
+  return `${items.slice(0, -1).join(', ')} и ${items[items.length - 1]}`;
+}
+
+/**
+ * Ступени словами: «+1к6 на 3, 5 и 7 уровнях в классе». Подпись уровня
+ * склоняется — ступени почти всегда растут по уровню; любое другое значение
+ * читается порогами через двоеточие.
+ *
+ * @param valueLabel - подпись значения, по которому считаются ступени
+ * @param thresholds - пороги
+ * @param increment - прибавка за ступень со знаком («+1», «по 1», «+1к6»)
+ * @returns ступени словами
+ */
+function describeReadableSteps(
+  valueLabel: string,
+  thresholds: string[],
+  increment: string,
+): string {
+  const list = joinReadableList(thresholds);
+
+  if (valueLabel.startsWith(READABLE_LEVEL_PREFIX)) {
+    const levelForm =
+      thresholds.length > 1
+        ? READABLE_LEVEL_FORMS.many
+        : READABLE_LEVEL_FORMS.one;
+
+    return `${increment} на ${list} ${levelForm}${valueLabel.slice(READABLE_LEVEL_PREFIX.length)}`;
+  }
+
+  return `${increment} за каждый порог «${valueLabel}»: ${list}`;
+}
+
+/**
+ * Узел ступеней словами по его аргументам.
+ *
+ * @param node - вызов `steps(…)`
+ * @param labelVariable - подпись переменной
+ * @param increment - прибавка за ступень
+ * @returns ступени словами
+ */
+function renderReadableStepsNode(
+  node: AstNode,
+  labelVariable: (token: string) => string,
+  increment: string,
+): string {
+  const [value, ...thresholds] = (node.args ?? []).map((argument) =>
+    renderReadableNode(argument, labelVariable),
+  );
+
+  return describeReadableSteps(value ?? '', thresholds, increment);
+}
+
+/**
+ * «Число плюс ступени» — главный вид роста по уровню: `1 + steps(@classLevel,
+ * 3, 5)`. Голые ступени — то же с нулём.
+ *
+ * @param node - узел
+ * @returns основа и узел ступеней либо `undefined`, если вид другой
+ */
+function matchBaseWithSteps(
+  node: AstNode,
+): { base: number; steps: AstNode } | undefined {
+  const isSteps = (candidate: AstNode | undefined): boolean =>
+    candidate?.type === 'functionCall' && candidate.value === STEPS_FUNCTION;
+
+  if (isSteps(node)) {
+    return { base: 0, steps: node };
+  }
+
+  if (node.type !== 'binaryOp' || node.value !== '+') {
+    return undefined;
+  }
+
+  if (node.left?.type === 'number' && node.right && isSteps(node.right)) {
+    return { base: node.left.numericValue ?? 0, steps: node.right };
+  }
+
+  if (node.right?.type === 'number' && node.left && isSteps(node.left)) {
+    return { base: node.right.numericValue ?? 0, steps: node.left };
+  }
+
+  return undefined;
+}
+
 /**
  * Узел AST словами. Скобки ставятся только там, где без них поменялся бы
  * смысл: исходные скобки парсер не хранит, а лишние мешают читать.
@@ -1404,16 +1511,14 @@ function renderReadableNode(
         ? `−${renderReadableNode(node.right, labelVariable, Number.POSITIVE_INFINITY)}`
         : '';
     case 'functionCall': {
+      // У ступеней число порогов любое — шаблон с номерами аргументов не годится
+      if (node.value === STEPS_FUNCTION) {
+        return `(${renderReadableStepsNode(node, labelVariable, STEPS_PER_STEP_LABEL)})`;
+      }
+
       const args = (node.args ?? []).map((argument) =>
         renderReadableNode(argument, labelVariable),
       );
-
-      // У ступеней число порогов любое — шаблон с номерами аргументов не годится
-      if (node.value === STEPS_FUNCTION) {
-        const [value, ...thresholds] = args;
-
-        return `(число порогов ${thresholds.join(', ')}, пройденных по ${value ?? ''})`;
-      }
 
       const template = READABLE_FUNCTION_TEMPLATES[node.value ?? ''];
 
@@ -1471,7 +1576,84 @@ export function renderReadableFormula(
   }
 
   try {
-    return renderReadableNode(parse(tokenize(trimmed)), labelVariable);
+    return renderReadableRoot(parse(tokenize(trimmed)), labelVariable);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Корень формулы словами. «Число плюс ступени» на верхнем уровне читается
+ * рядом правил: «2, +1 на 9 и 16 уровнях в классе» — так его и пишут в книге.
+ *
+ * @param node - корень AST
+ * @param labelVariable - подпись переменной
+ * @returns читаемая запись
+ */
+function renderReadableRoot(
+  node: AstNode,
+  labelVariable: (token: string) => string,
+): string {
+  const stepped = matchBaseWithSteps(node);
+
+  if (!stepped) {
+    return renderReadableNode(node, labelVariable);
+  }
+
+  if (stepped.base === 0) {
+    return renderReadableStepsNode(
+      stepped.steps,
+      labelVariable,
+      STEPS_PER_STEP_LABEL,
+    );
+  }
+
+  return `${String(stepped.base)}, ${renderReadableStepsNode(stepped.steps, labelVariable, '+1')}`;
+}
+
+/**
+ * Кость с выражением в числе или грани словами: `(1 + steps(@classLevel, 3,
+ * 5))к6` читается «1к6, +1к6 на 3 и 5 уровнях в классе», `(@castLevel)к10` —
+ * «(круг ячейки)к10».
+ *
+ * @param count - выражение числа костей (без внешних скобок можно)
+ * @param faces - выражение грани
+ * @param labelVariable - подпись переменной
+ * @returns кость словами либо `null`, если выражение не разобрать
+ */
+export function renderReadableDice(
+  count: string,
+  faces: string,
+  labelVariable: (token: string) => string,
+): string | null {
+  try {
+    const countNode = parse(tokenize(count));
+    const facesNode = parse(tokenize(faces));
+
+    const facesText = renderReadableNode(facesNode, labelVariable);
+
+    const die = `${READABLE_DIE_LETTER}${facesNode.type === 'number' ? facesText : `(${facesText})`}`;
+
+    const stepped = matchBaseWithSteps(countNode);
+
+    // Ступени числа костей читаются рядом, если грань постоянная
+    if (stepped && facesNode.type === 'number') {
+      const steps = renderReadableStepsNode(
+        stepped.steps,
+        labelVariable,
+        `${stepped.base === 0 ? '' : '+'}1${die}`,
+      );
+
+      return stepped.base === 0
+        ? steps
+        : `${String(stepped.base)}${die}, ${steps}`;
+    }
+
+    const countText = renderReadableNode(countNode, labelVariable);
+
+    return countNode.type === 'number'
+      ? `${countText}${die}`
+      : `(${countText})${die}`;
   } catch {
     return null;
   }

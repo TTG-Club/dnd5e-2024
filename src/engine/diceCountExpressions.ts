@@ -15,7 +15,10 @@
  * @module system/dnd/diceCountExpressions
  */
 
-import { evaluateDetachedFormula } from './formulaParser.js';
+import {
+  evaluateDetachedFormula,
+  renderReadableDice,
+} from './formulaParser.js';
 
 /**
  * Буква кости сразу за закрывающей скобкой: `)к8`, `) d6`, `)к(` — грань
@@ -188,4 +191,184 @@ export function resolveDiceCountExpressions(formula: string): string {
   }
 
   return resolveDiceFaceExpressions(result);
+}
+
+/** Цифра числа или грани костей */
+const DIGIT = /\d/;
+
+/** Знак сложения или вычитания между слагаемыми — с пробелами по краям */
+const LOOSE_SIGN = /\s*([+-])\s*/g;
+
+/** Одна сторона кости: текст и где он кончается в формуле */
+interface DiceSide {
+  text: string;
+  /** Граница стороны в формуле: начало для числа, конец для грани */
+  edge: number;
+  /** Сторона — выражение в скобках, а не число */
+  isExpression: boolean;
+}
+
+/**
+ * Число костей перед буквой: число или выражение в скобках (с именем
+ * функции перед ними).
+ *
+ * @param formula - формула
+ * @param letterIndex - позиция буквы кости
+ * @returns число костей либо `undefined`, если его нет
+ */
+function readDiceCountSide(
+  formula: string,
+  letterIndex: number,
+): DiceSide | undefined {
+  let end = letterIndex - 1;
+
+  while (end >= 0 && formula[end] === ' ') {
+    end--;
+  }
+
+  if (formula[end] === ')') {
+    const start = findExpressionStart(formula, end);
+
+    return start === undefined
+      ? undefined
+      : {
+          text: formula.slice(start, end + 1),
+          edge: start,
+          isExpression: true,
+        };
+  }
+
+  let start = end;
+
+  while (start >= 0 && DIGIT.test(formula[start])) {
+    start--;
+  }
+
+  // Буква внутри слова (`@mod.dex`) — не кость
+  return start === end
+    ? undefined
+    : {
+        text: formula.slice(start + 1, end + 1),
+        edge: start + 1,
+        isExpression: false,
+      };
+}
+
+/**
+ * Грань костей после буквы: число или выражение в скобках.
+ *
+ * @param formula - формула
+ * @param letterIndex - позиция буквы кости
+ * @returns грань либо `undefined`, если её нет
+ */
+function readDiceFacesSide(
+  formula: string,
+  letterIndex: number,
+): DiceSide | undefined {
+  let start = letterIndex + 1;
+
+  while (start < formula.length && formula[start] === ' ') {
+    start++;
+  }
+
+  if (formula[start] === '(') {
+    const end = findExpressionEnd(formula, start);
+
+    return end === undefined
+      ? undefined
+      : {
+          text: formula.slice(start, end + 1),
+          edge: end + 1,
+          isExpression: true,
+        };
+  }
+
+  let end = start;
+
+  while (end < formula.length && DIGIT.test(formula[end])) {
+    end++;
+  }
+
+  return end === start
+    ? undefined
+    : { text: formula.slice(start, end), edge: end, isExpression: false };
+}
+
+/**
+ * Обычный кусок формулы между костями словами: подписи переменных и пробелы
+ * вокруг знаков — `1к6+@mod.dex` читается «1к6 + мод. Ловкости».
+ *
+ * @param segment - кусок формулы
+ * @param labelVariable - подпись переменной по токену
+ * @returns кусок для чтения
+ */
+function renderReadableSegment(
+  segment: string,
+  labelVariable: (token: string) => string,
+): string {
+  return segment
+    .replaceAll(/@[a-z][\w.]*/gi, labelVariable)
+    .replaceAll(LOOSE_SIGN, ' $1 ');
+}
+
+/**
+ * Формула с костями, где число или грань — выражение, словами:
+ * `(1 + steps(@classLevel, 3, 5))к6` → «1к6, +1к6 на 3 и 5 уровнях в классе»,
+ * а не код со служебным `steps`. Кости с простыми числами остаются как есть.
+ *
+ * @param formula - формула урона, лечения или значения модификатора
+ * @param labelVariable - подпись переменной по токену
+ * @returns формула словами либо `null`, если костей с выражениями нет
+ */
+export function renderReadableDiceExpressions(
+  formula: string,
+  labelVariable: (token: string) => string,
+): string | null {
+  const parts: string[] = [];
+
+  let copiedUntil = 0;
+
+  for (let index = 0; index < formula.length; index++) {
+    if (!DICE_LETTER.test(formula[index])) {
+      continue;
+    }
+
+    const count = readDiceCountSide(formula, index);
+    const faces = readDiceFacesSide(formula, index);
+
+    const isExpressionDie =
+      count !== undefined
+      && faces !== undefined
+      && count.edge >= copiedUntil
+      && (count.isExpression || faces.isExpression);
+
+    if (!isExpressionDie) {
+      continue;
+    }
+
+    const readable = renderReadableDice(count.text, faces.text, labelVariable);
+
+    if (readable === null) {
+      continue;
+    }
+
+    parts.push(
+      renderReadableSegment(
+        formula.slice(copiedUntil, count.edge),
+        labelVariable,
+      ),
+      readable,
+    );
+
+    copiedUntil = faces.edge;
+    index = faces.edge - 1;
+  }
+
+  if (parts.length === 0) {
+    return null;
+  }
+
+  parts.push(renderReadableSegment(formula.slice(copiedUntil), labelVariable));
+
+  return parts.join('').replaceAll(/\s+/g, ' ').trim();
 }

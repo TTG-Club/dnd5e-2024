@@ -154,7 +154,7 @@ describe('«или» в условиях', () => {
 
     assert.equal(
       engine.describeEffectChangeCondition(engine.SNEAK_ATTACK_CONDITION),
-      'Скрытая атака: условие по правилам',
+      'Скрытая атака возможна: подходящее оружие, преимущество или союзник рядом с целью',
     );
   });
 

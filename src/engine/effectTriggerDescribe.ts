@@ -35,6 +35,7 @@ import {
   describeEffectDamageParts,
   describeEffectDuration,
   formatEffectSaveDc,
+  prettifyFormula,
 } from './activeEffectDescribe.js';
 import {
   joinConditionGroups,
@@ -48,7 +49,6 @@ import {
   isAbilityType,
   isCreatureCategory,
   isCreatureSize,
-  labelFormulaVariables,
 } from './consts.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
 import { describeEffectPay, EFFECT_PRICE_LABELS } from './effectPayTypes.js';
@@ -590,7 +590,7 @@ function describeAction(
       }
 
       return action.formula
-        ? `${TRIGGER_LABELS.setHpFormulaPrefix}${labelFormulaVariables(action.formula)}`
+        ? `${TRIGGER_LABELS.setHpFormulaPrefix}${prettifyFormula(action.formula)}`
         : `${TRIGGER_LABELS.setHpPrefix}${action.value}`;
     }
     case 'tempHp':
@@ -620,7 +620,7 @@ function describeAction(
       const counter = `«${action.counter ?? ''}»`;
 
       const amount =
-        action.amount === undefined ? '' : labelFormulaVariables(action.amount);
+        action.amount === undefined ? '' : prettifyFormula(action.amount);
 
       if (action.set) {
         return `${counter}${TRIGGER_LABELS.restoreSetPrefix}${amount || DEFAULT_RESTORE_AMOUNT_TEXT}`;
@@ -631,7 +631,7 @@ function describeAction(
     case 'dispel':
       return `${TRIGGER_LABELS.dispelPrefix}${
         action.maxLevelFormula
-          ? labelFormulaVariables(action.maxLevelFormula)
+          ? prettifyFormula(action.maxLevelFormula)
           : action.maxLevel
       }`;
     case 'grantInspiration':

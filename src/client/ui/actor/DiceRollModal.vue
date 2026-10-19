@@ -24,6 +24,7 @@
     SpellDamagePartInput,
   } from '../../composables/useSpellResolution';
   import type { CheckRollResult, RollDamageVariant } from './diceRollTypes';
+  import type { SneakAttackPanelState } from './sneakAttackPanel';
 
   import { promiseTimeout } from '@vueuse/core';
   import { computed, onBeforeUnmount, ref, watch } from 'vue';
@@ -95,6 +96,11 @@
     SPELL_LEVEL_SUFFIX,
     WILLING_SAVE_TOTAL,
   } from './constants';
+  import {
+    describeSneakAttackOptionBlock,
+    stripCunningStrikePrefix,
+  } from './sneakAttackPanel';
+  import SneakAttackRollPanel from './SneakAttackRollPanel.vue';
 
   type RollVisibility = 'public' | 'gm' | 'private';
 
@@ -744,27 +750,45 @@
       && !sneakAttackPreview.value.spent,
   );
 
-  /** Пояснение переключателя: потрачена в этом ходу либо чья она */
-  const sneakAttackToggleDescription = computed(() => {
-    if (!sneakAttackPreview.value) {
-      return '';
+  /**
+   * Показывать ли плашку Скрытой атаки: у бросающего она есть, а бросок —
+   * атака с уроном. Условие при этом может быть не выполнено — плашка тогда
+   * говорит «не активна», а не пропадает молча.
+   */
+  const showSneakAttackPanel = computed(
+    () =>
+      props.sneakAttack !== undefined
+      && hasAttackRoll.value
+      && (rollDamageParts.value?.length ?? 0) > 0,
+  );
+
+  /** Состояние плашки: идёт к урону, отказ игрока, потрачена, нет условия */
+  const sneakAttackPanelState = computed((): SneakAttackPanelState => {
+    const preview = sneakAttackPreview.value;
+
+    if (!preview) {
+      return 'unavailable';
     }
 
-    if (sneakAttackPreview.value.spent) {
-      return DICE_ROLL_LABELS.sneakAttackSpent;
+    if (preview.spent) {
+      return 'spent';
     }
 
-    // Источник называется, только если он не сама «Скрытая атака» плута
-    return sneakAttackPreview.value.sourceName === DICE_ROLL_LABELS.sneakAttack
-      ? ''
-      : sneakAttackPreview.value.sourceName;
+    return applySneakAttack.value ? 'active' : 'declined';
+  });
+
+  /** Чья она — называется, только если это не сама «Скрытая атака» плута */
+  const sneakAttackSourceName = computed(() => {
+    const sourceName = sneakAttackPreview.value?.sourceName ?? '';
+
+    return sourceName === DICE_ROLL_LABELS.sneakAttack ? '' : sourceName;
   });
 
   /**
-   * Переключатель Скрытой атаки. Показывает, пойдёт ли она в этом броске:
-   * потраченная в этом ходу стоит выключенной, а не включённой и серой.
+   * Кнопка плашки: игрок добавляет Скрытую атаку или отказывается от неё.
+   * Потраченная в этом ходу кнопки не имеет.
    *
-   * @param value - новое положение переключателя
+   * @param value - добавлять ли кости в этом броске
    */
   function setSneakAttackApplied(value: boolean): void {
     applySneakAttack.value = value;
@@ -797,52 +821,34 @@
     return preview.options.map((option) => {
       const selected = pickedIds.has(option.id);
 
-      return {
-        id: option.id,
-        selected,
-        disabled:
-          !selected
-          && (!option.affordable
-            || !option.fitsTarget
-            || !canAddSneakAttackOption(
+      const reason = selected
+        ? ''
+        : describeSneakAttackOptionBlock(
+            option,
+            canAddSneakAttackOption(
               picked,
               option,
               preview.diceCount,
               preview.cunningStrikeLimit,
-            )),
+            ),
+            sumSneakAttackOptionCost(picked) + option.cost > preview.diceCount,
+          );
+
+      return {
+        id: option.id,
+        selected,
+        disabled: reason !== '',
+        reason,
         label:
           option.cost > 0
-            ? `${option.name}${DICE_ROLL_LABELS.sneakAttackOptionCostPrefix}${formatSneakAttackDice(preview.formula, option.cost)}`
-            : option.name,
-        description: describeSneakAttackOption(option),
+            ? `${stripCunningStrikePrefix(option.name)}${DICE_ROLL_LABELS.sneakAttackOptionCostPrefix}${formatSneakAttackDice(preview.formula, option.cost)}`
+            : stripCunningStrikePrefix(option.name),
+        hint: option.description,
         cost: option.cost,
         cunningStrike: option.cunningStrike,
       };
     });
   });
-
-  /**
-   * Пояснение под приёмом: почему его не выбрать, иначе — его описание.
-   *
-   * @param option - приём из показа окна
-   * @param option.affordable - ресурса хватает
-   * @param option.fitsTarget - цель подходит
-   * @param option.description - описание приёма
-   * @returns подпись под галочкой
-   */
-  function describeSneakAttackOption(option: {
-    affordable: boolean;
-    fitsTarget: boolean;
-    description: string;
-  }): string {
-    if (!option.affordable) {
-      return DICE_ROLL_LABELS.sneakAttackOptionNoResource;
-    }
-
-    return option.fitsTarget
-      ? option.description
-      : DICE_ROLL_LABELS.sneakAttackOptionTargetUnfit;
-  }
 
   /** Приёмы, которые пойдут в этот удар */
   const pickedSneakAttackOptionIds = computed(() =>
@@ -865,48 +871,43 @@
       : '';
   });
 
-  /** Сколько приёмов Хитрого удара за удар — подпись над списком */
-  const cunningStrikeLimitLabel = computed(() =>
-    sneakAttackPreview.value
-      ? `${DICE_ROLL_LABELS.cunningStrikeLimitPrefix}${sneakAttackPreview.value.cunningStrikeLimit}`
-      : '',
-  );
-
   /**
    * Отмечает приём или снимает отметку. Выбор хранится по порядку: при
    * нехватке костей отбрасываются выбранные последними.
    *
    * @param optionId - id эффекта-кнопки приёма
-   * @param checked - новое положение галочки
    */
-  function setSneakAttackOption(
-    optionId: string,
-    checked: boolean | 'indeterminate',
-  ): void {
+  function toggleSneakAttackOption(optionId: string): void {
+    const isSelected = selectedSneakAttackOptionIds.value.includes(optionId);
+
     const rest = selectedSneakAttackOptionIds.value.filter(
       (id) => id !== optionId,
     );
 
-    selectedSneakAttackOptionIds.value =
-      checked === true ? [...rest, optionId] : rest;
+    selectedSneakAttackOptionIds.value = isSelected
+      ? rest
+      : [...rest, optionId];
   }
 
-  /**
-   * Подпись переключателя: «Скрытая атака +3к6»; с приёмами — кости, что
-   * останутся после их цены.
-   */
-  const sneakAttackToggleLabel = computed(() => {
+  /** Сколько приёмов Хитрого удара можно взять за удар */
+  const sneakAttackCunningStrikeLimit = computed(
+    () => sneakAttackPreview.value?.cunningStrikeLimit ?? 0,
+  );
+
+  /** Сколько костей отдано выбранным приёмам */
+  const sneakAttackOptionsCost = computed(() =>
+    sumSneakAttackOptionCost(
+      sneakAttackOptionRows.value.filter((row) => row.selected),
+    ),
+  );
+
+  /** Кости, что пойдут к урону: «3к6»; с приёмами — что останется после цены */
+  const sneakAttackDiceLabel = computed(() => {
     const preview = sneakAttackPreview.value;
 
-    if (!preview) {
-      return '';
-    }
-
-    const cost = sumSneakAttackOptionCost(
-      sneakAttackOptionRows.value.filter((row) => row.selected),
-    );
-
-    return `${DICE_ROLL_LABELS.sneakAttack}${DICE_ROLL_LABELS.sneakAttackDicePrefix}${addDiceToFormula(preview.formula, -cost)}`;
+    return preview
+      ? addDiceToFormula(preview.formula, -sneakAttackOptionsCost.value)
+      : '';
   });
 
   /**
@@ -2259,7 +2260,7 @@
             <UButton
               variant="soft"
               :color="attackRollMode === 'normal' ? 'primary' : 'neutral'"
-              size="sm"
+              size="md"
               block
               @click.left.exact.prevent="chooseRollMode('normal')"
             >
@@ -2269,7 +2270,7 @@
             <UButton
               variant="soft"
               :color="attackRollMode === 'advantage' ? 'success' : 'neutral'"
-              size="sm"
+              size="md"
               block
               @click.left.exact.prevent="chooseRollMode('advantage')"
             >
@@ -2283,7 +2284,7 @@
             <UButton
               variant="soft"
               :color="attackRollMode === 'disadvantage' ? 'error' : 'neutral'"
-              size="sm"
+              size="md"
               block
               @click.left.exact.prevent="chooseRollMode('disadvantage')"
             >
@@ -2322,42 +2323,18 @@
             </li>
           </ul>
 
-          <!-- Скрытая атака: есть, пока её условия выполнены при этом режиме -->
-          <USwitch
-            v-if="sneakAttackPreview"
-            :model-value="isSneakAttackApplied"
-            :label="sneakAttackToggleLabel"
-            :description="sneakAttackToggleDescription"
-            :disabled="sneakAttackPreview.spent"
-            @update:model-value="setSneakAttackApplied"
+          <!-- Скрытая атака: плашка состояния и приёмы Хитрого удара -->
+          <SneakAttackRollPanel
+            v-if="showSneakAttackPanel"
+            :state="sneakAttackPanelState"
+            :dice-label="sneakAttackDiceLabel"
+            :source-name="sneakAttackSourceName"
+            :double-save-label="sneakAttackDoubleSaveLabel"
+            :options="sneakAttackOptionRows"
+            :cunning-strike-limit="sneakAttackCunningStrikeLimit"
+            @update:applied="setSneakAttackApplied"
+            @toggle-option="toggleSneakAttackOption"
           />
-
-          <p
-            v-if="sneakAttackDoubleSaveLabel"
-            class="text-xs text-warning"
-          >
-            {{ sneakAttackDoubleSaveLabel }}
-          </p>
-
-          <!-- Хитрый удар: приёмы платят костями Скрытой атаки до броска -->
-          <div
-            v-if="sneakAttackOptionRows.length > 0"
-            class="space-y-1.5 ps-2"
-          >
-            <span class="text-xs text-muted">
-              {{ cunningStrikeLimitLabel }}
-            </span>
-
-            <UCheckbox
-              v-for="row in sneakAttackOptionRows"
-              :key="row.id"
-              :model-value="row.selected"
-              :label="row.label"
-              :description="row.description"
-              :disabled="row.disabled"
-              @update:model-value="setSneakAttackOption(row.id, $event)"
-            />
-          </div>
         </div>
 
         <!-- Разделитель -->
@@ -2379,7 +2356,7 @@
             <UButton
               variant="soft"
               :color="rollType === 'public' ? 'primary' : 'neutral'"
-              size="sm"
+              size="md"
               block
               @click.left.exact.prevent="rollType = 'public'"
             >
@@ -2393,7 +2370,7 @@
             <UButton
               variant="soft"
               :color="rollType === 'gm' ? 'primary' : 'neutral'"
-              size="sm"
+              size="md"
               block
               @click.left.exact.prevent="rollType = 'gm'"
             >
@@ -2407,7 +2384,7 @@
             <UButton
               variant="soft"
               :color="rollType === 'private' ? 'warning' : 'neutral'"
-              size="sm"
+              size="md"
               block
               @click.left.exact.prevent="rollType = 'private'"
             >
