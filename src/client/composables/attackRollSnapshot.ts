@@ -47,6 +47,11 @@ export interface AttackRollSnapshot {
    * атаки в уроне не было или бой не шёл
    */
   sneakAttackTurn?: string;
+  /**
+   * Приёмы, выбранные при Скрытой атаке этого удара: «Отменить урон» вернёт
+   * ресурс тем, что его тратят
+   */
+  sneakAttackOptionIds?: string[];
 }
 
 /**

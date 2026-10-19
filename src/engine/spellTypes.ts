@@ -329,11 +329,25 @@ export const SPELL_LEVEL_LABELS: Record<number, string> = Object.fromEntries(
   SPELL_LEVEL_OPTIONS.map((option) => [option.value, option.label]),
 );
 
+/**
+ * Что спасбросок цели делает с уроном источника:
+ * - `half` — успех вдвое уменьшает урон;
+ * - `none` — успех снимает урон целиком;
+ * - `special` — урон полный, исход разбирает ведущий;
+ * - `double` — успех ничего не меняет, ПРОВАЛ удваивает урон («Смертельный
+ *   удар» Убийцы: спасбросок до записи урона атаки).
+ */
+export type SaveDamageEffect = 'half' | 'none' | 'special' | 'double';
+
+/** Исход спасброска «провал удваивает урон» */
+export const SAVE_EFFECT_DOUBLE: SaveDamageEffect = 'double';
+
 /** Эффект спасброска для UI */
 export const SAVE_EFFECT_OPTIONS = [
   { value: 'half' as const, label: 'Половина урона' },
   { value: 'none' as const, label: 'Нет урона' },
   { value: 'special' as const, label: 'Особый' },
+  { value: 'double' as const, label: 'Провал — урон удвоен' },
 ] as const;
 
 // ── Маппинг форм на шаблоны ─────────────────────────────────

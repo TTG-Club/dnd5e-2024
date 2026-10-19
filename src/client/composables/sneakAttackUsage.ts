@@ -28,7 +28,11 @@ import {
   withTriggerUsage,
 } from '@vtt/shared/system/dnd.js';
 
-import { payEntityActivation, readEntityCounters } from './effectToggle';
+import {
+  payEntityActivation,
+  readEntityCounters,
+  refundEntityActivation,
+} from './effectToggle';
 import { isEntityInCombat, resolveTurnStamp } from './encounterTurn';
 import {
   changeEntityCombatState,
@@ -118,6 +122,34 @@ export function canAffordSneakAttackOption(
   return (
     !effect.activation?.counter
     || canPayActivation(readEntityCounters(entity), effect.activation)
+  );
+}
+
+/**
+ * Возвращает ресурс приёмов отменённого удара: «Отменить урон» в чате. Только
+ * тем приёмам, что его тратят; ход не важен — ресурс восстанавливается
+ * отдыхом, а не концом хода.
+ *
+ * @param entityId - бивший
+ * @param effectIds - id эффектов-кнопок выбранных приёмов
+ */
+export function refundSneakAttackOptions(
+  entityId: string,
+  effectIds: readonly string[],
+): void {
+  if (effectIds.length === 0) {
+    return;
+  }
+
+  changeEntitySheet(entityId, (current) =>
+    (current.activeEffects ?? [])
+      .filter(
+        (effect) => effectIds.includes(effect.id) && effect.activation?.counter,
+      )
+      .reduce(
+        (entity, effect) => refundEntityActivation(entity, effect),
+        current,
+      ),
   );
 }
 

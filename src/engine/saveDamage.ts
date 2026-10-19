@@ -105,6 +105,9 @@ export function resolveSaveEffectScale(
       return resolveHalfDamageScale(passed, defense);
     case 'none':
       return passed ? 0 : 1;
+    // «Смертельный удар»: провал удваивает урон, успех его не меняет
+    case 'double':
+      return passed ? 1 : 2;
     default:
       // «Особое» — полный урон: исход разбирает ведущий
       return 1;

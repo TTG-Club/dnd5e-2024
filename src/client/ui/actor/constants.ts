@@ -5339,6 +5339,12 @@ export const DICE_ROLL_LABELS = {
   sneakAttackOptionCostPrefix: ' −',
   /** Под приёмом, на который нет использований */
   sneakAttackOptionNoResource: 'Нет использований',
+  /** Под приёмом, эффект которого на эту цель не ляжет («Повалить» Огромную) */
+  sneakAttackOptionTargetUnfit: 'Не действует на эту цель',
+  /** «Смертельный удар»: «Спасбросок цели: Телосложение, Сл 17 — провал удвоит урон атаки» */
+  sneakAttackDoubleSavePrefix: 'Спасбросок цели: ',
+  sneakAttackDoubleSaveDc: ', Сл ',
+  sneakAttackDoubleSaveSuffix: ' — провал удвоит урон атаки',
   /** Над списком приёмов: «Хитрый удар — приёмов за удар: 1» */
   cunningStrikeLimitPrefix: 'Хитрый удар — приёмов за удар: ',
   autoFail: 'Автоматический провал',

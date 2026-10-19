@@ -27,6 +27,7 @@ import {
   CARRIER_ARMOR_CONDITION_PREFIX,
   CARRIER_TOOL_CONDITION_PREFIX,
   CARRIER_TYPE_CONDITION_PREFIX,
+  COMBAT_ROUND_CONDITION_PREFIX,
   EFFECT_CONDITION_SECTIONS,
   EFFECT_CONDITION_SUGGESTIONS,
   EFFECT_TARGET_SUGGESTIONS,
@@ -45,6 +46,7 @@ import {
   SNEAK_ATTACK_DICE_KEY,
   SNEAK_ATTACK_MIN_DIE_KEY,
   SNEAK_ATTACK_RIDER_KEY,
+  SNEAK_ATTACK_SAVE_DOUBLE_KEY,
   SPELL_DAMAGE_TYPE_KEY,
   TARGET_TYPE_CONDITION_PREFIX,
   THROWN_WEAPON_CONDITION,
@@ -443,6 +445,14 @@ const READY_PRESETS: readonly EffectModifierPreset[] = [
     label: 'Скрытая атака: 1 и 2 на костях считаются за 3',
     mode: 'add',
     value: '3',
+  },
+  {
+    key: SNEAK_ATTACK_SAVE_DOUBLE_KEY,
+    label:
+      'Смертельный удар: спасбросок Телосложения в первом раунде, провал — урон ×2',
+    mode: 'add',
+    value: 'constitution',
+    condition: `${COMBAT_ROUND_CONDITION_PREFIX}1`,
   },
   // «Дубинка»: кость растёт по уровню заклинателя — к8, к10, к12, 2к6
   {

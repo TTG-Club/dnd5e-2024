@@ -14,6 +14,7 @@ import type {
   HpChangeDetail,
   ProjectileOutcome,
   SaveDamageDefense,
+  SneakAttackDoubleSave,
   Spell,
   TargetHpGate,
 } from '@vtt/shared/system/dnd.js';
@@ -36,6 +37,7 @@ import {
   removesItselfOnApply,
   resolveActorStats,
   resolveDamageTypeLabel,
+  SAVE_EFFECT_DOUBLE,
   SAVE_TYPE_LABELS,
   stampAppliedEffect,
   withInitializedDuration,
@@ -133,27 +135,48 @@ export interface SpellResolutionContext {
 const SPELL_ACTION_ID_PREFIX = 'spell-action';
 
 /**
- * Контекст разбора с эффектами «на цель», которые принесли сами части урона
- * (приёмы Хитрого удара при Скрытой атаке): они идут к цели вместе с
- * эффектами оружия — тем же спасброском, условием наложения и защитами.
+ * Контекст разбора с тем, что принесли сами части урона Скрытой атаки:
+ * - эффекты «на цель» (приёмы Хитрого удара) идут к цели вместе с эффектами
+ *   оружия — тем же спасброском, условием наложения и защитами;
+ * - спасбросок «провал — урон атаки удвоен» («Смертельный удар») становится
+ *   спасброском источника удара: его берут до записи урона, провал удваивает
+ *   все части. У источника со своим спасброском он не ставится — окно атаки
+ *   такому оружию Скрытую атаку и не даёт.
  *
  * @param context - контекст разбора
  * @param parts - брошенные части урона
- * @returns контекст, у источника которого эти эффекты добавлены
+ * @returns контекст с эффектами и спасброском частей
  */
 export function withPartTargetEffects(
   context: SpellResolutionContext,
-  parts: readonly { targetEffects?: ActiveEffect[] }[],
+  parts: readonly {
+    targetEffects?: ActiveEffect[];
+    attackSave?: SneakAttackDoubleSave;
+  }[],
 ): SpellResolutionContext {
   const extra = parts.flatMap((part) => part.targetEffects ?? []);
+  const attackSave = parts.find((part) => part.attackSave)?.attackSave;
+
+  const withSave =
+    attackSave && !isSaveAbility(context.spell.saveType)
+      ? {
+          ...context,
+          spellSaveDC: attackSave.dc,
+          spell: {
+            ...context.spell,
+            saveType: attackSave.ability,
+            saveEffect: SAVE_EFFECT_DOUBLE,
+          },
+        }
+      : context;
 
   return extra.length === 0
-    ? context
+    ? withSave
     : {
-        ...context,
+        ...withSave,
         spell: {
-          ...context.spell,
-          activeEffects: [...(context.spell.activeEffects ?? []), ...extra],
+          ...withSave.spell,
+          activeEffects: [...(withSave.spell.activeEffects ?? []), ...extra],
         },
       };
 }
@@ -218,6 +241,11 @@ export interface SpellDamagePartInput {
    * записи не знает — окно поднимает кости после броска
    */
   minDie?: number;
+  /**
+   * Спасбросок цели, провал которого удваивает урон всей атаки («Смертельный
+   * удар»): едет с частью Скрытой атаки и ставится источнику удара
+   */
+  attackSave?: SneakAttackDoubleSave;
 }
 
 /**
@@ -256,6 +284,10 @@ export interface RolledSpellDamagePart {
   sneakAttack?: true;
   /** Эффекты «на цель», которые идут с этой частью (приёмы Хитрого удара) */
   targetEffects?: ActiveEffect[];
+  /** Наименьшее значение кости части — запоминается для переброса из чата */
+  minDie?: number;
+  /** Спасбросок «провал — урон атаки удвоен», который едет с этой частью */
+  attackSave?: SneakAttackDoubleSave;
 }
 
 /** Контекст AoE шаблона */

@@ -19,6 +19,7 @@ import type {
 
 import type { CreatureDamageAlternative } from './creatureDamageAlternatives.js';
 import type { EffectTriggerUsageLedger } from './effectTriggerUsage.js';
+import type { SaveDamageEffect } from './spellTypes.js';
 import type { StartingEquipmentItem } from './startingEquipment.js';
 import type {
   CreatureSize,
@@ -148,7 +149,7 @@ export interface CreatureAction {
   /** Сложность спасброска (плоская — у существ DC фиксирован, не выводится) */
   saveDC?: number;
   /** Что происходит с уроном при успешном спасброске цели */
-  saveEffect?: 'half' | 'none' | 'special';
+  saveEffect?: SaveDamageEffect;
   /**
    * Область воздействия (конус/сфера/линия дыхательного оружия). Если задана —
    * при активации размещается шаблон у токена существа, спасброски кидают все

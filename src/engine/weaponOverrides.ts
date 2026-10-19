@@ -25,6 +25,7 @@ import type { DnDGameItem } from './dndEntities.js';
 
 import {
   isOptionValueKey,
+  SNEAK_ATTACK_SAVE_DOUBLE_KEY,
   SPELL_DAMAGE_TYPE_KEY,
   WEAPON_ATTACK_ABILITY_KEY,
   WEAPON_DAMAGE_DICE_KEY,
@@ -306,6 +307,10 @@ function listDamageTypeOptions(): WeaponOverrideValueOption[] {
 export function getChangeValueOptions(
   key: string,
 ): readonly WeaponOverrideValueOption[] | undefined {
+  if (key === SNEAK_ATTACK_SAVE_DOUBLE_KEY) {
+    return ABILITY_OPTIONS;
+  }
+
   return key === SPELL_DAMAGE_TYPE_KEY
     ? listDamageTypeOptions()
     : getWeaponOverrideValueOptions(key);

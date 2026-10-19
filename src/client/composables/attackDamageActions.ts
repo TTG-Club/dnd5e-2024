@@ -48,6 +48,7 @@ import type {
   AttackDamageAction,
   AttackDamageActionRefusal,
   AttackDamageModes,
+  AttackDamagePart,
   AttackDamageRecord,
   AttackDamageTarget,
   ChangedDamageModes,
@@ -82,6 +83,7 @@ import {
   pickRowTargetName,
   planDamageReroll,
   planSneakAttackReapply,
+  raiseDiceToMinimum,
   readDamageModes,
   resolveAttackDamageActionRefusal,
   resolveEntityCurrentHp,
@@ -108,6 +110,7 @@ import { changeEntityCombatState } from './entityCombatWrite';
 import { changeEntitySheet } from './entitySheetWrite';
 import {
   isSneakAttackSpentNow,
+  refundSneakAttackOptions,
   releaseSneakAttack,
   spendSneakAttack,
 } from './sneakAttackUsage';
@@ -426,9 +429,14 @@ export function revertAttackDamage(context: ChatFollowUpActionContext): void {
     return;
   }
 
-  // Урон отменён — потраченная им Скрытая атака возвращается (в том же ходу)
+  // Урон отменён — потраченная им Скрытая атака возвращается (в том же ходу),
+  // ресурс её приёмов («Раздирание разума») — всегда: он копится отдыхом
   if (record.sneakAttackTurn && record.sourceId) {
     releaseSneakAttack(record.sourceId, record.sneakAttackTurn);
+  }
+
+  if (record.sneakAttackOptionIds && record.sourceId) {
+    refundSneakAttackOptions(record.sourceId, record.sneakAttackOptionIds);
   }
 
   replaceFollowUp(context, {
@@ -974,9 +982,34 @@ function rollMissingCritDice(
     unrolled.map(({ part, formula }) => {
       const roll = diceRollerStore.parseAndRoll(toRollerFormula(formula));
 
-      return { part, total: roll.total, values: listRolledDiceValues(roll) };
+      const dice = raisePartDice(
+        record.parts[part],
+        roll.total,
+        listRolledDiceValues(roll),
+      );
+
+      return { part, total: dice.amount, values: dice.values };
     }),
   );
+}
+
+/**
+ * Кости переброса части с её наименьшим значением («1 или 2 считайте за 3»):
+ * переброс из чата поднимает их так же, как окно броска.
+ *
+ * @param part - часть записи
+ * @param amount - итог броска
+ * @param values - значения костей
+ * @returns итог и значения после поднятия
+ */
+function raisePartDice(
+  part: AttackDamagePart | undefined,
+  amount: number,
+  values: readonly number[] | undefined,
+): { amount: number; values: number[] | undefined } {
+  return part?.minDie && values
+    ? raiseDiceToMinimum(amount, values, part.minDie)
+    : { amount, values: values ? [...values] : undefined };
 }
 
 /**
@@ -1135,12 +1168,13 @@ export function reapplyAttackDamage(context: ChatFollowUpActionContext): void {
 
     // Вычет («−1к8 к урону») роллер читает только с нулём впереди
     const roll = diceRollerStore.parseAndRoll(toRollerFormula(plan.formula));
+    const dice = raisePartDice(part, roll.total, listRolledDiceValues(roll));
 
     return {
-      roll,
+      roll: { ...roll, total: dice.amount },
       part: withRerolledDamage(part, plan, {
-        total: roll.total,
-        values: listRolledDiceValues(roll),
+        total: dice.amount,
+        values: dice.values,
       }),
     };
   });

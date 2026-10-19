@@ -51,6 +51,7 @@ import type { DND_EQUIPMENT_CATEGORIES } from './consts.js';
 import type { CreatureSystem } from './creatureTypes.js';
 import type { FeatData } from './featTypes.js';
 import type { SpeciesDefinition } from './speciesTypes.js';
+import type { SaveDamageEffect } from './spellTypes.js';
 import type { DnDActorSystem, DnDCustomBonus } from './types.js';
 
 /**
@@ -213,8 +214,8 @@ export interface DnDGameItem extends BaseGameItem {
    * `none`/undefined — обычная атака с броском попадания.
    */
   saveType?: SpellSaveType;
-  /** Что происходит с уроном оружия при успешном спасброске */
-  saveEffect?: 'half' | 'none' | 'special';
+  /** Что происходит с уроном оружия при спасброске */
+  saveEffect?: SaveDamageEffect;
   /** Единица измерения расстояния для оружия (по умолчанию ft) */
   distanceUnit?: DistanceUnit;
   // --- Equipment-specific (только для type === 'equipment') ---
@@ -535,8 +536,8 @@ export interface Spell {
   projectiles?: SpellProjectiles;
   /** Тип спасброска (какой спасбросок должна совершить цель) */
   saveType: SpellSaveType;
-  /** Что происходит при успешном спасброске */
-  saveEffect?: 'half' | 'none' | 'special';
+  /** Что происходит с уроном при спасброске */
+  saveEffect?: SaveDamageEffect;
   /** Характеристика для броска атаки заклинанием */
   attackAbility?: AbilityType;
   /**

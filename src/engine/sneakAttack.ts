@@ -23,6 +23,8 @@
  * @module system/dnd/sneakAttack
  */
 
+import type { AbilityType } from '@vtt/shared';
+
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type { AttackDamageRecord } from './attackDamageRecord.js';
 import type { DnDSceneEntity } from './dndEntities.js';
@@ -43,11 +45,14 @@ import {
   SNEAK_ATTACK_DICE_KEY,
   SNEAK_ATTACK_MIN_DIE_KEY,
   SNEAK_ATTACK_RIDER_KEY,
+  SNEAK_ATTACK_SAVE_DC_FORMULA,
+  SNEAK_ATTACK_SAVE_DOUBLE_KEY,
 } from './activeEffectTypes.js';
 import {
   buildClassEffectId,
   readClassEffectClassKey,
 } from './classEffectScope.js';
+import { isAbilityType } from './consts.js';
 import { resolveDiceCountExpressions } from './diceCountExpressions.js';
 import {
   collectRollTimeChanges,
@@ -465,6 +470,43 @@ export function resolveSneakAttackMinDie(
   return values.length > 0 ? Math.max(...values) : undefined;
 }
 
+/** Спасбросок цели, провал которого удваивает урон атаки */
+export interface SneakAttackDoubleSave {
+  /** Характеристика спасброска */
+  ability: AbilityType;
+  /** Сл: 8 + Ловкость + БМ бросающего */
+  dc: number;
+}
+
+/**
+ * Спасбросок «Смертельного удара»: строка `sneakAttack.saveDouble` с
+ * выполненным условием (в контексте «Скрытая атака идёт»). Сл — правило ключа
+ * ({@link SNEAK_ATTACK_SAVE_DC_FORMULA}) числами бросающего. Нечитаемая
+ * характеристика строкой не считается.
+ *
+ * @param effects - эффекты бросающего (с аурами)
+ * @param rollContext - контекст броска
+ * @param formulaContext - числа бросающего
+ * @returns спасбросок либо `undefined`, если строк нет
+ */
+export function resolveSneakAttackDoubleSave(
+  effects: readonly ActiveEffect[],
+  rollContext: RollContext,
+  formulaContext: FormulaContext,
+): SneakAttackDoubleSave | undefined {
+  const ability = collectRollTimeChanges(
+    effects,
+    SNEAK_ATTACK_SAVE_DOUBLE_KEY,
+    { ...rollContext, sneakAttack: true },
+  )
+    .map(({ change }) => change.value.trim())
+    .find(isAbilityType);
+
+  const dc = resolveChangeValue(SNEAK_ATTACK_SAVE_DC_FORMULA, formulaContext);
+
+  return ability && dc !== undefined ? { ability, dc } : undefined;
+}
+
 /** Брошенные кости после поднятия до наименьшего значения */
 export interface RaisedDiceRoll {
   /** Итог части */
@@ -656,12 +698,28 @@ const STAGE3_SNEAK_ATTACK_KEYS: ReadonlySet<string> = new Set([
   SNEAK_ATTACK_CUNNING_STRIKE_COUNT_KEY,
   SNEAK_ATTACK_RIDER_KEY,
   SNEAK_ATTACK_MIN_DIE_KEY,
+  SNEAK_ATTACK_SAVE_DOUBLE_KEY,
 ]);
 
 /**
+ * Новые эффекты данных этапа 3, которые миграция кладёт на старый лист, если
+ * их там нет: число приёмов «Улучшенного хитрого удара», преимущество
+ * «Неожиданных ударов» и «Смертельный удар» Убийцы, «Убийственное намерение»
+ * Наследника Троих. Список явный: «новый эффект из определения» по признакам
+ * захватил бы и чужие эффекты, которых игрок мог снять с листа сам.
+ */
+export const STAGE3_SNEAK_ATTACK_EFFECT_IDS: readonly string[] = [
+  'effect-rogue-phb-improved-cunning-strike',
+  'effect-rogue-assassin-phb-surprising-strikes-advantage',
+  'effect-rogue-assassin-phb-death-strike',
+  'effect-rogue-scion-of-the-three-uafrs-killing-intent',
+  'effect-scion-of-the-three-frhof-killing-intent',
+];
+
+/**
  * Эффект из данных этапа 3: у него строка Хитрого удара, приёма по выбору,
- * числа приёмов или наименьшей кости, либо строка с условием «идёт Скрытая
- * атака».
+ * числа приёмов, наименьшей кости или «Смертельного удара», либо строка с
+ * условием «идёт Скрытая атака».
  *
  * @param effect - эффект
  * @returns `true`, если эффект уже новый
@@ -675,21 +733,22 @@ function isStage3SneakAttackEffect(effect: ActiveEffect): boolean {
 }
 
 /**
- * Старая ли это кнопка из списка {@link LEGACY_SNEAK_ATTACK_BUTTON_IDS}:
- * id ровно `class-effect:<класс>:<id из списка>` и «Применить».
+ * Совпадает ли id эффекта умения класса с одним из id компендиума: ровно
+ * `class-effect:<класс>:<id из списка>`.
  *
- * @param effect - эффект на листе
- * @returns `true`, если кнопку снимают, когда её нет в новых данных
+ * @param effect - эффект на листе или в определении
+ * @param ids - id эффектов компендиума
+ * @returns `true`, если id из списка
  */
-function isLegacySneakAttackButton(effect: ActiveEffect): boolean {
+function hasClassEffectIdIn(
+  effect: ActiveEffect,
+  ids: readonly string[],
+): boolean {
   const classKey = readClassEffectClassKey(effect.id);
 
   return (
     classKey !== undefined
-    && effect.activation?.mode === 'use'
-    && LEGACY_SNEAK_ATTACK_BUTTON_IDS.some(
-      (legacyId) => effect.id === buildClassEffectId(classKey, legacyId),
-    )
+    && ids.some((id) => effect.id === buildClassEffectId(classKey, id))
   );
 }
 
@@ -698,12 +757,14 @@ function isLegacySneakAttackButton(effect: ActiveEffect): boolean {
  * класса и только когда определение класса уже новое (в нём есть строка
  * Скрытой атаки — данные компендиума переписаны):
  * - кнопка из {@link LEGACY_SNEAK_ATTACK_BUTTON_IDS}, которой в определении
- *   нет, снимается;
- * - кнопка, у которой в определении тот же id, но уже не кнопка или эффект
- *   этапа 3 («Хитрый удар: Отравить» со строкой цены), заменяется копией из
- *   определения;
- * - заодно добавляются эффекты этапа 3 из определения, которых на листе нет
- *   («Улучшенный хитрый удар»).
+ *   нет, снимается, а если есть — заменяется копией из определения
+ *   («Неожиданные удары: урон» стал постоянной строкой);
+ * - кнопка не из списка заменяется копией из определения, только если та —
+ *   эффект этапа 3, а кнопка ещё нет («Хитрый удар: Отравить» со строкой
+ *   цены). Кнопку другого класса, которую данные перевели во что-то иное, миграция
+ *   не трогает;
+ * - заодно добавляются эффекты из {@link STAGE3_SNEAK_ATTACK_EFFECT_IDS},
+ *   которых на листе нет.
  *
  * Сравнение id точное. Повторный запуск ничего не меняет: старых кнопок уже
  * нет, заменённые — уже новые, добавленные — уже на листе.
@@ -732,30 +793,23 @@ export function migrateStage3SneakAttackEffects(
       return [effect];
     }
 
+    const legacy = hasClassEffectIdIn(effect, LEGACY_SNEAK_ATTACK_BUTTON_IDS);
     const fresh = definitionById.get(effect.id);
 
     if (!fresh) {
-      if (isLegacySneakAttackButton(effect)) {
-        changed = true;
+      changed ||= legacy;
 
-        return [];
-      }
-
-      return [effect];
+      return legacy ? [] : [effect];
     }
 
     const outdated =
-      fresh.activation?.mode !== 'use'
+      (legacy && fresh.activation?.mode !== 'use')
       || (isStage3SneakAttackEffect(fresh)
         && !isStage3SneakAttackEffect(effect));
 
-    if (!outdated) {
-      return [effect];
-    }
+    changed ||= outdated;
 
-    changed = true;
-
-    return [fresh];
+    return [outdated ? fresh : effect];
   });
 
   if (!changed) {
@@ -767,7 +821,9 @@ export function migrateStage3SneakAttackEffects(
   return [
     ...kept,
     ...definitionEffects.filter(
-      (effect) => isStage3SneakAttackEffect(effect) && !keptIds.has(effect.id),
+      (effect) =>
+        hasClassEffectIdIn(effect, STAGE3_SNEAK_ATTACK_EFFECT_IDS)
+        && !keptIds.has(effect.id),
     ),
   ];
 }

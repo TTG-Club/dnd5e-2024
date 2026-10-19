@@ -29,6 +29,7 @@ import {
   findBurningActivationPeer,
   needsActivationPayment,
   payActivation,
+  refundActivation,
   stampEffectPaid,
   usesPaidHitDiceRoll,
   withSheetResources,
@@ -84,6 +85,34 @@ export function payEntityActivation(
     system: {
       ...entity.system,
       classCounters: payActivation(
+        entity.system.classCounters ?? [],
+        effect.activation,
+      ),
+    },
+  };
+}
+
+/**
+ * Сущность после возврата оплаты применения: удар с приёмом отменили.
+ * Эффект без расхода ресурса сущность не меняет.
+ *
+ * @param entity - сущность
+ * @param effect - применённый эффект
+ * @returns сущность с новыми счётчиками либо та же сущность
+ */
+export function refundEntityActivation(
+  entity: DnDSceneEntity,
+  effect: ActiveEffect,
+): DnDSceneEntity {
+  if (!effect.activation?.counter || !isActorEntity(entity)) {
+    return entity;
+  }
+
+  return {
+    ...entity,
+    system: {
+      ...entity.system,
+      classCounters: refundActivation(
         entity.system.classCounters ?? [],
         effect.activation,
       ),

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { describe, it } from 'vitest';
 
 import { loadEngineBundle, systemRoot } from '../helpers/engineBundle.mjs';
+import { loadHandler } from '../helpers/sourceHandler.mjs';
 
 const engine = await loadEngineBundle("export * from './src/engine/index.ts';");
 
@@ -18,7 +19,7 @@ const engine = await loadEngineBundle("export * from './src/engine/index.ts';");
 /** Числа носителя: уровень в классе подставлен, остальное — по месту */
 function formulaContext(level = 5) {
   return {
-    abilities: { dex: { value: 18, mod: 4 } },
+    abilities: { dexterity: { value: 18, mod: 4 } },
     prof: 3,
     level,
     classLevel: level,
@@ -87,9 +88,10 @@ const daze = cunningStrike('effect-rogue-phb-cunning-daze', 2);
 const knockOut = cunningStrike('effect-rogue-phb-cunning-knock-out', 6);
 
 /** Улучшенный хитрый удар: ещё один приём за удар */
-const improved = effect('class-effect:rogue:effect-rogue-phb-improved', [
-  change(engine.SNEAK_ATTACK_CUNNING_STRIKE_COUNT_KEY, '1'),
-]);
+const improved = effect(
+  'class-effect:rogue:effect-rogue-phb-improved-cunning-strike',
+  [change(engine.SNEAK_ATTACK_CUNNING_STRIKE_COUNT_KEY, '1')],
+);
 
 /** Удар фехтовальным оружием с преимуществом */
 function finesseRoll(extra = {}) {
@@ -113,7 +115,7 @@ function ids(options) {
 }
 
 describe('хитрый удар: выбор и цена', () => {
-  it('[CS01] приёмы — кнопки со строкой цены; цена убирает кости до броска', () => {
+  it('[SK01] приёмы — кнопки со строкой цены; цена убирает кости до броска', () => {
     const effects = [poison, trip, daze];
 
     const options = engine.listSneakAttackOptions(
@@ -143,7 +145,7 @@ describe('хитрый удар: выбор и цена', () => {
     assert.equal(engine.formatSneakAttackDice('3к6', 2), '2к6');
   });
 
-  it('[CS01] на приём не хватает костей — его не выбрать', () => {
+  it('[SK01] на приём не хватает костей — его не выбрать', () => {
     const options = engine.listSneakAttackOptions(
       [knockOut],
       finesseRoll(),
@@ -162,7 +164,7 @@ describe('хитрый удар: выбор и цена', () => {
     );
   });
 
-  it('[CS02] один приём за удар; «Улучшенный хитрый удар» — два, повтор нельзя', () => {
+  it('[SK02] один приём за удар; «Улучшенный хитрый удар» — два, повтор нельзя', () => {
     const options = engine.listSneakAttackOptions(
       [trip, daze],
       finesseRoll(),
@@ -200,7 +202,7 @@ describe('хитрый удар: выбор и цена', () => {
     );
   });
 
-  it('[CS02] костей стало меньше — снимаются выбранные последними', () => {
+  it('[SK02] костей стало меньше — снимаются выбранные последними', () => {
     const options = engine.listSneakAttackOptions(
       [trip, daze],
       finesseRoll(),
@@ -213,7 +215,7 @@ describe('хитрый удар: выбор и цена', () => {
     );
   });
 
-  it('[CS03] «Отравить» — только с набором отравителя в снаряжении', () => {
+  it('[SK03] «Отравить» — только с набором отравителя в снаряжении', () => {
     const available = (context) =>
       ids(
         engine.listSneakAttackOptions(
@@ -236,13 +238,13 @@ describe('хитрый удар: выбор и цена', () => {
     assert.deepEqual(carrier.toolKeys, ['poisoners-kit']);
   });
 
-  it('[CS04] крит удваивает кости, оставшиеся после цены приёма', () => {
+  it('[SK04] крит удваивает кости, оставшиеся после цены приёма', () => {
     const afterCost = engine.addDiceToFormula('3к6', -1);
 
     assert.equal(engine.doubleDiceInFormula(afterCost), '4к6');
   });
 
-  it('[CS01] без Скрытой атаки приёмов нет: окно выбирает их только под включённым переключателем', () => {
+  it('[SK01] без Скрытой атаки приёмов нет: окно выбирает их только под включённым переключателем', () => {
     const modal = readFileSync(
       join(systemRoot, 'src/client/ui/actor/DiceRollModal.vue'),
       'utf8',
@@ -256,7 +258,7 @@ describe('хитрый удар: выбор и цена', () => {
 });
 
 describe('хитрый удар: эффект приёма на цели', () => {
-  it('[CS05] кнопка становится эффектом на цель: без применения и без строк Скрытой атаки', () => {
+  it('[SK05] кнопка становится эффектом на цель: без применения и без строк Скрытой атаки', () => {
     const target = engine.buildSneakAttackOptionTargetEffect(poison);
 
     assert.equal(target.activation, undefined);
@@ -268,7 +270,7 @@ describe('хитрый удар: эффект приёма на цели', () =>
     assert.equal(poison.activation.mode, 'use', 'кнопка на листе не тронута');
   });
 
-  it('[CS05] эффекты приёмов едут в части Скрытой атаки к оркестратору удара', () => {
+  it('[SK05] эффекты приёмов едут в части Скрытой атаки к оркестратору удара', () => {
     const shared = readFileSync(
       join(systemRoot, 'src/client/composables/spellResolutionShared.ts'),
       'utf8',
@@ -292,7 +294,7 @@ describe('событие «урон нанесён Скрытой атакой»
   const sneakCondition = engine.SNEAK_ATTACK_APPLIED_CONDITION;
   const rogue = { id: 'rogue', type: 'actor', system: {}, activeEffects: [] };
 
-  it('[CS06] признак едет в событии броска атаки — только у попавшего', () => {
+  it('[SK06] признак едет в событии броска атаки — только у попавшего', () => {
     const event = engine.buildAttackRollEvent(
       'rogue',
       ['goblin'],
@@ -317,7 +319,7 @@ describe('событие «урон нанесён Скрытой атакой»
     assert.equal(missed.sneakAttack, undefined);
   });
 
-  it('[CS06] условие срабатывания читает признак; без него не выполняется', () => {
+  it('[SK06] условие срабатывания читает признак; без него не выполняется', () => {
     const met = (attack) =>
       engine.isTriggerConditionMet(
         rogue,
@@ -329,7 +331,7 @@ describe('событие «урон нанесён Скрытой атакой»
     assert.equal(met({ kinds: [], landed: true }), false);
   });
 
-  it('[CS06] такое срабатывание выполняет сервер — клиент бросает свои до урона', () => {
+  it('[SK06] такое срабатывание выполняет сервер — клиент бросает свои до урона', () => {
     assert.equal(
       engine.isClientAttackRollTrigger({
         id: 'rend',
@@ -352,7 +354,7 @@ describe('событие «урон нанесён Скрытой атакой»
 });
 
 describe('подклассы', () => {
-  it('[CS07] Убийца: первый раунд и цель, которая ещё не ходила', () => {
+  it('[SK07] Убийца: первый раунд и цель, которая ещё не ходила', () => {
     const condition = `${engine.COMBAT_ROUND_CONDITION_PREFIX}1 && ${engine.TARGET_NOT_ACTED_CONDITION}`;
 
     const holds = (combatRound, hasActed) =>
@@ -373,7 +375,7 @@ describe('подклассы', () => {
     assert.equal(holds(undefined, undefined), false, 'вне боя');
   });
 
-  it('[CS07] Убийца: урон уровня плута, если в первом раунде идёт Скрытая атака', () => {
+  it('[SK07] Убийца: урон уровня плута, если в первом раунде идёт Скрытая атака', () => {
     const surprising = effect('class-effect:rogue:surprising', [
       change(
         'damage.all',
@@ -395,7 +397,7 @@ describe('подклассы', () => {
     assert.equal(matches(true, 2), 0);
   });
 
-  it('[CS08] Наследник Троих: 1 и 2 на костях Скрытой атаки — за 3', () => {
+  it('[SK08] Наследник Троих: 1 и 2 на костях Скрытой атаки — за 3', () => {
     const killingIntent = effect('class-effect:rogue:killing-intent', [
       change(engine.SNEAK_ATTACK_MIN_DIE_KEY, '3'),
     ]);
@@ -420,7 +422,7 @@ describe('подклассы', () => {
     });
   });
 
-  it('[CS08] Наследник Троих: доп. урон по окровавленной цели при Скрытой атаке', () => {
+  it('[SK08] Наследник Троих: доп. урон по окровавленной цели при Скрытой атаке', () => {
     const bloodthirst = effect('class-effect:rogue:bloodthirst', [
       change(
         'damage.all',
@@ -441,7 +443,7 @@ describe('подклассы', () => {
     assert.equal(matches(11), 0);
   });
 
-  it('[CS09] Клинок души: «Раздирание разума» — эффект по выбору, не приём Хитрого удара', () => {
+  it('[SK09] Клинок души: «Раздирание разума» — эффект по выбору, не приём Хитрого удара', () => {
     const rendMind = effect(
       'class-effect:rogue:effect-soulknife-phb-rend-mind',
       [change(engine.SNEAK_ATTACK_RIDER_KEY, '0')],
@@ -474,7 +476,7 @@ describe('подклассы', () => {
     );
   });
 
-  it('[CS10] Агент Дома: «Ошеломляющее предательство» ценой 4к6 — с 9-го уровня (5к6)', () => {
+  it('[SK10] Агент Дома: «Ошеломляющее предательство» ценой 4к6 — с 9-го уровня (5к6)', () => {
     const betrayal = cunningStrike(
       'effect-house-agent-uauo-stunning-betrayal',
       4,
@@ -518,7 +520,7 @@ describe('обновление старых листов', () => {
     activation: { mode: 'use' },
   });
 
-  it('[CS11] кнопки «−Nк6» и подклассов снимаются, приём — заменяется новым; повтор ничего не меняет', () => {
+  it('[SK11] кнопки «−Nк6» и подклассов снимаются, приём — заменяется новым; повтор ничего не меняет', () => {
     const sheet = [
       sneak,
       legacyMinus,
@@ -547,7 +549,7 @@ describe('обновление старых листов', () => {
     );
   });
 
-  it('[CS11] определение ещё старое — лист не трогается', () => {
+  it('[SK11] определение ещё старое — лист не трогается', () => {
     const oldDefinition = [
       effect('class-effect:rogue:effect-rogue-phb-sneak-attack', [], {
         activation: { mode: 'use' },
@@ -564,7 +566,7 @@ describe('обновление старых листов', () => {
     );
   });
 
-  it('[CS11] id сравнивается точно: похожая кнопка не снимается', () => {
+  it('[SK11] id сравнивается точно: похожая кнопка не снимается', () => {
     const lookalike = effect(
       'class-effect:rogue:effect-rogue-phb-sneak-attack-minus-1-homebrew',
       [],
@@ -578,11 +580,382 @@ describe('обновление старых листов', () => {
   });
 });
 
-describe('пробелы этапа 3', () => {
-  it.todo(
-    '[CS12] Смертельный удар Убийцы: удвоение урона атаки при проваленном спасброске',
-  );
+describe('обновление старых листов: подклассы и чужие кнопки', () => {
+  const sneak = effect('class-effect:rogue:effect-rogue-phb-sneak-attack', [
+    change(
+      engine.SNEAK_ATTACK_DAMAGE_KEY,
+      engine.SNEAK_ATTACK_DICE_FORMULA,
+      engine.SNEAK_ATTACK_CONDITION,
+    ),
+  ]);
 
-  it.todo('[CS13] Воровские рефлексы: два хода в первом раунде');
-  it.todo('[CS14] Отступить: перемещение без провоцированных атак');
+  const button = (id) =>
+    effect(id, [], {
+      disabled: true,
+      activation: { mode: 'use' },
+      effectTarget: 'target',
+    });
+
+  it('[SK11] Убийца: кнопка «Неожиданные удары» → постоянная строка; преимущество и «Смертельный удар» добавляются', () => {
+    const surprisingId =
+      'class-effect:rogue:effect-rogue-assassin-phb-surprising-strikes';
+
+    const surprising = effect(surprisingId, [
+      change(
+        'damage.all',
+        '@classLevel',
+        `${engine.SNEAK_ATTACK_APPLIED_CONDITION} && ${engine.COMBAT_ROUND_CONDITION_PREFIX}1`,
+      ),
+    ]);
+
+    const advantage = effect(
+      'class-effect:rogue:effect-rogue-assassin-phb-surprising-strikes-advantage',
+      [],
+      {
+        flags: ['attack.advantage'],
+        rollCondition: `${engine.COMBAT_ROUND_CONDITION_PREFIX}1 && ${engine.TARGET_NOT_ACTED_CONDITION}`,
+      },
+    );
+
+    const deathStrike = effect(
+      'class-effect:rogue:effect-rogue-assassin-phb-death-strike',
+      [
+        change(
+          engine.SNEAK_ATTACK_SAVE_DOUBLE_KEY,
+          'constitution',
+          `${engine.COMBAT_ROUND_CONDITION_PREFIX}1`,
+        ),
+      ],
+    );
+
+    const definition = [sneak, surprising, advantage, deathStrike];
+
+    const migrated = engine.migrateStage3SneakAttackEffects(
+      [sneak, button(surprisingId)],
+      definition,
+    );
+
+    assert.deepEqual(
+      migrated?.map((entry) => [entry.id, entry.activation?.mode]),
+      [
+        [sneak.id, undefined],
+        [surprisingId, undefined],
+        [advantage.id, undefined],
+        [deathStrike.id, undefined],
+      ],
+    );
+
+    assert.equal(
+      engine.migrateStage3SneakAttackEffects(migrated ?? [], definition),
+      undefined,
+      'повтор ничего не меняет',
+    );
+  });
+
+  it('[SK11] мультикласс: кнопку другого класса, ставшую в данных постоянным эффектом, миграция не трогает', () => {
+    const fighterButton = button('class-effect:fighter:effect-fighter-surge');
+
+    const fighterPermanent = effect(fighterButton.id, [
+      change('attack.melee', '1'),
+    ]);
+
+    const legacyMinus = button(
+      'class-effect:rogue:effect-rogue-phb-sneak-attack-minus-1',
+    );
+
+    const migrated = engine.migrateStage3SneakAttackEffects(
+      [sneak, legacyMinus, fighterButton],
+      [sneak, fighterPermanent],
+    );
+
+    assert.deepEqual(
+      migrated?.map((entry) => [entry.id, entry.activation?.mode]),
+      [
+        [sneak.id, undefined],
+        [fighterButton.id, 'use'],
+      ],
+      'кнопка −1к6 снята, кнопка воина осталась кнопкой',
+    );
+  });
+});
+
+describe('смертельный удар', () => {
+  const deathStrike = effect('class-effect:rogue:death-strike', [
+    change(
+      engine.SNEAK_ATTACK_SAVE_DOUBLE_KEY,
+      'constitution',
+      `${engine.COMBAT_ROUND_CONDITION_PREFIX}1`,
+    ),
+  ]);
+
+  it('[SK12] в первом раунде при Скрытой атаке — спасбросок Телосложения, Сл 8 + Лов + БМ', () => {
+    assert.deepEqual(
+      engine.resolveSneakAttackDoubleSave(
+        [deathStrike],
+        finesseRoll({ combatRound: 1 }),
+        formulaContext(17),
+      ),
+      { ability: 'constitution', dc: 15 },
+    );
+
+    assert.equal(
+      engine.resolveSneakAttackDoubleSave(
+        [deathStrike],
+        finesseRoll({ combatRound: 2 }),
+        formulaContext(17),
+      ),
+      undefined,
+      'второй раунд',
+    );
+  });
+
+  it('[SK12] провал удваивает урон, успех его не меняет', () => {
+    assert.equal(engine.scaleSaveDamage(13, 'double', false), 26);
+    assert.equal(engine.scaleSaveDamage(13, 'double', true), 13);
+    assert.equal(engine.scaleSaveDamage(13, 'double', undefined), 13);
+  });
+
+  it('[SK12] спасбросок едет с частью Скрытой атаки и становится спасброском источника удара', async () => {
+    const withPartTargetEffects = await loadHandler(
+      'src/client/composables/spellResolutionShared.ts',
+      'withPartTargetEffects',
+      {
+        isSaveAbility: engine.isSaveAbility,
+        SAVE_EFFECT_DOUBLE: engine.SAVE_EFFECT_DOUBLE,
+      },
+    );
+
+    const context = {
+      spell: { name: 'Кинжал', saveType: 'none', activeEffects: [] },
+      spellSaveDC: 13,
+    };
+
+    const next = withPartTargetEffects(context, [
+      { attackSave: { ability: 'constitution', dc: 15 } },
+    ]);
+
+    assert.equal(next.spell.saveType, 'constitution');
+    assert.equal(next.spell.saveEffect, 'double');
+    assert.equal(next.spellSaveDC, 15);
+
+    const ownSave = withPartTargetEffects(
+      { ...context, spell: { ...context.spell, saveType: 'dexterity' } },
+      [{ attackSave: { ability: 'constitution', dc: 15 } }],
+    );
+
+    assert.equal(
+      ownSave.spell.saveType,
+      'dexterity',
+      'свой спасбросок оружия главнее',
+    );
+  });
+});
+
+describe('доработки после ревью', () => {
+  it('[SK05] эффекты приёмов из частей урона добавляются к эффектам источника удара', async () => {
+    const withPartTargetEffects = await loadHandler(
+      'src/client/composables/spellResolutionShared.ts',
+      'withPartTargetEffects',
+      {
+        isSaveAbility: engine.isSaveAbility,
+        SAVE_EFFECT_DOUBLE: engine.SAVE_EFFECT_DOUBLE,
+      },
+    );
+
+    const weaponEffect = effect('weapon-poison', [], {
+      effectTarget: 'target',
+    });
+
+    const tripOnTarget = engine.buildSneakAttackOptionTargetEffect(trip);
+
+    const next = withPartTargetEffects(
+      {
+        spell: {
+          name: 'Кинжал',
+          saveType: 'none',
+          activeEffects: [weaponEffect],
+        },
+      },
+      [{}, { targetEffects: [tripOnTarget] }],
+    );
+
+    // Окно разбора — свой контекст: массивы сравниваются по содержимому
+    const spell = JSON.parse(JSON.stringify(next.spell));
+
+    assert.deepEqual(
+      engine
+        .getTargetSpellEffects(spell)
+        .map((entry) => [entry.id, entry.conditionKey]),
+      [
+        [weaponEffect.id, undefined],
+        [trip.id, 'prone'],
+      ],
+      'эффект приёма — действующий эффект на цель рядом с эффектом оружия',
+    );
+  });
+
+  it('[SK16] без выбранной цели приёмов нет: эффекты доставить некому', async () => {
+    const listTargeted = await loadHandler(
+      'src/client/composables/useBonusDamageParts.ts',
+      'listTargetedSneakAttackOptions',
+      {
+        listSneakAttackOptions: engine.listSneakAttackOptions,
+        withOwnUseButtons: (_owner, effects) => effects,
+      },
+    );
+
+    const owner = { id: 'rogue', activeEffects: [] };
+
+    assert.equal(
+      listTargeted(owner, [trip], finesseRoll(), formulaContext()).length,
+      0,
+    );
+
+    assert.equal(
+      listTargeted(
+        owner,
+        [trip],
+        finesseRoll({ target: { currentHp: 10, maxHp: 10 } }),
+        formulaContext(),
+      ).length,
+      1,
+    );
+  });
+
+  it('[SK16] «Повалить» по Огромной цели не ложится — приём не выбрать', () => {
+    const tripWithSize = { ...trip, landingCondition: 'self.size <= "large"' };
+
+    const target = (size) => ({
+      id: 'giant',
+      type: 'creature',
+      system: { size },
+      activeEffects: [],
+    });
+
+    assert.equal(
+      engine.passesLandingCondition(tripWithSize, target('large')),
+      true,
+    );
+
+    assert.equal(
+      engine.passesLandingCondition(tripWithSize, target('huge')),
+      false,
+    );
+  });
+
+  it('[SK17] «Отменить урон» возвращает ресурс «Раздирания разума»', () => {
+    const activation = { mode: 'use', counter: 'rend-mind' };
+
+    assert.equal(
+      engine.refundActivation(
+        [{ counterKey: 'rend-mind', current: 0, max: 1 }],
+        activation,
+      )[0].current,
+      1,
+    );
+
+    assert.equal(
+      engine.refundActivation(
+        [{ counterKey: 'rend-mind', current: 1, max: 1 }],
+        activation,
+      )[0].current,
+      1,
+      'не выше максимума',
+    );
+
+    const rendMindId = 'class-effect:rogue:effect-soulknife-phb-rend-mind';
+
+    const record = engine.parseAttackDamageRecord(
+      JSON.stringify({
+        label: 'Кинжал',
+        critical: false,
+        sourceId: 'rogue',
+        parts: [
+          {
+            formula: '3к6',
+            types: ['piercing'],
+            sneakAttack: true,
+            minDie: 3,
+          },
+        ],
+        targets: [
+          {
+            entityId: 'goblin',
+            name: 'Гоблин',
+            hpLost: 9,
+            tempLost: 0,
+            contributions: [],
+          },
+        ],
+        sneakAttackOptionIds: [rendMindId],
+      }),
+    );
+
+    assert.deepEqual(record?.sneakAttackOptionIds, [rendMindId]);
+    assert.equal(record?.parts[0].minDie, 3);
+
+    const actions = readFileSync(
+      join(systemRoot, 'src/client/composables/attackDamageActions.ts'),
+      'utf8',
+    );
+
+    assert.match(
+      actions,
+      /refundSneakAttackOptions\(record\.sourceId, record\.sneakAttackOptionIds\)/u,
+    );
+  });
+
+  it('[SK18] переброс урона из чата поднимает кости до наименьшего значения', () => {
+    const actions = readFileSync(
+      join(systemRoot, 'src/client/composables/attackDamageActions.ts'),
+      'utf8',
+    );
+
+    assert.equal(
+      (actions.match(/raisePartDice\(/gu) ?? []).length,
+      3,
+      'объявление и оба переброса: «Нанести урон» и кости крита',
+    );
+  });
+
+  it('[SK19] «цель ещё не ходила» — по месту в порядке инициативы', async () => {
+    const encounter = {
+      isActive: true,
+      round: 1,
+      currentTurnIndex: 1,
+      entries: [
+        { actorId: 'first' },
+        { actorId: 'current' },
+        { actorId: 'later' },
+      ],
+    };
+
+    const ports = { useInitiativeStore: () => ({ encounter }) };
+
+    ports.isEntityInCombat = await loadHandler(
+      'src/client/composables/encounterTurn.ts',
+      'isEntityInCombat',
+      ports,
+    );
+
+    const hasActed = await loadHandler(
+      'src/client/composables/encounterTurn.ts',
+      'hasEntityActedInCombat',
+      ports,
+    );
+
+    assert.equal(hasActed('first'), true);
+    assert.equal(hasActed('current'), true, 'идущий ход тоже считается');
+    assert.equal(hasActed('later'), false);
+    assert.equal(hasActed('stranger'), undefined, 'не участник');
+
+    encounter.round = 2;
+
+    assert.equal(hasActed('later'), true, 'со второго раунда ходили все');
+  });
+});
+
+describe('пробелы этапа 3', () => {
+  it.todo('[SK13] Воровские рефлексы: два хода в первом раунде');
+  it.todo('[SK14] Отступить: перемещение без провоцированных атак');
 });

@@ -71,6 +71,12 @@ const MAX_RECORD_TARGETS = 32;
 /** Сколько наложенных ударом эффектов помнит запись по одной цели */
 const MAX_RECORD_EFFECTS = 32;
 
+/** Наименьшее значение кости в записи: «считать за 2» и выше */
+const MIN_RECORD_DIE = 2;
+
+/** Наибольшее значение кости в записи: грань к100 */
+const MAX_RECORD_DIE = 100;
+
 /** Предел своей подписи части и метки хода в записи */
 const MAX_RECORD_LABEL_LENGTH = 64;
 
@@ -96,6 +102,13 @@ const AttackDamagePartSchema = z.object({
     .optional()
     .catch(undefined),
   sneakAttack: z.literal(true).optional().catch(undefined),
+  minDie: z
+    .number()
+    .int()
+    .min(MIN_RECORD_DIE)
+    .max(MAX_RECORD_DIE)
+    .optional()
+    .catch(undefined),
 });
 
 /** Zod-схема полного урона цели по режимам */
@@ -152,6 +165,11 @@ const AttackDamageRecordSchema = z.object({
     .max(MAX_RECORD_LABEL_LENGTH)
     .optional()
     .catch(undefined),
+  sneakAttackOptionIds: z
+    .array(z.string().min(1))
+    .max(MAX_RECORD_EFFECTS)
+    .optional()
+    .catch(undefined),
 });
 
 /** Часть урона атаки: чем брошена и какого типа */
@@ -169,6 +187,11 @@ export interface AttackDamagePart {
   label?: string;
   /** Кости Скрытой атаки: повтор урона решает, идут ли они снова */
   sneakAttack?: true;
+  /**
+   * Наименьшее значение кости части («1 или 2 считайте за 3»): переброс из
+   * чата поднимает кости так же, как окно броска
+   */
+  minDie?: number;
 }
 
 /**
@@ -260,6 +283,12 @@ export interface AttackDamageRecord {
    * — оба только в том же ходу
    */
   sneakAttackTurn?: string;
+  /**
+   * Приёмы, выбранные при Скрытой атаке этого удара, — id их эффектов-кнопок.
+   * «Отменить урон» возвращает ресурс тем из них, что его тратят
+   * («Раздирание разума»)
+   */
+  sneakAttackOptionIds?: string[];
 }
 
 /** Итог одной части урона для цели */

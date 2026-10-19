@@ -1049,9 +1049,13 @@ export function useSpellDamageWithParts() {
         ...(context.attack?.sneakAttackTurn && context.casterId
           ? { sneakAttackTurn: context.attack.sneakAttackTurn }
           : {}),
+        ...(context.attack?.sneakAttackOptionIds && context.casterId
+          ? { sneakAttackOptionIds: context.attack.sneakAttackOptionIds }
+          : {}),
         parts: damageParts.map((part) => ({
           ...(part.label ? { label: part.label } : {}),
           ...(part.sneakAttack ? { sneakAttack: true as const } : {}),
+          ...(part.minDie ? { minDie: part.minDie } : {}),
           formula: part.formula,
           types: part.types ?? (part.type ? [part.type] : []),
           roll: describeDamagePartRoll({

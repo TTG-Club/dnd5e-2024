@@ -380,6 +380,19 @@ export const SNEAK_ATTACK_RIDER_KEY = 'sneakAttack.rider';
 export const SNEAK_ATTACK_MIN_DIE_KEY = 'sneakAttack.minDie';
 
 /**
+ * Ключ спасброска цели при уроне Скрытой атаки, ПРОВАЛ которого удваивает урон
+ * всей атаки («Смертельный удар» Убийцы). Значение — характеристика
+ * спасброска (`constitution`), условие строки — когда («первый раунд»). Сл —
+ * правило ключа, как у Хитрого удара: 8 + Ловкость + БМ
+ * ({@link SNEAK_ATTACK_SAVE_DC_FORMULA}). Спасбросок берётся до записи урона —
+ * тем же путём, что спасбросок оружия.
+ */
+export const SNEAK_ATTACK_SAVE_DOUBLE_KEY = 'sneakAttack.saveDouble';
+
+/** Сл спасбросков от умений Скрытой атаки: 8 + Ловкость + бонус мастерства */
+export const SNEAK_ATTACK_SAVE_DC_FORMULA = '8 + @prof + @mod.dex';
+
+/**
  * Кости Скрытой атаки плута по уровню в классе: 1к6 на 1-м, +1к6 на каждом
  * нечётном (10к6 на 19-м).
  */
@@ -394,6 +407,7 @@ const SNEAK_ATTACK_KEYS: ReadonlySet<string> = new Set([
   SNEAK_ATTACK_CUNNING_STRIKE_COUNT_KEY,
   SNEAK_ATTACK_RIDER_KEY,
   SNEAK_ATTACK_MIN_DIE_KEY,
+  SNEAK_ATTACK_SAVE_DOUBLE_KEY,
 ]);
 
 /**
@@ -437,7 +451,11 @@ export function isOffSheetChangeKey(key: string): boolean {
  * @returns `true`, если значение формулой не проверяют
  */
 export function isOptionValueKey(key: string): boolean {
-  return isWeaponOverrideKey(key) || key === SPELL_DAMAGE_TYPE_KEY;
+  return (
+    isWeaponOverrideKey(key)
+    || key === SPELL_DAMAGE_TYPE_KEY
+    || key === SNEAK_ATTACK_SAVE_DOUBLE_KEY
+  );
 }
 
 /**
@@ -483,7 +501,8 @@ export type EffectTargetKey =
   | typeof SNEAK_ATTACK_CUNNING_STRIKE_KEY
   | typeof SNEAK_ATTACK_CUNNING_STRIKE_COUNT_KEY
   | typeof SNEAK_ATTACK_RIDER_KEY
-  | typeof SNEAK_ATTACK_MIN_DIE_KEY;
+  | typeof SNEAK_ATTACK_MIN_DIE_KEY
+  | typeof SNEAK_ATTACK_SAVE_DOUBLE_KEY;
 
 /**
  * Ключ строки модификатора: известный ключ движка либо ПУСТАЯ строка — «ключ
@@ -614,6 +633,10 @@ export const EFFECT_TARGET_SUGGESTIONS: Array<{
   {
     value: SNEAK_ATTACK_MIN_DIE_KEY,
     label: 'Скрытая атака: наименьшее значение кости',
+  },
+  {
+    value: SNEAK_ATTACK_SAVE_DOUBLE_KEY,
+    label: 'Скрытая атака: спасбросок цели, провал — урон атаки удвоен',
   },
 
   // Замены свойств оружия («Дубинка»)

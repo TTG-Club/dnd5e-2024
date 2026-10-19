@@ -60,6 +60,7 @@
     raiseDiceToMinimum,
     resolveAttackLanded,
     rollRandomDamageTypeChoices,
+    SAVE_TYPE_LABELS,
     scaleDamageFormula,
     settleDamageTypeChoices,
     sumSneakAttackOptionCost,
@@ -783,7 +784,9 @@
     }
 
     const picked = pickSneakAttackOptions(
-      preview.options.filter((option) => option.affordable),
+      preview.options.filter(
+        (option) => option.affordable && option.fitsTarget,
+      ),
       selectedSneakAttackOptionIds.value,
       preview.diceCount,
       preview.cunningStrikeLimit,
@@ -800,6 +803,7 @@
         disabled:
           !selected
           && (!option.affordable
+            || !option.fitsTarget
             || !canAddSneakAttackOption(
               picked,
               option,
@@ -810,14 +814,35 @@
           option.cost > 0
             ? `${option.name}${DICE_ROLL_LABELS.sneakAttackOptionCostPrefix}${formatSneakAttackDice(preview.formula, option.cost)}`
             : option.name,
-        description: option.affordable
-          ? option.description
-          : DICE_ROLL_LABELS.sneakAttackOptionNoResource,
+        description: describeSneakAttackOption(option),
         cost: option.cost,
         cunningStrike: option.cunningStrike,
       };
     });
   });
+
+  /**
+   * Пояснение под приёмом: почему его не выбрать, иначе — его описание.
+   *
+   * @param option - приём из показа окна
+   * @param option.affordable - ресурса хватает
+   * @param option.fitsTarget - цель подходит
+   * @param option.description - описание приёма
+   * @returns подпись под галочкой
+   */
+  function describeSneakAttackOption(option: {
+    affordable: boolean;
+    fitsTarget: boolean;
+    description: string;
+  }): string {
+    if (!option.affordable) {
+      return DICE_ROLL_LABELS.sneakAttackOptionNoResource;
+    }
+
+    return option.fitsTarget
+      ? option.description
+      : DICE_ROLL_LABELS.sneakAttackOptionTargetUnfit;
+  }
 
   /** Приёмы, которые пойдут в этот удар */
   const pickedSneakAttackOptionIds = computed(() =>
@@ -825,6 +850,20 @@
       .filter((row) => row.selected)
       .map((row) => row.id),
   );
+
+  /**
+   * «Смертельный удар»: какой спасбросок цель сделает до записи урона —
+   * подпись под переключателем Скрытой атаки
+   */
+  const sneakAttackDoubleSaveLabel = computed(() => {
+    const save = isSneakAttackApplied.value
+      ? sneakAttackPreview.value?.doubleSave
+      : undefined;
+
+    return save
+      ? `${DICE_ROLL_LABELS.sneakAttackDoubleSavePrefix}${SAVE_TYPE_LABELS[save.ability] ?? save.ability}${DICE_ROLL_LABELS.sneakAttackDoubleSaveDc}${save.dc}${DICE_ROLL_LABELS.sneakAttackDoubleSaveSuffix}`
+      : '';
+  });
 
   /** Сколько приёмов Хитрого удара за удар — подпись над списком */
   const cunningStrikeLimitLabel = computed(() =>
@@ -1870,6 +1909,8 @@
         ...(part.label ? { label: part.label } : {}),
         ...(part.sneakAttack ? { sneakAttack: true as const } : {}),
         ...(part.targetEffects ? { targetEffects: part.targetEffects } : {}),
+        ...(part.attackSave ? { attackSave: part.attackSave } : {}),
+        ...(part.minDie ? { minDie: part.minDie } : {}),
       });
     }
 
@@ -1963,10 +2004,12 @@
     const sneakAttackPart = parts.find((part) => part.sneakAttack);
 
     // Ресурс выбранных приёмов («Раздирание разума») тратится вместе с ней
+    const sneakAttackOptionIds = (sneakAttackPart?.targetEffects ?? []).map(
+      (effect) => effect.id,
+    );
+
     const sneakAttackTurn = sneakAttackPart
-      ? props.sneakAttack?.spend(
-          (sneakAttackPart.targetEffects ?? []).map((effect) => effect.id),
-        )
+      ? props.sneakAttack?.spend(sneakAttackOptionIds)
       : undefined;
 
     // Сначала показываем бросок атаки, затем по очереди — части урона; сервер
@@ -1977,7 +2020,16 @@
         rollPartsSequentially(
           parts,
           isCrit,
-          attack ? { ...attack, chatMessageId, sneakAttackTurn } : undefined,
+          attack
+            ? {
+                ...attack,
+                chatMessageId,
+                sneakAttackTurn,
+                ...(sneakAttackOptionIds.length > 0
+                  ? { sneakAttackOptionIds }
+                  : {}),
+              }
+            : undefined,
         ),
       )
       .then(() =>
@@ -2279,6 +2331,13 @@
             :disabled="sneakAttackPreview.spent"
             @update:model-value="setSneakAttackApplied"
           />
+
+          <p
+            v-if="sneakAttackDoubleSaveLabel"
+            class="text-xs text-warning"
+          >
+            {{ sneakAttackDoubleSaveLabel }}
+          </p>
 
           <!-- Хитрый удар: приёмы платят костями Скрытой атаки до броска -->
           <div

@@ -16,6 +16,7 @@ import type {
   CurrencyType,
   DnDCustomBonus,
   DnDGameItem,
+  SaveDamageEffect,
 } from '@vtt/shared/system/dnd.js';
 
 import { computed, ref, watch } from 'vue';
@@ -85,7 +86,7 @@ export function useWeaponForm(
   ]);
 
   const saveType = ref<SpellSaveType>('none');
-  const saveEffect = ref<'half' | 'none' | 'special'>('none');
+  const saveEffect = ref<SaveDamageEffect>('none');
   const selectedProperties = ref<WeaponProperty[]>([]);
   const weight = ref(0);
   const costValue = ref(0);

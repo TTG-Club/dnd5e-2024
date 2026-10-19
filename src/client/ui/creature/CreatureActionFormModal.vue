@@ -12,6 +12,7 @@
     CreatureDamageAlternative,
     CreatureRecharge,
     EffectFormContext,
+    SaveDamageEffect,
   } from '@vtt/shared/system/dnd.js';
 
   import { computed, reactive, watch } from 'vue';
@@ -113,7 +114,7 @@
     damageAlternatives: CreatureDamageAlternative[];
     saveType: SpellSaveType;
     saveDC: number | null;
-    saveEffect: 'half' | 'none' | 'special';
+    saveEffect: SaveDamageEffect;
     useArea: boolean;
     areaShape: SpellAreaShape;
     areaSize: number;
