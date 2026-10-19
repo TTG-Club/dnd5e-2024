@@ -68,7 +68,7 @@ const RECHARGE_THRESHOLDS: Record<RolledCreatureRecharge, number> = {
 const RECHARGE_DIE_MAX = 6;
 
 /** Формула броска перезарядки — нейтральному окну ядра и серверу */
-export const RECHARGE_ROLL_FORMULA = '1d6';
+export const RECHARGE_ROLL_FORMULA = '1к6';
 
 /** Перезарядка, которую возвращает только отдых, — и какой */
 const REST_RECHARGE_PERIODS: Record<
@@ -360,6 +360,26 @@ export interface SpentRecharge {
   recharge: RolledCreatureRecharge;
 }
 
+/**
+ * Пометка перезарядки в конце названия: «(перезарядка 5–6)», «(перезаряжается
+ * после короткого отдыха)». Компендиум пишет её прямо в название записи, а
+ * подпись запроса и строка исхода называют перезарядку сами — без обрезки она
+ * повторялась бы дважды.
+ */
+const RECHARGE_NOTE_PATTERN = /\s*\(\s*перезаряд[^)]*\)\s*$/iu;
+
+/**
+ * Название записи без пометки перезарядки в конце.
+ *
+ * @param name - название записи или группы
+ * @returns название без пометки; если кроме пометки ничего нет — как было
+ */
+function trimRechargeNote(name: string): string {
+  const trimmed = name.replace(RECHARGE_NOTE_PATTERN, '');
+
+  return trimmed || name;
+}
+
 /** Запись статблока или группа с ограничением — для поиска по журналу */
 interface LimitedEntry {
   key: string;
@@ -390,7 +410,7 @@ function listLimitedEntries(creature: DnDCreature): LimitedEntry[] {
       ? [
           {
             key: buildActionLimitKey(action.id),
-            name: action.name,
+            name: trimRechargeNote(action.name),
             limit: resolveActionLimit(action),
           },
         ]
@@ -400,7 +420,7 @@ function listLimitedEntries(creature: DnDCreature): LimitedEntry[] {
   const groupEntries = (system.spellcastingBlocks ?? []).flatMap((block) =>
     block.groups.map((group) => ({
       key: buildSpellGroupLimitKey(group.id),
-      name: group.label ?? block.name,
+      name: trimRechargeNote(group.label ?? block.name),
       limit: resolveSpellGroupLimit(group),
     })),
   );

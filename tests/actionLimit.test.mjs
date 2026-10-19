@@ -323,3 +323,32 @@ describe('отдых и журнал', () => {
     );
   });
 });
+
+describe('подпись запроса перезарядки', () => {
+  it('не повторяет пометку перезарядки из названия и бросает 1к6', () => {
+    const creature = createCreature({ id: 'creature_hound', name: 'Гончая' });
+
+    creature.system.actions = [
+      {
+        name: 'Огненное дыхание (перезарядка 5-6)',
+        description: [],
+        recharge: 'd5',
+      },
+    ];
+
+    engine.normalizeCreature(creature);
+
+    const [action] = creature.system.actions;
+    const key = engine.buildActionLimitKey(action.id);
+
+    const [spent] = engine.listSpentRecharges(creature, {
+      [key]: { used: 1, per: 'recharge' },
+    });
+
+    const request = engine.buildActionRechargeRequest(creature, spent);
+
+    assert.equal(spent.name, 'Огненное дыхание');
+    assert.equal(request.title, 'Перезарядка «Огненное дыхание» (5–6)');
+    assert.equal(request.fallbackFormula, '1к6');
+  });
+});

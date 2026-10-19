@@ -35,8 +35,8 @@ import {
   EFFECT_TARGET_PROMPT_MODAL,
 } from '../ui/effect/constants';
 import {
+  answerActionRechargeInTurn,
   openActionRechargeModal,
-  rollActionRecharge,
 } from './actionRechargeRoll';
 import { openRequestedCheckModal } from './requestedCheckRoll';
 import {
@@ -319,7 +319,7 @@ function promptActionRecharge(
   }
 
   if (readAutoRecharge(entity)) {
-    reply.answer(rollActionRecharge(entity, payload));
+    answerActionRechargeInTurn(entity, payload, reply);
 
     return true;
   }

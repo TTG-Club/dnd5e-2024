@@ -845,9 +845,11 @@
                   />
                 </div>
 
-                <!-- Скрытая атака: включён ли переключатель в окне атаки -->
+                <!-- Скрытая атака: включён ли переключатель в окне атаки.
+                  Плитка третья в сетке из двух колонок — тянется на всю ширину,
+                  чтобы справа не оставалась пустая клетка -->
                 <div
-                  class="flex items-center justify-between rounded border border-default/50 bg-elevated/30 p-3"
+                  class="col-span-2 flex items-center justify-between rounded border border-default/50 bg-elevated/30 p-3"
                 >
                   <div class="space-y-0.5">
                     <label class="text-sm font-medium text-toned">
