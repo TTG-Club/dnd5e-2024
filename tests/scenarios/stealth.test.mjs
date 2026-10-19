@@ -228,6 +228,20 @@ describe('каталог: засада и невидимость', () => {
       'кнопки под сообщением читают ровно то, что записано',
     );
 
+    const hides = [
+      { entityId: 'a', effectId: 'ea', searchDc: 12 },
+      { entityId: 'b', effectId: 'eb', searchDc: 18 },
+      { entityId: 'c', effectId: 'ec', searchDc: 15 },
+    ];
+
+    assert.deepEqual(
+      engine.pickFoundHides(15, hides).map((hide) => hide.entityId),
+      ['a', 'c'],
+      'один бросок — все засады, чья Сл не выше итога',
+    );
+
+    assert.deepEqual(engine.pickFoundHides(11, hides), []);
+
     assert.equal(engine.parseHideFollowUp('{"entityId":1}'), null);
     assert.equal(engine.parseHideFollowUp('не json'), null);
   });

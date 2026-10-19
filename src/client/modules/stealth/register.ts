@@ -3,10 +3,11 @@
  *
  * Регистрирует кнопки под сообщением об удачной засаде — «Найти» и «Шум» — и
  * полку действий системы слева от панели быстрого доступа: «Атака» и «Прыжок»
- * (пока недоступны) и «Спрятаться».
+ * (пока недоступны), «Спрятаться» и «Поиск».
  *
- * Кнопки под сообщением ядро показывает автору сообщения и ведущему: враги
- * ищут спрятавшегося персонажа руками ведущего. Полку ядро даёт с VTTG
+ * Кнопки под сообщением — только ведущему: враги ищут спрятавшегося персонажа
+ * его руками, и он же решает, был ли шум. «Поиск» на полке — тот же
+ * поиск за выделенную фишку, им ищет и игрок. Полку ядро даёт с VTTG
  * 0.9.725; на старом приложении её нет — модуль её не регистрирует и не
  * падает.
  *
@@ -16,6 +17,7 @@
 import type { ChatFollowUpActionContext } from '@/core/registries';
 import type { ClientSystemAPI } from '@/core/systemBootstrap';
 import type { ChatMessageFollowUp } from '@vtt/shared';
+import type { DnDSceneEntity } from '@vtt/shared/system/dnd.js';
 
 import {
   findHiddenEffect,
@@ -29,6 +31,7 @@ import {
   findLiveHide,
   searchFromChat,
   startHide,
+  startSearch,
 } from '../../composables/hideAction';
 import { useWorldEntities } from '../../composables/useWorldEntities';
 import {
@@ -74,6 +77,24 @@ function withHidePayload(
 }
 
 /**
+ * Зовёт действие полки за сущность, какой она стала к нажатию: полка могла
+ * быть нарисована раньше последней правки.
+ *
+ * @param entityId - выделенная сущность
+ * @param action - действие
+ */
+function runWithLiveEntity(
+  entityId: string,
+  action: (entity: DnDSceneEntity) => boolean,
+): void {
+  const entity = useWorldEntities().findCurrentDndEntity(entityId);
+
+  if (entity) {
+    action(entity);
+  }
+}
+
+/**
  * Регистрирует засаду: кнопки под сообщением и полку действий.
  *
  * @param api - API ядра для системы
@@ -89,6 +110,7 @@ export function register(api: ClientSystemAPI): void {
           label: HIDE_FOLLOW_UP_ACTIONS.search,
           icon: HIDE_FOLLOW_UP_ACTIONS.searchIcon,
           tooltip: HIDE_FOLLOW_UP_ACTIONS.searchTooltip,
+          gmOnly: true,
           view: resolveHideActionView,
           run: withHidePayload(searchFromChat),
         },
@@ -97,6 +119,7 @@ export function register(api: ClientSystemAPI): void {
           label: HIDE_FOLLOW_UP_ACTIONS.noise,
           icon: HIDE_FOLLOW_UP_ACTIONS.noiseIcon,
           tooltip: HIDE_FOLLOW_UP_ACTIONS.noiseTooltip,
+          gmOnly: true,
           view: resolveHideActionView,
           run: withHidePayload(endHideByNoise),
         },
@@ -121,7 +144,6 @@ export function register(api: ClientSystemAPI): void {
           label: ACTION_SHELF_BUTTONS.attack,
           disabled: true,
           disabledReason: ACTION_SHELF_BUTTONS.inDevelopment,
-          onClick: () => {},
         },
         {
           id: ACTION_SHELF_BUTTONS.jumpId,
@@ -129,7 +151,6 @@ export function register(api: ClientSystemAPI): void {
           label: ACTION_SHELF_BUTTONS.jump,
           disabled: true,
           disabledReason: ACTION_SHELF_BUTTONS.inDevelopment,
-          onClick: () => {},
         },
         {
           id: ACTION_SHELF_BUTTONS.hideId,
@@ -139,13 +160,14 @@ export function register(api: ClientSystemAPI): void {
             ? ACTION_SHELF_BUTTONS.hideActiveTooltip
             : ACTION_SHELF_BUTTONS.hideTooltip,
           active: hidden,
-          onClick: () => {
-            const current = useWorldEntities().findCurrentDndEntity(entity.id);
-
-            if (current) {
-              startHide(current);
-            }
-          },
+          onClick: () => runWithLiveEntity(entity.id, startHide),
+        },
+        {
+          id: ACTION_SHELF_BUTTONS.searchId,
+          icon: ACTION_SHELF_BUTTONS.searchIcon,
+          label: ACTION_SHELF_BUTTONS.search,
+          tooltip: ACTION_SHELF_BUTTONS.searchTooltip,
+          onClick: () => runWithLiveEntity(entity.id, startSearch),
         },
       ];
     },

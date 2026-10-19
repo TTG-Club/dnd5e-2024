@@ -21,15 +21,18 @@ import type {
 import type { CheckRollResult } from '../ui/actor/diceRollTypes';
 
 import { useChatStore } from '@/stores/chatStore';
+import { useWorldStore } from '@/stores/worldStore';
+import { withTokenDisposition } from '@vtt/shared';
 import {
   buildHiddenEffect,
   findHiddenEffect,
+  getRelativeDisposition,
   HIDE_CHECK_DC,
   HIDE_FOLLOW_UP_KIND,
   HIDE_SKILL,
   isHideSuccess,
-  isSearchSuccess,
   mergeAppliedEffects,
+  pickFoundHides,
   resolveActionCostBlock,
   resolveHideCost,
   SEARCH_SKILL,
@@ -268,9 +271,77 @@ export function findLiveHide(
 }
 
 /**
- * Действие «Поиск» против засады: Мудрость (Внимательность) ищущего против Сл
- * поиска. Успех снимает засаду и пишет в чат, кто кого нашёл; провал окно
- * броска уже показало.
+ * Записывает исход поиска: трата действия, снятие каждой найденной засады и
+ * сообщение в чат. В чат идут только найденные — остальных сообщение не
+ * выдаёт; укрытие и линию зрения ведущий проверяет сам.
+ *
+ * @param searcher - кто искал
+ * @param hides - засады, которые он мог заметить
+ * @param total - итог проверки Внимательности
+ */
+function settleSearch(
+  searcher: DnDSceneEntity,
+  hides: readonly HideFollowUpPayload[],
+  total: number,
+): void {
+  recordEntityActionSpend(searcher.id, SEARCH_COST);
+
+  const found = pickFoundHides(total, hides).flatMap((hide) => {
+    const revealed = removeHide(hide);
+
+    return revealed ? [revealed.name] : [];
+  });
+
+  useChatStore().sendMessage(
+    found.length > 0
+      ? `${searcher.name}${HIDE_LABELS.foundMiddle}${found.join(HIDE_LABELS.foundSeparator)}. ${HIDE_LABELS.searchHint}`
+      : `${searcher.name}${HIDE_LABELS.nothingFoundSuffix}`,
+    'text',
+    undefined,
+    undefined,
+    { speakerEntityId: searcher.id },
+  );
+}
+
+/**
+ * Общий путь поиска для полки и чата: запреты действия, цена и окно проверки
+ * Мудрости (Внимательность). Один бросок сравнивается со Сл каждой засады.
+ *
+ * @param searcher - кто ищет
+ * @param hides - засады, которые он может заметить
+ * @param check - заголовок окна и Сл, если засада одна и известна
+ * @param check.title - заголовок окна
+ * @param check.targetDc - Сл для окна; нет — окно Сл не показывает
+ * @returns `true`, если окно проверки открыто
+ */
+function openSearchCheck(
+  searcher: DnDSceneEntity,
+  hides: readonly HideFollowUpPayload[],
+  check: { title: string; targetDc?: number },
+): boolean {
+  if (
+    refuseAction(searcher, HIDE_LABELS.searchTitle)
+    || warnActionCostBlocked(searcher, SEARCH_COST, HIDE_LABELS.searchTitle)
+  ) {
+    return false;
+  }
+
+  openSkillCheckModal(searcher, SEARCH_SKILL, {
+    modalKey: `${SEARCH_MODAL_KEY_PREFIX}${searcher.id}`,
+    title: check.title,
+    rollButtonText: HIDE_LABELS.searchRollButton,
+    ...(check.targetDc === undefined ? {} : { targetDc: check.targetDc }),
+    onRoll: (result: CheckRollResult) => {
+      settleSearch(searcher, hides, result.total);
+    },
+  });
+
+  return true;
+}
+
+/**
+ * Поиск против одной засады — «Найти» под сообщением о ней (руками ведущего):
+ * Сл известна, окно её показывает.
  *
  * @param searcher - кто ищет
  * @param payload - кого ищут и с какой Сл
@@ -296,40 +367,84 @@ export function searchForHidden(
     return false;
   }
 
-  if (
-    refuseAction(searcher, HIDE_LABELS.searchTitle)
-    || warnActionCostBlocked(searcher, SEARCH_COST, HIDE_LABELS.searchTitle)
-  ) {
+  return openSearchCheck(searcher, [payload], {
+    title: `${HIDE_LABELS.searchTitle}: ${hidden.name}`,
+    targetDc: payload.searchDc,
+  });
+}
+
+/**
+ * Засады на сцене, которые ищущий может заметить: все спрятавшиеся, кроме него
+ * самого и его союзников по отношению фишек — где прячутся свои, он знает.
+ * Линию зрения и укрытие система не проверяет.
+ *
+ * @param searcher - кто ищет
+ * @returns засады
+ */
+function listSearchableHides(searcher: DnDSceneEntity): HideFollowUpPayload[] {
+  const tokens = useWorldStore().currentScene?.tokens ?? [];
+  const { findCurrentDndEntity } = useWorldEntities();
+  const searcherToken = tokens.find((token) => token.actorId === searcher.id);
+
+  const searcherSide = {
+    disposition: searcherToken
+      ? withTokenDisposition(searcherToken, searcher).disposition
+      : searcher.token?.disposition,
+  };
+
+  const seen = new Set<string>();
+
+  return tokens.flatMap((token) => {
+    const entity = findCurrentDndEntity(token.actorId);
+    const hidden = entity ? findHiddenEffect(entity) : undefined;
+
+    if (
+      !entity
+      || !hidden
+      || entity.id === searcher.id
+      || seen.has(entity.id)
+    ) {
+      return [];
+    }
+
+    seen.add(entity.id);
+
+    const relation = getRelativeDisposition(
+      searcherSide,
+      withTokenDisposition(token, entity),
+    );
+
+    return relation === 'ally'
+      ? []
+      : [
+          {
+            entityId: entity.id,
+            effectId: hidden.id,
+            searchDc: hidden.searchDc ?? HIDE_CHECK_DC,
+          },
+        ];
+  });
+}
+
+/**
+ * Действие «Поиск» (правила 2024) — кнопка полки: ищет выделенная фишка.
+ * Мудрость (Внимательность) против Сл каждой засады, которую ищущий может
+ * заметить; находит все перебитые. Окно Сл не показывает: сколько засад и
+ * какие у них Сл, ищущий не знает. Бросок есть и тогда, когда прятаться
+ * некому, — иначе кнопка выдавала бы, что засад нет.
+ *
+ * @param searcher - кто ищет
+ * @returns `true`, если окно проверки открыто
+ */
+export function startSearch(searcher: DnDSceneEntity): boolean {
+  // Лист ищущего в режиме правки — действие ждёт «Сохранить» или отмены
+  if (refuseWhileSheetEditing(searcher.id)) {
     return false;
   }
 
-  openSkillCheckModal(searcher, SEARCH_SKILL, {
-    modalKey: `${SEARCH_MODAL_KEY_PREFIX}${payload.effectId}:${searcher.id}`,
-    title: `${HIDE_LABELS.searchTitle}: ${hidden.name}`,
-    rollButtonText: HIDE_LABELS.searchRollButton,
-    targetDc: payload.searchDc,
-    onRoll: (result: CheckRollResult) => {
-      recordEntityActionSpend(searcher.id, SEARCH_COST);
-
-      if (!isSearchSuccess(result.total, payload.searchDc)) {
-        return;
-      }
-
-      const found = removeHide(payload);
-
-      if (found) {
-        useChatStore().sendMessage(
-          `${searcher.name}${HIDE_LABELS.foundMiddle}${found.name}`,
-          'text',
-          undefined,
-          undefined,
-          { speakerEntityId: searcher.id },
-        );
-      }
-    },
+  return openSearchCheck(searcher, listSearchableHides(searcher), {
+    title: HIDE_LABELS.searchTitle,
   });
-
-  return true;
 }
 
 /**

@@ -39,8 +39,8 @@ export interface ActionShelfButton {
   disabledReason?: string;
   /** Кнопка «включена»: подсветка */
   active?: boolean;
-  /** Нажатие */
-  onClick: (context: ActionShelfContext) => void | Promise<void>;
+  /** Нажатие; у недоступной кнопки его может не быть */
+  onClick?: (context: ActionShelfContext) => void | Promise<void>;
 }
 
 /** Провайдер полки: кнопки для выделенной сущности */

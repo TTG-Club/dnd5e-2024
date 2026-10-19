@@ -89,6 +89,24 @@ export function isSearchSuccess(total: number, searchDc: number): boolean {
 }
 
 /**
+ * Засады, которые находит один бросок поиска: каждая, чья Сл не выше итога.
+ *
+ * Поиск — одна проверка на все засады: правила сравнивают её итог со Сл каждого
+ * спрятавшегося, а цели ищущий не выбирает — он не знает, где прячутся. Поэтому
+ * снимаются все перебитые засады, а не одна выбранная.
+ *
+ * @param total - итог проверки Мудрости (Внимательность) ищущего
+ * @param hides - засады, которые ищущий может заметить
+ * @returns найденные засады
+ */
+export function pickFoundHides<Hide extends { searchDc: number }>(
+  total: number,
+  hides: readonly Hide[],
+): Hide[] {
+  return hides.filter((hide) => isSearchSuccess(total, hide.searchDc));
+}
+
+/**
  * Состояние «В засаде» с запомненной Сл поиска.
  *
  * @param searchDc - итог проверки Скрытности

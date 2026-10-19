@@ -131,6 +131,11 @@ const GUARDED_ENTRIES = [
     call: (entry) => entry({ id: 'hero' }),
   },
   {
+    path: `${COMPOSABLES_DIR}/hideAction.ts`,
+    name: 'startSearch',
+    call: (entry) => entry({ id: 'hero' }),
+  },
+  {
     path: `${COMPOSABLES_DIR}/spellCasts.ts`,
     name: 'endEntityConcentration',
     call: (entry) =>
