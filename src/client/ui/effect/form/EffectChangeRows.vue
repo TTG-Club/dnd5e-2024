@@ -63,6 +63,7 @@
     EFFECT_CHANGE_STEP_LABELS,
     EFFECT_MODIFIERS_STEP_LABELS,
     EFFECT_TEMPLATES_MODAL_IDS,
+    SNEAK_ATTACK_KEY_HINTS,
   } from '../constants';
   import { EFFECT_CHANGE_STEP_PER_OPTIONS } from '../effectFormOptions';
 
@@ -158,6 +159,12 @@
 
     if (change.key === SNEAK_ATTACK_DICE_KEY) {
       return EFFECT_CHANGE_ROW_LABELS.sneakAttackDiceHint;
+    }
+
+    const sneakAttackHint = SNEAK_ATTACK_KEY_HINTS[change.key];
+
+    if (sneakAttackHint) {
+      return sneakAttackHint;
     }
 
     if (change.key.startsWith(DAMAGE_CHANGE_KEY_PREFIX)) {

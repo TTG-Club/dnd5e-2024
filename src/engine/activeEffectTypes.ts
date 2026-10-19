@@ -343,11 +343,58 @@ export const SNEAK_ATTACK_DAMAGE_KEY = 'sneakAttack.damage';
 export const SNEAK_ATTACK_DICE_KEY = 'sneakAttack.dice';
 
 /**
+ * Ключ приёма Хитрого удара: строка на эффекте приёма («Отравить»,
+ * «Повалить»), значение — ЦЕНА в костях Скрытой атаки (формулой: `1`, `6`).
+ * Эффект приёма — обычный эффект «на цель» с кнопкой «Применить»
+ * (`activation: use`): спасбросок, состояние, флаги. Окно атаки показывает
+ * его выбором, когда идёт Скрытая атака и костей хватает; выбранный убирает
+ * столько костей ДО броска (крит удваивает оставшиеся) и после попадания
+ * ложится на цель тем же путём, что эффекты оружия. Условие строки —
+ * доступность приёма (набор отравителя, оружие).
+ *
+ * Строка на кнопке, а не своё поле эффекта: старый модуль незнакомый ключ
+ * пропускает, и эффект остаётся той же кнопкой, что и сейчас.
+ */
+export const SNEAK_ATTACK_CUNNING_STRIKE_KEY = 'sneakAttack.cunningStrike';
+
+/**
+ * Ключ прибавки к числу приёмов Хитрого удара за один удар: один — по
+ * правилу, «Улучшенный хитрый удар» прибавляет `1`.
+ */
+export const SNEAK_ATTACK_CUNNING_STRIKE_COUNT_KEY =
+  'sneakAttack.cunningStrikeCount';
+
+/**
+ * Ключ эффекта по выбору при уроне Скрытой атаки, который приёмом Хитрого
+ * удара не считается («Раздирание разума» Клинка души): значение — цена в
+ * костях (обычно `0`), в число приёмов не входит. Ресурс — как у кнопки,
+ * счётчиком применения (`activation.counter`).
+ */
+export const SNEAK_ATTACK_RIDER_KEY = 'sneakAttack.rider';
+
+/**
+ * Ключ наименьшего значения кости Скрытой атаки: «результат 1 или 2 считайте
+ * за 3» («Убийственное намерение») — значение `3`. Из нескольких строк
+ * берётся наибольшее.
+ */
+export const SNEAK_ATTACK_MIN_DIE_KEY = 'sneakAttack.minDie';
+
+/**
  * Кости Скрытой атаки плута по уровню в классе: 1к6 на 1-м, +1к6 на каждом
  * нечётном (10к6 на 19-м).
  */
 export const SNEAK_ATTACK_DICE_FORMULA =
   '(1 + steps(@classLevel, 3, 5, 7, 9, 11, 13, 15, 17, 19))к6';
+
+/** Все ключи Скрытой атаки: их читает окно атаки, а не лист */
+const SNEAK_ATTACK_KEYS: ReadonlySet<string> = new Set([
+  SNEAK_ATTACK_DAMAGE_KEY,
+  SNEAK_ATTACK_DICE_KEY,
+  SNEAK_ATTACK_CUNNING_STRIKE_KEY,
+  SNEAK_ATTACK_CUNNING_STRIKE_COUNT_KEY,
+  SNEAK_ATTACK_RIDER_KEY,
+  SNEAK_ATTACK_MIN_DIE_KEY,
+]);
 
 /**
  * Относится ли ключ к Скрытой атаке. Такие строки — не числа листа: их
@@ -357,7 +404,7 @@ export const SNEAK_ATTACK_DICE_FORMULA =
  * @returns `true` для `sneakAttack.*`
  */
 export function isSneakAttackKey(key: string): boolean {
-  return key === SNEAK_ATTACK_DAMAGE_KEY || key === SNEAK_ATTACK_DICE_KEY;
+  return SNEAK_ATTACK_KEYS.has(key);
 }
 
 /**
@@ -369,8 +416,7 @@ const OFF_SHEET_CHANGE_KEYS: ReadonlySet<string> = new Set([
   TEMP_HP_GAIN_KEY,
   ATTACK_REACH_KEY,
   SPELL_DAMAGE_TYPE_KEY,
-  SNEAK_ATTACK_DAMAGE_KEY,
-  SNEAK_ATTACK_DICE_KEY,
+  ...SNEAK_ATTACK_KEYS,
 ]);
 
 /**
@@ -433,7 +479,11 @@ export type EffectTargetKey =
   | typeof ATTACK_REACH_KEY
   | typeof SPELL_DAMAGE_TYPE_KEY
   | typeof SNEAK_ATTACK_DAMAGE_KEY
-  | typeof SNEAK_ATTACK_DICE_KEY;
+  | typeof SNEAK_ATTACK_DICE_KEY
+  | typeof SNEAK_ATTACK_CUNNING_STRIKE_KEY
+  | typeof SNEAK_ATTACK_CUNNING_STRIKE_COUNT_KEY
+  | typeof SNEAK_ATTACK_RIDER_KEY
+  | typeof SNEAK_ATTACK_MIN_DIE_KEY;
 
 /**
  * Ключ строки модификатора: известный ключ движка либо ПУСТАЯ строка — «ключ
@@ -549,6 +599,22 @@ export const EFFECT_TARGET_SUGGESTIONS: Array<{
     value: SNEAK_ATTACK_DICE_KEY,
     label: 'Скрытая атака: прибавка к числу костей',
   },
+  {
+    value: SNEAK_ATTACK_CUNNING_STRIKE_KEY,
+    label: 'Хитрый удар: приём (цена в костях Скрытой атаки)',
+  },
+  {
+    value: SNEAK_ATTACK_CUNNING_STRIKE_COUNT_KEY,
+    label: 'Хитрый удар: прибавка к числу приёмов за удар',
+  },
+  {
+    value: SNEAK_ATTACK_RIDER_KEY,
+    label: 'Скрытая атака: эффект по выбору при её уроне (цена в костях)',
+  },
+  {
+    value: SNEAK_ATTACK_MIN_DIE_KEY,
+    label: 'Скрытая атака: наименьшее значение кости',
+  },
 
   // Замены свойств оружия («Дубинка»)
   { value: WEAPON_DAMAGE_DICE_KEY, label: 'Оружие: кость урона' },
@@ -621,6 +687,15 @@ export const CARRIER_TYPE_CONDITION_PREFIX = 'self.creatureType === ';
 
 /** Приставка условия по надетому доспеху НОСИТЕЛЯ. */
 export const CARRIER_ARMOR_CONDITION_PREFIX = 'self.armor === ';
+
+/**
+ * Приставка условия «у носителя в снаряжении инструмент этого вида»: значение
+ * — вид инструмента (`baseToolType`), например `"poisoners-kit"`.
+ */
+export const CARRIER_TOOL_CONDITION_PREFIX = 'self.tool === ';
+
+/** Вид инструмента «набор отравителя» — для приёма «Отравить» */
+export const POISONERS_KIT_TOOL = 'poisoners-kit';
 
 /**
  * Приставка условия «атака идёт этой характеристикой». Общая для модификаторов
@@ -717,6 +792,23 @@ export const ROLL_NO_DISADVANTAGE_CONDITION = 'roll.hasDisadvantage === false';
  * («+1к6 урона этим ножом, если идёт Скрытая атака»).
  */
 export const SNEAK_ATTACK_APPLIED_CONDITION = 'attack.sneakAttack === true';
+
+/**
+ * Приставка условия «идёт раунд боя N» — та же строка, что у срабатываний
+ * (`combat.round === 1`): «Ликвидация» Убийцы действует в первом раунде. Вне
+ * боя номера нет, и условие не выполняется.
+ */
+export const COMBAT_ROUND_CONDITION_PREFIX = 'combat.round === ';
+
+/** Приставка условия «идёт раунд боя не раньше N» — как у срабатываний */
+export const COMBAT_ROUND_AT_LEAST_CONDITION_PREFIX = 'combat.round >= ';
+
+/**
+ * Условие «цель ещё не ходила в этом бою»: в первом раунде её место в порядке
+ * инициативы ещё не наступило. Считает клиент по трекеру инициативы — ядро
+ * признака «участник уже ходил» не даёт (пробел SDK). Вне боя не выполняется.
+ */
+export const TARGET_NOT_ACTED_CONDITION = 'target.hasActed === false';
 
 /** Приставка условия по типу ЦЕЛИ броска. */
 export const TARGET_TYPE_CONDITION_PREFIX = 'target.creatureType === ';
@@ -997,6 +1089,16 @@ export const EFFECT_CONDITION_SUGGESTIONS: readonly EffectLibrarySuggestion[] =
           hint: 'У действия существа нет свойств оружия: преимущество либо союзник рядом с целью без помехи.',
         },
         {
+          value: `${COMBAT_ROUND_CONDITION_PREFIX}1`,
+          label: 'Бой: первый раунд',
+          hint: 'Вне боя не выполняется.',
+        },
+        {
+          value: TARGET_NOT_ACTED_CONDITION,
+          label: 'Цель: ещё не ходила в этом бою',
+          hint: 'По порядку инициативы: в первом раунде её ход ещё впереди. Вне боя не выполняется.',
+        },
+        {
           value: SNEAK_ATTACK_APPLIED_CONDITION,
           label: 'Атака: идёт Скрытая атака',
           hint: 'Строка добавляется, только если кости Скрытой атаки вошли в этот урон.',
@@ -1059,6 +1161,11 @@ export const EFFECT_CONDITION_SUGGESTIONS: readonly EffectLibrarySuggestion[] =
           label: 'Носитель: в тяжёлом доспехе',
         },
         { value: 'self.armor === "shield"', label: 'Носитель: со щитом' },
+        {
+          value: `${CARRIER_TOOL_CONDITION_PREFIX}"${POISONERS_KIT_TOOL}"`,
+          label: 'Носитель: с набором отравителя',
+          hint: 'Инструмент этого вида есть в снаряжении — «Отравить» Хитрого удара.',
+        },
         { value: 'self.armor === "noShield"', label: 'Носитель: без щита' },
         {
           value: `${CARRIER_ARMOR_CONDITION_PREFIX}"none" ${CONDITION_AND_SEPARATOR} ${CARRIER_ARMOR_CONDITION_PREFIX}"noShield"`,

@@ -404,6 +404,7 @@ const TRIGGER_CONDITION_PHRASES: Record<
     `атака считается характеристикой «${describeAbilityName(value)}»`,
   attackLanded: () => 'атака попала',
   attackMissed: () => 'атака промахнулась',
+  attackSneakAttack: () => 'урон нанесён Скрытой атакой',
   combatRoundIs: (value) => `на ${value}-м раунде боя`,
   combatRoundAtLeast: (value) => `с ${value}-го раунда боя`,
   movementOwn: () => 'носитель шёл сам',

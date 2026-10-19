@@ -487,6 +487,7 @@ export const EFFECT_TRIGGER_CONDITION_KIND_LABELS: Record<
   attackAbility: 'Атака считается характеристикой',
   attackLanded: 'Атака попала',
   attackMissed: 'Атака промахнулась',
+  attackSneakAttack: 'Атака нанесла урон Скрытой атакой',
   combatRoundIs: 'Идёт раунд боя',
   combatRoundAtLeast: 'Раунд боя не раньше',
   movementOwn: 'Носитель шёл сам',

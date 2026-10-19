@@ -33,6 +33,10 @@ import {
   EFFECT_ACTION_COST_LABELS,
   EFFECT_ACTIVATION_COSTS,
   EFFECT_USE_AREA_SHAPES,
+  SNEAK_ATTACK_CUNNING_STRIKE_COUNT_KEY,
+  SNEAK_ATTACK_CUNNING_STRIKE_KEY,
+  SNEAK_ATTACK_MIN_DIE_KEY,
+  SNEAK_ATTACK_RIDER_KEY,
   SUBTRACT_MODE_CHOICE,
 } from '@vtt/shared/system/dnd.js';
 
@@ -621,12 +625,33 @@ export const EFFECT_CHANGE_ROW_LABELS = {
     + 'их можно не добавлять. Из нескольких источников берётся наибольший.',
   sneakAttackDiceHint:
     'Число костей, прибавляемых к Скрытой атаке, когда она идёт: «1» — +1к6.',
+  cunningStrikeHint:
+    'Цена приёма в костях Скрытой атаки: «1» — минус 1к6 до броска. Строка '
+    + 'ставится на кнопку «Применить» с эффектом на цель (спасбросок, '
+    + 'состояние); в окне атаки приём выбирают, когда идёт Скрытая атака. '
+    + 'Условие строки — когда приём доступен.',
+  cunningStrikeCountHint:
+    'Сколько приёмов Хитрого удара прибавить к одному за удар: «1» — два.',
+  sneakAttackRiderHint:
+    'Эффект кнопки по выбору при уроне Скрытой атаки, не приём Хитрого удара: '
+    + 'значение — цена в костях (обычно «0»), ресурс — счётчик кнопки.',
+  sneakAttackMinDieHint:
+    'Наименьшее значение кости Скрытой атаки: «3» — 1 и 2 считаются за 3.',
   diceNotRolledError:
     'Здесь кость никто не бросит: она работает только у атак, спасбросков, '
     + 'проверок, навыков и урона. Укажите число.',
   diceModeError:
     'Кость работает только в режимах «Добавить (+)» и «Вычесть (−)».',
 } as const;
+
+/** Пояснения к значениям строк Хитрого удара и прочих ключей Скрытой атаки */
+export const SNEAK_ATTACK_KEY_HINTS: Readonly<Record<string, string>> = {
+  [SNEAK_ATTACK_CUNNING_STRIKE_KEY]: EFFECT_CHANGE_ROW_LABELS.cunningStrikeHint,
+  [SNEAK_ATTACK_CUNNING_STRIKE_COUNT_KEY]:
+    EFFECT_CHANGE_ROW_LABELS.cunningStrikeCountHint,
+  [SNEAK_ATTACK_RIDER_KEY]: EFFECT_CHANGE_ROW_LABELS.sneakAttackRiderHint,
+  [SNEAK_ATTACK_MIN_DIE_KEY]: EFFECT_CHANGE_ROW_LABELS.sneakAttackMinDieHint,
+};
 
 /** Подписи режимов модификатора */
 export const EFFECT_CHANGE_MODE_OPTIONS: ReadonlyArray<{

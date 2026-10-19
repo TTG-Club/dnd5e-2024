@@ -32,6 +32,7 @@ import {
   hasEntityCondition,
   joinConditionGroups,
   listLiveEffects,
+  SNEAK_ATTACK_APPLIED_CONDITION,
   splitConditionGroups,
   splitConditionParts,
   TARGET_TYPE_CONDITION_PREFIX,
@@ -155,6 +156,10 @@ export interface TriggerAttackData {
   /** Характеристика, которой считается атака */
   ability?: AbilityType;
   /**
+   * Кости Скрытой атаки вошли в урон этой атаки (попавшей). Не задано — нет
+   */
+  sneakAttack?: boolean;
+  /**
    * Цель, по которой эта атака попала критически. Урон срабатывания, идущий
    * ей, удваивает кости, как урон самой атаки; остальным получателям — нет
    */
@@ -259,6 +264,7 @@ export const TRIGGER_CONDITION_KINDS = [
   'attackAbility',
   'attackLanded',
   'attackMissed',
+  'attackSneakAttack',
   'combatRoundIs',
   'combatRoundAtLeast',
   'movementOwn',
@@ -417,6 +423,8 @@ const KIND_EVENTS: Record<
   attackAbility: ATTACK_DATA_TRIGGER_EVENTS,
   attackLanded: ATTACK_DATA_TRIGGER_EVENTS,
   attackMissed: ATTACK_DATA_TRIGGER_EVENTS,
+  // Скрытая атака известна только броску атаки: при наложении её нет
+  attackSneakAttack: ['attackRoll'],
   combatRoundIs: COMBAT_ROUND_TRIGGER_EVENTS,
   combatRoundAtLeast: COMBAT_ROUND_TRIGGER_EVENTS,
   movementOwn: MOVEMENT_TRIGGER_EVENTS,
@@ -600,6 +608,7 @@ const FIXED_PARTS: Partial<Record<TriggerConditionKind, string>> = {
   otherBloodied: 'target.hp.value <= (target.hp.max / 2)',
   attackLanded: 'attack.landed === true',
   attackMissed: 'attack.landed === false',
+  attackSneakAttack: SNEAK_ATTACK_APPLIED_CONDITION,
   movementOwn: 'move.forced === false',
   movementForced: 'move.forced === true',
   selfSeesOther: 'self.canSee === true',
@@ -1191,6 +1200,10 @@ function isConditionPartMet(
       return eventData.attack?.landed === true;
     case 'attackMissed':
       return eventData.attack?.landed === false;
+    // Кости Скрытой атаки вошли в урон попавшей атаки — для «Раздирания
+    // разума», «Воплей из могилы» и прочих «когда наносите урон Скрытой атакой»
+    case 'attackSneakAttack':
+      return eventData.attack?.sneakAttack === true;
     // Раунд знает только ядро: без него расписание НЕ выполняется — «на втором
     // раунде» не должно сработать там, где номера раунда нет
     case 'combatRoundIs':

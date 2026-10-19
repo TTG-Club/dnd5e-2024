@@ -74,6 +74,7 @@ export async function loadPerformRoll(ports) {
   // Скрытая атака в этих бросках не участвует: окно без её порта
   ports.attackRollMode ??= { value: 'normal' };
   ports.isSneakAttackApplied ??= { value: false };
+  ports.pickedSneakAttackOptionIds ??= { value: [] };
 
   for (const name of [
     'claimRoll',

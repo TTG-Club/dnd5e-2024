@@ -35,15 +35,18 @@
   import { useTargetStore } from '@/stores/targetStore';
   import { generateId } from '@vtt/shared';
   import {
+    addDiceToFormula,
     buildActionChatHeader,
     buildAttackFormula,
     buildDamageChatBlock,
     buildSingleTargetDamageRecord,
+    canAddSneakAttackOption,
     CHOICE_DAMAGE_TYPE,
     damageTypeChoiceKey,
     doubleDiceInFormula,
     formatAttackRollModeReasons,
     formatDamageDefenseSuffix,
+    formatSneakAttackDice,
     getNaturalD20Roll,
     getShortDamageTypeLabel,
     isDamageType,
@@ -52,11 +55,14 @@
     listPartDamageTypeChoices,
     listRolledDiceValues,
     performTwoStageAttack,
+    pickSneakAttackOptions,
     previewDamageConsequences,
+    raiseDiceToMinimum,
     resolveAttackLanded,
     rollRandomDamageTypeChoices,
     scaleDamageFormula,
     settleDamageTypeChoices,
+    sumSneakAttackOptionCost,
     toRollerFormula,
     uniqueDamageTypeChoices,
   } from '@vtt/shared/system/dnd.js';
@@ -567,6 +573,13 @@
   /** Переключатель «Скрытая атака»: включён при открытии по настройке листа */
   const applySneakAttack = ref(true);
 
+  /**
+   * Выбранные приёмы Хитрого удара — id эффектов-кнопок по порядку выбора.
+   * Что из выбранного проходит при текущем числе костей, решает
+   * `sneakAttackOptionRows`
+   */
+  const selectedSneakAttackOptionIds = ref<string[]>([]);
+
   // --- Тип урона на выбор у частей (`@dmg.choice(…)`) ---
   const getDamageTypeLabel = useDamageTypeLabel();
 
@@ -756,12 +769,106 @@
     applySneakAttack.value = value;
   }
 
-  /** Подпись переключателя: «Скрытая атака +3к6» */
-  const sneakAttackToggleLabel = computed(() =>
+  /**
+   * Приёмы Хитрого удара под переключателем: доступные в этом броске, с
+   * отметкой выбранных. Выбор проверяется заново при каждой смене режима и
+   * цели: костей стало меньше — лишний приём снимается, приёмов за удар не
+   * больше положенного, без ресурса приём не выбрать.
+   */
+  const sneakAttackOptionRows = computed(() => {
+    const preview = sneakAttackPreview.value;
+
+    if (!preview || !isSneakAttackApplied.value) {
+      return [];
+    }
+
+    const picked = pickSneakAttackOptions(
+      preview.options.filter((option) => option.affordable),
+      selectedSneakAttackOptionIds.value,
+      preview.diceCount,
+      preview.cunningStrikeLimit,
+    );
+
+    const pickedIds = new Set(picked.map((option) => option.id));
+
+    return preview.options.map((option) => {
+      const selected = pickedIds.has(option.id);
+
+      return {
+        id: option.id,
+        selected,
+        disabled:
+          !selected
+          && (!option.affordable
+            || !canAddSneakAttackOption(
+              picked,
+              option,
+              preview.diceCount,
+              preview.cunningStrikeLimit,
+            )),
+        label:
+          option.cost > 0
+            ? `${option.name}${DICE_ROLL_LABELS.sneakAttackOptionCostPrefix}${formatSneakAttackDice(preview.formula, option.cost)}`
+            : option.name,
+        description: option.affordable
+          ? option.description
+          : DICE_ROLL_LABELS.sneakAttackOptionNoResource,
+        cost: option.cost,
+        cunningStrike: option.cunningStrike,
+      };
+    });
+  });
+
+  /** Приёмы, которые пойдут в этот удар */
+  const pickedSneakAttackOptionIds = computed(() =>
+    sneakAttackOptionRows.value
+      .filter((row) => row.selected)
+      .map((row) => row.id),
+  );
+
+  /** Сколько приёмов Хитрого удара за удар — подпись над списком */
+  const cunningStrikeLimitLabel = computed(() =>
     sneakAttackPreview.value
-      ? `${DICE_ROLL_LABELS.sneakAttack}${DICE_ROLL_LABELS.sneakAttackDicePrefix}${sneakAttackPreview.value.formula}`
+      ? `${DICE_ROLL_LABELS.cunningStrikeLimitPrefix}${sneakAttackPreview.value.cunningStrikeLimit}`
       : '',
   );
+
+  /**
+   * Отмечает приём или снимает отметку. Выбор хранится по порядку: при
+   * нехватке костей отбрасываются выбранные последними.
+   *
+   * @param optionId - id эффекта-кнопки приёма
+   * @param checked - новое положение галочки
+   */
+  function setSneakAttackOption(
+    optionId: string,
+    checked: boolean | 'indeterminate',
+  ): void {
+    const rest = selectedSneakAttackOptionIds.value.filter(
+      (id) => id !== optionId,
+    );
+
+    selectedSneakAttackOptionIds.value =
+      checked === true ? [...rest, optionId] : rest;
+  }
+
+  /**
+   * Подпись переключателя: «Скрытая атака +3к6»; с приёмами — кости, что
+   * останутся после их цены.
+   */
+  const sneakAttackToggleLabel = computed(() => {
+    const preview = sneakAttackPreview.value;
+
+    if (!preview) {
+      return '';
+    }
+
+    const cost = sumSneakAttackOptionCost(
+      sneakAttackOptionRows.value.filter((row) => row.selected),
+    );
+
+    return `${DICE_ROLL_LABELS.sneakAttack}${DICE_ROLL_LABELS.sneakAttackDicePrefix}${addDiceToFormula(preview.formula, -cost)}`;
+  });
 
   /**
    * Контекст броска для сборщиков окна: режим и решённая окном Скрытая атака.
@@ -773,6 +880,7 @@
       hasAdvantage: attackRollMode.value === 'advantage',
       hasDisadvantage: attackRollMode.value === 'disadvantage',
       sneakAttack: isSneakAttackApplied.value,
+      sneakAttackOptionIds: pickedSneakAttackOptionIds.value,
     };
   }
 
@@ -913,6 +1021,7 @@
         manualRollMode.value = undefined;
         currentRollModeReasons.value = props.rollModeReasons;
         applySneakAttack.value = props.sneakAttack?.defaultEnabled ?? true;
+        selectedSneakAttackOptionIds.value = [];
         partTypePicks.value = {};
         selectedDamageVariantIndex.value = 0;
         selectVariantForMode(props.initialRollMode);
@@ -1011,6 +1120,7 @@
     attack: AttackRollSnapshot | undefined,
     landed?: boolean,
     critical = false,
+    sneakAttack = false,
   ): void {
     if (attack) {
       reportAttackRoll(
@@ -1019,6 +1129,7 @@
         attackRollMode.value,
         landed,
         critical,
+        sneakAttack,
       );
     }
   }
@@ -1729,10 +1840,23 @@
         await diceRollerStore.waitForNextAnimation();
       }
 
+      // «1 или 2 считайте за 3»: роллер такой записи не знает — кости
+      // поднимаются после броска, итог растёт на разницу
+      const dice = part.minDie
+        ? raiseDiceToMinimum(
+            rollData.total,
+            rollData.dice.flatMap((group) => group.values),
+            part.minDie,
+          )
+        : {
+            amount: rollData.total,
+            values: rollData.dice.flatMap((group) => group.values),
+          };
+
       rolled.push({
-        amount: rollData.total,
+        amount: dice.amount,
         formula,
-        values: rollData.dice.flatMap((group) => group.values),
+        values: dice.values,
         type: part.type,
         types: part.types,
         isHealing: part.isHealing,
@@ -1745,6 +1869,7 @@
         critical: isCrit,
         ...(part.label ? { label: part.label } : {}),
         ...(part.sneakAttack ? { sneakAttack: true as const } : {}),
+        ...(part.targetEffects ? { targetEffects: part.targetEffects } : {}),
       });
     }
 
@@ -1835,8 +1960,13 @@
     // Кости Скрытой атаки пойдут в урон — лимит хода тратится сейчас, в тике
     // броска: второе окно этого клиента увидит расход до своего броска. Без
     // цели попал ли удар, решает мастер; урон брошен — значит, потрачена
-    const sneakAttackTurn = parts.some((part) => part.sneakAttack)
-      ? props.sneakAttack?.spend()
+    const sneakAttackPart = parts.find((part) => part.sneakAttack);
+
+    // Ресурс выбранных приёмов («Раздирание разума») тратится вместе с ней
+    const sneakAttackTurn = sneakAttackPart
+      ? props.sneakAttack?.spend(
+          (sneakAttackPart.targetEffects ?? []).map((effect) => effect.id),
+        )
       : undefined;
 
     // Сначала показываем бросок атаки, затем по очереди — части урона; сервер
@@ -1855,6 +1985,7 @@
           attack,
           resolveAttackLanded(attackOutput.attackResult),
           isCrit,
+          sneakAttackPart !== undefined,
         ),
       );
   }
@@ -2148,6 +2279,26 @@
             :disabled="sneakAttackPreview.spent"
             @update:model-value="setSneakAttackApplied"
           />
+
+          <!-- Хитрый удар: приёмы платят костями Скрытой атаки до броска -->
+          <div
+            v-if="sneakAttackOptionRows.length > 0"
+            class="space-y-1.5 ps-2"
+          >
+            <span class="text-xs text-muted">
+              {{ cunningStrikeLimitLabel }}
+            </span>
+
+            <UCheckbox
+              v-for="row in sneakAttackOptionRows"
+              :key="row.id"
+              :model-value="row.selected"
+              :label="row.label"
+              :description="row.description"
+              :disabled="row.disabled"
+              @update:model-value="setSneakAttackOption(row.id, $event)"
+            />
+          </div>
         </div>
 
         <!-- Разделитель -->

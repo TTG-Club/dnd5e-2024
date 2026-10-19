@@ -625,7 +625,7 @@ describe('окно атаки', () => {
       '// На промахе урона нет — и Скрытая атака не тратится',
     );
 
-    const spend = modal.indexOf('props.sneakAttack?.spend()');
+    const spend = modal.indexOf('props.sneakAttack?.spend(');
 
     assert.ok(missReturn > 0 && spend > missReturn);
   });

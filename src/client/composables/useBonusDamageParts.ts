@@ -33,10 +33,13 @@ import { useTargetStore } from '@/stores/targetStore';
  * хотбар-макросом `weapon-attack` и обоими путями каста заклинаний.
  */
 import {
+  addDiceToFormula,
   buildCarrierContext,
   buildPseudoSpell,
+  buildSneakAttackOptionTargetEffect,
   calculateWeaponDamageModifier,
   collectBonusDamageFormulas,
+  countFormulaDice,
   entityHasDamageStatus,
   entityHasWeaponMastery,
   getCreatureSpellMod,
@@ -51,25 +54,62 @@ import {
   isUseActivatedEffect,
   listEnabledEffects,
   listEntityMarkSources,
+  listSneakAttackOptions,
+  pickSneakAttackOptions,
   readSneakAttackAutoAdd,
   resolveBonusDamageParts,
   resolveCreatureDamageParts,
   resolveCreatureSpellDamageParts,
+  resolveCunningStrikeLimit,
   resolveDamagePartsForCast,
   resolveEntityCreatureType,
   resolveEntityCurrentHp,
   resolveEntityExtraCreatureTypes,
   resolveEntityMaxHp,
   resolveSneakAttack,
+  resolveSneakAttackMinDie,
   resolveSpellDamageFormula,
   SNEAK_ATTACK_LABEL,
   substituteFormulaVariables,
+  sumSneakAttackOptionCost,
   withFlatDamageBonus,
 } from '@vtt/shared/system/dnd.js';
 
-import { isSneakAttackSpentNow, spendSneakAttack } from './sneakAttackUsage';
+import { hasEntityActedInCombat, resolveCombatRound } from './encounterTurn';
+import {
+  canAffordSneakAttackOption,
+  isSneakAttackSpentNow,
+  paySneakAttackOptions,
+  spendSneakAttack,
+} from './sneakAttackUsage';
 import { findAlliesAdjacentToTarget } from './targetAllyAdjacent';
 import { buildEntityFormulaContext } from './useResolvedStats';
+
+/** Кости Скрытой атаки, когда приёмы Хитрого удара забрали их все */
+const EMPTY_SNEAK_ATTACK_DICE = '0';
+
+/**
+ * Эффекты бросающего вместе с его кнопками «Применить». Сборщики броска
+ * получают только действующие эффекты, а приём Хитрого удара — кнопка, которая
+ * спит: её берут с листа самого бросающего (чужие ауры приёмов не дают).
+ *
+ * @param owner - бросающий
+ * @param effects - его действующие эффекты (с аурами)
+ * @returns эффекты и кнопки листа без повторов по id
+ */
+function withOwnUseButtons(
+  owner: DnDSceneEntity,
+  effects: readonly ActiveEffect[],
+): ActiveEffect[] {
+  const known = new Set(effects.map((effect) => effect.id));
+
+  return [
+    ...effects,
+    ...(owner.activeEffects ?? []).filter(
+      (effect) => isUseActivatedEffect(effect) && !known.has(effect.id),
+    ),
+  ];
+}
 
 /** Контекст броска из окна: фактический режим и решённое окном */
 export interface BonusPartsRollContext {
@@ -82,6 +122,12 @@ export interface BonusPartsRollContext {
    * условия и лимит окно уже проверило ({@link SneakAttackRollPort})
    */
   sneakAttack?: boolean;
+  /**
+   * Выбранные в окне приёмы Хитрого удара и эффекты при Скрытой атаке — id
+   * их эффектов-кнопок по порядку выбора. Цена убирает кости Скрытой атаки
+   * до броска; приём, на который костей не хватило, отбрасывается
+   */
+  sneakAttackOptionIds?: readonly string[];
 }
 
 /** Roll-time сборщик бонус-частей (проп DiceRollModal) */
@@ -95,6 +141,22 @@ type BonusPartsWeapon = Pick<
   'id' | 'weaponProperties' | 'rangeType' | 'sourceRangeType'
 >;
 
+/** Приём Хитрого удара в окне атаки */
+export interface SneakAttackOptionPreview {
+  /** Id эффекта-кнопки: ключ выбора */
+  id: string;
+  /** Название: «Хитрый удар: Отравить» */
+  name: string;
+  /** Пояснение приёма */
+  description: string;
+  /** Цена в костях Скрытой атаки */
+  cost: number;
+  /** Приём Хитрого удара (входит в число приёмов за удар) */
+  cunningStrike: boolean;
+  /** Ресурса хватает: «Раздирание разума» без использований — нет */
+  affordable: boolean;
+}
+
 /** Скрытая атака, которую окно атаки показывает переключателем */
 export interface SneakAttackPreview {
   /** Кости для показа: «3к6» */
@@ -103,6 +165,12 @@ export interface SneakAttackPreview {
   sourceName: string;
   /** В этом ходу уже потрачена: переключатель неактивен */
   spent: boolean;
+  /** Сколько костей у неё до приёмов */
+  diceCount: number;
+  /** Приёмы Хитрого удара и эффекты по выбору, доступные в этом броске */
+  options: SneakAttackOptionPreview[];
+  /** Сколько приёмов Хитрого удара можно взять за удар */
+  cunningStrikeLimit: number;
 }
 
 /**
@@ -117,8 +185,11 @@ export interface SneakAttackRollPort {
   preview: (
     context: Pick<BonusPartsRollContext, 'hasAdvantage' | 'hasDisadvantage'>,
   ) => SneakAttackPreview | undefined;
-  /** Тратит лимит хода; возвращает ход расхода (вне боя — `undefined`) */
-  spend: () => string | undefined;
+  /**
+   * Тратит лимит хода и ресурс выбранных приёмов; возвращает ход расхода
+   * (вне боя — `undefined`, а ресурс приёмов тратится и вне боя)
+   */
+  spend: (optionIds?: readonly string[]) => string | undefined;
   /** Потрачен ли лимит хода прямо сейчас — без кэша показа окна */
   isSpent: () => boolean;
 }
@@ -360,6 +431,7 @@ export function useBonusDamageParts() {
         markedBy: string[];
         entityId: string;
         adjacentAllies?: readonly AdjacentAllyState[];
+        hasActed?: boolean;
       }
     | undefined {
     const entity =
@@ -390,6 +462,8 @@ export function useBonusDamageParts() {
       extraCreatureTypes: resolveEntityExtraCreatureTypes(entity),
       // Кто пометил цель — для условия «цель помечена мной» (Метка охотника)
       markedBy: listEntityMarkSources(entity),
+      // Ходила ли цель в этом бою — для «Ликвидации» Убийцы
+      hasActed: hasEntityActedInCombat(entity.id),
     };
   }
 
@@ -481,16 +555,92 @@ export function useBonusDamageParts() {
       );
 
     // Кости Скрытой атаки — отдельной частью с типом оружия: крит их удваивает
-    // так же, как кости удара, а окно и чат подписывают её по названию
-    const sneakAttackParts = sneakAttack
-      ? resolveParts([{ formula: sneakAttack.formula }]).map((part) => ({
-          ...part,
-          label: SNEAK_ATTACK_LABEL,
-          sneakAttack: true as const,
-        }))
-      : [];
+    // так же, как кости удара, а окно и чат подписывают её по названию.
+    // Приёмы Хитрого удара убирают кости ДО броска и едут с частью к цели
+    const sneakAttackParts =
+      sneakAttack && sneakAttackContext
+        ? buildSneakAttackParts(
+            sneakAttack.formula,
+            effects,
+            rollContext,
+            sneakAttackContext,
+            modalContext.sneakAttackOptionIds ?? [],
+            owner,
+            resolveParts,
+          )
+        : [];
 
     return [...sneakAttackParts, ...resolveParts(formulas)];
+  }
+
+  /**
+   * Часть урона Скрытой атаки с выбранными приёмами: их цена убирает кости,
+   * их эффекты едут к цели, наименьшее значение кости — из строк
+   * `sneakAttack.minDie`. Приём, которого больше нет (условие, ресурс) или на
+   * который не хватило костей, отбрасывается.
+   *
+   * @param formula - кости Скрытой атаки
+   * @param effects - эффекты бросающего
+   * @param rollContext - контекст броска
+   * @param formulaContext - числа бросающего
+   * @param selectedIds - выбранные в окне приёмы
+   * @param owner - бросающий: его ресурсы
+   * @param resolveParts - разбор формулы в части с типом оружия
+   * @returns части Скрытой атаки
+   */
+  function buildSneakAttackParts(
+    formula: string,
+    effects: readonly ActiveEffect[],
+    rollContext: RollContext,
+    formulaContext: FormulaContext,
+    selectedIds: readonly string[],
+    owner: DnDSceneEntity,
+    resolveParts: (
+      partFormulas: { formula: string }[],
+    ) => SpellDamagePartInput[],
+  ): SpellDamagePartInput[] {
+    const options = listSneakAttackOptions(
+      withOwnUseButtons(owner, effects),
+      rollContext,
+      formulaContext,
+    ).filter((option) => canAffordSneakAttackOption(owner, option.effect));
+
+    const picked = pickSneakAttackOptions(
+      options,
+      selectedIds,
+      countFormulaDice(formula),
+      resolveCunningStrikeLimit(effects, rollContext, formulaContext),
+    );
+
+    const minDie = resolveSneakAttackMinDie(
+      effects,
+      rollContext,
+      formulaContext,
+    );
+
+    const targetEffects = picked.map((option) =>
+      buildSneakAttackOptionTargetEffect(option.effect),
+    );
+
+    const remaining = addDiceToFormula(
+      formula,
+      -sumSneakAttackOptionCost(picked),
+    );
+
+    // Приёмы съели все кости — часть остаётся нулём: по ней тратится лимит
+    // хода и едут эффекты приёмов, а «0к6» роллер не читает
+    return resolveParts([
+      {
+        formula:
+          countFormulaDice(remaining) > 0 ? remaining : EMPTY_SNEAK_ATTACK_DICE,
+      },
+    ]).map((part) => ({
+      ...part,
+      label: SNEAK_ATTACK_LABEL,
+      sneakAttack: true as const,
+      ...(targetEffects.length > 0 ? { targetEffects } : {}),
+      ...(minDie === undefined ? {} : { minDie }),
+    }));
   }
 
   /**
@@ -525,6 +675,7 @@ export function useBonusDamageParts() {
       hasAdvantage: modalContext.hasAdvantage,
       hasDisadvantage: modalContext.hasDisadvantage,
       target: targetHp,
+      combatRound: resolveCombatRound(),
       // Кость-формулы с условием о носителе в плоские статы не попадают —
       // здесь эти условия и оцениваются
       self: carrier,
@@ -579,11 +730,38 @@ export function useBonusDamageParts() {
 
         const plan = resolveSneakAttack(effects, rollContext, formulaContext);
 
-        return plan
-          ? { ...plan, spent: isSneakAttackSpentNow(owner.id) }
-          : undefined;
+        if (!plan) {
+          return undefined;
+        }
+
+        return {
+          ...plan,
+          spent: isSneakAttackSpentNow(owner.id),
+          diceCount: countFormulaDice(plan.formula),
+          options: listSneakAttackOptions(
+            withOwnUseButtons(owner, effects),
+            rollContext,
+            formulaContext,
+          ).map(({ effect, cost, cunningStrike }) => ({
+            id: effect.id,
+            name: effect.name,
+            description: effect.description ?? '',
+            cost,
+            cunningStrike,
+            affordable: canAffordSneakAttackOption(owner, effect),
+          })),
+          cunningStrikeLimit: resolveCunningStrikeLimit(
+            effects,
+            rollContext,
+            formulaContext,
+          ),
+        };
       },
-      spend: () => spendSneakAttack(owner.id),
+      spend: (optionIds = []) => {
+        paySneakAttackOptions(owner.id, optionIds);
+
+        return spendSneakAttack(owner.id);
+      },
       isSpent: () => isSneakAttackSpentNow(owner.id),
     };
   }

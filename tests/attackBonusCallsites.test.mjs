@@ -944,6 +944,7 @@ it('projectile attack bonuses follow each assigned target instead of the unrelat
       ...engine,
       targetStore: { getTargetActor: () => selected },
       findAlliesAdjacentToTarget: () => [],
+      hasEntityActedInCombat: () => undefined,
       isDndSceneEntity: () => true,
       isActorEntity: (entity) => entity.entityType === 'actor',
       isCreatureEntity: (entity) => entity.entityType === 'creature',
@@ -972,6 +973,7 @@ it('projectile attack bonuses follow each assigned target instead of the unrelat
       getCurrentWorldEntities: () => worldState.entities,
     }),
     isDndSceneEntity: () => true,
+    resolveCombatRound: () => undefined,
   };
 
   const buildEvaluator = await loadHandler(
@@ -1100,10 +1102,15 @@ it('the shared target context reads creature average HP through the combat HP he
       resolveEntityCreatureType: () => 'humanoid',
       resolveEntityExtraCreatureTypes: () => [],
       targetStore: { getTargetActor: () => null },
+      hasEntityActedInCombat: () => undefined,
     },
   );
 
-  const identity = { entityId: target.id, adjacentAllies: undefined };
+  const identity = {
+    entityId: target.id,
+    adjacentAllies: undefined,
+    hasActed: undefined,
+  };
 
   assert.deepEqual(
     { ...readContext(target) },
@@ -1150,6 +1157,7 @@ it('the shared target context asks for an adjacent ally only when the attacker i
       resolveEntityCreatureType: () => 'humanoid',
       resolveEntityExtraCreatureTypes: () => [],
       targetStore: { getTargetActor: () => target },
+      hasEntityActedInCombat: () => undefined,
       findAlliesAdjacentToTarget: (attackerId, targetId) => {
         asked.push([attackerId, targetId]);
 
@@ -1183,6 +1191,7 @@ it('attack roll bonuses add the target defences against this attack', async () =
       }),
       useResolvedStats: () => ({ combinedEffects: { value: [] } }),
       buildCarrierContext: (entity) => ({ entityId: entity.id }),
+      resolveCombatRound: () => undefined,
       buildEntityFormulaContext: () => ({}),
       useBonusDamageParts: () => ({
         buildTargetHpContext: (_entity, attackerId) => ({

@@ -19,6 +19,7 @@ import {
   UNSEEN_ATTACKER_ADVANTAGE_FLAG,
 } from '@vtt/shared/system/dnd.js';
 
+import { resolveCombatRound } from './encounterTurn';
 import {
   buildIncomingAttackContext,
   collectDefenderAttackFlags,
@@ -82,6 +83,7 @@ export function resolveTargetedAttackRoll(
     hasAdvantage: false,
     hasDisadvantage: false,
     target,
+    combatRound: resolveCombatRound(),
     self: buildCarrierContext(attacker),
   };
 
@@ -168,6 +170,7 @@ export function resolveTargetedCritThreshold(
       hasAdvantage: false,
       hasDisadvantage: false,
       target,
+      combatRound: resolveCombatRound(),
       self: buildCarrierContext(attacker),
     },
     buildEntityFormulaContext(attacker),

@@ -16,20 +16,25 @@
  * (`readSentTriggerUsage`).
  */
 
+import type { ActiveEffect, DnDSceneEntity } from '@vtt/shared/system/dnd.js';
+
 import {
   applyTriggerUsageChanges,
   buildSneakAttackSpend,
+  canPayActivation,
   isSneakAttackSpent,
   readTriggerUsage,
   releaseSneakAttackUsage,
   withTriggerUsage,
 } from '@vtt/shared/system/dnd.js';
 
+import { payEntityActivation, readEntityCounters } from './effectToggle';
 import { isEntityInCombat, resolveTurnStamp } from './encounterTurn';
 import {
   changeEntityCombatState,
   readSentTriggerUsage,
 } from './entityCombatWrite';
+import { changeEntitySheet } from './entitySheetWrite';
 import { useWorldEntities } from './useWorldEntities';
 
 /**
@@ -94,5 +99,50 @@ export function releaseSneakAttack(entityId: string, turnStamp: string): void {
 
   changeEntityCombatState(entityId, (current) =>
     withTriggerUsage(current, releaseSneakAttackUsage(current)),
+  );
+}
+
+/**
+ * Хватает ли бросающему ресурса на эффект по выбору при Скрытой атаке:
+ * «Раздирание разума» тратит своё использование (`activation.counter`).
+ * Приём без ресурса доступен всегда.
+ *
+ * @param entity - бросающий
+ * @param effect - эффект-кнопка приёма
+ * @returns `true`, если приём можно выбрать
+ */
+export function canAffordSneakAttackOption(
+  entity: DnDSceneEntity,
+  effect: ActiveEffect,
+): boolean {
+  return (
+    !effect.activation?.counter
+    || canPayActivation(readEntityCounters(entity), effect.activation)
+  );
+}
+
+/**
+ * Списывает ресурс выбранных приёмов, когда их Скрытая атака брошена в урон
+ * (попадание или атака без цели) — как кнопка «Применить» того же эффекта.
+ * Эффекты-кнопки берутся со свежей сущности: копия приёма для цели уже без
+ * применения и ресурса не знает.
+ *
+ * @param entityId - бросающий
+ * @param effectIds - id эффектов-кнопок выбранных приёмов
+ */
+export function paySneakAttackOptions(
+  entityId: string,
+  effectIds: readonly string[],
+): void {
+  if (effectIds.length === 0) {
+    return;
+  }
+
+  changeEntitySheet(entityId, (current) =>
+    (current.activeEffects ?? [])
+      .filter(
+        (effect) => effectIds.includes(effect.id) && effect.activation?.counter,
+      )
+      .reduce((entity, effect) => payEntityActivation(entity, effect), current),
   );
 }

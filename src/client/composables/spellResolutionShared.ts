@@ -133,6 +133,32 @@ export interface SpellResolutionContext {
 const SPELL_ACTION_ID_PREFIX = 'spell-action';
 
 /**
+ * Контекст разбора с эффектами «на цель», которые принесли сами части урона
+ * (приёмы Хитрого удара при Скрытой атаке): они идут к цели вместе с
+ * эффектами оружия — тем же спасброском, условием наложения и защитами.
+ *
+ * @param context - контекст разбора
+ * @param parts - брошенные части урона
+ * @returns контекст, у источника которого эти эффекты добавлены
+ */
+export function withPartTargetEffects(
+  context: SpellResolutionContext,
+  parts: readonly { targetEffects?: ActiveEffect[] }[],
+): SpellResolutionContext {
+  const extra = parts.flatMap((part) => part.targetEffects ?? []);
+
+  return extra.length === 0
+    ? context
+    : {
+        ...context,
+        spell: {
+          ...context.spell,
+          activeEffects: [...(context.spell.activeEffects ?? []), ...extra],
+        },
+      };
+}
+
+/**
  * Контекст разбора с ключом применения: один на все цели этого разбора.
  *
  * @param context - контекст разбора
@@ -181,6 +207,17 @@ export interface SpellDamagePartInput {
   label?: string;
   /** Кости Скрытой атаки: их бросок тратит её лимит хода */
   sneakAttack?: true;
+  /**
+   * Эффекты «на цель», которые идут с этой частью: приёмы Хитрого удара,
+   * выбранные в окне атаки. Ложатся после попадания тем же путём, что
+   * эффекты оружия, — со спасброском и условием наложения
+   */
+  targetEffects?: ActiveEffect[];
+  /**
+   * Наименьшее значение кости части: «1 или 2 считайте за 3». Роллер такой
+   * записи не знает — окно поднимает кости после броска
+   */
+  minDie?: number;
 }
 
 /**
@@ -217,6 +254,8 @@ export interface RolledSpellDamagePart {
   label?: string;
   /** Кости Скрытой атаки */
   sneakAttack?: true;
+  /** Эффекты «на цель», которые идут с этой частью (приёмы Хитрого удара) */
+  targetEffects?: ActiveEffect[];
 }
 
 /** Контекст AoE шаблона */

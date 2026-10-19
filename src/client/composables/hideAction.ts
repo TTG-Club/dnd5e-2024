@@ -6,9 +6,9 @@
  * не привязаны к кнопкам: «Спрятаться» и «Поиск» зовёт полка действий системы,
  * «Найти» и «Шум» — кнопки под сообщением о засаде персонажа игрока.
  *
- * Засада существа ведущего игрокам не видна: бросок только ведущему, в общий
- * чат ничего не пишется, кнопок под сообщением нет — игроки ищут «Поиском»,
- * ведущий снимает засаду своего существа сам.
+ * Засада существа ведущего игрокам не видна: бросок и сообщение — только
+ * ведущему (на старом хосте без таких сообщений — уведомление на его экране),
+ * кнопки «Найти» и «Шум» под ним видит только он; игроки ищут «Поиском».
  *
  * Запись — боевым каналом: снять засаду с чужой сущности ищущий вправе только
  * им, а снятие состояния будит на сервере срабатывания «состояние снялось».
@@ -54,6 +54,7 @@ import { listEntitiesNear } from './effectEscapeAction';
 import { isEntityOwnTurn } from './encounterTurn';
 import { changeEntityCombatState } from './entityCombatWrite';
 import { controlsEntityAsUser, isGameMasterUser } from './gmApprovalRequest';
+import { canSendGmOnlyChat } from './gmOnlyChat';
 import { refuseWhilePaused } from './pauseLock';
 import { chooseOne } from './questionChoice';
 import { refuseWhileSheetEditing } from './sheetEditLock';
@@ -196,9 +197,10 @@ function refuseAction(entity: DnDSceneEntity, title: string): boolean {
  * Объявляет удачную засаду — одна точка на все виды объявления.
  *
  * Персонаж игрока: сообщение от его имени и под ним дополнение с Сл поиска,
- * подсказкой ведущему и кнопками «Найти» и «Шум». Существо ведущего: в общий
- * чат ничего — ни «в засаде», ни Сл; ведущему — уведомление на его экране.
- * Когда ядро даст сообщение «только ведущему», его подключат здесь.
+ * подсказкой ведущему и кнопками «Найти» и «Шум». Существо ведущего: то же
+ * сообщение «только для мастера» — игроки его не получают, кнопки под ним
+ * видит только ведущий. Хост такого сообщения не умеет — в чат ничего, ни «в
+ * засаде», ни Сл: ведущему уведомление на его экране.
  *
  * @param entity - спрятавшийся
  * @param effect - его состояние «В засаде»
@@ -210,8 +212,9 @@ function announceHide(
   cost: EffectActionCost,
 ): void {
   const searchDc = effect.searchDc ?? HIDE_CHECK_DC;
+  const gmOnly = !hasPlayerOwner(entity);
 
-  if (!hasPlayerOwner(entity)) {
+  if (gmOnly && !canSendGmOnlyChat()) {
     useSystemToastStore().add({
       title: `${entity.name}${HIDE_LABELS.hiddenSuffix}`,
       description: `${HIDE_LABELS.searchDcPrefix}${searchDc}`,
@@ -228,7 +231,7 @@ function announceHide(
     'text',
     undefined,
     undefined,
-    { speakerEntityId: entity.id },
+    { speakerEntityId: entity.id, ...(gmOnly ? { gmOnly: true } : {}) },
   );
 
   if (!messageId) {

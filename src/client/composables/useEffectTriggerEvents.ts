@@ -243,6 +243,7 @@ export function dispatchAttackRollTriggers(
  *   (серия снарядов: броски делает вызывающий уже после события)
  * @param critical - попадание критическое: урон срабатываний цели этой атаки
  *   удвоит кости
+ * @param sneakAttack - в урон вошли кости Скрытой атаки
  */
 export function reportAttackRoll(
   attackerId: string,
@@ -250,6 +251,7 @@ export function reportAttackRoll(
   rollMode: AttackRollMode,
   landed?: boolean,
   critical = false,
+  sneakAttack = false,
 ): void {
   const attacker = findDndWorldEntity(attackerId);
 
@@ -266,7 +268,14 @@ export function reportAttackRoll(
 
   if (needsServer) {
     emitSystemClientEvent(
-      buildAttackRollEvent(attackerId, targetIds, rollMode, landed, critical),
+      buildAttackRollEvent(
+        attackerId,
+        targetIds,
+        rollMode,
+        landed,
+        critical,
+        sneakAttack,
+      ),
     );
   }
 }

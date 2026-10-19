@@ -1104,6 +1104,7 @@ function settleAttackRollEvent(
       },
       ...(event.landed === undefined ? {} : { landed: event.landed }),
       ...(event.critical === true ? { critical: true } : {}),
+      ...(event.sneakAttack === true ? { sneakAttack: true } : {}),
     });
 
     const subject = outcomeOf(side.subject);
@@ -1718,7 +1719,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.323';
+  readonly version = '0.8.324';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.

@@ -51,6 +51,9 @@ import {
   ATTACK_ABILITY_CONDITION_PREFIX,
   ATTACKS_AGAINST_KEY,
   CARRIER_ARMOR_CONDITION_PREFIX,
+  CARRIER_TOOL_CONDITION_PREFIX,
+  COMBAT_ROUND_AT_LEAST_CONDITION_PREFIX,
+  COMBAT_ROUND_CONDITION_PREFIX,
   CONCENTRATION_SAVE_KEY,
   conditionHolds,
   DEATH_SAVE_KEY,
@@ -63,6 +66,7 @@ import {
   isOffSheetChangeKey,
   isSenseType,
   isSneakAttackKey,
+  isUseActivatedEffect,
   isWeaponOverrideKey,
   parseWeaponBaseTypeCondition,
   ROLL_ADVANTAGE_CONDITION,
@@ -77,6 +81,7 @@ import {
   TARGET_ALLY_WITHOUT_CONDITION_PREFIX,
   TARGET_ANY_ALLY_ADJACENT_CONDITION,
   TARGET_IS_SOURCE_CONDITION,
+  TARGET_NOT_ACTED_CONDITION,
   TARGET_NOT_SOURCE_CONDITION,
   WEAPON_DAMAGE_DICE_KEY,
   WEAPON_PROPERTY_CONDITION_PREFIX,
@@ -989,6 +994,11 @@ export interface RollContext {
    */
   sneakAttack?: boolean;
   /**
+   * Раунд идущего боя — для условий `combat.round` («Ликвидация» в первом
+   * раунде). Не задан — боя нет, условия не выполняются.
+   */
+  combatRound?: number;
+  /**
    * Состояние HP цели — для условий `target.hp.*` (напр. «Убийца»/«Окровавлен»),
    * и её тип — для условий `target.creatureType`. Отсутствует вне
    * таргет-контекста; такие условия тогда не срабатывают.
@@ -1003,6 +1013,11 @@ export interface RollContext {
     markedBy?: readonly string[];
     /** Сущность цели — защитные эффекты цели в броске атаки */
     entityId?: string;
+    /**
+     * Ходила ли цель в этом бою — для `target.hasActed`. Не задано — боя
+     * нет, условие не выполняется
+     */
+    hasActed?: boolean;
     /**
      * Союзники бросающего в 5 фт от цели и их состояния — для условий
      * «союзник рядом с целью». Считает клиент по фишкам сцены
@@ -1071,6 +1086,11 @@ export interface CarrierContext {
   speciesNames?: readonly string[];
   /** Надетый доспех и щит — для `self.armor === "..."` */
   armor?: CarrierArmorState;
+  /**
+   * Инструменты в снаряжении (виды `baseToolType`) — для `self.tool === "…"`:
+   * «Отравить» Хитрого удара требует набор отравителя при себе
+   */
+  toolKeys?: readonly string[];
 }
 
 /**
@@ -1085,6 +1105,9 @@ export function buildCarrierContext(carrier: DnDSceneEntity): CarrierContext {
     extraCreatureTypes: resolveEntityExtraCreatureTypes(carrier),
     speciesNames: listEntitySpeciesNames(carrier),
     armor: getCarrierArmorState(carrier),
+    toolKeys: (carrier.equipment ?? []).flatMap((equipmentItem) =>
+      equipmentItem.baseToolType ? [equipmentItem.baseToolType] : [],
+    ),
   };
 }
 
@@ -1216,6 +1239,7 @@ function isCarrierConditionPart(part: string): boolean {
     parseCreatureTypeCondition(part, 'self.creatureType') !== undefined
     || part.startsWith(CARRIER_ARMOR_CONDITION_PREFIX)
     || parseCarrierSpeciesCondition(part) !== undefined
+    || parseQuotedCondition(part, CARRIER_TOOL_CONDITION_PREFIX) !== undefined
   );
 }
 
@@ -1257,6 +1281,12 @@ function carrierConditionPartMatches(
   part: string,
   carrier: CarrierContext | undefined,
 ): boolean {
+  const wantedTool = parseQuotedCondition(part, CARRIER_TOOL_CONDITION_PREFIX);
+
+  if (wantedTool !== undefined) {
+    return carrier?.toolKeys?.includes(wantedTool) ?? false;
+  }
+
   const wantedArmor = parseArmorCondition(part);
 
   if (wantedArmor !== undefined) {
@@ -1381,6 +1411,44 @@ function parseQuotedCondition(
   return value || undefined;
 }
 
+/** Целое число условия раунда */
+const COMBAT_ROUND_NUMBER_PATTERN = /^\d+$/;
+
+/**
+ * Проверка раунда боя по условию `combat.round === N` / `combat.round >= N`.
+ *
+ * @param part - часть условия
+ * @returns проверка номера раунда либо `undefined`, если часть не о раунде
+ */
+function matchCombatRoundCondition(
+  part: string,
+): ((round: number) => boolean) | undefined {
+  for (const [prefix, holds] of [
+    [
+      COMBAT_ROUND_CONDITION_PREFIX,
+      (round: number, wanted: number) => round === wanted,
+    ],
+    [
+      COMBAT_ROUND_AT_LEAST_CONDITION_PREFIX,
+      (round: number, wanted: number) => round >= wanted,
+    ],
+  ] as const) {
+    if (!part.startsWith(prefix)) {
+      continue;
+    }
+
+    const value = part.slice(prefix.length).trim();
+
+    if (!COMBAT_ROUND_NUMBER_PATTERN.test(value)) {
+      return undefined;
+    }
+
+    return (round) => holds(round, Number(value));
+  }
+
+  return undefined;
+}
+
 /**
  * Проверка союзника рядом с целью по условию семейства «союзник рядом».
  *
@@ -1445,6 +1513,19 @@ export function evaluateConditionPart(
 
   if (trimmed === SNEAK_ATTACK_APPLIED_CONDITION) {
     return rollContext.sneakAttack === true;
+  }
+
+  if (trimmed === TARGET_NOT_ACTED_CONDITION) {
+    return rollContext.target?.hasActed === false;
+  }
+
+  const combatRound = matchCombatRoundCondition(trimmed);
+
+  if (combatRound) {
+    return (
+      rollContext.combatRound !== undefined
+      && combatRound(rollContext.combatRound)
+    );
   }
 
   const weaponRange = parseQuotedCondition(
@@ -2590,18 +2671,29 @@ export interface RollChangeMatch {
  * условие броска выполнено, условие строки — тоже (без условия — всегда).
  * Для ключей, которые читает сам бросок, а не лист (`sneakAttack.*`).
  *
+ * Кнопки «Применить» спят, но приёмы Хитрого удара — строки как раз на
+ * них: такие ключи читаются с `withUseButtons`, и кнопка тогда считается,
+ * даже если выключена (у кнопок компендиума `disabled` смысла не имеет —
+ * они спят и так).
+ *
  * @param effects - эффекты бросающего (с аурами)
  * @param key - ключ строки
  * @param rollContext - контекст броска
+ * @param withUseButtons - читать и эффекты-кнопки «Применить»
  * @returns подходящие строки по порядку эффектов
  */
 export function collectRollTimeChanges(
   effects: readonly ActiveEffect[],
   key: EffectTargetKey,
   rollContext: RollContext,
+  withUseButtons = false,
 ): RollChangeMatch[] {
   return effects.flatMap((effect) => {
-    if (isEffectDormant(effect) || !rollConditionHolds(effect, rollContext)) {
+    const asleep = withUseButtons
+      ? !isUseActivatedEffect(effect) && isEffectDormant(effect)
+      : isEffectDormant(effect);
+
+    if (asleep || !rollConditionHolds(effect, rollContext)) {
       return [];
     }
 

@@ -59,6 +59,7 @@ import {
   prepareAmmunitionShot,
   spendShotAmmunition,
 } from './effectActivationUse';
+import { resolveCombatRound } from './encounterTurn';
 import { refuseWhilePaused } from './pauseLock';
 import { buildRollBonusEvaluator } from './rollBonusEvaluator';
 import { refuseWhileSheetEditing } from './sheetEditLock';
@@ -356,6 +357,7 @@ export function openWeaponAttackRoll(
         const rollContext = {
           ...modalContext,
           target: buildTargetHpContext(undefined, attacker.id),
+          combatRound: resolveCombatRound(),
           itemId: weapon.id,
           // Свойства оружия — для условия «метательным оружием», дальность
           // самого оружия — для «дальнобойного оружия»

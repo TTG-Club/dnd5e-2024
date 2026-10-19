@@ -1095,6 +1095,8 @@ export interface AttackRollEventOptions extends TriggerEventOptions {
   landed?: boolean;
   /** Попадание критическое: урон срабатывания цели атаки удваивает кости */
   critical?: boolean;
+  /** Кости Скрытой атаки вошли в урон этой (попавшей) атаки */
+  sneakAttack?: boolean;
 }
 
 /**
@@ -1164,6 +1166,9 @@ export function settleAttackRollTriggers(
             kinds: [],
             landed: options.landed,
             ...(criticalTargetId === undefined ? {} : { criticalTargetId }),
+            ...(options.landed === true && options.sneakAttack === true
+              ? { sneakAttack: true }
+              : {}),
           },
         }),
   };

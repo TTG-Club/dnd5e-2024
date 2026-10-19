@@ -98,6 +98,7 @@ function token(actorId, disposition) {
  * @param {string[]} options.offTurn - кто в бою и не ходит
  * @param {number} options.answer - какой вариант выбрать в плашке
  * @param {number} options.rollTotal - итог броска окна; нет — окно не бросает
+ * @param {boolean} options.gmOnlyChat - хост умеет сообщения «только для мастера»
  * @returns {Promise<object>} функции и журналы
  */
 async function loadHide({
@@ -109,6 +110,7 @@ async function loadHide({
   offTurn = [],
   answer = 0,
   rollTotal,
+  gmOnlyChat = false,
 } = {}) {
   const world = new Map(
     entities.map((item) => [item.id, structuredClone(item)]),
@@ -119,6 +121,7 @@ async function loadHide({
     questions: [],
     toasts: [],
     messages: [],
+    messageOptions: [],
     appends: [],
     spends: [],
   };
@@ -174,10 +177,12 @@ async function loadHide({
 
       return next;
     },
+    canSendGmOnlyChat: () => gmOnlyChat,
     useSystemToastStore: () => ({ add: (toast) => log.toasts.push(toast) }),
     useChatStore: () => ({
-      sendMessage: (content) => {
+      sendMessage: (content, _type, _roll, _speaker, options) => {
         log.messages.push(content);
+        log.messageOptions.push(options);
 
         return `msg_${log.messages.length}`;
       },
@@ -310,6 +315,35 @@ describe('засада на столе', () => {
     assert.deepEqual(gm.log.appends, [], 'кнопок «Найти» и «Шум» нет');
     assert.equal(gm.log.toasts[0].description, 'Сл поиска: 19');
     assert.equal(gm.world.get('goblin').activeEffects[0].searchDc, 19);
+  });
+
+  it('существо ведущего на хосте с gmOnly: сообщение и кнопки только ведущему', async () => {
+    const gm = await loadHide({
+      entities: [goblin],
+      rollTotal: 19,
+      gmOnlyChat: true,
+    });
+
+    gm.startHide(gm.world.get('goblin'));
+
+    assert.equal(gm.log.messages.length, 1);
+    assert.equal(gm.log.messageOptions[0].gmOnly, true);
+    assert.equal(gm.log.appends[0].kind, engine.HIDE_FOLLOW_UP_KIND);
+    assert.deepEqual(gm.log.toasts, [], 'уведомление не нужно');
+
+    const player = await loadHide({
+      entities: [rogue],
+      rollTotal: 17,
+      gmOnlyChat: true,
+    });
+
+    player.startHide(player.world.get('rogue'));
+
+    assert.equal(
+      player.log.messageOptions[0].gmOnly,
+      undefined,
+      'засада персонажа игрока видна всем',
+    );
   });
 });
 
