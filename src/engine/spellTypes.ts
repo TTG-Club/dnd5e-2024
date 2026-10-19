@@ -340,14 +340,14 @@ export const SPELL_LEVEL_LABELS: Record<number, string> = Object.fromEntries(
 export type SaveDamageEffect = 'half' | 'none' | 'special' | 'double';
 
 /** Исход спасброска «провал удваивает урон» */
-export const SAVE_EFFECT_DOUBLE: SaveDamageEffect = 'double';
+export const SAVE_EFFECT_DOUBLE: Extract<SaveDamageEffect, 'double'> = 'double';
 
 /** Эффект спасброска для UI */
 export const SAVE_EFFECT_OPTIONS = [
   { value: 'half' as const, label: 'Половина урона' },
   { value: 'none' as const, label: 'Нет урона' },
   { value: 'special' as const, label: 'Особый' },
-  { value: 'double' as const, label: 'Провал — урон удвоен' },
+  { value: SAVE_EFFECT_DOUBLE, label: 'Провал — урон удвоен' },
 ] as const;
 
 // ── Маппинг форм на шаблоны ─────────────────────────────────

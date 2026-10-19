@@ -40,6 +40,7 @@ import {
   HIT_DICE_FORMULA_LETTER,
   HIT_DIE_OPTIONS,
   SAVING_THROW_REQUEST_TITLE_PARTS,
+  SNEAK_ATTACK_LABEL,
 } from '@vtt/shared/system/dnd.js';
 
 // Реэкспорт из единого shared-источника (производные от ABILITY_OPTIONS и SKILLS_LIST)
@@ -5348,13 +5349,15 @@ export const DICE_ROLL_LABELS = {
   /** Подпись цели, когда цель броска не выбрана */
   targetFallback: 'Цель',
   /** Заголовок плашки Скрытой атаки в окне атаки; с ним сравнивается источник */
-  sneakAttack: 'Скрытая атака',
+  sneakAttack: SNEAK_ATTACK_LABEL,
   /** Отметка плашки: кости идут к урону */
   sneakAttackActive: 'активна',
   /** Отметка плашки: в этом броске костей не будет */
   sneakAttackInactive: 'не активна',
   /** Отметка плашки: игрок отказался добавлять */
   sneakAttackDeclinedBadge: 'не добавлена',
+  /** Перед костями: «+3к6 к урону при попадании» */
+  sneakAttackDamagePrefix: '+',
   /** После костей: «+3к6 к урону при попадании» */
   sneakAttackDamageSuffix: ' к урону при попадании',
   /** Пояснение плашки, когда игрок отказался */

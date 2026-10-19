@@ -52,6 +52,7 @@ import {
   listSavingThrowBonusKeys,
   resolveSavingThrowModifier,
   resolveSavingThrowRollMode,
+  rollD20WithMode,
 } from './attackUtils.js';
 import { ABILITY_LABELS } from './consts.js';
 import { resolveDamageTypeLabel } from './damageConstants.js';
@@ -745,9 +746,6 @@ export function buildEffectSavingThrowContext(
   };
 }
 
-/** Грани кости спасброска */
-const SAVING_THROW_DIE_SIDES = 20;
-
 /**
  * Катает спасбросок сущности против сложности с учётом флагов её состояний.
  *
@@ -806,21 +804,7 @@ export function rollEffectSavingThrow(
     mode: circumstances?.mode,
   });
 
-  const hasAdvantage = rollMode === 'advantage';
-  const hasDisadvantage = rollMode === 'disadvantage';
-
-  const firstRoll = Math.floor(Math.random() * SAVING_THROW_DIE_SIDES) + 1;
-
-  let roll = firstRoll;
-
-  // Преимущество и помеха гасят друг друга — остаётся обычный бросок
-  if (hasAdvantage !== hasDisadvantage) {
-    const secondRoll = Math.floor(Math.random() * SAVING_THROW_DIE_SIDES) + 1;
-
-    roll = hasAdvantage
-      ? Math.max(firstRoll, secondRoll)
-      : Math.min(firstRoll, secondRoll);
-  }
+  const roll = rollD20WithMode(rollMode);
 
   const bonusDiceFormulas = listSavingThrowBonusKeys(
     ability,
@@ -830,8 +814,8 @@ export function rollEffectSavingThrow(
       context.effects,
       bonusKey,
       {
-        hasAdvantage,
-        hasDisadvantage,
+        hasAdvantage: rollMode === 'advantage',
+        hasDisadvantage: rollMode === 'disadvantage',
         self: context.self,
         ...(circumstances?.sourceCreatureType
           ? { source: { creatureType: circumstances.sourceCreatureType } }

@@ -51,6 +51,9 @@ export const BLOODIED_AUTO_APPLY = 'self.hp.value <= (self.hp.max / 2)';
  */
 export const HIDDEN_CONDITION_KEY = 'hidden';
 
+/** Значок «В засаде»: состояние, кнопка полки, сообщение о засаде */
+export const HIDDEN_CONDITION_ICON = 'tabler:spy';
+
 /**
  * «Застигнутый врасплох» (Surprised, правила 2024): помеха на бросок
  * инициативы, если начало боя для существа — неожиданность.

@@ -27,7 +27,6 @@ import type {
 } from '@vtt/shared';
 
 import type { ActiveEffect, EffectSaveTiming } from './activeEffectTypes.js';
-import type { AttackRollMode } from './attackUtils.js';
 import type { BackgroundDefinition } from './backgroundTypes.js';
 import type { DndCombatState } from './damageApplication.js';
 import type { DamageHit } from './damageHits.js';
@@ -77,7 +76,11 @@ import {
   normalizeActorData as normalizeDndActorData,
   validateActorData as validateDndActorData,
 } from './actorValidation.js';
-import { resolveInitiativeRollMode } from './attackUtils.js';
+import {
+  D20_DICE_BY_MODE,
+  resolveInitiativeRollMode,
+  rollD20WithMode,
+} from './attackUtils.js';
 import { shapeAuraCondition } from './auraCondition.js';
 import {
   collectAllAuraEffects,
@@ -287,36 +290,6 @@ const DOWNED_OTHER_SUMMARY_LABEL = 'когда цель свалена';
 
 /** Подпись сводки события «на глазах носителя ранили союзника» */
 const ALLY_HURT_SUMMARY_LABEL = 'когда ранили союзника на глазах';
-
-/** Кость инициативы по режиму броска, без модификатора */
-const INITIATIVE_DICE_BY_MODE: Record<AttackRollMode, string> = {
-  normal: '1к20',
-  advantage: '2к20kh1',
-  disadvantage: '2к20kl1',
-};
-
-/** Граней у кости инициативы */
-const D20_SIDES = 20;
-
-/**
- * Бросает к20 на сервере: с преимуществом — большая из двух, с помехой —
- * меньшая.
- *
- * @param rollMode - режим броска
- * @returns значение кости
- */
-function rollD20WithMode(rollMode: AttackRollMode): number {
-  /** Одна к20 */
-  const rollOne = (): number => Math.floor(Math.random() * D20_SIDES) + 1;
-
-  if (rollMode === 'normal') {
-    return rollOne();
-  }
-
-  const pair = [rollOne(), rollOne()];
-
-  return rollMode === 'advantage' ? Math.max(...pair) : Math.min(...pair);
-}
 
 /** Подпись сводки события «носитель нанёс урон» */
 const DAMAGE_DEALT_SUMMARY_LABEL = 'когда нанёс урон';
@@ -1719,7 +1692,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.326';
+  readonly version = '0.8.327';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -1848,7 +1821,7 @@ export class Dnd5eVttSystem implements VttSystem {
     if (rollFn) {
       // Клиент: Делаем бросок через стор (DiceRoller); формула без
       // модификатора — итог броска и есть значение кости
-      const rollData = rollFn(INITIATIVE_DICE_BY_MODE[rollMode]);
+      const rollData = rollFn(D20_DICE_BY_MODE[rollMode]);
 
       return {
         roll: rollData.total, // Это чистое значение кубика от 1 до 20

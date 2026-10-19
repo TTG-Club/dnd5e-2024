@@ -1,3 +1,5 @@
+import type { SNEAK_ATTACK_OPTION_CHIP_STYLES } from './constants';
+
 import { DICE_ROLL_LABELS } from './constants';
 
 /**
@@ -72,4 +74,20 @@ export function describeSneakAttackOptionBlock(
   return lacksDice
     ? DICE_ROLL_LABELS.sneakAttackOptionNoDice
     : DICE_ROLL_LABELS.sneakAttackOptionLimit;
+}
+
+/**
+ * Вид чипа приёма: выбранный, доступный или серый.
+ *
+ * @param option - приём
+ * @returns ключ вида в `SNEAK_ATTACK_OPTION_CHIP_STYLES`
+ */
+export function pickSneakAttackChipStyle(
+  option: Pick<SneakAttackOptionChip, 'selected' | 'disabled'>,
+): keyof typeof SNEAK_ATTACK_OPTION_CHIP_STYLES {
+  if (option.selected) {
+    return 'selected';
+  }
+
+  return option.disabled ? 'blocked' : 'idle';
 }

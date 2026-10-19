@@ -26,7 +26,6 @@ const HIDE_PATH = 'src/client/composables/hideAction.ts';
 const HIDE_FUNCTIONS = [
   'warn',
   'hasPlayerOwner',
-  'isCurrentUserGameMaster',
   'resolveEntitySide',
   'areAllies',
   'refuseOutsideOwnTurn',
@@ -148,6 +147,7 @@ async function loadHide({
     listHideCosts: engine.listHideCosts,
     mergeAppliedEffects: engine.mergeAppliedEffects,
     pickFoundHides: engine.pickFoundHides,
+    resolveHideSearchDc: engine.resolveHideSearchDc,
     serializeHideFollowUp: engine.serializeHideFollowUp,
     resolveActionCostBlock: () => null,
     listAmbientEffects: () => [],
@@ -164,6 +164,7 @@ async function loadHide({
       [...world.values()].filter((item) => item.id !== id),
     useWorldStore: () => ({
       connectionState: { loggedAsUserId: userId },
+      isGM: userId === GM_ID,
       currentScene: { tokens },
     }),
     useWorldEntities: () => ({ findCurrentDndEntity: (id) => world.get(id) }),

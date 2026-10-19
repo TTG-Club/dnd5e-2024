@@ -842,9 +842,11 @@ export const CARRIER_TYPE_NOT_CONDITION_PREFIX = 'self.creatureType !== ';
 /** Приставка условия «цель не этого типа» */
 export const TARGET_TYPE_NOT_CONDITION_PREFIX = 'target.creatureType !== ';
 
+/** Приставка условий входящей атаки — их проверяет защита (КД) */
+export const INCOMING_CONDITION_PREFIX = 'incoming.';
+
 /** Приставка условия по типу АТАКУЮЩЕГО — у защитного эффекта. */
-export const INCOMING_ATTACKER_TYPE_CONDITION_PREFIX =
-  'incoming.attackerCreatureType === ';
+export const INCOMING_ATTACKER_TYPE_CONDITION_PREFIX = `${INCOMING_CONDITION_PREFIX}attackerCreatureType === `;
 
 /**
  * Условие «цель броска — тот, кто наложил этот эффект»: «помеха на броски
@@ -861,15 +863,13 @@ export const TARGET_NOT_SOURCE_CONDITION = 'target.isSource === false';
 /**
  * Условие защитного эффекта «атакует тот, кто наложил этот эффект».
  */
-export const INCOMING_ATTACKER_IS_SOURCE_CONDITION =
-  'incoming.attackerIsSource === true';
+export const INCOMING_ATTACKER_IS_SOURCE_CONDITION = `${INCOMING_CONDITION_PREFIX}attackerIsSource === true`;
 
 /**
  * Условие защитного эффекта «атакует НЕ тот, кто наложил этот эффект»:
  * «преимущество на атаки по цели для всех, кроме вас».
  */
-export const INCOMING_ATTACKER_NOT_SOURCE_CONDITION =
-  'incoming.attackerIsSource === false';
+export const INCOMING_ATTACKER_NOT_SOURCE_CONDITION = `${INCOMING_CONDITION_PREFIX}attackerIsSource === false`;
 
 /**
  * Условие «рядом с целью мой дееспособный союзник» («Тактика стаи» PHB 2024:

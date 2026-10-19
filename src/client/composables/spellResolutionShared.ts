@@ -147,7 +147,7 @@ const SPELL_ACTION_ID_PREFIX = 'spell-action';
  * @param parts - брошенные части урона
  * @returns контекст с эффектами и спасброском частей
  */
-export function withPartTargetEffects(
+export function withPartTargetPayload(
   context: SpellResolutionContext,
   parts: readonly {
     targetEffects?: ActiveEffect[];

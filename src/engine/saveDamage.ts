@@ -14,6 +14,7 @@ import type { Spell } from './dndEntities.js';
 
 import { buildSaveEvasionFlag } from './activeEffectTypes.js';
 import { INCAPACITATED_CONDITION_KEY } from './conditionKeys.js';
+import { SAVE_EFFECT_DOUBLE } from './spellTypes.js';
 
 /** Доля урона при успешном спасброске «половина урона» */
 export const HALF_DAMAGE_SCALE = 0.5;
@@ -106,7 +107,7 @@ export function resolveSaveEffectScale(
     case 'none':
       return passed ? 0 : 1;
     // «Смертельный удар»: провал удваивает урон, успех его не меняет
-    case 'double':
+    case SAVE_EFFECT_DOUBLE:
       return passed ? 1 : 2;
     default:
       // «Особое» — полный урон: исход разбирает ведущий

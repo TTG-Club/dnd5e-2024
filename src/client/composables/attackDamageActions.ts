@@ -1007,9 +1007,9 @@ function raisePartDice(
   amount: number,
   values: readonly number[] | undefined,
 ): { amount: number; values: number[] | undefined } {
-  return part?.minDie && values
-    ? raiseDiceToMinimum(amount, values, part.minDie)
-    : { amount, values: values ? [...values] : undefined };
+  return values
+    ? raiseDiceToMinimum(amount, values, part?.minDie)
+    : { amount, values: undefined };
 }
 
 /**

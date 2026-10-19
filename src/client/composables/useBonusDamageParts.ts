@@ -115,6 +115,45 @@ function listTargetedSneakAttackOptions(
     : [];
 }
 
+/** Доступность приёма в этом броске: ресурс и цель */
+export interface SneakAttackOptionAvailability {
+  /** Ресурса хватает */
+  affordable: boolean;
+  /** Эффект приёма ляжет на выбранную цель */
+  fitsTarget: boolean;
+}
+
+/**
+ * Можно ли выбрать приём: ресурса хватает и цель подходит. Одно правило на
+ * окно атаки и сборку урона — новое условие не разойдётся между ними.
+ *
+ * @param availability - доступность приёма
+ * @returns `true`, если приём можно выбрать
+ */
+export function isSneakAttackOptionSelectable(
+  availability: SneakAttackOptionAvailability,
+): boolean {
+  return availability.affordable && availability.fitsTarget;
+}
+
+/**
+ * Спасбросок «Смертельного удара» для удара: без цели брать его не у кого.
+ *
+ * @param effects - эффекты бросающего
+ * @param rollContext - контекст броска
+ * @param formulaContext - числа бросающего
+ * @returns спасбросок либо `undefined`
+ */
+function resolveTargetDoubleSave(
+  effects: readonly ActiveEffect[],
+  rollContext: RollContext,
+  formulaContext: FormulaContext,
+): SneakAttackDoubleSave | undefined {
+  return rollContext.target
+    ? resolveSneakAttackDoubleSave(effects, rollContext, formulaContext)
+    : undefined;
+}
+
 /** Кости Скрытой атаки, когда приёмы Хитрого удара забрали их все */
 const EMPTY_SNEAK_ATTACK_DICE = '0';
 
@@ -637,6 +676,23 @@ export function useBonusDamageParts() {
   }
 
   /**
+   * Доступность приёма для этого бросающего и выбранной цели.
+   *
+   * @param owner - бросающий
+   * @param effect - эффект-кнопка приёма
+   * @returns ресурс и цель
+   */
+  function readSneakAttackOptionAvailability(
+    owner: DnDSceneEntity,
+    effect: ActiveEffect,
+  ): SneakAttackOptionAvailability {
+    return {
+      affordable: canAffordSneakAttackOption(owner, effect),
+      fitsTarget: sneakAttackOptionFitsTarget(owner, effect),
+    };
+  }
+
+  /**
    * Часть урона Скрытой атаки с выбранными приёмами: их цена убирает кости,
    * их эффекты едут к цели, наименьшее значение кости — из строк
    * `sneakAttack.minDie`. Приём, которого больше нет (условие, ресурс) или на
@@ -667,10 +723,10 @@ export function useBonusDamageParts() {
       effects,
       rollContext,
       formulaContext,
-    ).filter(
-      (option) =>
-        canAffordSneakAttackOption(owner, option.effect)
-        && sneakAttackOptionFitsTarget(owner, option.effect),
+    ).filter((option) =>
+      isSneakAttackOptionSelectable(
+        readSneakAttackOptionAvailability(owner, option.effect),
+      ),
     );
 
     const picked = pickSneakAttackOptions(
@@ -686,10 +742,11 @@ export function useBonusDamageParts() {
       formulaContext,
     );
 
-    // Без цели спасбросок «Смертельного удара» брать не у кого
-    const attackSave = rollContext.target
-      ? resolveSneakAttackDoubleSave(effects, rollContext, formulaContext)
-      : undefined;
+    const attackSave = resolveTargetDoubleSave(
+      effects,
+      rollContext,
+      formulaContext,
+    );
 
     const targetEffects = picked.map((option) =>
       buildSneakAttackOptionTargetEffect(option.effect),
@@ -823,17 +880,18 @@ export function useBonusDamageParts() {
             description: effect.description ?? '',
             cost,
             cunningStrike,
-            affordable: canAffordSneakAttackOption(owner, effect),
-            fitsTarget: sneakAttackOptionFitsTarget(owner, effect),
+            ...readSneakAttackOptionAvailability(owner, effect),
           })),
           cunningStrikeLimit: resolveCunningStrikeLimit(
             effects,
             rollContext,
             formulaContext,
           ),
-          doubleSave: rollContext.target
-            ? resolveSneakAttackDoubleSave(effects, rollContext, formulaContext)
-            : undefined,
+          doubleSave: resolveTargetDoubleSave(
+            effects,
+            rollContext,
+            formulaContext,
+          ),
         };
       },
       spend: (optionIds = []) => {

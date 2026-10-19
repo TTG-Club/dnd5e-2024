@@ -6,6 +6,9 @@ import type {
   SpellDamagePartInput,
 } from '../../composables/useSpellResolution';
 
+/** Кому виден бросок: всем, только ведущему или только себе */
+export type RollVisibility = 'public' | 'gm' | 'private';
+
 /**
  * Результат чистой d20-проверки из окна броска — в разбивке.
  *

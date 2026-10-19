@@ -61,6 +61,7 @@ import {
   hasConditionAlternatives,
   INCOMING_ATTACKER_IS_SOURCE_CONDITION,
   INCOMING_ATTACKER_NOT_SOURCE_CONDITION,
+  INCOMING_CONDITION_PREFIX,
   isCarrierEffect,
   isEffectDormant,
   isOffSheetChangeKey,
@@ -2216,9 +2217,6 @@ export function isRollTimeDiceKey(key: string): boolean {
     || isRollBonusKey(key)
   );
 }
-
-/** Приставка условий входящей атаки — их проверяет защита (КД) */
-const INCOMING_CONDITION_PREFIX = 'incoming.';
 
 /**
  * Не действует ли строка нигде из-за «или» в условии. По листу условие с «или»

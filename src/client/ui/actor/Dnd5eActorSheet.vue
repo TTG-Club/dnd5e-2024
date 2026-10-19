@@ -24,6 +24,7 @@
   import type { ItemTransferResult } from '../../composables/useItemTransfer';
   import type { ActorSubclassBadgeEntry } from './ActorHeader.vue';
   import type { ProficiencyHoldings } from './class/classRollback';
+  import type { ClassResolver } from './class/sneakAttackMigration';
   import type { PickedDefinition } from './CompendiumPickerModal.vue';
   import type { MissingSheetSectionKey } from './constants';
   import type { AppliedFeatFeature } from './feat/featApply';
@@ -621,6 +622,17 @@
   });
 
   /**
+   * Определение класса записи актора из каталога: ключ и пак записи.
+   *
+   * @param entry - запись класса актора
+   * @param entry.classKey - ключ класса
+   * @param entry.packId - пак, из которого класс взят
+   * @returns определение класса либо `undefined`
+   */
+  const resolveClassEntry: ClassResolver = (entry) =>
+    classCatalog.resolve({ key: entry.classKey, packId: entry.packId });
+
+  /**
    * Старая кнопка Скрытой атаки на листе заменяется новой строкой из
    * определения класса — при открытии листа, тем, кто вправе его менять.
    * Эффекты пишет боевой канал: запись листа их не трогает. Повтор безвреден:
@@ -633,9 +645,7 @@
       return undefined;
     }
 
-    return buildSneakAttackMigration(actor, (entry) =>
-      classCatalog.resolve({ key: entry.classKey, packId: entry.packId }),
-    );
+    return buildSneakAttackMigration(actor, resolveClassEntry);
   });
 
   watch(
@@ -650,9 +660,7 @@
           return null;
         }
 
-        const effects = buildSneakAttackMigration(current, (entry) =>
-          classCatalog.resolve({ key: entry.classKey, packId: entry.packId }),
-        );
+        const effects = buildSneakAttackMigration(current, resolveClassEntry);
 
         return effects ? { ...current, activeEffects: effects } : null;
       });

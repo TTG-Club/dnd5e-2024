@@ -23,7 +23,7 @@ import { collectFeatureEffects } from './classEffects';
  */
 
 /** Ищет определение класса записи актора */
-type ClassResolver = (entry: {
+export type ClassResolver = (entry: {
   classKey: string;
   packId?: string;
 }) => ClassDefinition | undefined;

@@ -27,6 +27,7 @@ import { DEFAULT_CARRYING_CAPACITY } from './carryingCapacity.js';
 import {
   BLOODIED_AUTO_APPLY,
   DEATH_CONDITION_KEY,
+  HIDDEN_CONDITION_ICON,
   HIDDEN_CONDITION_KEY,
   SURPRISED_CONDITION_KEY,
 } from './conditionKeys.js';
@@ -891,7 +892,7 @@ export const CONDITIONS: readonly ConditionEntry[] = [
     key: HIDDEN_CONDITION_KEY,
     nameRu: 'В засаде',
     nameEn: 'Hidden',
-    icon: 'tabler:spy',
+    icon: HIDDEN_CONDITION_ICON,
     description:
       'Итог действия «Засада»: преимущество на инициативу, ваши атаки — с преимуществом, атаки против вас — с помехой. Кончается, когда вы атакуете, накладываете заклинание с вербальным компонентом, издаёте звук громче шёпота или враг находит вас проверкой Мудрости (Внимательность) против Сл поиска.',
   },

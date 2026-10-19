@@ -16,7 +16,10 @@ import type {
   DnDSceneEntity,
 } from '@vtt/shared/system/dnd.js';
 
-import type { CheckRollResult } from '../ui/actor/diceRollTypes';
+import type {
+  CheckRollResult,
+  RollVisibility,
+} from '../ui/actor/diceRollTypes';
 import type { RollBonusEvaluator } from './rollBonusEvaluator';
 
 import {
@@ -116,7 +119,7 @@ export interface SkillCheckRollOptions {
   /** Сложность проверки, если она известна */
   targetDc?: number;
   /** Кому видно бросок: засада существа ведущего — только ведущему */
-  rollVisibility?: 'public' | 'gm' | 'private';
+  rollVisibility?: RollVisibility;
   /**
    * Режим броска поверх режима самой проверки: у «вырваться» — режим из
    * эффекта и флаги того, кто держит

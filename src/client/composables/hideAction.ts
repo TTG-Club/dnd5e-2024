@@ -39,6 +39,7 @@ import {
   mergeAppliedEffects,
   pickFoundHides,
   resolveActionCostBlock,
+  resolveHideSearchDc,
   SEARCH_SKILL,
   serializeHideFollowUp,
 } from '@vtt/shared/system/dnd.js';
@@ -99,17 +100,6 @@ function warn(title: string, description: string): void {
  */
 export function hasPlayerOwner(entity: DnDSceneEntity): boolean {
   return getEntityOwnerIds(entity).some((userId) => !isGameMasterUser(userId));
-}
-
-/**
- * Ведущий ли текущий пользователь.
- *
- * @returns `true` у ведущего
- */
-function isCurrentUserGameMaster(): boolean {
-  const userId = useWorldStore().connectionState.loggedAsUserId;
-
-  return Boolean(userId) && isGameMasterUser(userId ?? '');
 }
 
 /**
@@ -211,7 +201,7 @@ function announceHide(
   effect: ActiveEffect,
   cost: EffectActionCost,
 ): void {
-  const searchDc = effect.searchDc ?? HIDE_CHECK_DC;
+  const searchDc = resolveHideSearchDc(effect);
   const gmOnly = !hasPlayerOwner(entity);
 
   if (gmOnly && !canSendGmOnlyChat()) {
@@ -344,7 +334,7 @@ export function startHide(entity: DnDSceneEntity): boolean {
     HIDE_LABELS.costQuestion,
     HIDE_LABELS.title,
     costs.map((cost) => ({
-      label: HIDE_COST_OPTIONS[cost] ?? cost,
+      label: HIDE_COST_OPTIONS[cost],
       value: cost,
     })),
     (cost) => {
@@ -546,7 +536,7 @@ export function listSearchableHides(
           {
             entityId: entity.id,
             effectId: hidden.id,
-            searchDc: hidden.searchDc ?? HIDE_CHECK_DC,
+            searchDc: resolveHideSearchDc(hidden),
           },
         ];
   });
@@ -601,7 +591,7 @@ export function listSearchers(hidden: DnDSceneEntity): DnDSceneEntity[] {
 export function searchFromChat(payload: HideFollowUpPayload): void {
   // Кнопку ядро и так показывает только ведущему, но показ не защищает:
   // отказывает сам обработчик
-  if (!isCurrentUserGameMaster()) {
+  if (!useWorldStore().isGM) {
     warn(HIDE_LABELS.searchTitle, HIDE_LABELS.gmOnlyDescription);
 
     return;

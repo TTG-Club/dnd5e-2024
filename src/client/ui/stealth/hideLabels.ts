@@ -3,10 +3,15 @@
  * сообщения чата и предупреждения.
  */
 
-import type { EffectActionCost } from '@vtt/shared/system/dnd.js';
+import type { EffectActionCost, HideCost } from '@vtt/shared/system/dnd.js';
+
+import {
+  HIDDEN_CONDITION_ICON,
+  HIDE_CHECK_DC,
+} from '@vtt/shared/system/dnd.js';
 
 /** Значок засады: состояние, кнопка полки, сообщение */
-export const HIDE_ICON = 'tabler:spy';
+export const HIDE_ICON = HIDDEN_CONDITION_ICON;
 
 /** Значок поиска: кнопка полки и «Найти» под сообщением */
 export const SEARCH_ICON = 'tabler:eye-search';
@@ -64,7 +69,7 @@ export const HIDE_LABELS = {
 } as const;
 
 /** Цена засады — кнопки вопроса «действием или бонусным действием» */
-export const HIDE_COST_OPTIONS: Partial<Record<EffectActionCost, string>> = {
+export const HIDE_COST_OPTIONS: Readonly<Record<HideCost, string>> = {
   bonus: 'Бонусным действием',
   action: 'Действием',
 };
@@ -97,8 +102,7 @@ export const ACTION_SHELF_BUTTONS = {
   hideId: 'hide',
   hide: 'Спрятаться',
   hideActiveTooltip: 'Вы в засаде',
-  hideTooltip:
-    'Засада: проверка Ловкости (Скрытность) Сл 15 — успех даёт состояние «В засаде»',
+  hideTooltip: `Засада: проверка Ловкости (Скрытность) Сл ${HIDE_CHECK_DC} — успех даёт состояние «В засаде»`,
   searchId: 'search',
   search: 'Поиск',
   searchIcon: SEARCH_ICON,

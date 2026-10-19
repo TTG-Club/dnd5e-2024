@@ -79,7 +79,7 @@ import {
   isSaveAbility,
   partPassesTargetGate,
   resolveAttackerIgnoredResistances,
-  withPartTargetEffects,
+  withPartTargetPayload,
   withSpellActionId,
 } from './spellResolutionShared';
 import { useSpellSavingThrows } from './useSpellSavingThrows';
@@ -348,7 +348,7 @@ export function useSpellDamageWithParts() {
     // Один ключ на все цели этого каста: «нанёс урон» срабатывает один раз.
     // Приёмы Хитрого удара едут в части Скрытой атаки — к цели они идут с
     // эффектами источника
-    const context = withSpellActionId(withPartTargetEffects(rawContext, parts));
+    const context = withSpellActionId(withPartTargetPayload(rawContext, parts));
     const { spell, spellSaveDC, actors } = context;
     const { scene, cachedTemplate } = options;
 

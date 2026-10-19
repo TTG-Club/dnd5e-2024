@@ -518,18 +518,23 @@ export interface RaisedDiceRoll {
 /**
  * Поднимает брошенные кости до наименьшего значения: «1 или 2 считайте за 3».
  * Роллер такой записи не знает, поэтому значения правятся после броска;
- * итог растёт на ту же разницу.
+ * итог растёт на ту же разницу. Без наименьшего значения кости остаются
+ * как брошены — окну броска и перебросу из чата не нужна своя ветка.
  *
  * @param amount - итог части
  * @param values - значения костей
- * @param minDie - наименьшее значение кости
+ * @param minDie - наименьшее значение кости; нет — кости не меняются
  * @returns итог и значения после поднятия
  */
 export function raiseDiceToMinimum(
   amount: number,
   values: readonly number[],
-  minDie: number,
+  minDie: number | undefined,
 ): RaisedDiceRoll {
+  if (!minDie) {
+    return { amount, values: [...values] };
+  }
+
   const raised = values.map((value) => Math.max(value, minDie));
 
   const gain = raised.reduce(

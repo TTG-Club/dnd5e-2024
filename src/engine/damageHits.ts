@@ -41,6 +41,14 @@ const MAX_DAMAGE_HIT_TYPES = 8;
 /** Самый длинный ключ действия удара */
 const MAX_ACTION_ID_LENGTH = 200;
 
+/** Действие удара: пустое или слишком длинное значение отбрасывается */
+const ActionIdSchema = z
+  .string()
+  .min(1)
+  .max(MAX_ACTION_ID_LENGTH)
+  .optional()
+  .catch(undefined);
+
 /** Zod-схема удара из боевого снимка клиента */
 const DamageHitSchema = z.object({
   amount: z.number().finite().nonnegative(),
@@ -48,12 +56,7 @@ const DamageHitSchema = z.object({
   critical: z.boolean().catch(false),
   sourceId: z.string().min(1).optional().catch(undefined),
   dealt: z.number().finite().nonnegative().optional().catch(undefined),
-  actionId: z
-    .string()
-    .min(1)
-    .max(MAX_ACTION_ID_LENGTH)
-    .optional()
-    .catch(undefined),
+  actionId: ActionIdSchema,
 });
 
 /**
@@ -142,12 +145,7 @@ const DamageHitDetailsSchema = z.object({
   critical: z.boolean().catch(false),
   sourceId: z.string().min(1).optional().catch(undefined),
   /** Действие, которым нанесён удар (`DamageHit.actionId`) */
-  actionId: z
-    .string()
-    .min(1)
-    .max(MAX_ACTION_ID_LENGTH)
-    .optional()
-    .catch(undefined),
+  actionId: ActionIdSchema,
   /** Типы урона, чьё сопротивление цели удар игнорирует */
   ignoredResistances: z
     .array(z.string().min(1))

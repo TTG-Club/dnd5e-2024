@@ -79,6 +79,7 @@ export async function loadPerformRoll(ports) {
   for (const name of [
     'claimRoll',
     'isRollAllowed',
+    'readRollModeFlags',
     'buildRollContext',
     'buildLiveRollContext',
   ]) {

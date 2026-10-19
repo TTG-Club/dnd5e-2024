@@ -281,11 +281,11 @@ describe('хитрый удар: эффект приёма на цели', () =>
       'utf8',
     );
 
-    assert.match(shared, /export function withPartTargetEffects\(/u);
+    assert.match(shared, /export function withPartTargetPayload\(/u);
 
     assert.match(
       orchestrator,
-      /withSpellActionId\(withPartTargetEffects\(rawContext, parts\)\)/u,
+      /withSpellActionId\(withPartTargetPayload\(rawContext, parts\)\)/u,
     );
   });
 });
@@ -716,9 +716,9 @@ describe('смертельный удар', () => {
   });
 
   it('[SK12] спасбросок едет с частью Скрытой атаки и становится спасброском источника удара', async () => {
-    const withPartTargetEffects = await loadHandler(
+    const withPartTargetPayload = await loadHandler(
       'src/client/composables/spellResolutionShared.ts',
-      'withPartTargetEffects',
+      'withPartTargetPayload',
       {
         isSaveAbility: engine.isSaveAbility,
         SAVE_EFFECT_DOUBLE: engine.SAVE_EFFECT_DOUBLE,
@@ -730,7 +730,7 @@ describe('смертельный удар', () => {
       spellSaveDC: 13,
     };
 
-    const next = withPartTargetEffects(context, [
+    const next = withPartTargetPayload(context, [
       { attackSave: { ability: 'constitution', dc: 15 } },
     ]);
 
@@ -738,7 +738,7 @@ describe('смертельный удар', () => {
     assert.equal(next.spell.saveEffect, 'double');
     assert.equal(next.spellSaveDC, 15);
 
-    const ownSave = withPartTargetEffects(
+    const ownSave = withPartTargetPayload(
       { ...context, spell: { ...context.spell, saveType: 'dexterity' } },
       [{ attackSave: { ability: 'constitution', dc: 15 } }],
     );
@@ -753,9 +753,9 @@ describe('смертельный удар', () => {
 
 describe('доработки после ревью', () => {
   it('[SK05] эффекты приёмов из частей урона добавляются к эффектам источника удара', async () => {
-    const withPartTargetEffects = await loadHandler(
+    const withPartTargetPayload = await loadHandler(
       'src/client/composables/spellResolutionShared.ts',
-      'withPartTargetEffects',
+      'withPartTargetPayload',
       {
         isSaveAbility: engine.isSaveAbility,
         SAVE_EFFECT_DOUBLE: engine.SAVE_EFFECT_DOUBLE,
@@ -768,7 +768,7 @@ describe('доработки после ревью', () => {
 
     const tripOnTarget = engine.buildSneakAttackOptionTargetEffect(trip);
 
-    const next = withPartTargetEffects(
+    const next = withPartTargetPayload(
       {
         spell: {
           name: 'Кинжал',

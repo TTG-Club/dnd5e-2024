@@ -23,7 +23,11 @@
     RolledSpellDamagePart,
     SpellDamagePartInput,
   } from '../../composables/useSpellResolution';
-  import type { CheckRollResult, RollDamageVariant } from './diceRollTypes';
+  import type {
+    CheckRollResult,
+    RollDamageVariant,
+    RollVisibility,
+  } from './diceRollTypes';
   import type { SneakAttackPanelState } from './sneakAttackPanel';
 
   import { promiseTimeout } from '@vueuse/core';
@@ -80,6 +84,7 @@
   } from '../../composables/damageTypeChoice';
   import { buildIncomingAttackContext } from '../../composables/incomingAttack';
   import { resolveAttackerIgnoredResistances } from '../../composables/spellResolutionShared';
+  import { isSneakAttackOptionSelectable } from '../../composables/useBonusDamageParts';
   import {
     dispatchAttackRollTriggers,
     reportAttackRoll,
@@ -101,8 +106,6 @@
     stripCunningStrikePrefix,
   } from './sneakAttackPanel';
   import SneakAttackRollPanel from './SneakAttackRollPanel.vue';
-
-  type RollVisibility = 'public' | 'gm' | 'private';
 
   interface Props {
     open: boolean;
@@ -730,15 +733,27 @@
   );
 
   /**
+   * Режим атаки флагами — так его ждут сборщики бонусов и Скрытой атаки.
+   *
+   * @returns преимущество и помеха текущего режима
+   */
+  function readRollModeFlags(): Pick<
+    BonusPartsRollContext,
+    'hasAdvantage' | 'hasDisadvantage'
+  > {
+    return {
+      hasAdvantage: attackRollMode.value === 'advantage',
+      hasDisadvantage: attackRollMode.value === 'disadvantage',
+    };
+  }
+
+  /**
    * Скрытая атака при текущем режиме и цели. Только у атаки с частями урона:
    * без броска попадания (спасбросок, лечение) её не бывает.
    */
   const sneakAttackPreview = computed(() =>
     hasAttackRoll.value && rollDamageParts.value?.length
-      ? props.sneakAttack?.preview({
-          hasAdvantage: attackRollMode.value === 'advantage',
-          hasDisadvantage: attackRollMode.value === 'disadvantage',
-        })
+      ? props.sneakAttack?.preview(readRollModeFlags())
       : undefined,
   );
 
@@ -808,9 +823,7 @@
     }
 
     const picked = pickSneakAttackOptions(
-      preview.options.filter(
-        (option) => option.affordable && option.fitsTarget,
-      ),
+      preview.options.filter(isSneakAttackOptionSelectable),
       selectedSneakAttackOptionIds.value,
       preview.diceCount,
       preview.cunningStrikeLimit,
@@ -867,7 +880,7 @@
       : undefined;
 
     return save
-      ? `${DICE_ROLL_LABELS.sneakAttackDoubleSavePrefix}${SAVE_TYPE_LABELS[save.ability] ?? save.ability}${DICE_ROLL_LABELS.sneakAttackDoubleSaveDc}${save.dc}${DICE_ROLL_LABELS.sneakAttackDoubleSaveSuffix}`
+      ? `${DICE_ROLL_LABELS.sneakAttackDoubleSavePrefix}${SAVE_TYPE_LABELS[save.ability]}${DICE_ROLL_LABELS.sneakAttackDoubleSaveDc}${save.dc}${DICE_ROLL_LABELS.sneakAttackDoubleSaveSuffix}`
       : '';
   });
 
@@ -917,8 +930,7 @@
    */
   function buildRollContext(): BonusPartsRollContext {
     return {
-      hasAdvantage: attackRollMode.value === 'advantage',
-      hasDisadvantage: attackRollMode.value === 'disadvantage',
+      ...readRollModeFlags(),
       sneakAttack: isSneakAttackApplied.value,
       sneakAttackOptionIds: pickedSneakAttackOptionIds.value,
     };
@@ -950,11 +962,7 @@
 
   /** Кубиковые бонусы не входят в числовой модификатор листа. */
   const currentBonusRollFormulas = computed(
-    () =>
-      props.evaluateBonusRollFormulas?.({
-        hasAdvantage: attackRollMode.value === 'advantage',
-        hasDisadvantage: attackRollMode.value === 'disadvantage',
-      }) ?? [],
+    () => props.evaluateBonusRollFormulas?.(readRollModeFlags()) ?? [],
   );
 
   /** Итоговая формула урона с учётом усиления на высших кругах */
@@ -1056,7 +1064,7 @@
         cancelNotified = false;
         rollActionId = generateId(ROLL_ACTION_ID_PREFIX);
         bonusValue.value = 0;
-        rollType.value = props.initialRollVisibility ?? 'public';
+        rollType.value = props.initialRollVisibility;
         attackRollMode.value = props.initialRollMode;
         manualRollMode.value = undefined;
         currentRollModeReasons.value = props.rollModeReasons;
@@ -1242,10 +1250,8 @@
         : currentBonusRollFormulas.value;
 
       const bonusDiceFormulasByTarget = props.onProjectileAttack
-        ? (props.evaluateProjectileBonusRollFormulas?.({
-            hasAdvantage: attackRollMode.value === 'advantage',
-            hasDisadvantage: attackRollMode.value === 'disadvantage',
-          }) ?? new Map<string, readonly string[]>())
+        ? (props.evaluateProjectileBonusRollFormulas?.(readRollModeFlags())
+          ?? new Map<string, readonly string[]>())
         : new Map<string, readonly string[]>();
 
       // --- Списание ячейки заклинания ---
@@ -1882,16 +1888,11 @@
 
       // «1 или 2 считайте за 3»: роллер такой записи не знает — кости
       // поднимаются после броска, итог растёт на разницу
-      const dice = part.minDie
-        ? raiseDiceToMinimum(
-            rollData.total,
-            rollData.dice.flatMap((group) => group.values),
-            part.minDie,
-          )
-        : {
-            amount: rollData.total,
-            values: rollData.dice.flatMap((group) => group.values),
-          };
+      const dice = raiseDiceToMinimum(
+        rollData.total,
+        rollData.dice.flatMap((group) => group.values),
+        part.minDie,
+      );
 
       rolled.push({
         amount: dice.amount,

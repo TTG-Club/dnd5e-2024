@@ -11,6 +11,7 @@
     SNEAK_ATTACK_OPTION_CHIP_STYLES,
     SNEAK_ATTACK_PANEL_ICONS,
   } from './constants';
+  import { pickSneakAttackChipStyle } from './sneakAttackPanel';
 
   /**
    * Плашка Скрытой атаки в окне атаки: идёт ли она в этот бросок и сколько
@@ -74,7 +75,7 @@
   const statusText = computed(() => {
     switch (props.state) {
       case 'active':
-        return `+${props.diceLabel}${DICE_ROLL_LABELS.sneakAttackDamageSuffix}`;
+        return `${DICE_ROLL_LABELS.sneakAttackDamagePrefix}${props.diceLabel}${DICE_ROLL_LABELS.sneakAttackDamageSuffix}`;
       case 'declined':
         return DICE_ROLL_LABELS.sneakAttackDeclinedText;
       case 'spent':
@@ -124,7 +125,7 @@
   const optionChips = computed(() =>
     visibleOptions.value.map((option) => ({
       ...option,
-      ...SNEAK_ATTACK_OPTION_CHIP_STYLES[pickChipStyle(option)],
+      ...SNEAK_ATTACK_OPTION_CHIP_STYLES[pickSneakAttackChipStyle(option)],
       // Причина серого приёма — первой строкой подсказки, над описанием
       tooltipReason: option.disabled ? option.reason : '',
     })),
@@ -147,22 +148,6 @@
         text: `${option.label}${DICE_ROLL_LABELS.sneakAttackOptionReasonSeparator}${option.reason}`,
       })),
   );
-
-  /**
-   * Вид чипа: выбранный, доступный или серый.
-   *
-   * @param option - приём
-   * @returns ключ вида
-   */
-  function pickChipStyle(
-    option: SneakAttackOptionChip,
-  ): keyof typeof SNEAK_ATTACK_OPTION_CHIP_STYLES {
-    if (option.selected) {
-      return 'selected';
-    }
-
-    return option.disabled ? 'blocked' : 'idle';
-  }
 
   /**
    * Переключатель плашки: игрок добавляет Скрытую атаку или отказывается.

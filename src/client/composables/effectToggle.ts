@@ -65,6 +65,33 @@ export function readEntityCounters(
 }
 
 /**
+ * Сущность с пересчитанными счётчиками ресурса эффекта: общий путь оплаты и
+ * возврата. Эффект без расхода ресурса и не-актор сущность не меняют.
+ *
+ * @param entity - сущность
+ * @param effect - эффект с ценой включения или применения
+ * @param step - пересчёт счётчиков: списание или возврат
+ * @returns сущность с новыми счётчиками либо та же сущность
+ */
+function withActivationCounters(
+  entity: DnDSceneEntity,
+  effect: ActiveEffect,
+  step: typeof payActivation,
+): DnDSceneEntity {
+  if (!effect.activation?.counter || !isActorEntity(entity)) {
+    return entity;
+  }
+
+  return {
+    ...entity,
+    system: {
+      ...entity.system,
+      classCounters: step(entity.system.classCounters ?? [], effect.activation),
+    },
+  };
+}
+
+/**
  * Сущность после оплаты включения или применения: ресурс списан. Эффект без
  * расхода ресурса сущность не меняет.
  *
@@ -76,20 +103,7 @@ export function payEntityActivation(
   entity: DnDSceneEntity,
   effect: ActiveEffect,
 ): DnDSceneEntity {
-  if (!effect.activation?.counter || !isActorEntity(entity)) {
-    return entity;
-  }
-
-  return {
-    ...entity,
-    system: {
-      ...entity.system,
-      classCounters: payActivation(
-        entity.system.classCounters ?? [],
-        effect.activation,
-      ),
-    },
-  };
+  return withActivationCounters(entity, effect, payActivation);
 }
 
 /**
@@ -104,20 +118,7 @@ export function refundEntityActivation(
   entity: DnDSceneEntity,
   effect: ActiveEffect,
 ): DnDSceneEntity {
-  if (!effect.activation?.counter || !isActorEntity(entity)) {
-    return entity;
-  }
-
-  return {
-    ...entity,
-    system: {
-      ...entity.system,
-      classCounters: refundActivation(
-        entity.system.classCounters ?? [],
-        effect.activation,
-      ),
-    },
-  };
+  return withActivationCounters(entity, effect, refundActivation);
 }
 
 /**

@@ -1054,6 +1054,36 @@ export function resolveSavingThrowModifier(
   return stats.saves[ability] + concentrationBonus;
 }
 
+/** Кость к20 по режиму броска, без модификатора: атака, инициатива */
+export const D20_DICE_BY_MODE: Readonly<Record<AttackRollMode, string>> = {
+  normal: '1к20',
+  advantage: '2к20kh1',
+  disadvantage: '2к20kl1',
+};
+
+/** Граней у к20 */
+const D20_SIDES = 20;
+
+/**
+ * Бросает к20 без роллера (сервер, авто-спасброски): с преимуществом —
+ * большая из двух, с помехой — меньшая.
+ *
+ * @param rollMode - режим броска
+ * @returns значение кости
+ */
+export function rollD20WithMode(rollMode: AttackRollMode): number {
+  /** Одна к20 */
+  const rollOne = (): number => Math.floor(Math.random() * D20_SIDES) + 1;
+
+  if (rollMode === 'normal') {
+    return rollOne();
+  }
+
+  const pair = [rollOne(), rollOne()];
+
+  return rollMode === 'advantage' ? Math.max(...pair) : Math.min(...pair);
+}
+
 /**
  * Формирует формулу для броска атаки D&D 5e.
  *
@@ -1073,13 +1103,7 @@ export function buildAttackFormula(
 ): string {
   const sign = attackModifier >= 0 ? '+' : '-';
 
-  let diceExpr = '1к20';
-
-  if (rollMode === 'advantage') {
-    diceExpr = '2к20kh1';
-  } else if (rollMode === 'disadvantage') {
-    diceExpr = '2к20kl1';
-  }
+  const diceExpr = D20_DICE_BY_MODE[rollMode];
 
   const bonusSuffix = bonusDiceFormulas
     .map((formula) =>

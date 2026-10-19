@@ -32,6 +32,20 @@ import { SYSTEM_ID } from './systemId.js';
 /** Сл проверки Ловкости (Скрытность) при засаде */
 export const HIDE_CHECK_DC = 15;
 
+/** Чем можно спрятаться: действием либо бонусным действием */
+export type HideCost = Extract<EffectActionCost, 'bonus' | 'action'>;
+
+/**
+ * Сл поиска засады: записанная в состоянии «В засаде», иначе Сл самой засады.
+ *
+ * @param hidden - состояние «В засаде»
+ * @param hidden.searchDc - записанная Сл поиска
+ * @returns Сл поиска
+ */
+export function resolveHideSearchDc(hidden: { searchDc?: number }): number {
+  return hidden.searchDc ?? HIDE_CHECK_DC;
+}
+
 /** Навык засады */
 export const HIDE_SKILL: SkillType = 'stealth';
 
@@ -61,7 +75,7 @@ export const HIDE_FOLLOW_UP_KIND = `${SYSTEM_ID}:hide`;
 export function listHideCosts(
   flags: ReadonlySet<string>,
   bonusBlocked: boolean,
-): EffectActionCost[] {
+): HideCost[] {
   return flags.has(HIDE_AS_BONUS_FLAG) && !bonusBlocked
     ? ['bonus', 'action']
     : ['action'];

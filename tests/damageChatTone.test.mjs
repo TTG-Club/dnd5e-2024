@@ -133,7 +133,7 @@ async function resolveWithoutTargets(parts, options = {}) {
       resolveAttackerIgnoredResistances: () => [],
       // Ключ применения у этих бросков не проверяется — контекст как есть
       withSpellActionId: (context) => context,
-      withPartTargetEffects: (context) => context,
+      withPartTargetPayload: (context) => context,
       isSaveAbility: () => false,
       getPartKindLabel: (part) => part.label,
       formatTargetGateSuffix: () => '',

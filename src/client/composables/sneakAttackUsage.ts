@@ -126,6 +126,32 @@ export function canAffordSneakAttackOption(
 }
 
 /**
+ * Пересчитывает ресурс выбранных приёмов на свежей сущности — общий путь
+ * списания и возврата. Приёмы без расхода ресурса пропускаются.
+ *
+ * @param entityId - бросающий
+ * @param effectIds - id эффектов-кнопок выбранных приёмов
+ * @param step - списание или возврат ресурса одного приёма
+ */
+function changeSneakAttackOptionCounters(
+  entityId: string,
+  effectIds: readonly string[],
+  step: typeof payEntityActivation,
+): void {
+  if (effectIds.length === 0) {
+    return;
+  }
+
+  changeEntitySheet(entityId, (current) =>
+    (current.activeEffects ?? [])
+      .filter(
+        (effect) => effectIds.includes(effect.id) && effect.activation?.counter,
+      )
+      .reduce((entity, effect) => step(entity, effect), current),
+  );
+}
+
+/**
  * Возвращает ресурс приёмов отменённого удара: «Отменить урон» в чате. Только
  * тем приёмам, что его тратят; ход не важен — ресурс восстанавливается
  * отдыхом, а не концом хода.
@@ -137,20 +163,7 @@ export function refundSneakAttackOptions(
   entityId: string,
   effectIds: readonly string[],
 ): void {
-  if (effectIds.length === 0) {
-    return;
-  }
-
-  changeEntitySheet(entityId, (current) =>
-    (current.activeEffects ?? [])
-      .filter(
-        (effect) => effectIds.includes(effect.id) && effect.activation?.counter,
-      )
-      .reduce(
-        (entity, effect) => refundEntityActivation(entity, effect),
-        current,
-      ),
-  );
+  changeSneakAttackOptionCounters(entityId, effectIds, refundEntityActivation);
 }
 
 /**
@@ -166,15 +179,5 @@ export function paySneakAttackOptions(
   entityId: string,
   effectIds: readonly string[],
 ): void {
-  if (effectIds.length === 0) {
-    return;
-  }
-
-  changeEntitySheet(entityId, (current) =>
-    (current.activeEffects ?? [])
-      .filter(
-        (effect) => effectIds.includes(effect.id) && effect.activation?.counter,
-      )
-      .reduce((entity, effect) => payEntityActivation(entity, effect), current),
-  );
+  changeSneakAttackOptionCounters(entityId, effectIds, payEntityActivation);
 }
