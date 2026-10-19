@@ -4,6 +4,7 @@ import type {
 } from '@/core/systems/uiSystemRegistry';
 import type {
   AbilityCheckRequestPayload,
+  ActionRechargeRequestPayload,
   EffectPromptRequestPayload,
   SaveOverrideRequestPayload,
   TargetChoiceRequestPayload,
@@ -15,11 +16,14 @@ import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import {
   findSaveOverride,
   formatSaveOverrideQuestion,
+  isDndCreature,
   parseAbilityCheckRequestPayload,
+  parseActionRechargeRequestPayload,
   parseEffectPromptRequestPayload,
   parseSaveOverrideRequestPayload,
   parseSavingThrowRequestPayload,
   parseTargetChoiceRequestPayload,
+  readAutoRecharge,
   resolveAutoSaves,
   SAVE_OVERRIDE_ACCEPT,
   SAVE_OVERRIDE_DECLINE,
@@ -30,6 +34,10 @@ import {
   EFFECT_QUESTION_PROMPT_MODAL,
   EFFECT_TARGET_PROMPT_MODAL,
 } from '../ui/effect/constants';
+import {
+  openActionRechargeModal,
+  rollActionRecharge,
+} from './actionRechargeRoll';
 import { openRequestedCheckModal } from './requestedCheckRoll';
 import {
   answerWithSaveOverride,
@@ -63,6 +71,7 @@ const REQUEST_MODAL_FAILURES = {
   check: 'Окно проверки не открылось',
   choice: 'Окно выбора цели не открылось',
   question: 'Плашка вопроса не открылась',
+  recharge: 'Окно перезарядки не открылось',
 } as const;
 
 /**
@@ -192,6 +201,13 @@ export function promptRequestedRoll(
     return promptSaveOverride(request, reply, override);
   }
 
+  // Перезарядка потраченного действия в начале хода существа
+  const recharge = parseActionRechargeRequestPayload(request.payload);
+
+  if (recharge) {
+    return promptActionRecharge(request, reply, recharge);
+  }
+
   // Проверка характеристики или навыка — мастер попросил бросить
   const check = parseAbilityCheckRequestPayload(request.payload);
 
@@ -275,6 +291,54 @@ export function promptRequestedRoll(
         },
       }),
     REQUEST_MODAL_FAILURES.save,
+  );
+
+  return true;
+}
+
+/**
+ * Бросок перезарядки в начале хода существа: окно к6 либо, при «кидать
+ * автоматически», бросок без окна. Закрытое окно — отказ: действие остаётся
+ * потраченным до следующего хода.
+ *
+ * @param request - запрос от ядра
+ * @param reply - ответ инициатору
+ * @param payload - разобранная нагрузка перезарядки
+ * @returns `true`, если бросок взяла система; `false` — существа нет, пусть
+ *   ядро бросит формулу запроса само
+ */
+function promptActionRecharge(
+  request: RequestedRollPrompt,
+  reply: RequestedRollReply,
+  payload: ActionRechargeRequestPayload,
+): boolean {
+  const entity = useWorldEntities().findCurrentDndEntity(request.entityId);
+
+  if (!entity || !isDndCreature(entity)) {
+    return false;
+  }
+
+  if (readAutoRecharge(entity)) {
+    reply.answer(rollActionRecharge(entity, payload));
+
+    return true;
+  }
+
+  openTrackedRequestModal(
+    request,
+    reply,
+    (settle, modalKey) =>
+      openActionRechargeModal(entity, payload, {
+        modalKey,
+        takeover: request.takeover,
+        onResult: (answer) => {
+          settle(() => reply.answer(answer));
+        },
+        onCancel: () => {
+          settle(() => reply.decline());
+        },
+      }),
+    REQUEST_MODAL_FAILURES.recharge,
   );
 
   return true;

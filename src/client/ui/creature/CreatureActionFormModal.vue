@@ -30,7 +30,10 @@
     getActionDescriptionMarkdown,
     getAreaSizeLabel,
     listCreatureDamageAlternatives,
+    MAX_COOLDOWN_TURNS,
     MAX_SAVE_OVERRIDE_USES,
+    MIN_COOLDOWN_TURNS,
+    normalizeCooldownTurns,
     SAVE_EFFECT_OPTIONS,
     SAVE_TYPE_OPTIONS,
   } from '@vtt/shared/system/dnd.js';
@@ -46,6 +49,7 @@
   import DamagePartsEditor from '../actor/DamagePartsEditor.vue';
   import {
     CREATURE_ACTION_FORM_LABELS,
+    CREATURE_ACTION_LIMIT_LABELS,
     CREATURE_RECHARGE_OPTIONS,
   } from './constants';
   import CreatureDamageAlternativesEditor from './CreatureDamageAlternativesEditor.vue';
@@ -136,6 +140,8 @@
     recharge: CreatureRecharge | 'none';
     /** «Провал в успех» раз в день — только у черты; пусто — нет */
     saveSuccessPerDay: number | null;
+    /** «Раз в N ходов» — только без перезарядки; пусто — нет */
+    cooldownTurns: number | null;
   }>({
     name: '',
     nameEn: '',
@@ -162,7 +168,11 @@
     activeEffects: [],
     recharge: 'none',
     saveSuccessPerDay: null,
+    cooldownTurns: null,
   });
+
+  /** «Раз в N ходов» — только без перезарядки: вместе они не сочетаются */
+  const isCooldownShown = computed(() => form.recharge === 'none');
 
   /** Список перезарядки для формы: выбор «перезарядки нет» идёт первым */
   const rechargeItems = computed<
@@ -310,6 +320,7 @@
 
         form.recharge = action.recharge ?? 'none';
         form.saveSuccessPerDay = action.saveSuccessPerDay ?? null;
+        form.cooldownTurns = action.cooldownTurns ?? null;
       } else {
         form.name = '';
         form.nameEn = '';
@@ -336,6 +347,7 @@
         form.activeEffects = [];
         form.recharge = 'none';
         form.saveSuccessPerDay = null;
+        form.cooldownTurns = null;
       }
     },
     { immediate: true },
@@ -531,6 +543,16 @@
       result.recharge = form.recharge;
     }
 
+    // «Раз в N ходов» с перезарядкой не сочетается: выбрана она — поле скрыто
+    // и не пишется
+    const cooldownTurns = isCooldownShown.value
+      ? normalizeCooldownTurns(form.cooldownTurns)
+      : undefined;
+
+    if (cooldownTurns !== undefined) {
+      result.cooldownTurns = cooldownTurns;
+    }
+
     // Счётчик «провал в успех» ведёт движок (`saveOverride.ts`) — только у черты
     if (
       props.mode === 'trait'
@@ -611,6 +633,19 @@
                   label-key="label"
                   class="w-full"
                   :portal="false"
+                />
+              </UFormField>
+
+              <UFormField
+                v-if="isCooldownShown"
+                :label="CREATURE_ACTION_LIMIT_LABELS.cooldownField"
+                :help="CREATURE_ACTION_LIMIT_LABELS.cooldownHint"
+              >
+                <UInputNumber
+                  v-model="form.cooldownTurns"
+                  :min="MIN_COOLDOWN_TURNS"
+                  :max="MAX_COOLDOWN_TURNS"
+                  class="w-32"
                 />
               </UFormField>
 

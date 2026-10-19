@@ -1,4 +1,5 @@
 export * from './abilityCheckRequest.js';
+export * from './actionLimit.js';
 export * from './actionRestrictions.js';
 export * from './activeEffectDescribe.js';
 export * from './activeEffectScenario.js';

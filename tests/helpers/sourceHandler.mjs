@@ -125,6 +125,15 @@ export async function loadHandler(relativePath, name, ports, macro = false) {
   ports.runWithDamageTypeChoices ??= (source, proceed) => proceed(source);
   ports.applySourceDamageTypeChoices ??= (source) => source;
 
+  // Перезарядки и «раз в N ходов» у фикстур нет: ограничение действия и
+  // группы заклинаний проходное, отметка траты ничего не пишет
+  ports.findActionLimitBlock ??= () => null;
+  ports.findSpellGroupLimitBlock ??= () => null;
+  ports.resolveActionLimitTarget ??= () => undefined;
+  ports.resolveSpellGroupLimitTarget ??= () => undefined;
+
+  ports.spendLimitedTarget ??= () => {};
+
   // Сл спасброска у фикстур считается: проверка непосчитанной Сл проходная
   ports.findUnresolvedTargetSaveDc ??= () => null;
 

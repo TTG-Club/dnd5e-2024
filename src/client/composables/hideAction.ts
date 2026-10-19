@@ -26,7 +26,7 @@ import type { CheckRollResult } from '../ui/actor/diceRollTypes';
 
 import { useChatStore } from '@/stores/chatStore';
 import { useWorldStore } from '@/stores/worldStore';
-import { getEntityOwnerIds, withTokenDisposition } from '@vtt/shared';
+import { withTokenDisposition } from '@vtt/shared';
 import {
   buildHiddenEffect,
   findHiddenEffect,
@@ -54,7 +54,11 @@ import { recordEntityActionSpend, warnActionCostBlocked } from './actionSpend';
 import { listEntitiesNear } from './effectEscapeAction';
 import { isEntityOwnTurn } from './encounterTurn';
 import { changeEntityCombatState } from './entityCombatWrite';
-import { controlsEntityAsUser, isGameMasterUser } from './gmApprovalRequest';
+import {
+  controlsEntityAsUser,
+  GM_ONLY_ROLL,
+  hasPlayerOwner,
+} from './gmApprovalRequest';
 import { canSendGmOnlyChat } from './gmOnlyChat';
 import { refuseWhilePaused } from './pauseLock';
 import { chooseOne } from './questionChoice';
@@ -72,9 +76,6 @@ const HIDE_COST_MODAL_KEY_PREFIX = 'hide-cost:';
 /** Ключ окна поиска */
 const SEARCH_MODAL_KEY_PREFIX = 'search:';
 
-/** Бросок, который видит только ведущий: засада его существа */
-const GM_ONLY_ROLL = 'gm';
-
 /** Поиск — действие (правила 2024, «Поиск») */
 const SEARCH_COST: EffectActionCost = 'action';
 
@@ -90,16 +91,6 @@ const WHOLE_SCENE_FEET = Number.POSITIVE_INFINITY;
  */
 function warn(title: string, description: string): void {
   useSystemToastStore().add({ title, description, color: 'warning' });
-}
-
-/**
- * Есть ли у сущности владелец-игрок: персонаж игрока, а не существо ведущего.
- *
- * @param entity - сущность
- * @returns `true`, если среди владельцев есть не ведущий
- */
-export function hasPlayerOwner(entity: DnDSceneEntity): boolean {
-  return getEntityOwnerIds(entity).some((userId) => !isGameMasterUser(userId));
 }
 
 /**

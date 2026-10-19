@@ -8,6 +8,7 @@
  */
 
 import type {
+  ActionLimit,
   AttackKind,
   CreatureAction,
   CreatureActionSectionKey,
@@ -21,6 +22,7 @@ import type {
 import {
   isCreatureSpellPoolMode,
   isCreatureSpellRestMode,
+  pluralizePrice,
 } from '@vtt/shared/system/dnd.js';
 
 import { SHEET_ROW_TOOLTIP_LINE_BREAK } from '../actor/constants';
@@ -44,6 +46,50 @@ export const CREATURE_ACTION_BLOCKED_TITLE = 'Сейчас не совершит
  */
 export const CREATURE_ACTION_MISSING_REASON =
   'Существа нет в текущем мире — действие не совершить.';
+
+/** Подписи ограничений действия: перезарядка и «раз в N ходов» */
+export const CREATURE_ACTION_LIMIT_LABELS = {
+  /** Причина отказа у потраченной бросковой перезарядки; дальше — «(5–6)» */
+  rechargingPrefix: 'Перезаряжается ',
+  rechargingSuffix: ': в начале хода бросьте к6',
+  /** Причина отказа у перезарядки отдыхом */
+  restRecharge: 'Потрачено — вернётся после отдыха',
+  /** Причина отказа у «раз в N ходов»; дальше — «3 хода» */
+  cooldownWaitPrefix: 'Снова доступно через ',
+  /** Формы слова «ход» по числу: один, два, пять */
+  turnForms: ['ход', 'хода', 'ходов'],
+  /** Пункт меню записи: снять отметку вручную */
+  restore: 'Восстановить',
+  /** Начало подписи «раз в N ходов»; дальше — число (значок) или «3 хода» */
+  cooldownPrefix: 'Раз в ',
+  /** Поле формы записи и группы заклинаний, пункт режима группы */
+  cooldownField: 'Раз в N ходов',
+  cooldownHint:
+    'Снова доступно через N ходов существа после применения, без броска. Не из книг — для своих существ. С перезарядкой не сочетается.',
+  /** Конец подсказки значка «раз в N ходов» */
+  cooldownBadgeHintSuffix:
+    ': после применения снова доступно через столько ходов',
+} as const;
+
+/**
+ * Число ходов словами: «3 хода», «5 ходов».
+ *
+ * @param turns - число ходов
+ * @returns число со склонённым словом
+ */
+export function formatTurnCount(turns: number): string {
+  return `${turns} ${pluralizePrice(turns, CREATURE_ACTION_LIMIT_LABELS.turnForms)}`;
+}
+
+/**
+ * «Раз в N ходов» словами: «Раз в 3 хода» — подпись группы и подсказка значка.
+ *
+ * @param turns - число ходов
+ * @returns подпись
+ */
+function formatCooldownPeriod(turns: number): string {
+  return `${CREATURE_ACTION_LIMIT_LABELS.cooldownPrefix}${formatTurnCount(turns)}`;
+}
 
 /** Раздел вкладки «Действия»: свой список внутри одной сущности */
 export type { CreatureActionSectionKey };
@@ -157,6 +203,46 @@ export const CREATURE_RECHARGE_HINTS: Record<CreatureRecharge, string> = {
   slr: 'Восстанавливается после короткого или продолжительного отдыха',
   lr: 'Восстанавливается после продолжительного отдыха',
 };
+
+/** Подписи броска перезарядки по запросу в начале хода */
+export const CREATURE_RECHARGE_ROLL_LABELS = {
+  button: 'Бросить к6',
+  autoTitle: 'Перезарядка',
+} as const;
+
+/** Значок ограничения записи: короткая подпись и расшифровка */
+export interface ActionLimitBadge {
+  label: string;
+  hint: string;
+}
+
+/**
+ * Значок перезарядки или «раз в N ходов» — одна подпись на строку действия,
+ * строку особенности, карточку записи и группу заклинаний.
+ *
+ * @param limit - ограничение записи либо группы (`resolveActionLimit`,
+ *   `resolveSpellGroupLimit`)
+ * @returns значок либо `null`, если ограничения нет
+ */
+export function describeActionLimitBadge(
+  limit: ActionLimit | undefined,
+): ActionLimitBadge | null {
+  if (!limit) {
+    return null;
+  }
+
+  if (limit.kind === 'recharge') {
+    return {
+      label: CREATURE_RECHARGE_LABELS[limit.recharge],
+      hint: CREATURE_RECHARGE_HINTS[limit.recharge],
+    };
+  }
+
+  return {
+    label: `${CREATURE_ACTION_LIMIT_LABELS.cooldownPrefix}${limit.turns}`,
+    hint: `${formatCooldownPeriod(limit.turns)}${CREATURE_ACTION_LIMIT_LABELS.cooldownBadgeHintSuffix}`,
+  };
+}
 
 /**
  * Значок существа — лапка, та же, что у раздела «Существа» в ядре. Один на все
@@ -292,6 +378,7 @@ export const CREATURE_SPELL_USAGE_MODE_OPTIONS: {
   { label: 'N за отдых, каждое', value: 'perRestEach' },
   { label: 'N за отдых, на весь список', value: 'perRestPool' },
   { label: 'Перезарядка', value: 'recharge' },
+  { label: CREATURE_ACTION_LIMIT_LABELS.cooldownField, value: 'cooldown' },
   { label: 'Постоянно активно', value: 'constant' },
 ];
 
@@ -341,6 +428,12 @@ export function getCreatureSpellGroupLabel(group: CreatureSpellGroup): string {
     return group.recharge
       ? `${CREATURE_SPELL_GROUP_LABEL_PARTS.recharge} ${CREATURE_RECHARGE_LABELS[group.recharge]}`
       : CREATURE_SPELL_GROUP_LABEL_PARTS.recharge;
+  }
+
+  if (group.mode === 'cooldown') {
+    return group.cooldownTurns
+      ? formatCooldownPeriod(group.cooldownTurns)
+      : CREATURE_ACTION_LIMIT_LABELS.cooldownField;
   }
 
   if (group.count === undefined) {

@@ -136,6 +136,11 @@ const GUARDED_ENTRIES = [
     call: (entry) => entry({ id: 'hero' }),
   },
   {
+    path: `${COMPOSABLES_DIR}/creatureActionLimit.ts`,
+    name: 'restoreLimitedTarget',
+    call: (entry) => entry('hero', { key: 'actionLimit:bite' }),
+  },
+  {
     path: `${COMPOSABLES_DIR}/spellCasts.ts`,
     name: 'endEntityConcentration',
     call: (entry) =>
@@ -187,6 +192,10 @@ const UNGUARDED_REASONS = {
   listEscapeHelpOffers: 'ничего не пишет',
   formatEscapeTitle: 'ничего не пишет',
   findLiveHide: 'ничего не пишет: только читает засаду из мира',
+  findSpellGroupLimitBlock: 'ничего не пишет: только читает журнал существа',
+  formatActionLimitBlock: 'ничего не пишет',
+  readLimitedTargetState: 'ничего не пишет: только читает журнал существа',
+  resolveActionLimitTarget: 'ничего не пишет',
   listSelfEscapeEffects: 'ничего не пишет',
   readEntityCounters: 'ничего не пишет',
   sendGmRollRequest:

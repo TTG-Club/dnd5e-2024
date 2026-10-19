@@ -1232,6 +1232,7 @@ it('actual creature action entry checks distance with the chosen attack kind', a
 
   const ports = {
     readCreature: () => creature,
+    findStartBlock: () => null,
     spendCreatureActionTurn: () => {},
     useTargetStore: () => ({ targetTokenId: 'target' }),
     useChatStore: () => ({ sendMessage: (text) => messages.push(text) }),

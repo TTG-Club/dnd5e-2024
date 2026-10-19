@@ -14,11 +14,15 @@
     DEFAULT_CREATURE_SPELL_REST,
     isCreatureSpellCountMode,
     isCreatureSpellRestMode,
+    MAX_COOLDOWN_TURNS,
+    MIN_COOLDOWN_TURNS,
     MIN_CREATURE_SPELL_COUNT,
+    normalizeCooldownTurns,
   } from '@vtt/shared/system/dnd.js';
 
   import { MODAL_BUTTON_LABELS } from '../actor/constants';
   import {
+    CREATURE_ACTION_LIMIT_LABELS,
     CREATURE_RECHARGE_OPTIONS,
     CREATURE_SPELL_GROUP_FORM_LABELS,
     CREATURE_SPELL_REST_OPTIONS,
@@ -55,12 +59,14 @@
     count: number;
     rest: CreatureSpellRestKind;
     recharge: CreatureRecharge | typeof RECHARGE_NONE;
+    cooldownTurns: number;
     label: string;
   }>({
     mode: 'atWill',
     count: MIN_CREATURE_SPELL_COUNT,
     rest: DEFAULT_CREATURE_SPELL_REST,
     recharge: RECHARGE_NONE,
+    cooldownTurns: MIN_COOLDOWN_TURNS,
     label: '',
   });
 
@@ -75,6 +81,7 @@
       form.count = group.count ?? MIN_CREATURE_SPELL_COUNT;
       form.rest = group.rest ?? DEFAULT_CREATURE_SPELL_REST;
       form.recharge = group.recharge ?? RECHARGE_NONE;
+      form.cooldownTurns = group.cooldownTurns ?? MIN_COOLDOWN_TURNS;
       form.label = group.label ?? '';
     },
     { immediate: true },
@@ -85,6 +92,8 @@
   const isRestShown = computed(() => isCreatureSpellRestMode(form.mode));
 
   const isRechargeShown = computed(() => form.mode === 'recharge');
+
+  const isCooldownShown = computed(() => form.mode === 'cooldown');
 
   /**
    * Пояснение к числу применений: у «каждого» и «на весь список» одно и то же
@@ -125,6 +134,9 @@
         isRechargeShown.value && form.recharge !== RECHARGE_NONE
           ? form.recharge
           : undefined,
+      cooldownTurns: isCooldownShown.value
+        ? normalizeCooldownTurns(Math.round(form.cooldownTurns))
+        : undefined,
       label: label || undefined,
     });
 
@@ -225,6 +237,29 @@
 
           <p class="text-xs leading-relaxed text-dimmed">
             {{ CREATURE_SPELL_GROUP_FORM_LABELS.rechargeHint }}
+          </p>
+        </div>
+
+        <div
+          v-if="isCooldownShown"
+          class="space-y-1"
+        >
+          <div class="flex items-center justify-between gap-4">
+            <span class="text-sm text-toned">
+              {{ CREATURE_ACTION_LIMIT_LABELS.cooldownField }}
+            </span>
+
+            <UInputNumber
+              v-model="form.cooldownTurns"
+              :min="MIN_COOLDOWN_TURNS"
+              :max="MAX_COOLDOWN_TURNS"
+              size="sm"
+              class="w-32 shrink-0"
+            />
+          </div>
+
+          <p class="text-xs leading-relaxed text-dimmed">
+            {{ CREATURE_ACTION_LIMIT_LABELS.cooldownHint }}
           </p>
         </div>
 

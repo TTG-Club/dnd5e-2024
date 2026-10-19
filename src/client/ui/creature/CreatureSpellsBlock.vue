@@ -45,12 +45,14 @@
     hasCreatureSpellGroupUsesLeft,
     isCreatureSpellPoolMode,
     isSpell,
+    resolveSpellGroupLimit,
     SPELL_SCHOOL_LABELS,
     SPELL_USES_RECOVERY_LABELS,
     syncCreatureSpellcastingUses,
   } from '@vtt/shared/system/dnd.js';
 
   import { refuseSpellCast } from '../../composables/actionRefusal';
+  import { findSpellGroupLimitBlock } from '../../composables/creatureActionLimit';
   import {
     createCreatureSpellCasterPort,
     startCreatureSpellCast,
@@ -87,12 +89,11 @@
   import { describeSpellDamageDisplay } from '../actor/utils/formatSpellDamageDisplay';
   import {
     CREATURE_EMPTY_LABELS,
-    CREATURE_RECHARGE_HINTS,
-    CREATURE_RECHARGE_LABELS,
     CREATURE_SPELL_BLOCKS_LABELS,
     CREATURE_SPELL_RECOVERY_CHIPS,
     CREATURE_SPELL_REF_MIME,
     CREATURE_SPELLCASTING_LABELS,
+    describeActionLimitBadge,
     getCreatureSpellGroupLabel,
   } from './constants';
   import CreatureSpellBlockCard from './CreatureSpellBlockCard.vue';
@@ -621,6 +622,15 @@
 
           const isPool = isCreatureSpellPoolMode(group.mode);
 
+          // Перезарядка и «раз в N ходов» — тем же значком, что у действий
+          const limitBadge = describeActionLimitBadge(
+            resolveSpellGroupLimit(group),
+          );
+
+          const isLimitSpent = props.creature
+            ? findSpellGroupLimitBlock(props.creature, group) !== null
+            : false;
+
           return {
             group,
             title: getCreatureSpellGroupLabel(group),
@@ -628,13 +638,9 @@
               isPool && group.uses
                 ? `${group.uses.current}/${group.uses.max}`
                 : undefined,
-            isExhausted: !hasCreatureSpellGroupUsesLeft(group),
-            rechargeLabel: group.recharge
-              ? CREATURE_RECHARGE_LABELS[group.recharge]
-              : undefined,
-            rechargeHint: group.recharge
-              ? CREATURE_RECHARGE_HINTS[group.recharge]
-              : undefined,
+            isExhausted: !hasCreatureSpellGroupUsesLeft(group) || isLimitSpent,
+            rechargeLabel: limitBadge?.label,
+            rechargeHint: limitBadge?.hint,
             rows,
           };
         },

@@ -467,7 +467,11 @@ async function loadCreatureAction(windowOpens, creature = WOLF) {
   ports.isTargetAtFullHp = engine.isTargetAtFullHp;
   ports.resolveCreatureActionSaveDc = engine.resolveCreatureActionSaveDc;
 
-  for (const name of ['spendCreatureActionTurn', 'openCreatureActionRoll']) {
+  for (const name of [
+    'findStartBlock',
+    'spendCreatureActionTurn',
+    'openCreatureActionRoll',
+  ]) {
     ports[name] = await loadHandler(CREATURE_ACTION_PATH, name, ports);
   }
 

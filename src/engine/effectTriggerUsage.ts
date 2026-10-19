@@ -9,7 +9,8 @@
  *
  * Сбрасываются счётчики на своих границах: ход — в конце любого хода боя
  * (`expireTurnEffects`), раунд — с новым раундом (`decrementActorEffectDurations`),
- * отдых — в `restEngine`.
+ * отдых — в `restEngine`. Тот же журнал ведёт перезарядку и «раз в N ходов»
+ * действий существа (`actionLimit.ts`).
  */
 
 import type { DnDSceneEntity } from './dndEntities.js';
@@ -26,10 +27,27 @@ import { isRecord } from '@vtt/shared';
 
 import { EFFECT_TRIGGER_LIMIT_PERIODS } from './effectTriggerTypes.js';
 
+/**
+ * Периоды журнала у ограничений действий существа (`actionLimit.ts`), а не у
+ * срабатываний эффектов: `recharge` — потрачено до успешного броска
+ * перезарядки, `cooldown` — `used` значит, через сколько ходов существа
+ * действие снова доступно. В данные эффектов эти периоды не попадают — у
+ * срабатывания их не выбрать.
+ */
+export const ACTION_LIMIT_USAGE_PERIODS = ['recharge', 'cooldown'] as const;
+
+/** Период ограничения действия существа в журнале */
+export type ActionLimitUsagePeriod =
+  (typeof ACTION_LIMIT_USAGE_PERIODS)[number];
+
+/** Период записи журнала: лимит срабатывания либо ограничение действия */
+export type EffectUsagePeriod =
+  EffectTriggerLimitPeriod | ActionLimitUsagePeriod;
+
 /** Сколько раз срабатывание уже сработало за период */
 export interface EffectTriggerUsageEntry {
   used: number;
-  per: EffectTriggerLimitPeriod;
+  per: EffectUsagePeriod;
 }
 
 /** Счётчики лимитов субъекта по ключу срабатывания */
@@ -78,7 +96,7 @@ export function buildTriggerUsageScope(
 /** Zod-схема записи счётчика: целое число срабатываний за известный период */
 const TriggerUsageEntrySchema = z.object({
   used: z.number().int().positive(),
-  per: z.enum(EFFECT_TRIGGER_LIMIT_PERIODS),
+  per: z.enum([...EFFECT_TRIGGER_LIMIT_PERIODS, ...ACTION_LIMIT_USAGE_PERIODS]),
 });
 
 /**
@@ -419,13 +437,14 @@ export function canTakeTriggerUse(
   );
 }
 
-/** Какие периоды лимита заканчивает отдых */
-const REST_LIMIT_PERIODS: Record<
-  RestType,
-  readonly EffectTriggerLimitPeriod[]
-> = {
-  short: ['shortRest'],
-  long: ['shortRest', 'longRest'],
+/**
+ * Какие периоды лимита заканчивает отдых. Перезарядку и «раз в N ходов»
+ * возвращает любой отдых: по правилам 2024 действие с перезарядкой
+ * восстанавливается и после короткого или продолжительного отдыха.
+ */
+const REST_LIMIT_PERIODS: Record<RestType, readonly EffectUsagePeriod[]> = {
+  short: ['shortRest', ...ACTION_LIMIT_USAGE_PERIODS],
+  long: ['shortRest', 'longRest', ...ACTION_LIMIT_USAGE_PERIODS],
 };
 
 /**
@@ -436,7 +455,7 @@ const REST_LIMIT_PERIODS: Record<
  */
 export function restLimitPeriodsOf(
   restType: RestType,
-): readonly EffectTriggerLimitPeriod[] {
+): readonly EffectUsagePeriod[] {
   return REST_LIMIT_PERIODS[restType];
 }
 
@@ -449,7 +468,7 @@ export function restLimitPeriodsOf(
  */
 export function pruneTriggerUsage(
   entity: DnDSceneEntity,
-  periods: readonly EffectTriggerLimitPeriod[],
+  periods: readonly EffectUsagePeriod[],
 ): EffectTriggerUsageLedger | undefined {
   const kept = Object.fromEntries(
     Object.entries(readTriggerUsage(entity)).filter(
@@ -469,7 +488,7 @@ export function pruneTriggerUsage(
  */
 export function resetTriggerUsage(
   entity: DnDSceneEntity,
-  periods: readonly EffectTriggerLimitPeriod[],
+  periods: readonly EffectUsagePeriod[],
 ): boolean {
   const before = Object.keys(readTriggerUsage(entity)).length;
   const kept = pruneTriggerUsage(entity, periods);

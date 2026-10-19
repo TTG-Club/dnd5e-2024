@@ -55,6 +55,11 @@ import { runCreatureActionChoices } from './attackKindChoice';
 import { resolveTargetedAttackRoll } from './attackRollMode';
 import { listAttackResolutionEntities } from './attackRollSnapshot';
 import {
+  findActionLimitBlock,
+  resolveActionLimitTarget,
+  spendLimitedTarget,
+} from './creatureActionLimit';
+import {
   buildCreatureRollVariants,
   launchCreatureAction,
   runDamagelessCreatureAction,
@@ -117,17 +122,24 @@ function readCreature(creatureId: string): DnDCreature | undefined {
 }
 
 /**
- * Трата хода раздела («Замедление») — когда действие точно идёт: отказ по
- * дистанции её не тратит. Удар вне своего хода при запрете провоцированных
- * атак предупреждается здесь же, до окна броска.
+ * Трата хода раздела («Замедление») и самого действия (перезарядка, «раз в
+ * N ходов») — когда действие точно идёт: отказ по дистанции их не тратит.
+ * Удар вне своего хода при запрете провоцированных атак предупреждается здесь
+ * же, до окна броска.
  *
  * @param port - вход действия
+ * @param sourceAction - запись статблока
  * @param action - действие с броском; нет — действие без броска
  */
 function spendCreatureActionTurn(
   port: CreatureActionPort,
+  sourceAction: CreatureAction,
   action?: CreatureAction,
 ): void {
+  // Перезарядка и «раз в N ходов» — у записи статблока, а не у выбранного
+  // вида атаки: ключ журнала держится за запись
+  spendLimitedTarget(port.creatureId, resolveActionLimitTarget(sourceAction));
+
   const isAttack =
     action !== undefined && isCreatureAttackAction(port.section, action);
 
@@ -142,6 +154,32 @@ function spendCreatureActionTurn(
   if (isAttack) {
     warnOpportunityAttack(port.creatureId);
   }
+}
+
+/**
+ * Почему записи сейчас не совершить: запрет траты хода, вторая атака под
+ * «одной атакой за ход» либо потраченная перезарядка.
+ *
+ * @param creature - существо
+ * @param port - вход действия
+ * @param sourceAction - запись статблока
+ * @returns причина либо `null`
+ */
+function findStartBlock(
+  creature: DnDCreature,
+  port: CreatureActionPort,
+  sourceAction: CreatureAction,
+): string | null {
+  const turnBlock = port.section
+    ? findCreatureActionBlock(
+        resolveEntityActionBlocks(creature, listAmbientEffects(creature.id)),
+        port.section,
+        sourceAction,
+        isEntityOwnTurn(creature.id),
+      )
+    : null;
+
+  return turnBlock ?? findActionLimitBlock(creature, sourceAction);
 }
 
 /**
@@ -173,16 +211,9 @@ export function startCreatureAction(
     return;
   }
 
-  // Запрет трат хода («Электрошок» — нет реакций) и вторая атака действием
-  // под «одной атакой за ход»
-  const blocked = port.section
-    ? findCreatureActionBlock(
-        resolveEntityActionBlocks(creature, listAmbientEffects(creature.id)),
-        port.section,
-        sourceAction,
-        isEntityOwnTurn(creature.id),
-      )
-    : null;
+  // Запрет трат хода («Электрошок» — нет реакций), вторая атака действием
+  // под «одной атакой за ход» и потраченная перезарядка
+  const blocked = findStartBlock(creature, port, sourceAction);
 
   if (blocked) {
     port.refuse(CREATURE_ACTION_BLOCKED_TITLE, blocked);
@@ -195,7 +226,7 @@ export function startCreatureAction(
     // на выбранную цель; окна броска нет — тип урона на выбор спрашивает
     // плашка, получателя «на цель» выбирают на карте
     if (!hasCreatureActionRoll(action)) {
-      spendCreatureActionTurn(port);
+      spendCreatureActionTurn(port, sourceAction);
 
       // Записи без броска и эффектов накладывать нечего: что существо
       // сделало, показывает запись в чате
@@ -257,18 +288,9 @@ export function startCreatureAction(
           const commitAction = (): boolean => {
             const actor = readCreature(port.creatureId);
 
-            const actionBlock =
-              actor && port.section
-                ? findCreatureActionBlock(
-                    resolveEntityActionBlocks(
-                      actor,
-                      listAmbientEffects(actor.id),
-                    ),
-                    port.section,
-                    sourceAction,
-                    isEntityOwnTurn(actor.id),
-                  )
-                : null;
+            const actionBlock = actor
+              ? findStartBlock(actor, port, sourceAction)
+              : null;
 
             if (actionBlock) {
               port.refuse(CREATURE_ACTION_BLOCKED_TITLE, actionBlock);
@@ -276,7 +298,7 @@ export function startCreatureAction(
               return false;
             }
 
-            spendCreatureActionTurn(port, action);
+            spendCreatureActionTurn(port, sourceAction, action);
 
             return true;
           };

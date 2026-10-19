@@ -16,6 +16,7 @@
     getActionDescriptionMarkdown,
     listCreatureDamageAlternatives,
     readAlternativeShownParts,
+    resolveActionLimit,
     resolveCreatureActionAttackBonus,
     SAVE_EFFECT_OPTIONS,
     SAVE_TYPE_LABELS,
@@ -30,7 +31,7 @@
     CREATURE_ACTION_DETAIL_LABELS,
     CREATURE_ACTION_MENU_LABELS,
     CREATURE_DAMAGE_CHOICE_LABELS,
-    CREATURE_RECHARGE_HINTS,
+    describeActionLimitBadge,
   } from './constants';
 
   type ActionMode = 'trait' | 'action';
@@ -77,6 +78,13 @@
 
   /** Части урона/лечения действия (для общего DamagePartsSummary) */
   const damageParts = computed(() => props.action?.damageParts ?? []);
+
+  /** Перезарядка или «раз в N ходов» — расшифровкой */
+  const limitBadge = computed(() =>
+    props.action
+      ? describeActionLimitBadge(resolveActionLimit(props.action))
+      : null,
+  );
 
   /**
    * Подпись над вариантом урона: «или, если у атакующего: Окровавленный». Своя
@@ -297,18 +305,20 @@
               </div>
             </div>
 
-            <!-- Перезарядка: условие есть и у особенности, поэтому стоит
-              отдельной строкой, а не в ряду боевых чисел -->
+            <!-- Перезарядка и «раз в N ходов»: они есть и у особенности,
+              поэтому стоят отдельной строкой, а не в ряду боевых чисел -->
             <div
-              v-if="action.recharge"
+              v-if="limitBadge"
               class="text-sm"
             >
-              <span class="text-xs text-dimmed"
+              <span
+                v-if="action.recharge"
+                class="text-xs text-dimmed"
                 >{{ CREATURE_ACTION_DETAIL_LABELS.rechargePrefix }}
               </span>
 
               <span class="text-highlighted">
-                {{ CREATURE_RECHARGE_HINTS[action.recharge] }}
+                {{ limitBadge.hint }}
               </span>
             </div>
 

@@ -3,6 +3,7 @@
   import type { DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue';
 
   import type {
+    ActionLimitState,
     CreatureAction,
     CreatureActionSectionKey,
     DnDCreature,
@@ -18,6 +19,7 @@
   import { useWorldStore } from '@/stores/worldStore';
   import { DISTANCE_UNIT_SHORT } from '@vtt/shared';
   import {
+    ACTION_LIMIT_READY_STATE,
     AREA_SHAPE_LABELS,
     creatureActionHasSave,
     DEFAULT_REACH_FEET,
@@ -35,6 +37,12 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { refuseAction } from '../../composables/actionRefusal';
+  import {
+    formatActionLimitBlock,
+    readLimitedTargetState,
+    resolveActionLimitTarget,
+    restoreLimitedTarget,
+  } from '../../composables/creatureActionLimit';
   import { startCreatureAction } from '../../composables/creatureActionRoll';
   import {
     formatDamagePartsText,
@@ -62,6 +70,7 @@
   } from '../actor/utils/formatAttackDistances';
   import { formatSignedNumber } from '../actor/utils/formatSignedNumber';
   import {
+    CREATURE_ACTION_LIMIT_LABELS,
     CREATURE_ACTION_MENU_LABELS,
     CREATURE_ACTIONS_BLOCK_LABELS,
     CREATURE_DAMAGE_CHOICE_LABELS,
@@ -147,9 +156,37 @@
     () => props.creatureId === undefined || isEntityOwnTurn(props.creatureId),
   );
 
+  /** Существо листа — одним чтением на весь раздел, для отметок траты */
+  const creatureEntity = computed(() => getCreatureEntity());
+
   /**
-   * Почему запись раздела сейчас не совершить: запрет траты либо вторая
-   * атака действием под «одной атакой за ход».
+   * Состояние записи по своему ограничению (перезарядка, «раз в N ходов»).
+   *
+   * @param action - запись статблока
+   * @returns состояние ограничения
+   */
+  function limitStateOf(action: CreatureAction): ActionLimitState {
+    return creatureEntity.value
+      ? readLimitedTargetState(
+          creatureEntity.value,
+          resolveActionLimitTarget(action),
+        )
+      : ACTION_LIMIT_READY_STATE;
+  }
+
+  /**
+   * Потрачена ли запись: значок горит предупреждением, в меню — «Восстановить».
+   *
+   * @param action - запись статблока
+   * @returns `true`, если запись ждёт перезарядки или ходов
+   */
+  function isActionSpent(action: CreatureAction): boolean {
+    return limitStateOf(action).status !== 'ready';
+  }
+
+  /**
+   * Почему запись раздела сейчас не совершить: запрет траты, вторая атака
+   * действием под «одной атакой за ход» либо потраченная перезарядка.
    *
    * @param action - запись статблока
    * @returns причина словами либо `null`, если действие доступно
@@ -157,14 +194,29 @@
   function blockOf(action: CreatureAction): string | null {
     const { section } = props;
 
-    return section && actionBlocks.value
-      ? findCreatureActionBlock(
-          actionBlocks.value,
-          section,
-          action,
-          isOwnTurn.value,
-        )
-      : null;
+    const turnBlock =
+      section && actionBlocks.value
+        ? findCreatureActionBlock(
+            actionBlocks.value,
+            section,
+            action,
+            isOwnTurn.value,
+          )
+        : null;
+
+    return turnBlock ?? formatActionLimitBlock(limitStateOf(action));
+  }
+
+  /**
+   * Снимает отметку траты записи — мастер или хозяин решил, что действие
+   * снова готово.
+   *
+   * @param action - запись статблока
+   */
+  function restoreAction(action: CreatureAction): void {
+    if (props.creatureId) {
+      restoreLimitedTarget(props.creatureId, resolveActionLimitTarget(action));
+    }
   }
 
   const systemDataStore = useSystemDataStore();
@@ -625,13 +677,23 @@
     const groups: DropdownMenuItem[][] = [];
 
     if (canUseAction(action)) {
-      groups.push([
+      const playActions: DropdownMenuItem[] = [
         {
           label: getUseLabel(action),
           icon: 'tabler:swords',
           onSelect: () => openRollModal(action),
         },
-      ]);
+      ];
+
+      if (isActionSpent(action)) {
+        playActions.push({
+          label: CREATURE_ACTION_LIMIT_LABELS.restore,
+          icon: 'tabler:refresh',
+          onSelect: () => restoreAction(action),
+        });
+      }
+
+      groups.push(playActions);
     }
 
     const sheetActions: DropdownMenuItem[] = [];
@@ -698,6 +760,7 @@
         canUse: canUseAction(action),
         canDrag: !props.isEditMode && !!props.creatureId,
         blockedReason: blockOf(action),
+        isSpent: isActionSpent(action),
       }));
   });
 
@@ -794,6 +857,7 @@
           :menu-items="row.menuItems"
           :is-edit-mode="isEditMode"
           :is-read-only="isReadOnly"
+          :is-spent="row.isSpent"
           @open="openDetailModal(row.action)"
           @edit="openEditForm(row.index)"
           @delete="removeAction(row.index)"
@@ -809,6 +873,7 @@
           :can-use="row.canUse"
           :can-drag="row.canDrag"
           :blocked-reason="row.blockedReason"
+          :is-spent="row.isSpent"
           @open="handleActionClick(row.action, row.index)"
           @use="openRollModal(row.action)"
           @dragstart="handleDragStart($event, row.action)"

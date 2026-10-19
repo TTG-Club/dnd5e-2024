@@ -13,9 +13,11 @@ import type {
   GmApprovalVerdict,
 } from '@vtt/shared/system/dnd.js';
 
+import type { RollVisibility } from '../ui/actor/diceRollTypes';
+
 import { getRollRequestService } from '@/core/api/rollRequestService';
 import { useWorldStore } from '@/stores/worldStore';
-import { isEntityOwner } from '@vtt/shared';
+import { getEntityOwnerIds, isEntityOwner } from '@vtt/shared';
 import {
   buildGmApprovalPayload,
   formatGmApprovalTitle,
@@ -42,6 +44,19 @@ export function isGameMasterUser(userId: string): boolean {
       (user) => user.id === userId && user.role === 'admin',
     ) ?? false
   );
+}
+
+/** Бросок, который видит только ведущий: бросок существа ведущего */
+export const GM_ONLY_ROLL: RollVisibility = 'gm';
+
+/**
+ * Есть ли у сущности владелец-игрок: персонаж игрока, а не существо ведущего.
+ *
+ * @param entity - сущность
+ * @returns `true`, если среди владельцев есть не ведущий
+ */
+export function hasPlayerOwner(entity: DnDSceneEntity): boolean {
+  return getEntityOwnerIds(entity).some((userId) => !isGameMasterUser(userId));
 }
 
 /**

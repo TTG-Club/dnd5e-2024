@@ -33,6 +33,7 @@
     CREATURE_SIZE_LABELS,
     getAlignmentLabel,
     isDndCreature,
+    readAutoRecharge,
     readSneakAttackAutoAdd,
     resolveCreatureHitPointsByRules,
     resolveCreatureTokenScale,
@@ -127,6 +128,8 @@
   const autoSaves = ref(true);
   /** Скрытая атака добавляется в окне атаки сама — настройка листа */
   const sneakAttackAutoAdd = ref(true);
+  /** Бросок перезарядки в начале хода кидается сам — настройка листа */
+  const autoRecharge = ref(false);
   const isPublic = ref(false);
 
   const currentUser = computed(() => {
@@ -391,7 +394,8 @@
 
     const autoSavesChanged =
       autoSaves.value !== (creature.value.autoSaves ?? true)
-      || sneakAttackAutoAdd.value !== readSneakAttackAutoAdd(creature.value);
+      || sneakAttackAutoAdd.value !== readSneakAttackAutoAdd(creature.value)
+      || autoRecharge.value !== readAutoRecharge(creature.value);
 
     const ownerChanged = isAdmin.value && ownersChanged.value;
     const publicChanged = isPublic.value !== (creature.value.isPublic || false);
@@ -506,6 +510,7 @@
 
       autoSaves.value = creature.value.autoSaves ?? true;
       sneakAttackAutoAdd.value = readSneakAttackAutoAdd(creature.value);
+      autoRecharge.value = readAutoRecharge(creature.value);
       resetOwnership();
       isPublic.value = creature.value.isPublic || false;
     }
@@ -560,11 +565,14 @@
           ?? creature.value.system.size,
         // «Добавлять сама» — по умолчанию: поле хранится только у отказа
         sneakAttackAutoAdd: sneakAttackAutoAdd.value ? undefined : false,
+        // «Не автоматически» — по умолчанию: поле хранится только у согласия
+        autoRecharge: autoRecharge.value ? true : undefined,
       };
 
       const systemChanged =
         updatedSystem.size !== creature.value.system.size
-        || sneakAttackAutoAdd.value !== readSneakAttackAutoAdd(creature.value);
+        || sneakAttackAutoAdd.value !== readSneakAttackAutoAdd(creature.value)
+        || autoRecharge.value !== readAutoRecharge(creature.value);
 
       const adjustedHitPoints =
         updatedSystem.size !== creature.value.system.size
@@ -796,6 +804,26 @@
 
                   <USwitch
                     v-model="sneakAttackAutoAdd"
+                    :disabled="!(isAdmin || isOwner)"
+                  />
+                </div>
+
+                <!-- Перезарядка: кидать к6 в начале хода самой, без окна -->
+                <div
+                  class="flex items-center justify-between rounded border border-default/50 bg-elevated/30 p-3"
+                >
+                  <div class="space-y-0.5">
+                    <label class="text-sm font-medium text-toned">
+                      {{ TOKEN_SETTINGS_LABELS.autoRecharge }}
+                    </label>
+
+                    <p class="text-xs text-dimmed">
+                      {{ TOKEN_SETTINGS_LABELS.autoRechargeHint }}
+                    </p>
+                  </div>
+
+                  <USwitch
+                    v-model="autoRecharge"
                     :disabled="!(isAdmin || isOwner)"
                   />
                 </div>

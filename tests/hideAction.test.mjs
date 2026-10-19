@@ -25,7 +25,6 @@ const HIDE_PATH = 'src/client/composables/hideAction.ts';
 /** Функции модуля в порядке зависимостей */
 const HIDE_FUNCTIONS = [
   'warn',
-  'hasPlayerOwner',
   'resolveEntitySide',
   'areAllies',
   'refuseOutsideOwnTurn',
@@ -153,6 +152,8 @@ async function loadHide({
     listAmbientEffects: () => [],
     resolveEntityStats: () => ({ activeFlags: flags }),
     isGameMasterUser: (id) => id === GM_ID,
+    hasPlayerOwner: (item) =>
+      engine.getEntityOwnerIds(item).some((id) => id !== GM_ID),
     controlsEntityAsUser: (item) =>
       userId === GM_ID || (item.ownerIds ?? []).includes(userId),
     refuseWhileSheetEditing: () => false,

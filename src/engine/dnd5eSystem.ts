@@ -61,6 +61,7 @@ import type {
 
 import { getHealthCondition, HEALTH_CONDITIONS, isRecord } from '@vtt/shared';
 
+import { settleActionLimitsOnTurnStart } from './actionLimitTurn.js';
 import {
   isTurnMovementSpent,
   listBlockedConcentrationCasts,
@@ -1692,7 +1693,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.327';
+  readonly version = '0.8.328';
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -1877,18 +1878,37 @@ export class Dnd5eVttSystem implements VttSystem {
    * повторные спасброски D&D 5e) и возвращает флаг изменения и сводку для чата.
    *
    * Повторный спасбросок сущности без авто-спасбросков спрашивается у игрока:
-   * ход не ждёт, исход приходит отложенным срабатыванием.
+   * ход не ждёт, исход приходит отложенным срабатыванием. В начале хода
+   * существа здесь же отсчитывается «раз в N ходов» и просится бросок
+   * перезарядки потраченных действий (`actionLimitTurn.ts`).
    */
   runTurnEffects(
     entity: SceneEntity,
     timing: 'startOfTurn' | 'endOfTurn',
     context?: SystemTriggerContext,
   ): SystemDeferredTriggerResult {
-    return withScenePresence(
+    const effects = settleTurnEffects(
       entity,
+      timing,
       context,
-      settleTurnEffects(entity, timing, context, this.pendingTurnSaveKeys),
+      this.pendingTurnSaveKeys,
     );
+
+    // Перезарядка и «раз в N ходов» — после эффектов хода: те могли выключить
+    // существо, но отсчёт хода от этого не зависит
+    const result =
+      timing === 'startOfTurn'
+        ? mergeTriggerResults(
+            effects,
+            settleActionLimitsOnTurnStart(
+              entity,
+              context,
+              this.pendingTurnSaveKeys,
+            ),
+          )
+        : effects;
+
+    return withScenePresence(entity, context, result);
   }
 
   /**

@@ -67,6 +67,11 @@ import { resolveTargetedAttackRoll } from './attackRollMode';
 import { listAttackResolutionEntities } from './attackRollSnapshot';
 import { runWithCastFailure } from './castFailure';
 import {
+  findSpellGroupLimitBlock,
+  resolveSpellGroupLimitTarget,
+  spendLimitedTarget,
+} from './creatureActionLimit';
+import {
   requestDamageTypeChoiceFor,
   runWithDamageTypeChoices,
 } from './damageTypeChoice';
@@ -124,6 +129,15 @@ export function spendCreatureSpellUse(
   spell: Spell,
   placement: CreatureSpellPlacement | undefined,
 ): void {
+  // Перезарядка и «раз в N ходов» группы — журналом боевым каналом, отдельно
+  // от зарядов листа
+  if (placement) {
+    spendLimitedTarget(
+      creatureId,
+      resolveSpellGroupLimitTarget(placement.group),
+    );
+  }
+
   const isPool =
     placement !== undefined && isCreatureSpellPoolMode(placement.group.mode);
 
@@ -253,6 +267,20 @@ export function startCreatureSpellCast(
         return;
       }
 
+      const groupBlock = findSpellGroupLimitBlock(
+        liveCreature,
+        placement?.group,
+      );
+
+      if (groupBlock) {
+        port.refuse(spell, {
+          title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
+          description: groupBlock,
+        });
+
+        return;
+      }
+
       /** Списывает применение заклинания */
       const spendUse = (): void => port.spendUse(spell, placement);
 
@@ -294,6 +322,20 @@ export function startCreatureSpellCast(
           port.refuse(spell, {
             title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
             description: ACTOR_SPELLS_TAB_LABELS.noUsesText,
+          });
+
+          return false;
+        }
+
+        const liveGroupBlock = findSpellGroupLimitBlock(
+          caster,
+          placement?.group,
+        );
+
+        if (liveGroupBlock) {
+          port.refuse(spell, {
+            title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
+            description: liveGroupBlock,
           });
 
           return false;
