@@ -132,17 +132,18 @@ describe('каталог: засада и невидимость', () => {
     );
   });
 
-  it('[H02] Цена засады: действие, с «Хитрым действием» — бонусное', () => {
-    assert.equal(engine.resolveHideCost(new Set(), false), 'action');
+  it('[H02] Цена засады: действие, с «Хитрым действием» — выбор действие или бонусное', () => {
+    assert.deepEqual(engine.listHideCosts(new Set(), false), ['action']);
 
-    assert.equal(
-      engine.resolveHideCost(new Set([engine.HIDE_AS_BONUS_FLAG]), false),
-      'bonus',
+    assert.deepEqual(
+      engine.listHideCosts(new Set([engine.HIDE_AS_BONUS_FLAG]), false),
+      ['bonus', 'action'],
+      'выбирает игрок: бонусное может быть нужно на другое',
     );
 
-    assert.equal(
-      engine.resolveHideCost(new Set([engine.HIDE_AS_BONUS_FLAG]), true),
-      'action',
+    assert.deepEqual(
+      engine.listHideCosts(new Set([engine.HIDE_AS_BONUS_FLAG]), true),
+      ['action'],
       'бонусное под запретом («Замедление») — прячутся действием',
     );
   });
@@ -403,7 +404,73 @@ describe('каталог: засада и невидимость', () => {
     assert.deepEqual(formulas, ['2к20kh1']);
   });
 
+  it('[H12] «Нанёс урон» — один раз на действие, сколько бы целей оно ни задело', () => {
+    const system = new engine.Dnd5eVttSystem();
+
+    const dealer = withHp(createActor, 20, {
+      id: DEALER_ID,
+      activeEffects: [
+        createEffect('Тяга к крови', {
+          triggers: [
+            {
+              id: 'trigger_dealt',
+              event: 'damageDealt',
+              actions: [{ type: 'applyCondition', conditionKey: 'exhaustion' }],
+            },
+          ],
+        }),
+      ],
+    });
+
+    const getEntity = (id) => (id === DEALER_ID ? dealer : undefined);
+
+    const strike = (victimId, actionId) =>
+      withRandom([MIN_ROLL], () =>
+        strikeEntity(
+          system,
+          withHp(createCreature, 30, { id: victimId }),
+          5,
+          'fire',
+          {
+            details: { critical: false, sourceId: DEALER_ID, actionId },
+            context: { getEntity },
+          },
+        ),
+      );
+
+    // Одно действие («Огненный шар») по трём целям — три снимка
+    strike('creature_a', 'action_fireball');
+    strike('creature_b', 'action_fireball');
+    strike('creature_c', 'action_fireball');
+
+    assert.equal(
+      engine.getEntityExhaustionLevel(dealer.activeEffects),
+      1,
+      'наложение одно — на первом снимке действия',
+    );
+
+    strike('creature_a', 'action_second');
+
+    assert.equal(
+      engine.getEntityExhaustionLevel(dealer.activeEffects),
+      2,
+      'новое действие — новое срабатывание',
+    );
+  });
+
   it.todo(
     '[H11] Засада против того, кто видит спрятавшегося — пробел (особые чувства у ядра)',
+  );
+
+  it.todo(
+    '[H13] Урон зоны и срабатываний сервера снимает «Невидимость» — пробел (нет нанёсшего у удара)',
+  );
+
+  it.todo(
+    '[H14] «Подсознательное заклинание» не выдаёт засаду — пробел (метамагия в касте)',
+  );
+
+  it.todo(
+    '[H15] Заклинание со свитка или из жезла — каст для засады — пробел (применение предмета)',
   );
 });

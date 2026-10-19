@@ -131,6 +131,8 @@ async function resolveWithoutTargets(parts, options = {}) {
       resolveGridCellSize: () => 5,
       resolveSelectedAttackTarget: () => null,
       resolveAttackerIgnoredResistances: () => [],
+      // Ключ применения у этих бросков не проверяется — контекст как есть
+      withSpellActionId: (context) => context,
       isSaveAbility: () => false,
       getPartKindLabel: (part) => part.label,
       formatTargetGateSuffix: () => '',

@@ -266,7 +266,7 @@ export function applyTargetDamage(
   });
 
   if (!isHealing) {
-    const { critical, sourceId } = parseDamageHitDetails(details);
+    const { critical, sourceId, actionId } = parseDamageHitDetails(details);
 
     recordDamageHit(entity, {
       amount: hpBefore + tempBefore - hpChange.hpAfter - hpChange.tempAfter,
@@ -276,6 +276,7 @@ export function applyTargetDamage(
       types: damageType ? [damageType] : [],
       critical,
       sourceId,
+      ...(actionId ? { actionId } : {}),
     });
   }
 

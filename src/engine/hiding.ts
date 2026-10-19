@@ -49,22 +49,22 @@ export const HIDE_AS_BONUS_FLAG: EffectFlagKey = 'hide.bonusAction';
 export const HIDE_FOLLOW_UP_KIND = `${SYSTEM_ID}:hide`;
 
 /**
- * Чем носитель прячется: бонусным действием, если умение это позволяет и
- * бонусное сейчас не под запретом, иначе действием.
- *
- * Спрашивать не о чем: имея «Хитрое действие», бонусным прячутся всегда, а
- * отдельного учёта «бонусное уже потрачено» вне ограничивающих эффектов у
- * системы нет — его заменяет запрет траты (`resolveActionCostBlock`).
+ * Чем носитель может спрятаться: действием всегда, бонусным действием — если
+ * умение это позволяет («Хитрое действие») и бонусное сейчас не под запретом.
+ * Бонусное — первым: им прячутся чаще, но выбор за игроком — бонусное
+ * действие может быть нужно на другое.
  *
  * @param flags - действующие флаги носителя
  * @param bonusBlocked - бонусное действие сейчас под запретом
- * @returns цена засады
+ * @returns возможные цены засады
  */
-export function resolveHideCost(
+export function listHideCosts(
   flags: ReadonlySet<string>,
   bonusBlocked: boolean,
-): EffectActionCost {
-  return flags.has(HIDE_AS_BONUS_FLAG) && !bonusBlocked ? 'bonus' : 'action';
+): EffectActionCost[] {
+  return flags.has(HIDE_AS_BONUS_FLAG) && !bonusBlocked
+    ? ['bonus', 'action']
+    : ['action'];
 }
 
 /**

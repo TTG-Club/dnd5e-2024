@@ -15,12 +15,15 @@ import { EFFECT_QUESTION_PROMPT_MODAL } from '../ui/effect/constants';
  * @param sourceName - чей вопрос
  * @param options - варианты с подписями
  * @param proceed - продолжение с выбранным вариантом
+ * @param modalKey - ключ плашки: повторное нажатие вторую не открывает; нет —
+ *   плашки не ограничены
  */
 export function chooseOne<Option>(
   question: string,
   sourceName: string,
   options: ReadonlyArray<{ label: string; value: Option }>,
   proceed: (value: Option) => void,
+  modalKey?: string,
 ): void {
   const [only] = options;
 
@@ -35,7 +38,9 @@ export function chooseOne<Option>(
   }
 
   useModalManager().openModal(EFFECT_QUESTION_PROMPT_MODAL, {
-    allowMultiple: true,
+    ...(modalKey === undefined
+      ? { allowMultiple: true }
+      : { _modalKey: modalKey }),
     question,
     options: options.map((option, index) => ({
       id: String(index),

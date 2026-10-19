@@ -6090,3 +6090,9 @@ export const WILLING_SAVE_TOTAL = 1;
  */
 export const WINDOW_TAB_CONTENT_CLASS =
   "overflow-y-auto in-[[role=dialog][style*='height:_auto']]:max-h-150";
+
+/**
+ * Приставка ключа действия окна броска: удары одного броска по всем целям
+ * несут один ключ (`DamageHit.actionId`)
+ */
+export const ROLL_ACTION_ID_PREFIX = 'roll-action';

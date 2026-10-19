@@ -115,6 +115,8 @@ export interface SkillCheckRollOptions {
   rollButtonText: string;
   /** Сложность проверки, если она известна */
   targetDc?: number;
+  /** Кому видно бросок: засада существа ведущего — только ведущему */
+  rollVisibility?: 'public' | 'gm' | 'private';
   /**
    * Режим броска поверх режима самой проверки: у «вырваться» — режим из
    * эффекта и флаги того, кто держит
@@ -157,6 +159,9 @@ export function openSkillCheckModal(
         options.resolveMode?.(setup.rollMode, setup.activeFlags)
         ?? setup.rollMode,
       ...(options.targetDc === undefined ? {} : { targetDc: options.targetDc }),
+      ...(options.rollVisibility
+        ? { initialRollVisibility: options.rollVisibility }
+        : {}),
       onCheckRoll: options.onRoll,
     },
     options.modalKey === undefined ? {} : { modalKey: options.modalKey },

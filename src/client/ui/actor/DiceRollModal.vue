@@ -33,6 +33,7 @@
   import { useChatStore } from '@/stores/chatStore';
   import { useDiceRollerStore } from '@/stores/diceRollerStore';
   import { useTargetStore } from '@/stores/targetStore';
+  import { generateId } from '@vtt/shared';
   import {
     buildActionChatHeader,
     buildAttackFormula,
@@ -82,6 +83,7 @@
     DICE_ROLL_DEFAULT_BUTTON,
     DICE_ROLL_LABELS,
     DICE_ROLL_LOG_PREFIX,
+    ROLL_ACTION_ID_PREFIX,
     ROLL_MODE_REASON_STYLES,
     SPELL_LEVEL_SUFFIX,
     WILLING_SAVE_TOTAL,
@@ -141,6 +143,11 @@
       context: RollContext,
     ) => ReadonlyMap<string, readonly string[]>;
     initialRollMode?: AttackRollMode;
+    /**
+     * Кому видно бросок при открытии: засаду существа ведущего игрокам не
+     * показывают. Нет — всем
+     */
+    initialRollVisibility?: RollVisibility;
     /**
      * Откуда стартовый режим атаки: состояния, эффекты, доспех, дистанция.
      * Без них окно показывало помеху «без причины».
@@ -311,6 +318,7 @@
     isHealing: false,
     attackModifier: undefined,
     initialRollMode: 'normal',
+    initialRollVisibility: 'public',
     rollModeReasons: undefined,
     resolveRollMode: undefined,
     sneakAttack: undefined,
@@ -872,6 +880,12 @@
   let cancelNotified = false;
 
   /**
+   * Ключ действия этого открытия окна: удары по всем целям броска несут его, и
+   * «носитель нанёс урон» срабатывает у атакующего один раз на действие
+   */
+  let rollActionId = generateId(ROLL_ACTION_ID_PREFIX);
+
+  /**
    * Сообщает вызывающему, что окно ушло без броска. Молчит, если бросок был
    * или об отмене уже сообщили: вызывающий сворачивает по ней начатое действие,
    * и повторить это второй раз нельзя.
@@ -892,8 +906,9 @@
       if (opened) {
         hasRolled.value = false;
         cancelNotified = false;
+        rollActionId = generateId(ROLL_ACTION_ID_PREFIX);
         bonusValue.value = 0;
-        rollType.value = 'public';
+        rollType.value = props.initialRollVisibility ?? 'public';
         attackRollMode.value = props.initialRollMode;
         manualRollMode.value = undefined;
         currentRollModeReasons.value = props.rollModeReasons;
@@ -1304,9 +1319,15 @@
       props.attackerId,
     );
 
+    const details = {
+      critical,
+      sourceId: props.attackerId,
+      actionId: rollActionId,
+    };
+
     return ignoredResistances.length > 0
-      ? { critical, sourceId: props.attackerId, ignoredResistances }
-      : { critical, sourceId: props.attackerId };
+      ? { ...details, ignoredResistances }
+      : details;
   }
 
   /**

@@ -119,6 +119,31 @@ export interface SpellResolutionContext {
    * же снимком (`listAttackResolutionEntities`)
    */
   attack?: AttackRollSnapshot;
+  /**
+   * Ключ этого применения заклинания: удары по всем целям одного каста несут
+   * его, и «носитель нанёс урон» срабатывает у заклинателя один раз на каст
+   * (`DamageHit.actionId`). Нет — разбор заводит свой
+   */
+  actionId?: string;
+}
+
+/**
+ * Приставка ключа применения заклинания (`SpellResolutionContext.actionId`)
+ */
+const SPELL_ACTION_ID_PREFIX = 'spell-action';
+
+/**
+ * Контекст разбора с ключом применения: один на все цели этого разбора.
+ *
+ * @param context - контекст разбора
+ * @returns тот же контекст, но с ключом применения
+ */
+export function withSpellActionId(
+  context: SpellResolutionContext,
+): SpellResolutionContext {
+  return context.actionId
+    ? context
+    : { ...context, actionId: generateId(SPELL_ACTION_ID_PREFIX) };
 }
 
 /**

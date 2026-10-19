@@ -24,6 +24,12 @@ export interface DamageHit extends TriggerDamageData {
    * равен `amount`
    */
   dealt?: number;
+  /**
+   * Действие, которым нанесён удар: один бросок атаки, один каст. По нему
+   * событие «носитель нанёс урон» срабатывает у нанёсшего один раз на
+   * действие, сколько бы целей оно ни задело. Нет поля — действие неизвестно
+   */
+  actionId?: string;
 }
 
 /** Сколько ударов принимает один боевой снимок */
@@ -32,6 +38,9 @@ const MAX_DAMAGE_HITS = 16;
 /** Сколько типов урона у одного удара */
 const MAX_DAMAGE_HIT_TYPES = 8;
 
+/** Самый длинный ключ действия удара */
+const MAX_ACTION_ID_LENGTH = 200;
+
 /** Zod-схема удара из боевого снимка клиента */
 const DamageHitSchema = z.object({
   amount: z.number().finite().nonnegative(),
@@ -39,6 +48,12 @@ const DamageHitSchema = z.object({
   critical: z.boolean().catch(false),
   sourceId: z.string().min(1).optional().catch(undefined),
   dealt: z.number().finite().nonnegative().optional().catch(undefined),
+  actionId: z
+    .string()
+    .min(1)
+    .max(MAX_ACTION_ID_LENGTH)
+    .optional()
+    .catch(undefined),
 });
 
 /**
@@ -126,6 +141,13 @@ export function toDamageHits(
 const DamageHitDetailsSchema = z.object({
   critical: z.boolean().catch(false),
   sourceId: z.string().min(1).optional().catch(undefined),
+  /** Действие, которым нанесён удар (`DamageHit.actionId`) */
+  actionId: z
+    .string()
+    .min(1)
+    .max(MAX_ACTION_ID_LENGTH)
+    .optional()
+    .catch(undefined),
   /** Типы урона, чьё сопротивление цели удар игнорирует */
   ignoredResistances: z
     .array(z.string().min(1))

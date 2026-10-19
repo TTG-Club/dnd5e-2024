@@ -79,6 +79,7 @@ import {
   isSaveAbility,
   partPassesTargetGate,
   resolveAttackerIgnoredResistances,
+  withSpellActionId,
 } from './spellResolutionShared';
 import { useSpellSavingThrows } from './useSpellSavingThrows';
 import {
@@ -325,7 +326,8 @@ export function useSpellDamageWithParts() {
    *
    * Ограничения (отложено): снаряды — для них используется одночастный путь.
    *
-   * @param context - контекст (заклинание, DC, сущности, сокет, casterId)
+   * @param rawContext - контекст (заклинание, DC, сущности, сокет, casterId);
+   *   без ключа применения разбор заводит свой
    * @param parts - брошенные части
    * @param options - сцена и кэш шаблона AoE
    * @param options.scene - текущая сцена
@@ -334,7 +336,7 @@ export function useSpellDamageWithParts() {
    *   (выбор целей заклинания-эффекта); важнее шаблона и текущей цели
    */
   async function resolveSpellDamageWithParts(
-    context: SpellResolutionContext,
+    rawContext: SpellResolutionContext,
     parts: RolledSpellDamagePart[],
     options: {
       scene: Scene | null;
@@ -342,6 +344,8 @@ export function useSpellDamageWithParts() {
       targetEntities?: readonly SceneEntity[];
     },
   ): Promise<void> {
+    // Один ключ на все цели этого каста: «нанёс урон» срабатывает один раз
+    const context = withSpellActionId(rawContext);
     const { spell, spellSaveDC, actors } = context;
     const { scene, cachedTemplate } = options;
 
@@ -908,6 +912,7 @@ export function useSpellDamageWithParts() {
           types: listEntityDamageTypes(accumulator.entity.id),
           critical: parts.some((part) => part.critical === true),
           sourceId: context.casterId,
+          ...(context.actionId ? { actionId: context.actionId } : {}),
         },
       );
 
@@ -1034,6 +1039,7 @@ export function useSpellDamageWithParts() {
         label: spell.name,
         critical: parts.some((part) => part.critical === true),
         ...(context.casterId ? { sourceId: context.casterId } : {}),
+        ...(context.actionId ? { actionId: context.actionId } : {}),
         ...(ignoredResistances.length > 0
           ? { ignoredResistances: [...ignoredResistances] }
           : {}),
