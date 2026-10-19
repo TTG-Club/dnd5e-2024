@@ -81,6 +81,7 @@ import {
   parseAttackDamageRecord,
   pickRowTargetName,
   planDamageReroll,
+  planSneakAttackReapply,
   readDamageModes,
   resolveAttackDamageActionRefusal,
   resolveEntityCurrentHp,
@@ -105,7 +106,11 @@ import { buildAttackDamageChatOptions } from './damageChatMessage';
 import { resolveTurnStamp } from './encounterTurn';
 import { changeEntityCombatState } from './entityCombatWrite';
 import { changeEntitySheet } from './entitySheetWrite';
-import { releaseSneakAttack, spendSneakAttack } from './sneakAttackUsage';
+import {
+  isSneakAttackSpentNow,
+  releaseSneakAttack,
+  spendSneakAttack,
+} from './sneakAttackUsage';
 import { getPartKindLabel } from './spellResolutionShared';
 
 /** Повторный урон одной цели: что с неё снято и чем это показать в чате */
@@ -1097,11 +1102,23 @@ export function toggleAttackDamageCritical(
  * @param context - сообщение и дополнение с отметкой об отмене
  */
 export function reapplyAttackDamage(context: ChatFollowUpActionContext): void {
-  const record = readActionableRecord(context, 'reapply');
+  const storedRecord = readActionableRecord(context, 'reapply');
 
-  if (!record) {
+  if (!storedRecord) {
     return;
   }
+
+  // Лимит Скрытой атаки, возвращённый отменой, мог занять другой удар этого
+  // хода — тогда повтор идёт без её костей
+  const sneakAttackReapply = planSneakAttackReapply(
+    storedRecord,
+    resolveTurnStamp(),
+    storedRecord.sourceId
+      ? isSneakAttackSpentNow(storedRecord.sourceId)
+      : false,
+  );
+
+  const record = sneakAttackReapply.record;
 
   // До броска: запрет кубиков не дал бы показать урон, а хиты уже ушли бы
   if (useWorldStore().currentUserRestrictions.isDiceBanned) {
@@ -1181,9 +1198,7 @@ export function reapplyAttackDamage(context: ChatFollowUpActionContext): void {
   // Урон нанесён заново — Скрытая атака в нём тратится снова, если ход тот
   // же; в другом ходу лимит уже новый, и тратить его старым ударом нельзя
   const sneakAttackTurn =
-    record.sneakAttackTurn
-    && record.sourceId
-    && record.sneakAttackTurn === resolveTurnStamp()
+    sneakAttackReapply.spend && record.sourceId
       ? spendSneakAttack(record.sourceId)
       : undefined;
 

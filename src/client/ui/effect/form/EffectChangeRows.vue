@@ -35,6 +35,7 @@
     isDiceFormulaValue,
     isEffectModifierSubmenu,
     isEffectTargetKey,
+    isIgnoredAlternativesCondition,
     isNoOpEffectChange,
     isOptionValueKey,
     isRollTimeDiceKey,
@@ -207,6 +208,9 @@
           || change.priority !== DEFAULT_EFFECT_CHANGE_PRIORITY,
         conditionLabel: condition
           ? `${EFFECT_CHANGE_ROW_LABELS.conditionOnlyPrefix}${describeEffectChangeCondition(condition)}`
+          : '',
+        conditionWarning: isIgnoredAlternativesCondition(change)
+          ? EFFECT_CHANGE_ROW_LABELS.alternativesIgnoredWarning
           : '',
         valueLabel: describeValueLabel(change),
         valueHelp: describeValueHelp(change),
@@ -671,6 +675,13 @@
           class="text-xs text-muted"
         >
           {{ row.conditionLabel }}
+        </p>
+
+        <p
+          v-if="row.conditionWarning"
+          class="text-xs text-warning"
+        >
+          {{ row.conditionWarning }}
         </p>
       </div>
 

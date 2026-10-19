@@ -537,6 +537,22 @@
   /** Режим броска атаки (обычный / преимущество / помеха) */
   const attackRollMode = ref<AttackRollMode>('normal');
 
+  /**
+   * Режим, выбранный игроком руками («Точное прицеливание», совет мастера).
+   * Смена цели его не затирает: пересчёт по цели меняет только причины
+   */
+  const manualRollMode = ref<AttackRollMode | undefined>();
+
+  /**
+   * Режим броска кнопкой окна — выбор игрока.
+   *
+   * @param mode - выбранный режим
+   */
+  function chooseRollMode(mode: AttackRollMode): void {
+    manualRollMode.value = mode;
+    attackRollMode.value = mode;
+  }
+
   /** Причины режима: со сменой цели при открытом окне считаются заново */
   const currentRollModeReasons = ref<AttackRollModeReasons | undefined>();
 
@@ -752,6 +768,21 @@
     };
   }
 
+  /**
+   * Контекст броска в момент нажатия: Скрытая атака — только если её лимит
+   * свободен прямо сейчас. Показ окна (`isSneakAttackApplied`) мог устареть:
+   * второе окно этого клиента бросило раньше и лимит потратило.
+   *
+   * @returns контекст для бонус-частей броска
+   */
+  function buildLiveRollContext(): BonusPartsRollContext {
+    const context = buildRollContext();
+
+    return context.sneakAttack && props.sneakAttack?.isSpent()
+      ? { ...context, sneakAttack: false }
+      : context;
+  }
+
   /** Динамически вычисляемые условные бонусы (срабатывают, если условия соблюдены) */
   const currentConditionalBonuses = computed(() => {
     if (!props.evaluateConditionalBonuses) {
@@ -864,6 +895,7 @@
         bonusValue.value = 0;
         rollType.value = 'public';
         attackRollMode.value = props.initialRollMode;
+        manualRollMode.value = undefined;
         currentRollModeReasons.value = props.rollModeReasons;
         applySneakAttack.value = props.sneakAttack?.defaultEnabled ?? true;
         partTypePicks.value = {};
@@ -902,22 +934,24 @@
   });
 
   // Цель сменилась при открытом окне — режим и причины считаются по новой
-  // цели: «союзник рядом», невидимость и дистанция у неё свои
+  // цели: «союзник рядом», невидимость и дистанция у неё свои. Цель — это
+  // фишка: у двух фишек одной записи (стая) соседи и дистанция разные. Режим,
+  // выбранный игроком руками, остаётся — меняются только причины
   watch(
-    () => targetStore.targetActorId,
-    (targetId, previousTargetId) => {
+    () => targetStore.targetTokenId,
+    (tokenId, previousTokenId) => {
       if (
         !props.open
         || !props.resolveRollMode
         || hasRolled.value
-        || targetId === previousTargetId
+        || tokenId === previousTokenId
       ) {
         return;
       }
 
       const { mode, reasons } = props.resolveRollMode();
 
-      attackRollMode.value = mode;
+      attackRollMode.value = manualRollMode.value ?? mode;
       currentRollModeReasons.value = reasons;
     },
   );
@@ -1101,8 +1135,12 @@
         // Бонус-части урона от Active Effects собираются в момент броска:
         // условия (преимущество/помеха, HP цели) оцениваются по фактическому
         // режиму, выбранному в модалке.
+        // Лимит Скрытой атаки перепроверяется сейчас, а не по показу окна:
+        // второе окно того же клиента могло потратить его после открытия
+        const rollContext = buildLiveRollContext();
+
         const bonusParts =
-          rollEvaluateBonusDamageParts.value?.(buildRollContext()) ?? [];
+          rollEvaluateBonusDamageParts.value?.(rollContext) ?? [];
 
         // Тип на выбор решается до броска: выбранный в окне, у случайного —
         // выпавший; дальше часть идёт обычным типом (защиты, чат)
@@ -1115,7 +1153,8 @@
         // одночастном пути дописывается к формуле урона — сохраняем паритет,
         // дописывая его к первой урон-части. Прокидывается только оружейными
         // путями (заклинания этот проп не передают — их поведение не меняется).
-        const flatDamageBonus = currentConditionalBonuses.value.damageBonus;
+        const flatDamageBonus =
+          props.evaluateConditionalBonuses?.(rollContext).damageBonus ?? 0;
 
         if (flatDamageBonus !== 0) {
           const firstDamageIndex = effectiveParts.findIndex(
@@ -2018,7 +2057,7 @@
               :color="attackRollMode === 'normal' ? 'primary' : 'neutral'"
               size="sm"
               block
-              @click.left.exact.prevent="attackRollMode = 'normal'"
+              @click.left.exact.prevent="chooseRollMode('normal')"
             >
               {{ DICE_ROLL_LABELS.rollModeNormal }}
             </UButton>
@@ -2028,7 +2067,7 @@
               :color="attackRollMode === 'advantage' ? 'success' : 'neutral'"
               size="sm"
               block
-              @click.left.exact.prevent="attackRollMode = 'advantage'"
+              @click.left.exact.prevent="chooseRollMode('advantage')"
             >
               <UIcon
                 name="tabler:arrow-big-up-filled"
@@ -2042,7 +2081,7 @@
               :color="attackRollMode === 'disadvantage' ? 'error' : 'neutral'"
               size="sm"
               block
-              @click.left.exact.prevent="attackRollMode = 'disadvantage'"
+              @click.left.exact.prevent="chooseRollMode('disadvantage')"
             >
               <UIcon
                 name="tabler:arrow-big-down-filled"

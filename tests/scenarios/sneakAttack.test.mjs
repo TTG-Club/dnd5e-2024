@@ -521,15 +521,22 @@ describe('замена старой кнопки Скрытой атаки на 
 
   const other = effect('class-effect:rogue:effect-rogue-phb-expertise', []);
 
+  // Кнопка Хитрого удара начинается так же — её снимает только этап 3
+  const cunningMinus = effect(
+    'class-effect:rogue:effect-rogue-phb-sneak-attack-minus-1',
+    [],
+    { activation: { mode: 'use' } },
+  );
+
   it('[F07m] старая кнопка заменяется новой строкой; повтор ничего не меняет', () => {
     const migrated = engine.migrateLegacySneakAttackEffects(
-      [other, legacy],
+      [other, cunningMinus, legacy],
       [rogueSneak],
     );
 
     assert.deepEqual(
       migrated?.map((entry) => entry.id),
-      [other.id, rogueSneak.id],
+      [other.id, cunningMinus.id, rogueSneak.id],
     );
 
     assert.ok(engine.hasSneakAttackSource(migrated ?? []));
@@ -597,7 +604,7 @@ describe('окно атаки', () => {
   it('[F07l] цель сменилась при открытом окне — режим считается заново', () => {
     assert.match(
       modal,
-      /watch\(\s*\(\) => targetStore\.targetActorId,[\s\S]*?props\.resolveRollMode\(\)/u,
+      /watch\(\s*\(\) => targetStore\.targetTokenId,[\s\S]*?props\.resolveRollMode\(\)/u,
     );
   });
 
@@ -621,5 +628,171 @@ describe('окно атаки', () => {
     const spend = modal.indexOf('props.sneakAttack?.spend()');
 
     assert.ok(missReturn > 0 && spend > missReturn);
+  });
+});
+
+describe('доработки после ревью', () => {
+  /** Исходник окна броска */
+  const modal = readFileSync(
+    join(systemRoot, 'src/client/ui/actor/DiceRollModal.vue'),
+    'utf8',
+  );
+
+  /** Запись урона удара со Скрытой атакой, потраченной в ходу «1:0» */
+  const record = {
+    label: 'Кинжал',
+    critical: false,
+    sourceId: 'rogue',
+    sneakAttackTurn: '1:0',
+    parts: [
+      { formula: '1к4+4', types: ['piercing'] },
+      {
+        formula: '3к6',
+        types: ['piercing'],
+        label: 'Скрытая атака',
+        sneakAttack: true,
+      },
+      { formula: '1к6', types: ['piercing'] },
+    ],
+    targets: [
+      {
+        entityId: 'goblin',
+        name: 'Гоблин',
+        hpLost: 10,
+        tempLost: 0,
+        contributions: [
+          { part: 0, scale: 1 },
+          { part: 1, scale: 1 },
+          { part: 2, scale: 1 },
+        ],
+      },
+    ],
+  };
+
+  it('[F07h] А → отмена → Б потратил лимит → «Нанести урон» по А идёт без Скрытой атаки', () => {
+    const plan = engine.planSneakAttackReapply(record, '1:0', true);
+
+    assert.equal(plan.spend, false);
+
+    assert.deepEqual(
+      plan.record.parts.map((part) => part.formula),
+      ['1к4+4', '1к6'],
+    );
+
+    assert.deepEqual(plan.record.targets[0].contributions, [
+      { part: 0, scale: 1 },
+      { part: 1, scale: 1 },
+    ]);
+
+    assert.equal(plan.record.sneakAttackTurn, undefined);
+  });
+
+  it('[F07h] лимит свободен — повтор тратит его; другой ход — кости есть, расхода нет', () => {
+    assert.deepEqual(engine.planSneakAttackReapply(record, '1:0', false), {
+      record,
+      spend: true,
+    });
+
+    assert.deepEqual(engine.planSneakAttackReapply(record, '2:0', true), {
+      record,
+      spend: false,
+    });
+  });
+
+  it('[F07h] запись урона помнит кости Скрытой атаки', () => {
+    const parsed = engine.parseAttackDamageRecord(
+      engine.serializeAttackDamageRecord(record),
+    );
+
+    assert.equal(parsed?.parts[1].sneakAttack, true);
+    assert.equal(parsed?.sneakAttackTurn, '1:0');
+  });
+
+  it('[F07h] два окна одного клиента: лимит перепроверяется в момент броска', () => {
+    assert.match(
+      modal,
+      /const rollContext = buildLiveRollContext\(\);\s*const bonusParts =\s*rollEvaluateBonusDamageParts\.value\?\.\(rollContext\)/u,
+    );
+
+    assert.match(modal, /props\.sneakAttack\?\.isSpent\(\)/u);
+  });
+
+  it('[F07l] пересчёт идёт по фишке цели, ручной режим игрока остаётся', () => {
+    assert.match(
+      modal,
+      /watch\(\s*\(\) => targetStore\.targetTokenId,[\s\S]*?attackRollMode\.value = manualRollMode\.value \?\? mode;/u,
+    );
+
+    assert.doesNotMatch(
+      modal,
+      /@click\.left\.exact\.prevent="attackRollMode = /u,
+    );
+  });
+
+  it('[F07d] удар луком вплотную — не «дальнобойное оружие»', () => {
+    const bow = { id: 'bow', rangeType: 'ranged', weaponProperties: [] };
+    const melee = engine.withWeaponAttackKind(bow, 'melee');
+    const shot = engine.withWeaponAttackKind(bow, 'ranged');
+
+    assert.equal(melee.sourceRangeType ?? melee.rangeType, 'melee');
+    assert.equal(shot.sourceRangeType ?? shot.rangeType, 'ranged');
+  });
+
+  it('[F07p] стая: счётчик лимита — на записи, без фишки в ключе', () => {
+    assert.doesNotMatch(engine.SNEAK_ATTACK_USAGE_KEY, /token/u);
+  });
+
+  it('[F07n] готовое условие существа без оружия', () => {
+    const holds = (context) =>
+      engine.evaluateCondition(engine.SNEAK_ATTACK_CREATURE_CONDITION, context);
+
+    assert.equal(holds({ hasAdvantage: true, hasDisadvantage: false }), true);
+
+    assert.equal(
+      holds({
+        hasAdvantage: false,
+        hasDisadvantage: false,
+        target: allyNearTarget,
+      }),
+      true,
+    );
+
+    assert.equal(holds({ hasAdvantage: false, hasDisadvantage: false }), false);
+  });
+
+  it('[F07c] «или» у ключа листа помечается как недействующее', () => {
+    const ignored = (key, condition) =>
+      engine.isIgnoredAlternativesCondition({ key, condition });
+
+    assert.equal(
+      ignored(
+        'armorClass',
+        'self.armor === "light" || self.armor === "medium"',
+      ),
+      true,
+    );
+
+    assert.equal(
+      ignored(
+        'movement.walk',
+        'self.armor === "none" || self.armor === "light"',
+      ),
+      true,
+    );
+
+    assert.equal(
+      ignored(
+        'armorClass',
+        'incoming.attackType === "ranged" || incoming.attackType === "spell"',
+      ),
+      false,
+    );
+
+    assert.equal(
+      ignored('damage.melee', 'roll.hasAdvantage === true || x'),
+      false,
+    );
+
+    assert.equal(ignored('armorClass', 'self.armor === "light"'), false);
   });
 });

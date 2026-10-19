@@ -24,6 +24,7 @@
  */
 
 import type { ActiveEffect } from './activeEffectTypes.js';
+import type { AttackDamageRecord } from './attackDamageRecord.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { RollContext } from './effectPipeline.js';
 import type { EffectTriggerLimit } from './effectTriggerTypes.js';
@@ -37,6 +38,10 @@ import {
   SNEAK_ATTACK_DAMAGE_KEY,
   SNEAK_ATTACK_DICE_KEY,
 } from './activeEffectTypes.js';
+import {
+  buildClassEffectId,
+  readClassEffectClassKey,
+} from './classEffectScope.js';
 import { resolveDiceCountExpressions } from './diceCountExpressions.js';
 import {
   collectRollTimeChanges,
@@ -293,15 +298,22 @@ export function releaseSneakAttackUsage(
 export const LEGACY_SNEAK_ATTACK_EFFECT_ID = 'effect-rogue-phb-sneak-attack';
 
 /**
- * Старая ли это Скрытая атака: эффект класса с id старой кнопки (с любым
- * хвостом — копии и варианты) без строки `sneakAttack.damage`.
+ * Старая ли это Скрытая атака: кнопка «Применить» (`activation: use`) с id
+ * ровно `class-effect:<класс>:effect-rogue-phb-sneak-attack` — так её кладёт
+ * мастер класса. Сравнение точное: кнопки Хитрого удара
+ * (`effect-rogue-phb-sneak-attack-minus-1…9`) начинаются так же, а снимает
+ * их только миграция этапа 3.
  *
  * @param effect - эффект на листе
  * @returns `true`, если эффект надо заменить
  */
 function isLegacySneakAttackEffect(effect: ActiveEffect): boolean {
+  const classKey = readClassEffectClassKey(effect.id);
+
   return (
-    effect.id.includes(`:${LEGACY_SNEAK_ATTACK_EFFECT_ID}`)
+    classKey !== undefined
+    && effect.id === buildClassEffectId(classKey, LEGACY_SNEAK_ATTACK_EFFECT_ID)
+    && effect.activation?.mode === 'use'
     && !hasSneakAttackSource([effect])
   );
 }
@@ -334,4 +346,78 @@ export function migrateLegacySneakAttackEffects(
   const keptIds = new Set(kept.map((effect) => effect.id));
 
   return [...kept, ...fresh.filter((effect) => !keptIds.has(effect.id))];
+}
+
+/** Как повторить урон удара, в котором была Скрытая атака */
+export interface SneakAttackReapplyPlan {
+  /** Запись для повтора: без костей Скрытой атаки, если лимит уже занят */
+  record: AttackDamageRecord;
+  /** Тратить ли лимит хода повтором */
+  spend: boolean;
+}
+
+/**
+ * «Нанести урон» после «Отменить урон»: идёт ли в повтор Скрытая атака.
+ *
+ * Отмена вернула лимит хода; если за это время его потратил другой удар
+ * того же хода, повтор идёт БЕЗ костей Скрытой атаки — иначе она легла бы
+ * дважды за ход. В другом ходу лимит уже новый и тратить его старым ударом
+ * нельзя: кости остаются (удар был тогда), расход не пишется.
+ *
+ * @param record - запись отменённого урона
+ * @param turnStamp - метка идущего хода
+ * @param spentNow - потрачена ли Скрытая атака бившего в этом ходу сейчас
+ * @returns запись для повтора и нужен ли расход
+ */
+export function planSneakAttackReapply(
+  record: AttackDamageRecord,
+  turnStamp: string,
+  spentNow: boolean,
+): SneakAttackReapplyPlan {
+  if (!record.sneakAttackTurn || record.sneakAttackTurn !== turnStamp) {
+    return { record, spend: false };
+  }
+
+  if (!spentNow) {
+    return { record, spend: true };
+  }
+
+  return { record: withoutSneakAttackParts(record), spend: false };
+}
+
+/**
+ * Запись урона без частей Скрытой атаки: вклады целей переписаны на новые
+ * номера частей, метка хода снята.
+ *
+ * @param record - запись урона
+ * @returns запись без костей Скрытой атаки
+ */
+function withoutSneakAttackParts(
+  record: AttackDamageRecord,
+): AttackDamageRecord {
+  const newIndex = new Map<number, number>();
+
+  const parts = record.parts.filter((part, index) => {
+    if (part.sneakAttack) {
+      return false;
+    }
+
+    newIndex.set(index, newIndex.size);
+
+    return true;
+  });
+
+  return {
+    ...record,
+    sneakAttackTurn: undefined,
+    parts,
+    targets: record.targets.map((target) => ({
+      ...target,
+      contributions: target.contributions.flatMap((contribution) => {
+        const part = newIndex.get(contribution.part);
+
+        return part === undefined ? [] : [{ ...contribution, part }];
+      }),
+    })),
+  };
 }

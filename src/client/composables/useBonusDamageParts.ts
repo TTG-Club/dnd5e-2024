@@ -119,6 +119,8 @@ export interface SneakAttackRollPort {
   ) => SneakAttackPreview | undefined;
   /** Тратит лимит хода; возвращает ход расхода (вне боя — `undefined`) */
   spend: () => string | undefined;
+  /** Потрачен ли лимит хода прямо сейчас — без кэша показа окна */
+  isSpent: () => boolean;
 }
 
 /** Параметры сборки многочастного броска оружия */
@@ -582,6 +584,7 @@ export function useBonusDamageParts() {
           : undefined;
       },
       spend: () => spendSneakAttack(owner.id),
+      isSpent: () => isSneakAttackSpentNow(owner.id),
     };
   }
 

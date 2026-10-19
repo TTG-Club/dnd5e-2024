@@ -62,6 +62,7 @@ import {
   isEffectDormant,
   isOffSheetChangeKey,
   isSenseType,
+  isSneakAttackKey,
   isWeaponOverrideKey,
   parseWeaponBaseTypeCondition,
   ROLL_ADVANTAGE_CONDITION,
@@ -2132,6 +2133,43 @@ export function isRollTimeDiceKey(key: string): boolean {
     || key === SNEAK_ATTACK_DAMAGE_KEY
     || key.startsWith('damage.')
     || isRollBonusKey(key)
+  );
+}
+
+/** Приставка условий входящей атаки — их проверяет защита (КД) */
+const INCOMING_CONDITION_PREFIX = 'incoming.';
+
+/**
+ * Не действует ли строка нигде из-за «или» в условии. По листу условие с «или»
+ * не считается ({@link isCarrierCondition}), а в броске читаются только ключи
+ * бросков: урон, атака, спасбросок, проверка, порог крита, Скрытая атака и КД
+ * против входящей атаки. «КД +1 в лёгком ИЛИ среднем доспехе» не сработала бы
+ * ни на листе, ни в броске — форма эффекта предупреждает автора.
+ *
+ * @param change - строка эффекта
+ * @returns `true`, если строка с «или» у ключа листа ничего не меняет
+ */
+export function isIgnoredAlternativesCondition(
+  change: Pick<EffectChange, 'key' | 'condition'>,
+): boolean {
+  if (!change.condition || !hasConditionAlternatives(change.condition)) {
+    return false;
+  }
+
+  if (
+    isRollTimeDiceKey(change.key)
+    || isSneakAttackKey(change.key)
+    || change.key === CRIT_THRESHOLD_KEY
+  ) {
+    return false;
+  }
+
+  // КД с условием входящей атаки считает защита — там «или» работает
+  return !(
+    change.key === 'armorClass'
+    && splitConditionGroups(change.condition)
+      .flat()
+      .some((part) => part.startsWith(INCOMING_CONDITION_PREFIX))
   );
 }
 

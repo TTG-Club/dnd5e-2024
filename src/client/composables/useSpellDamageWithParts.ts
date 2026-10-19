@@ -1042,6 +1042,7 @@ export function useSpellDamageWithParts() {
           : {}),
         parts: damageParts.map((part) => ({
           ...(part.label ? { label: part.label } : {}),
+          ...(part.sneakAttack ? { sneakAttack: true as const } : {}),
           formula: part.formula,
           types: part.types ?? (part.type ? [part.type] : []),
           roll: describeDamagePartRoll({

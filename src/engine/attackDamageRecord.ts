@@ -95,6 +95,7 @@ const AttackDamagePartSchema = z.object({
     .max(MAX_RECORD_LABEL_LENGTH)
     .optional()
     .catch(undefined),
+  sneakAttack: z.literal(true).optional().catch(undefined),
 });
 
 /** Zod-схема полного урона цели по режимам */
@@ -166,6 +167,8 @@ export interface AttackDamagePart {
   roll?: AttackDamagePartRoll;
   /** Своя подпись части: «Скрытая атака» */
   label?: string;
+  /** Кости Скрытой атаки: повтор урона решает, идут ли они снова */
+  sneakAttack?: true;
 }
 
 /**

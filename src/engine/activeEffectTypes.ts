@@ -925,6 +925,18 @@ export const SNEAK_ATTACK_CONDITION = joinConditionGroups(
   ]),
 );
 
+/**
+ * Условие Скрытой атаки существа: без частей про оружие. У действия
+ * существа нет свойств оружия (ни в статблоке, ни в данных компендиума), и
+ * условие плута с «фехтовальным или дальнобойным оружием» у него не
+ * выполнялось бы никогда. Какое действие — оружие, автор решает сам, вешая
+ * строку на существо.
+ */
+export const SNEAK_ATTACK_CREATURE_CONDITION = joinConditionGroups([
+  [ROLL_ADVANTAGE_CONDITION],
+  [TARGET_ALLY_ADJACENT_CONDITION, ROLL_NO_DISADVANTAGE_CONDITION],
+]);
+
 /** Разделы библиотеки условий — в порядке показа */
 export const EFFECT_CONDITION_SECTIONS = {
   roll: 'Бросок и атака',
@@ -976,6 +988,11 @@ export const EFFECT_CONDITION_SUGGESTIONS: readonly EffectLibrarySuggestion[] =
           hint:
             `Фехтовальное или дальнобойное оружие; преимущество либо союзник рядом с целью без помехи. `
             + `Группы соединены «${CONDITION_OR_SEPARATOR}» — нужна любая.`,
+        },
+        {
+          value: SNEAK_ATTACK_CREATURE_CONDITION,
+          label: 'Скрытая атака существа: без условия про оружие',
+          hint: 'У действия существа нет свойств оружия: преимущество либо союзник рядом с целью без помехи.',
         },
         {
           value: SNEAK_ATTACK_APPLIED_CONDITION,
