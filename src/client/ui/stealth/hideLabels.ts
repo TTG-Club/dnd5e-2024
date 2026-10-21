@@ -113,4 +113,6 @@ export const ACTION_SHELF_BUTTONS = {
   jumpIcon: 'tabler:jump-rope',
   /** Причина недоступной кнопки */
   inDevelopment: 'В разработке',
+  /** Причина недоступной кнопки, пока не выбран свой герой */
+  noHero: 'Выберите своего героя на сцене',
 } as const;

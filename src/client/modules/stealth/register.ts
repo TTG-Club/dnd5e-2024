@@ -22,6 +22,8 @@ import type { ClientSystemAPI } from '@/core/systemBootstrap';
 import type { ChatMessageFollowUp } from '@vtt/shared';
 import type { DnDSceneEntity } from '@vtt/shared/system/dnd.js';
 
+import type { ActionShelfButton } from '../../composables/actionShelf';
+
 import {
   findHiddenEffect,
   HIDE_FOLLOW_UP_KIND,
@@ -98,6 +100,47 @@ function runWithLiveEntity(
 }
 
 /**
+ * Кнопки полки, пока не выбран свой герой: тот же набор и порядок, что у
+ * героя, но все погашены — полка не исчезает и не прыгает при выделении.
+ *
+ * @returns погашенные кнопки полки
+ */
+function buildIdleShelfButtons(): ActionShelfButton[] {
+  return [
+    {
+      id: ACTION_SHELF_BUTTONS.attackId,
+      icon: ACTION_SHELF_BUTTONS.attackIcon,
+      label: ACTION_SHELF_BUTTONS.attack,
+      disabled: true,
+      disabledReason: ACTION_SHELF_BUTTONS.inDevelopment,
+    },
+    {
+      id: ACTION_SHELF_BUTTONS.jumpId,
+      icon: ACTION_SHELF_BUTTONS.jumpIcon,
+      label: ACTION_SHELF_BUTTONS.jump,
+      disabled: true,
+      disabledReason: ACTION_SHELF_BUTTONS.inDevelopment,
+    },
+    {
+      id: ACTION_SHELF_BUTTONS.hideId,
+      icon: HIDE_ICON,
+      label: ACTION_SHELF_BUTTONS.hide,
+      tooltip: ACTION_SHELF_BUTTONS.hideTooltip,
+      disabled: true,
+      disabledReason: ACTION_SHELF_BUTTONS.noHero,
+    },
+    {
+      id: ACTION_SHELF_BUTTONS.searchId,
+      icon: ACTION_SHELF_BUTTONS.searchIcon,
+      label: ACTION_SHELF_BUTTONS.search,
+      tooltip: ACTION_SHELF_BUTTONS.searchTooltip,
+      disabled: true,
+      disabledReason: ACTION_SHELF_BUTTONS.noHero,
+    },
+  ];
+}
+
+/**
  * Регистрирует засаду: кнопки под сообщением и полку действий.
  *
  * @param api - API ядра для системы
@@ -133,8 +176,9 @@ export function register(api: ClientSystemAPI): void {
     list: (context) => {
       const entity = useWorldEntities().findCurrentDndEntity(context.entityId);
 
+      // Полка видна всегда: без своего героя — те же кнопки, но погашены
       if (!entity) {
-        return [];
+        return buildIdleShelfButtons();
       }
 
       const hidden = findHiddenEffect(entity) !== undefined;

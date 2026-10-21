@@ -542,6 +542,7 @@ describe('полка действий', () => {
       'resolveHideActionView',
       'withHidePayload',
       'runWithLiveEntity',
+      'buildIdleShelfButtons',
     ]) {
       ports[name] = await loadHandler(
         'src/client/modules/stealth/register.ts',
@@ -590,11 +591,18 @@ describe('полка действий', () => {
 
     assert.equal(hidden.shelf.list({ entityId: 'rogue' })[2].active, true);
 
-    assert.equal(
-      hidden.shelf.list({ entityId: 'nobody' }).length,
-      0,
-      'без выделения полки нет',
+    const idle = hidden.shelf.list({ entityId: 'nobody' });
+
+    assert.deepEqual(
+      Array.from(idle, (button) => button.id),
+      ['attack', 'jump', 'hide', 'search'],
+      'без своего героя полка та же',
     );
+
+    for (const button of idle) {
+      assert.equal(button.disabled, true, 'и вся погашена');
+      assert.equal(button.onClick, undefined);
+    }
   });
 
   it('«Найти» помечен только для ведущего, «Шум» — нет', async () => {
