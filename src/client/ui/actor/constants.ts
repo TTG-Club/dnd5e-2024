@@ -244,9 +244,12 @@ export const HEADER_ROUND_BUTTON_CLASS =
 /**
  * Та же строка на листе персонажа: там она стоит порознь с соседями, и без
  * плашки её не отличить от фона.
+ *
+ * Цвет общий с карточками ядра (записи журнала, группы звуков, актёры):
+ * плашка `bg-elevated/40`, под курсором `bg-elevated/70`.
  */
 export const LIST_ROW_CARD_CLASS =
-  'rounded-lg bg-elevated/30 px-3 hover:bg-accented/40';
+  'rounded-lg bg-elevated/40 px-3 hover:bg-elevated/70';
 
 /**
  * Строка черты на листе персонажа: выше и темнее остальных — с ней там работают
@@ -260,7 +263,7 @@ export const LIST_ROW_SHEET_FEAT_CLASS =
  * остальных, и рамка отделяет наведённую от соседних.
  */
 export const LIST_ROW_CARD_BORDERED_CLASS =
-  'rounded-lg border border-transparent bg-elevated/30 px-3 hover:border-default/50 hover:bg-accented/40';
+  'rounded-lg border border-transparent bg-elevated/40 px-3 hover:border-default/50 hover:bg-elevated/70';
 
 /**
  * Колонка в начале строки списка — флажок окна выбора или стрелка подвидов.
