@@ -3116,6 +3116,7 @@
                   :is-equipment-drag-over="isEquipmentDragOver"
                   :is-feature-drag-over="isFeatureDragOver"
                   :has-main-tab="!isWide"
+                  :can-edit="canEdit"
                   class="flex-1"
                   @update:actor="handleActorUpdate"
                   @immediate-save="handleImmediateSave"

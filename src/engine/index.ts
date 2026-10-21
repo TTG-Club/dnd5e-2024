@@ -4,6 +4,7 @@ export * from './actionRestrictions.js';
 export * from './activeEffectDescribe.js';
 export * from './activeEffectScenario.js';
 export * from './activeEffectTypes.js';
+export * from './actorPersonality.js';
 export * from './actorSenses.js';
 export * from './actorValidation.js';
 export * from './applyTimeFormulas.js';

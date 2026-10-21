@@ -31,6 +31,7 @@
   import ActorEquipmentTab from './tabs/ActorEquipmentTab.vue';
   import ActorFeaturesTab from './tabs/ActorFeaturesTab.vue';
   import ActorNotesTab from './tabs/ActorNotesTab.vue';
+  import ActorPersonalityTab from './tabs/ActorPersonalityTab.vue';
   import ActorSpellsTab from './tabs/ActorSpellsTab.vue';
 
   interface Props {
@@ -49,6 +50,8 @@
      * колонками слева, а приходит слотом `main` и встаёт первой вкладкой.
      */
     hasMainTab?: boolean;
+    /** Может ли пользователь править лист — вкладке «Личность» для её окон */
+    canEdit: boolean;
   }
 
   const props = withDefaults(defineProps<Props>(), {
@@ -136,6 +139,7 @@
       { id: 'spells', label: GRANT_SECTION_LABELS.spells },
       { id: 'features', label: GRANT_SECTION_LABELS.features },
       { id: 'effects', label: FORM_TAB_LABELS.effects },
+      { id: 'personality', label: ACTOR_TAB_LABELS.personality },
       { id: 'notes', label: ACTOR_TAB_LABELS.notes },
     ].map((tab) => ({ ...tab, tone: tabTones.value[tab.id] }));
 
@@ -264,6 +268,13 @@
       :is-edit-mode="isEditMode"
       @update:actor="handleUpdate"
       @immediate-save="emit('immediate-save')"
+    />
+
+    <ActorPersonalityTab
+      v-if="activeTab === 'personality'"
+      :actor="actor"
+      :can-edit="canEdit"
+      @update:actor="handleUpdate"
     />
 
     <ActorNotesTab

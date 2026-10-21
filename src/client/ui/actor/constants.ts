@@ -22,6 +22,7 @@ import type {
   CounterRecoveryChoice,
   CounterRestKey,
   HitDie,
+  PersonalityTextFieldKey,
   SkillInfluenceTone,
   SpellCastRollKind,
 } from '@vtt/shared/system/dnd.js';
@@ -3219,7 +3220,45 @@ export const INITIATIVE_ROLL_LABELS = {
 export const ACTOR_TAB_LABELS = {
   notes: 'Заметки',
   notesEmpty: 'Нет заметок',
+  personality: 'Личность',
 } as const;
+
+/** Подписи вкладки «Личность» */
+export const PERSONALITY_TAB_LABELS = {
+  appearanceTitle: 'Приметы',
+  alignment: 'Мировоззрение',
+  alignmentPlaceholder: 'Выбери мировоззрение',
+  appearanceModalTitle: 'Приметы персонажа',
+  editAppearance: 'Изменить приметы',
+  editAppearanceTile: 'Изменить',
+  reset: 'Сбросить',
+  backgroundTitle: 'Предыстория',
+  backgroundHint: 'Меняется в шапке листа',
+  backgroundEmpty: 'Предыстория не выбрана — её выбирают в шапке листа',
+  backgroundFeat: 'Черта',
+  descriptionTitle: 'Подробное описание',
+  descriptionEmpty:
+    'Расскажите о персонаже: характер, привычки, прошлое, цели и связи.',
+  descriptionModalTitle: 'Подробное описание персонажа',
+  editDescription: 'Изменить подробное описание',
+  addDescription: 'Добавить описание',
+} as const;
+
+/** Значение незаполненной приметы */
+export const PERSONALITY_EMPTY_VALUE = '—';
+
+/** Подписи и подсказки примет вкладки «Личность» */
+export const PERSONALITY_TEXT_FIELD_LABELS: Record<
+  PersonalityTextFieldKey,
+  { label: string; placeholder: string }
+> = {
+  age: { label: 'Возраст', placeholder: '27 лет' },
+  height: { label: 'Рост', placeholder: '178 см' },
+  weight: { label: 'Вес', placeholder: '74 кг' },
+  eyes: { label: 'Цвет глаз', placeholder: 'Серо-зелёные' },
+  hair: { label: 'Цвет волос', placeholder: 'Русые' },
+  skin: { label: 'Кожа', placeholder: 'Смуглая' },
+};
 
 /**
  * Вкладка «Основное». Есть только у узкого листа (телефон, суженное окно): на
