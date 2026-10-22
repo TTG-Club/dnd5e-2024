@@ -39,6 +39,11 @@ export interface ActionShelfButton {
   disabledReason?: string;
   /** Кнопка «включена»: подсветка */
   active?: boolean;
+  /**
+   * Горячая клавиша — код латинской буквы (`KeyQ`), как `KeyboardEvent.code`.
+   * Ядро понимает её с VTTG 0.9.755; старое приложение поле отбрасывает.
+   */
+  hotkey?: string;
   /** Нажатие; у недоступной кнопки его может не быть */
   onClick?: (context: ActionShelfContext) => void | Promise<void>;
 }

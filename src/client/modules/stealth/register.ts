@@ -25,7 +25,10 @@ import {
   startHide,
   startSearch,
 } from '../../composables/hideAction';
-import { buildJumpShelfButton } from '../../composables/jumpAction';
+import {
+  buildJumpShelfButton,
+  JUMP_SHELF_BUTTON_BASE,
+} from '../../composables/jumpAction';
 import { useWorldEntities } from '../../composables/useWorldEntities';
 import { ACTION_SHELF_BUTTONS, HIDE_ICON } from '../../ui/stealth/hideLabels';
 
@@ -47,6 +50,39 @@ function runWithLiveEntity(
   }
 }
 
+/** «Атака» — одна и та же и у героя, и без него: пока в разработке */
+const ATTACK_SHELF_BUTTON = {
+  id: ACTION_SHELF_BUTTONS.attackId,
+  icon: ACTION_SHELF_BUTTONS.attackIcon,
+  label: ACTION_SHELF_BUTTONS.attack,
+  hotkey: ACTION_SHELF_BUTTONS.attackHotkey,
+  disabled: true,
+  disabledReason: ACTION_SHELF_BUTTONS.inDevelopment,
+} satisfies ActionShelfButton;
+
+/** Неизменная часть кнопки «Спрятаться» */
+const HIDE_SHELF_BUTTON_BASE = {
+  id: ACTION_SHELF_BUTTONS.hideId,
+  icon: HIDE_ICON,
+  label: ACTION_SHELF_BUTTONS.hide,
+  hotkey: ACTION_SHELF_BUTTONS.hideHotkey,
+} satisfies ActionShelfButton;
+
+/** Неизменная часть кнопки «Поиск» */
+const SEARCH_SHELF_BUTTON_BASE = {
+  id: ACTION_SHELF_BUTTONS.searchId,
+  icon: ACTION_SHELF_BUTTONS.searchIcon,
+  label: ACTION_SHELF_BUTTONS.search,
+  hotkey: ACTION_SHELF_BUTTONS.searchHotkey,
+  tooltip: ACTION_SHELF_BUTTONS.searchTooltip,
+} satisfies ActionShelfButton;
+
+/** Погашенная кнопка, пока не выбран свой герой */
+const NO_HERO_STATE = {
+  disabled: true,
+  disabledReason: ACTION_SHELF_BUTTONS.noHero,
+} satisfies Partial<ActionShelfButton>;
+
 /**
  * Кнопки полки, пока не выбран свой герой: тот же набор и порядок, что у
  * героя, но все погашены — полка не исчезает и не прыгает при выделении.
@@ -55,36 +91,14 @@ function runWithLiveEntity(
  */
 function buildIdleShelfButtons(): ActionShelfButton[] {
   return [
+    ATTACK_SHELF_BUTTON,
+    { ...JUMP_SHELF_BUTTON_BASE, ...NO_HERO_STATE },
     {
-      id: ACTION_SHELF_BUTTONS.attackId,
-      icon: ACTION_SHELF_BUTTONS.attackIcon,
-      label: ACTION_SHELF_BUTTONS.attack,
-      disabled: true,
-      disabledReason: ACTION_SHELF_BUTTONS.inDevelopment,
-    },
-    {
-      id: ACTION_SHELF_BUTTONS.jumpId,
-      icon: ACTION_SHELF_BUTTONS.jumpIcon,
-      label: ACTION_SHELF_BUTTONS.jump,
-      disabled: true,
-      disabledReason: ACTION_SHELF_BUTTONS.noHero,
-    },
-    {
-      id: ACTION_SHELF_BUTTONS.hideId,
-      icon: HIDE_ICON,
-      label: ACTION_SHELF_BUTTONS.hide,
+      ...HIDE_SHELF_BUTTON_BASE,
       tooltip: ACTION_SHELF_BUTTONS.hideTooltip,
-      disabled: true,
-      disabledReason: ACTION_SHELF_BUTTONS.noHero,
+      ...NO_HERO_STATE,
     },
-    {
-      id: ACTION_SHELF_BUTTONS.searchId,
-      icon: ACTION_SHELF_BUTTONS.searchIcon,
-      label: ACTION_SHELF_BUTTONS.search,
-      tooltip: ACTION_SHELF_BUTTONS.searchTooltip,
-      disabled: true,
-      disabledReason: ACTION_SHELF_BUTTONS.noHero,
-    },
+    { ...SEARCH_SHELF_BUTTON_BASE, ...NO_HERO_STATE },
   ];
 }
 
@@ -106,18 +120,10 @@ export function register(api: ClientSystemAPI): void {
       const hidden = findHiddenEffect(entity) !== undefined;
 
       return [
-        {
-          id: ACTION_SHELF_BUTTONS.attackId,
-          icon: ACTION_SHELF_BUTTONS.attackIcon,
-          label: ACTION_SHELF_BUTTONS.attack,
-          disabled: true,
-          disabledReason: ACTION_SHELF_BUTTONS.inDevelopment,
-        },
+        ATTACK_SHELF_BUTTON,
         buildJumpShelfButton(api, entity),
         {
-          id: ACTION_SHELF_BUTTONS.hideId,
-          icon: HIDE_ICON,
-          label: ACTION_SHELF_BUTTONS.hide,
+          ...HIDE_SHELF_BUTTON_BASE,
           tooltip: hidden
             ? ACTION_SHELF_BUTTONS.hideActiveTooltip
             : ACTION_SHELF_BUTTONS.hideTooltip,
@@ -127,10 +133,7 @@ export function register(api: ClientSystemAPI): void {
             runWithLiveEntity(entity.id, hidden ? leaveHide : startHide),
         },
         {
-          id: ACTION_SHELF_BUTTONS.searchId,
-          icon: ACTION_SHELF_BUTTONS.searchIcon,
-          label: ACTION_SHELF_BUTTONS.search,
-          tooltip: ACTION_SHELF_BUTTONS.searchTooltip,
+          ...SEARCH_SHELF_BUTTON_BASE,
           onClick: () => runWithLiveEntity(entity.id, startSearch),
         },
       ];

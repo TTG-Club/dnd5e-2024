@@ -70,6 +70,17 @@ function describeJump(entity: DnDSceneEntity): string | undefined {
 }
 
 /**
+ * Неизменная часть кнопки «Прыжок»: она же у погашенной кнопки, пока не выбран
+ * свой герой (`modules/stealth/register.ts`).
+ */
+export const JUMP_SHELF_BUTTON_BASE = {
+  id: ACTION_SHELF_BUTTONS.jumpId,
+  icon: ACTION_SHELF_BUTTONS.jumpIcon,
+  label: ACTION_SHELF_BUTTONS.jump,
+  hotkey: ACTION_SHELF_BUTTONS.jumpHotkey,
+} satisfies ActionShelfButton;
+
+/**
  * Кнопка «Прыжок» для выделенного героя.
  *
  * Горит, пока режим прыжка включён для этой сущности; нажатие на горящую
@@ -84,17 +95,11 @@ export function buildJumpShelfButton(
   api: ClientSystemAPI,
   entity: DnDSceneEntity,
 ): ActionShelfButton {
-  const base = {
-    id: ACTION_SHELF_BUTTONS.jumpId,
-    icon: ACTION_SHELF_BUTTONS.jumpIcon,
-    label: ACTION_SHELF_BUTTONS.jump,
-  };
-
   const control = findMovementModeControl(api);
 
   if (!control) {
     return {
-      ...base,
+      ...JUMP_SHELF_BUTTON_BASE,
       disabled: true,
       disabledReason: ACTION_SHELF_BUTTONS.jumpNeedsHost,
     };
@@ -104,7 +109,7 @@ export function buildJumpShelfButton(
 
   if (!tooltip) {
     return {
-      ...base,
+      ...JUMP_SHELF_BUTTON_BASE,
       disabled: true,
       disabledReason: ACTION_SHELF_BUTTONS.jumpNoMovement,
     };
@@ -116,7 +121,7 @@ export function buildJumpShelfButton(
     current?.entityId === entity.id && current.modeId === JUMP_MOVEMENT_MODE_ID;
 
   return {
-    ...base,
+    ...JUMP_SHELF_BUTTON_BASE,
     tooltip: active ? ACTION_SHELF_BUTTONS.jumpActiveTooltip : tooltip,
     active,
     // Горящая кнопка выключает режим, а не включает заново

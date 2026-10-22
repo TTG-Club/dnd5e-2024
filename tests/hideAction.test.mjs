@@ -633,6 +633,7 @@ describe('полка действий', () => {
     for (const name of [
       'findMovementModeControl',
       'describeJump',
+      'JUMP_SHELF_BUTTON_BASE',
       'buildJumpShelfButton',
     ]) {
       ports[name] = await loadHandler(
@@ -654,7 +655,14 @@ describe('полка действий', () => {
       ports,
     );
 
-    for (const name of ['runWithLiveEntity', 'buildIdleShelfButtons']) {
+    for (const name of [
+      'runWithLiveEntity',
+      'ATTACK_SHELF_BUTTON',
+      'HIDE_SHELF_BUTTON_BASE',
+      'SEARCH_SHELF_BUTTON_BASE',
+      'NO_HERO_STATE',
+      'buildIdleShelfButtons',
+    ]) {
       ports[name] = await loadHandler(
         'src/client/modules/stealth/register.ts',
         name,
@@ -693,6 +701,12 @@ describe('полка действий', () => {
       ['attack', 'jump', 'hide', 'search'],
     );
 
+    assert.deepEqual(
+      Array.from(buttons, (button) => button.hotkey),
+      ['KeyQ', 'KeyW', 'KeyE', 'KeyR'],
+      'клавиши Q W E R по порядку',
+    );
+
     assert.equal(buttons[0].disabled, true);
     assert.equal(buttons[0].disabledReason, 'В разработке');
     assert.equal(buttons[0].onClick, undefined);
@@ -720,6 +734,12 @@ describe('полка действий', () => {
       Array.from(idle, (button) => button.id),
       ['attack', 'jump', 'hide', 'search'],
       'без своего героя полка та же',
+    );
+
+    assert.deepEqual(
+      Array.from(idle, (button) => button.hotkey),
+      ['KeyQ', 'KeyW', 'KeyE', 'KeyR'],
+      'и клавиши те же',
     );
 
     for (const button of idle) {
