@@ -29,6 +29,7 @@ const HIDE_FUNCTIONS = [
   'areAllies',
   'refuseOutsideOwnTurn',
   'refuseAction',
+  'appendToRollCard',
   'announceHide',
   'settleHide',
   'rollHide',

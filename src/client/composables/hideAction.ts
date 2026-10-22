@@ -169,6 +169,24 @@ function refuseAction(entity: DnDSceneEntity, title: string): boolean {
 }
 
 /**
+ * Дописывает исход действия в карточку его броска — как урон в карточку
+ * атаки: видимость и подпись дописанное наследует от броска.
+ *
+ * @param rollMessageId - сообщение с броском; нет — броска в чате нет
+ * @param text - исход
+ * @returns `true`, если дописано; `false` — исход нужен отдельным сообщением
+ */
+function appendToRollCard(
+  rollMessageId: string | undefined,
+  text: string,
+): boolean {
+  return (
+    rollMessageId !== undefined
+    && useChatStore().appendToMessage(rollMessageId, text)
+  );
+}
+
+/**
  * Объявляет удачную засаду — одна точка на все виды объявления.
  *
  * Строка «Входит в засаду» с ценой дописывается в карточку броска
@@ -189,10 +207,9 @@ function announceHide(
   cost: EffectActionCost,
   rollMessageId: string | undefined,
 ): void {
-  const chat = useChatStore();
   const announcement = `${HIDE_LABELS.hiddenMessage}${HIDE_COST_NOTES[cost] ?? ''}`;
 
-  if (rollMessageId && chat.appendToMessage(rollMessageId, announcement)) {
+  if (appendToRollCard(rollMessageId, announcement)) {
     return;
   }
 
@@ -209,7 +226,7 @@ function announceHide(
     return;
   }
 
-  chat.sendMessage(
+  useChatStore().sendMessage(
     `${announcement}. ${searchDc}`,
     'text',
     undefined,
@@ -389,13 +406,11 @@ function settleSearch(
       ? `${HIDE_LABELS.foundPrefix}${found.join(HIDE_LABELS.foundSeparator)}`
       : HIDE_LABELS.nothingFoundMessage;
 
-  const chat = useChatStore();
-
-  if (roll.messageId && chat.appendToMessage(roll.messageId, outcome)) {
+  if (appendToRollCard(roll.messageId, outcome)) {
     return;
   }
 
-  chat.sendMessage(outcome, 'text', undefined, undefined, {
+  useChatStore().sendMessage(outcome, 'text', undefined, undefined, {
     speakerEntityId: searcher.id,
   });
 }
