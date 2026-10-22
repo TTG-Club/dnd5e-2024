@@ -58,6 +58,7 @@ import {
 import { canSendGmOnlyChat } from './gmOnlyChat';
 import { refuseWhilePaused } from './pauseLock';
 import { chooseOne } from './questionChoice';
+import { resolveClientSceneSight } from './sceneSightFacts';
 import { refuseWhileSheetEditing } from './sheetEditLock';
 import { openSkillCheckModal } from './skillCheckRoll';
 import { listAmbientEffects, resolveEntityStats } from './useResolvedStats';
@@ -359,7 +360,7 @@ function findLiveHide(payload: HideEntry): DnDSceneEntity | undefined {
 /**
  * Записывает исход поиска: трата действия, снятие каждой найденной засады и
  * сообщение в чат. В чат идут только найденные — остальных сообщение не
- * выдаёт; укрытие и линию зрения ведущий проверяет сам.
+ * выдаёт.
  *
  * @param searcher - кто искал
  * @param hides - засады, которые он мог заметить
@@ -382,7 +383,7 @@ function settleSearch(
 
   useChatStore().sendMessage(
     found.length > 0
-      ? `${searcher.name}${HIDE_LABELS.foundMiddle}${found.join(HIDE_LABELS.foundSeparator)}. ${HIDE_LABELS.searchHint}`
+      ? `${searcher.name}${HIDE_LABELS.foundMiddle}${found.join(HIDE_LABELS.foundSeparator)}`
       : `${searcher.name}${HIDE_LABELS.nothingFoundSuffix}`,
     'text',
     undefined,
@@ -424,9 +425,15 @@ function openSearchCheck(
 }
 
 /**
- * Засады на сцене, которые ищущий может заметить: все спрятавшиеся, кроме него
- * самого и его союзников — где прячутся свои, он знает. Сторона — по фишке,
- * без фишки — по владельцу. Линию зрения и укрытие система не проверяет.
+ * Засады на сцене, которые ищущий может заметить: спрятавшиеся, которых он
+ * видит, кроме него самого и его союзников — где прячутся свои, он знает.
+ * Сторона — по фишке, без фишки — по владельцу.
+ *
+ * «Видит» — правило видимости сцены (`sceneSight.ts` движка): стены и
+ * закрытые двери на линии взгляда, сектор и дальность зрения фишки, темнота
+ * без тёмного зрения, невидимость. Фактов нет (старое ядро, у ищущего нет
+ * фишки на сцене) — видимость неизвестна, и засада остаётся в списке: решает
+ * ведущий, как до проверки обзора.
  *
  * @param searcher - кто ищет
  * @returns засады
@@ -434,6 +441,7 @@ function openSearchCheck(
 export function listSearchableHides(searcher: DnDSceneEntity): HideEntry[] {
   const tokens = useWorldStore().currentScene?.tokens ?? [];
   const { findCurrentDndEntity } = useWorldEntities();
+  const sight = resolveClientSceneSight();
   const seen = new Set<string>();
 
   return tokens.flatMap((token) => {
@@ -452,6 +460,7 @@ export function listSearchableHides(searcher: DnDSceneEntity): HideEntry[] {
     seen.add(entity.id);
 
     return areAllies(searcher, entity, tokens)
+      || sight?.canSee(searcher, entity) === false
       ? []
       : [
           {

@@ -96,6 +96,7 @@ function token(actorId, disposition) {
  * @param {number} options.rollTotal - итог броска окна; нет — окно не бросает
  * @param {string} options.rollMessageId - id сообщения броска; нет — броска в чате нет
  * @param {boolean} options.gmOnlyChat - хост умеет сообщения «только для мастера»
+ * @param {object} options.sight - видимость сцены; нет — фактов нет
  * @returns {Promise<object>} функции и журналы
  */
 async function loadHide({
@@ -109,6 +110,7 @@ async function loadHide({
   rollTotal,
   rollMessageId,
   gmOnlyChat = false,
+  sight,
 } = {}) {
   const world = new Map(
     entities.map((item) => [item.id, structuredClone(item)]),
@@ -178,6 +180,7 @@ async function loadHide({
       return next;
     },
     canSendGmOnlyChat: () => gmOnlyChat,
+    resolveClientSceneSight: () => sight,
     useSystemToastStore: () => ({ add: (toast) => log.toasts.push(toast) }),
     useChatStore: () => ({
       sendMessage: (content, _type, _roll, _speaker, options) => {
@@ -422,6 +425,46 @@ describe('поиск', () => {
     );
   });
 
+  it('«Поиск» не находит тех, кого ищущий не видит; без фактов — всех', async () => {
+    const entities = [
+      rogue,
+      hiddenEntity('goblin', 14),
+      hiddenEntity('wolf', 12),
+    ];
+
+    const tokens = [
+      token('rogue', 'friendly'),
+      token('goblin', 'hostile'),
+      token('wolf', 'hostile'),
+    ];
+
+    // Волк — за стеной; про гоблина фактов нет (неизвестно)
+    const env = await loadHide({
+      entities,
+      tokens,
+      sight: {
+        canSee: (_viewer, target) => (target.id === 'wolf' ? false : undefined),
+      },
+    });
+
+    assert.deepEqual(
+      env
+        .listSearchableHides(env.world.get('rogue'))
+        .map((hide) => hide.entityId),
+      ['goblin'],
+    );
+
+    const unknown = await loadHide({ entities, tokens });
+
+    assert.deepEqual(
+      unknown
+        .listSearchableHides(unknown.world.get('rogue'))
+        .map((hide) => hide.entityId),
+      ['goblin', 'wolf'],
+      'видимость неизвестна — решает ведущий',
+    );
+  });
+
   it('ищущий без фишки: сторона по владельцу — засады своих не находит', async () => {
     const env = await loadHide({
       entities: [
@@ -464,7 +507,7 @@ describe('поиск', () => {
     assert.equal(env.findHiddenEffect(env.world.get('goblin')), undefined);
     assert.notEqual(env.findHiddenEffect(env.world.get('wolf')), undefined);
     assert.deepEqual(env.log.spends, [['rogue', 'action']]);
-    assert.match(env.log.messages[0], /находит: goblin\./u);
+    assert.equal(env.log.messages[0], 'rogue находит: goblin');
   });
 
   it('выход из засады по своей воле: в чужой ход тоже, без траты действия; чужой — нет', async () => {
