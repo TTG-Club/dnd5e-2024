@@ -81,6 +81,7 @@ const HOST_MODULE_IDS: string[] = [
   '@/stores/spellTemplateStore',
   '@/stores/targetStore',
   '@/stores/worldStore',
+  '@/stores/worldTimeStore',
   '@/system-runtime/activeSocket',
   '@/system-runtime/sceneSight',
   '@nuxt/ui/composables',
