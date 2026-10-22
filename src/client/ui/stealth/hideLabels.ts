@@ -110,7 +110,7 @@ export const ACTION_SHELF_BUTTONS = {
     'Поиск: проверка Мудрости (Внимательность) — находит засады, чья Сл не выше итога',
   jumpId: 'jump',
   jump: 'Прыжок',
-  jumpIcon: 'tabler:jump-rope',
+  jumpIcon: 'tabler:arrow-bounce',
   /** Причина недоступной кнопки */
   inDevelopment: 'В разработке',
   /** Причина недоступной кнопки, пока не выбран свой герой */
