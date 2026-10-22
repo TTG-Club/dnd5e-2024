@@ -43,6 +43,12 @@ import type { SceneSight } from './sceneSight.js';
 import type { TriggerEventData } from './triggerConditions.js';
 
 import {
+  SECONDS_PER_DAY,
+  SECONDS_PER_HOUR,
+  SECONDS_PER_MINUTE,
+} from '@vtt/shared';
+
+import {
   isToggleActivatedEffect,
   isUseActivatedEffect,
 } from './activeEffectTypes.js';
@@ -54,7 +60,7 @@ import {
   resolveSavingThrowRollMode,
   rollD20WithMode,
 } from './attackUtils.js';
-import { ABILITY_LABELS } from './consts.js';
+import { ABILITY_LABELS, DND_SECONDS_PER_ROUND } from './consts.js';
 import { resolveDamageTypeLabel } from './damageConstants.js';
 import { damageReachesTarget } from './damageTargetGate.js';
 import { settleDamageTypeChoices } from './damageTypeChoice.js';
@@ -103,26 +109,19 @@ const ROUND_LIMIT_PERIODS = ['round'] as const;
  */
 const ROUNDS_PER_DURATION_UNIT: Partial<Record<EffectDurationType, number>> = {
   rounds: 1,
-  minutes: 10,
-  hours: 600,
+  minutes: SECONDS_PER_MINUTE / DND_SECONDS_PER_ROUND,
+  hours: SECONDS_PER_HOUR / DND_SECONDS_PER_ROUND,
 };
 
 /**
- * Сколько игровых секунд длится раунд боя D&D 5e. Им же система отвечает ядру
- * (`VttSystem.secondsPerRound`): каждый новый раунд двигает игровые часы мира.
- */
-export const DND_SECONDS_PER_ROUND = 6;
-
-/**
  * Сколько игровых секунд в единице временного срока — для сроков по игровым
- * часам мира. Своя таблица, а не константы ядра: система работает и с
- * приложением, где их ещё нет.
+ * часам мира. Единицы времени берутся у ядра (`@vtt/shared`, VTTG 0.9.742+).
  */
 const SECONDS_PER_DURATION_UNIT: Partial<Record<EffectDurationType, number>> = {
   rounds: DND_SECONDS_PER_ROUND,
-  minutes: 60,
-  hours: 3600,
-  days: 86_400,
+  minutes: SECONDS_PER_MINUTE,
+  hours: SECONDS_PER_HOUR,
+  days: SECONDS_PER_DAY,
 };
 
 /**
@@ -297,19 +296,29 @@ export function decrementActorEffectDurations(entity: DnDSceneEntity): boolean {
 
     const remaining = duration.remaining - 1;
 
-    hasChanges = true;
-
     // Срок по игровым часам снимает `settleEffectsByWorldTime`: раунд лишь
     // уменьшает остаток для показа и не снимает эффект — иначе срок шёл бы
-    // дважды
+    // дважды. Остаток, упёршийся в 1, не меняется — и сущность не пишется
     if (typeof duration.expiresAt === 'number') {
+      const shownRemaining = Math.max(remaining, 1);
+
+      if (shownRemaining === duration.remaining) {
+        kept.push(effect);
+
+        return kept;
+      }
+
+      hasChanges = true;
+
       kept.push({
         ...effect,
-        duration: { ...duration, remaining: Math.max(remaining, 1) },
+        duration: { ...duration, remaining: shownRemaining },
       });
 
       return kept;
     }
+
+    hasChanges = true;
 
     if (remaining > 0) {
       kept.push({ ...effect, duration: { ...duration, remaining } });

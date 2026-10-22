@@ -109,6 +109,7 @@ import {
   CREATURE_CATEGORIES,
   CREATURE_SIZE_LABELS,
   DEFAULT_ACTOR,
+  DND_SECONDS_PER_ROUND,
   RARITY_LABELS,
 } from './consts.js';
 import {
@@ -205,7 +206,6 @@ import {
   appendEffectsSummaryNotes,
   buildEffectDiceRolls,
   decrementActorEffectDurations,
-  DND_SECONDS_PER_ROUND,
   expireTurnEffects as expireEntityTurnEffects,
   expireOutsiderTurnEffects,
   formatEffectsSummary,

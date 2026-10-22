@@ -314,10 +314,6 @@
     return classes.join(' ');
   }
 
-  /**
-   * Строки своих эффектов с готовыми подписями: разметка только показывает,
-   * а не считает.
-   */
   const worldTimeStore = useWorldTimeStore();
 
   /**
@@ -335,6 +331,10 @@
     );
   });
 
+  /**
+   * Строки своих эффектов с готовыми подписями: разметка только показывает,
+   * а не считает.
+   */
   const effectRows = computed(() =>
     customEffects.value
       .filter((effect) => props.isEditMode || isGroupLead(effect))

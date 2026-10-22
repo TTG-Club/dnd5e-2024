@@ -6,20 +6,14 @@
 
 import type { EffectDuration } from './activeEffectTypes.js';
 
+import {
+  SECONDS_PER_DAY,
+  SECONDS_PER_HOUR,
+  SECONDS_PER_MINUTE,
+} from '@vtt/shared';
+
+import { DND_SECONDS_PER_ROUND, ROUND_PLURAL_FORMS } from './consts.js';
 import { pluralizePrice } from './effectPayTypes.js';
-import { DND_SECONDS_PER_ROUND } from './turnEffects.js';
-
-/** Секунд в минуте */
-const SECONDS_PER_MINUTE = 60;
-
-/** Секунд в часе */
-const SECONDS_PER_HOUR = 3600;
-
-/** Секунд в сутках */
-const SECONDS_PER_DAY = 86_400;
-
-/** Склонения «раунд» */
-const ROUND_FORMS = ['раунд', 'раунда', 'раундов'] as const;
 
 /**
  * Дополняет число нулём слева до двух знаков.
@@ -85,5 +79,5 @@ export function describeEffectTimeLeft(
 
   const rounds = Math.max(1, Math.ceil(seconds / DND_SECONDS_PER_ROUND));
 
-  return `${time} (${rounds} ${pluralizePrice(rounds, ROUND_FORMS)})`;
+  return `${time} (${rounds} ${pluralizePrice(rounds, ROUND_PLURAL_FORMS)})`;
 }

@@ -36,6 +36,19 @@ import { DEFAULT_PREPARED_LIMIT } from './preparedSpells.js';
 /** Общий предел бонусных костей одной d20-проверки; соответствует пределу группы клиентского роллера. */
 export const MAX_ROLL_BONUS_DICE = 1_000;
 
+/**
+ * Сколько игровых секунд длится раунд боя D&D 5e. Им же система отвечает ядру
+ * (`VttSystem.secondsPerRound`): каждый новый раунд двигает игровые часы мира.
+ */
+export const DND_SECONDS_PER_ROUND = 6;
+
+/** Формы слова «раунд» для склонения по числу: один, два, пять */
+export const ROUND_PLURAL_FORMS: [string, string, string] = [
+  'раунд',
+  'раунда',
+  'раундов',
+];
+
 /** Ограничивает грани бонусной кости и сохраняет безопасную целую сумму при максимальном числе костей. */
 export const MAX_ROLL_BONUS_DIE_SIDES = 1_000_000;
 

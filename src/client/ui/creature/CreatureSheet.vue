@@ -1360,6 +1360,8 @@
       return;
     }
 
+    const creatureId = localCreature.value?.id;
+
     if (
       !localCreature.value
       || !(await confirmRestWithGm(localCreature.value, restType))
@@ -1367,8 +1369,13 @@
       return;
     }
 
-    // Пока ведущий думал, лист мог закрыться или смениться
-    if (!localCreature.value) {
+    // Пока ведущий думал, лист могли закрыть, сменить на другое существо или
+    // перевести в режим правки — тогда разрешённый отдых не начинается
+    if (
+      localCreature.value?.id !== creatureId
+      || refuseWhileSheetEditing(creatureId)
+      || !localCreature.value
+    ) {
       return;
     }
 

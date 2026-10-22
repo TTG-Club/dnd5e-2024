@@ -909,10 +909,18 @@
       return;
     }
 
+    const actorId = localActor.value?.id;
+
     if (
       !localActor.value
       || !(await confirmRestWithGm(localActor.value, restType))
     ) {
+      return;
+    }
+
+    // Пока ведущий думал, лист могли сменить на другого персонажа или
+    // перевести в режим правки — тогда разрешённый отдых не начинается
+    if (localActor.value.id !== actorId || refuseWhileSheetEditing(actorId)) {
       return;
     }
 

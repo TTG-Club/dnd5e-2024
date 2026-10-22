@@ -44,10 +44,12 @@
     'bring-to-front': [];
   }>();
 
-  /** Разбор настроек эффекта разделами: движок собирает, окно только показывает */
   const worldTimeStore = useWorldTimeStore();
 
-  // Остаток срока по игровым часам досчитывается каждую секунду
+  /**
+   * Разбор настроек эффекта разделами: движок собирает, окно только
+   * показывает. Остаток срока по игровым часам досчитывается каждую секунду
+   */
   const detailSections = computed(() =>
     props.effect
       ? buildActiveEffectDetails(props.effect, worldTimeStore.worldTime)

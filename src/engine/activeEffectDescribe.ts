@@ -46,6 +46,7 @@ import {
   ABILITY_LABELS,
   labelFormulaVariable,
   labelFormulaVariables,
+  ROUND_PLURAL_FORMS,
 } from './consts.js';
 import {
   describeCreatureTypeCondition,
@@ -515,7 +516,7 @@ export function describeEffectDuration(
       }
 
       const forms: Record<typeof duration.type, [string, string, string]> = {
-        rounds: ['раунд', 'раунда', 'раундов'],
+        rounds: ROUND_PLURAL_FORMS,
         minutes: ['минуту', 'минуты', 'минут'],
         hours: ['час', 'часа', 'часов'],
         days: ['день', 'дня', 'дней'],
@@ -905,11 +906,7 @@ function durationLines(
     && duration.remaining !== undefined
   ) {
     lines.push(
-      `осталось ${duration.remaining} ${pluralize(duration.remaining, [
-        'раунд',
-        'раунда',
-        'раундов',
-      ])}`,
+      `осталось ${duration.remaining} ${pluralize(duration.remaining, ROUND_PLURAL_FORMS)}`,
     );
   }
 
