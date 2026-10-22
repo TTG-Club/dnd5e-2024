@@ -106,11 +106,11 @@ export function resolveAreaTerrainCost(area: CustomArea): number {
     }
 
     // Провал главнее любой цены: болото поверх ямы пешком всё равно не пройти
-    if (effect.flags?.includes(IMPASSABLE_TERRAIN_FLAG)) {
+    if (effect.flags.includes(IMPASSABLE_TERRAIN_FLAG)) {
       return IMPASSABLE_COST;
     }
 
-    for (const change of effect.changes ?? []) {
+    for (const change of effect.changes) {
       if (change.key !== TERRAIN_COST_KEY) {
         continue;
       }
@@ -131,6 +131,6 @@ export function resolveAreaTerrainCost(area: CustomArea): number {
  */
 export function entityIgnoresTerrainCost(entity: DnDSceneEntity): boolean {
   return collectActiveEffects(entity).some((effect) =>
-    effect.flags?.includes(IGNORE_TERRAIN_FLAG),
+    effect.flags.includes(IGNORE_TERRAIN_FLAG),
   );
 }
