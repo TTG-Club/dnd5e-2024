@@ -1815,19 +1815,19 @@
 
     rollData.label = rollLabel;
 
-    if (!props.skipChatMessage) {
-      // Бросок урона лента выделяет — с целью и без, с известным типом
-      // урона и без него
-      chatStore.sendMessage(
-        formula,
-        'roll',
-        rollData,
-        undefined,
-        isDamageRoll
-          ? buildCombatChatOptions(props.attackerId)
-          : buildSpeakerChatOptions(props.attackerId),
-      );
-    }
+    // Бросок урона лента выделяет — с целью и без, с известным типом
+    // урона и без него
+    const messageId = props.skipChatMessage
+      ? undefined
+      : (chatStore.sendMessage(
+          formula,
+          'roll',
+          rollData,
+          undefined,
+          isDamageRoll
+            ? buildCombatChatOptions(props.attackerId)
+            : buildSpeakerChatOptions(props.attackerId),
+        ) ?? undefined);
 
     // Бонусные кости влияют на итог, но не изменяют натуральную оставленную d20.
     if (!rollFormula.value && props.onCheckRoll) {
@@ -1837,6 +1837,7 @@
         total: rollData.total,
         natural,
         modifier: rollData.total - natural,
+        ...(messageId ? { messageId } : {}),
       });
     }
 

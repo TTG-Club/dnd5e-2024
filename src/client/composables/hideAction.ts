@@ -186,14 +186,40 @@ function refuseAction(entity: DnDSceneEntity, title: string): boolean {
  * @param entity - спрятавшийся
  * @param effect - его состояние «В засаде»
  * @param cost - чем спрятался
+ * @param rollMessageId - сообщение с броском Скрытности; нет — броска в чате
+ *   нет, объявление отдельным сообщением
  */
 function announceHide(
   entity: DnDSceneEntity,
   effect: ActiveEffect,
   cost: EffectActionCost,
+  rollMessageId: string | undefined,
 ): void {
   const searchDc = resolveHideSearchDc(effect);
   const gmOnly = !hasPlayerOwner(entity);
+  const chat = useChatStore();
+
+  // Исход — в карточку броска, как урон в карточку атаки: одно сообщение.
+  // Видимость и подпись дописанное наследует от броска
+  if (
+    rollMessageId
+    && chat.appendToMessage(
+      rollMessageId,
+      `${HIDE_LABELS.hiddenMessage}${HIDE_COST_NOTES[cost] ?? ''}. ${HIDE_LABELS.searchDcPrefix}${searchDc}`,
+      'text',
+      undefined,
+      {
+        kind: HIDE_FOLLOW_UP_KIND,
+        payload: serializeHideFollowUp({
+          entityId: entity.id,
+          effectId: effect.id,
+          searchDc,
+        }),
+      },
+    )
+  ) {
+    return;
+  }
 
   if (gmOnly && !canSendGmOnlyChat()) {
     useSystemToastStore().add({
@@ -204,8 +230,6 @@ function announceHide(
 
     return;
   }
-
-  const chat = useChatStore();
 
   const messageId = chat.sendMessage(
     `${HIDE_LABELS.hiddenMessage}${HIDE_COST_NOTES[cost] ?? ''}`,
@@ -241,20 +265,20 @@ function announceHide(
  *
  * @param entityId - кто прятался
  * @param cost - чем прятался
- * @param total - итог проверки Скрытности
+ * @param roll - итог проверки Скрытности и сообщение с броском
  */
 function settleHide(
   entityId: string,
   cost: EffectActionCost,
-  total: number,
+  roll: Pick<CheckRollResult, 'total' | 'messageId'>,
 ): void {
   recordEntityActionSpend(entityId, cost);
 
-  if (!isHideSuccess(total)) {
+  if (!isHideSuccess(roll.total)) {
     return;
   }
 
-  const effect = buildHiddenEffect(total);
+  const effect = buildHiddenEffect(roll.total);
 
   if (!effect) {
     warn(HIDE_LABELS.title, HIDE_LABELS.noConditionDescription);
@@ -269,7 +293,7 @@ function settleHide(
   }));
 
   if (hidden) {
-    announceHide(hidden, effect, cost);
+    announceHide(hidden, effect, cost, roll.messageId);
   }
 }
 
@@ -292,7 +316,7 @@ function rollHide(entity: DnDSceneEntity, cost: EffectActionCost): void {
     targetDc: HIDE_CHECK_DC,
     ...(hasPlayerOwner(entity) ? {} : { rollVisibility: GM_ONLY_ROLL }),
     onRoll: (result: CheckRollResult) => {
-      settleHide(entity.id, cost, result.total);
+      settleHide(entity.id, cost, result);
     },
   });
 }

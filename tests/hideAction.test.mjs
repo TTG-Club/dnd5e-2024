@@ -98,6 +98,7 @@ function token(actorId, disposition) {
  * @param {string[]} options.offTurn - кто в бою и не ходит
  * @param {number} options.answer - какой вариант выбрать в плашке
  * @param {number} options.rollTotal - итог броска окна; нет — окно не бросает
+ * @param {string} options.rollMessageId - id сообщения броска; нет — броска в чате нет
  * @param {boolean} options.gmOnlyChat - хост умеет сообщения «только для мастера»
  * @returns {Promise<object>} функции и журналы
  */
@@ -110,6 +111,7 @@ async function loadHide({
   offTurn = [],
   answer = 0,
   rollTotal,
+  rollMessageId,
   gmOnlyChat = false,
 } = {}) {
   const world = new Map(
@@ -203,7 +205,12 @@ async function loadHide({
       log.windows.push({ who: who.id, skill, options });
 
       if (rollTotal !== undefined) {
-        options.onRoll({ total: rollTotal, natural: 10, modifier: 0 });
+        options.onRoll({
+          total: rollTotal,
+          natural: 10,
+          modifier: 0,
+          ...(rollMessageId ? { messageId: rollMessageId } : {}),
+        });
       }
     },
   };
@@ -346,6 +353,41 @@ describe('засада на столе', () => {
       undefined,
       'засада персонажа игрока видна всем',
     );
+  });
+});
+
+describe('засада в карточке броска', () => {
+  it('исход дописывается в сообщение броска одной строкой с кнопками', async () => {
+    const player = await loadHide({
+      entities: [rogue],
+      rollTotal: 16,
+      rollMessageId: 'roll_1',
+    });
+
+    player.startHide(player.world.get('rogue'));
+
+    assert.deepEqual(player.log.messages, [], 'отдельного сообщения нет');
+
+    assert.deepEqual(player.log.appends, [
+      {
+        id: 'roll_1',
+        content: 'Входит в засаду действием. Сл поиска: 16',
+        kind: engine.HIDE_FOLLOW_UP_KIND,
+      },
+    ]);
+  });
+
+  it('провал: в карточку ничего не дописывается', async () => {
+    const player = await loadHide({
+      entities: [rogue],
+      rollTotal: 9,
+      rollMessageId: 'roll_1',
+    });
+
+    player.startHide(player.world.get('rogue'));
+
+    assert.deepEqual(player.log.appends, []);
+    assert.deepEqual(player.log.messages, []);
   });
 });
 
