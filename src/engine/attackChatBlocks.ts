@@ -66,10 +66,9 @@ const ATTACK_OUTCOME_BADGES = {
 /** Пометка под шапкой атаки с помехой на дальней дистанции */
 const ATTACK_LONG_RANGE_NOTE = 'Помеха (дальняя дистанция)';
 
-/** Подписи и значки строк урона и лечения */
+/** Подписи строк урона и лечения, значки строк лечения */
 const DAMAGE_CHAT_LABELS = {
   damage: 'Урон',
-  damageIcon: 'tabler:swords',
   healing: 'Лечение',
   healingIcon: 'tabler:heart-plus',
   tempHp: 'Временные ХП',
@@ -90,23 +89,6 @@ const HP_CHANGE_LABELS = {
 
 /** Знак «минус» в итогах урона: с дефисом «-6» читается хуже */
 const MINUS_SIGN = '−';
-
-/** Значки типов урона */
-const DAMAGE_TYPE_ICONS: Readonly<Record<string, string>> = {
-  slashing: 'tabler:slice',
-  piercing: 'tabler:needle',
-  bludgeoning: 'tabler:hammer',
-  fire: 'tabler:flame',
-  cold: 'tabler:snowflake',
-  lightning: 'tabler:bolt',
-  thunder: 'tabler:volume',
-  poison: 'tabler:flask',
-  acid: 'tabler:droplet',
-  necrotic: 'tabler:skull',
-  radiant: 'tabler:sun',
-  force: 'tabler:sparkles',
-  psychic: 'tabler:brain',
-};
 
 /** Пометки сработавшей защиты цели в подробностях строки урона */
 const DAMAGE_DEFENSE_NOTES: Readonly<
@@ -255,7 +237,7 @@ export function buildActionChatHeader(
   };
 }
 
-/** Вид части урона или лечения — от него значок и название её строки */
+/** Вид части урона или лечения — от него название её строки */
 export interface DamageChatKind {
   /** Часть лечит */
   isHealing?: boolean;
@@ -266,9 +248,9 @@ export interface DamageChatKind {
 }
 
 /**
- * Начало строки урона или лечения: значок и название вида («Силовой урон»,
- * «Рубящий урон и Огненный урон», «Лечение»), а перед ними — имя цели, когда
- * целей несколько.
+ * Начало строки урона или лечения: название вида («Силовой урон», «Рубящий
+ * урон и Огненный урон», «Лечение»), а перед ним — имя цели, когда целей
+ * несколько. Значок — только у лечения: урон назван словами.
  *
  * @param kind - вид части
  * @param targetName - имя цели для строки (см. {@link pickRowTargetName})
@@ -294,15 +276,12 @@ export function buildDamageChatRowLabel(
         };
   }
 
-  const types = kind.types ?? [];
-  const labels = types.flatMap((type) => resolveDamageTypeLabel(type) ?? []);
-  const [firstType] = types;
+  // У урона значка нет: вид урона назван словами, значок только мешал читать
+  const labels = (kind.types ?? []).flatMap(
+    (type) => resolveDamageTypeLabel(type) ?? [],
+  );
 
   return {
-    icon:
-      (types.length === 1 && firstType
-        ? DAMAGE_TYPE_ICONS[firstType]
-        : undefined) ?? DAMAGE_CHAT_LABELS.damageIcon,
     name:
       labels.length > 0
         ? labels.join(DAMAGE_CHAT_LABELS.typesSeparator)
@@ -460,7 +439,7 @@ export function attachHpChangeDetails(
 
 /** Чем дополнить строку урона одной цели */
 export interface DamageChatRowOptions {
-  /** Тип урона — от него значок и название строки */
+  /** Тип урона — от него название строки */
   damageType?: string;
   /** Подробности перед пометками: формула и разбивка броска */
   detail?: string;

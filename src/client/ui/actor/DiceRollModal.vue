@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import type { DamageApplyResult, DamageType } from '@vtt/shared';
+  import type { ChatBadge, DamageApplyResult, DamageType } from '@vtt/shared';
   import type {
     AttackHitConsequences,
     AttackRollMode,
@@ -92,6 +92,7 @@
   import { useWorldEntities } from '../../composables/useWorldEntities';
   import { useSystemDataStore } from '../../stores/systemDataStore';
   import {
+    CHECK_OUTCOME_BADGES,
     DICE_ROLL_ACTOR_ICON,
     DICE_ROLL_DEFAULT_BUTTON,
     DICE_ROLL_LABELS,
@@ -1696,6 +1697,26 @@
   }
 
   /**
+   * Плашка исхода проверки со Сл: «Успех», «Провал» или «Автопровал».
+   *
+   * @param total - итог броска
+   * @returns плашка; нет — у броска нет Сл, исход не известен
+   */
+  function resolveCheckOutcomeBadge(total: number): ChatBadge | undefined {
+    if (props.autoFail) {
+      return CHECK_OUTCOME_BADGES.autoFail;
+    }
+
+    if (props.targetDc === undefined) {
+      return undefined;
+    }
+
+    return total >= props.targetDc
+      ? CHECK_OUTCOME_BADGES.success
+      : CHECK_OUTCOME_BADGES.fail;
+  }
+
+  /**
    * Обычный бросок: лечение, урон без броска атаки или проверка
    */
   function performSimpleRoll(bonusDiceFormulas: readonly string[]): number {
@@ -1811,6 +1832,15 @@
       } else {
         rollLabel += DICE_ROLL_LABELS.outcomeFail;
       }
+    }
+
+    // Проверка и спасбросок со Сл — карточкой, как бросок атаки: шапкой что
+    // бросали, исход плашкой в строке итога. Текстовая подпись с «✓ Успех»
+    // остаётся для всплывающих сообщений и ядра без блоков
+    const checkBadge = resolveCheckOutcomeBadge(rollData.total);
+
+    if (!isDamageRoll && checkBadge) {
+      rollData.block = { title: props.rollLabel, badge: checkBadge };
     }
 
     rollData.label = rollLabel;

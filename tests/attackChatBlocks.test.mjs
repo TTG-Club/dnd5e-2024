@@ -79,7 +79,6 @@ describe('buildDamageChatBlock', () => {
       {
         rows: [
           {
-            icon: 'tabler:sparkles',
             name: 'Силовой урон',
             value: '−6 HP',
             accent: 'error',
@@ -107,13 +106,13 @@ describe('buildDamageChatBlock', () => {
 
   it('без цели и без броска оставляет строку с видом урона', () => {
     assert.deepEqual(engine.buildDamageChatBlock(null, undefined), {
-      rows: [{ icon: 'tabler:swords', name: 'Урон' }],
+      rows: [{ name: 'Урон' }],
     });
   });
 
   it('без цели ставит брошенный урон итогом строки — без строки «Без цели»', () => {
     assert.deepEqual(engine.buildDamageChatBlock(null, 'force', 9), {
-      rows: [{ icon: 'tabler:sparkles', name: 'Силовой урон', value: '9' }],
+      rows: [{ name: 'Силовой урон', value: '9' }],
     });
   });
 
@@ -144,7 +143,6 @@ describe('buildDamageChatRow', () => {
         namesTarget: true,
       }),
       {
-        icon: 'tabler:sparkles',
         name: 'Силовой урон',
         target: '2А: Бард',
         value: '−5 HP',

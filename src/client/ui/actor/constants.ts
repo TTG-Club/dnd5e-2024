@@ -9,6 +9,7 @@
 import type {
   AbilityType,
   ArmorCalculation,
+  ChatBadge,
   ProficiencyLevel,
   SpellCastingTimeUnit,
   WeaponRangeType,
@@ -5562,6 +5563,16 @@ export const DICE_ROLL_LABELS = {
   outcomeSuccess: ' ✓ Успех',
   outcomeFail: ' ✗ Провал',
 } as const;
+
+/**
+ * Плашки исхода проверки и спасброска со Сл в карточке чата — как «Попадание»
+ * и «Промах» у атаки: ядро ставит плашку в строку итога броска
+ */
+export const CHECK_OUTCOME_BADGES = {
+  success: { label: 'Успех', accent: 'success' },
+  fail: { label: 'Провал', accent: 'error' },
+  autoFail: { label: 'Автопровал', accent: 'error' },
+} as const satisfies Record<string, ChatBadge>;
 
 /**
  * Значок и цвет строки «откуда режим броска»: преимущество — как кнопка
