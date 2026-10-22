@@ -145,11 +145,16 @@ function buildQuestionActions(
   const affirmative =
     options.find((option) => affirmativeIds.includes(option.id)) ?? options[0];
 
-  return options.map((option) =>
-    option.id === affirmative?.id
-      ? { id: option.id, label: option.label, color: 'primary' }
-      : { id: option.id, label: option.label },
-  );
+  const affirmativeStyle: Pick<RequestCardAction, 'color'> = {
+    color: 'primary',
+  };
+
+  return options.map((option): RequestCardAction => ({
+    id: option.id,
+    label: option.label,
+    ...(option.hint ? { hint: option.hint } : {}),
+    ...(option.id === affirmative?.id ? affirmativeStyle : {}),
+  }));
 }
 
 /**
