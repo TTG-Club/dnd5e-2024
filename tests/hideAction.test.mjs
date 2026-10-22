@@ -507,7 +507,45 @@ describe('поиск', () => {
     assert.equal(env.findHiddenEffect(env.world.get('goblin')), undefined);
     assert.notEqual(env.findHiddenEffect(env.world.get('wolf')), undefined);
     assert.deepEqual(env.log.spends, [['rogue', 'action']]);
-    assert.equal(env.log.messages[0], 'rogue находит: goblin');
+
+    assert.equal(
+      env.log.messages[0],
+      'Находит: goblin',
+      'броска в чате нет — отдельным сообщением, без имени ищущего',
+    );
+  });
+
+  it('итог поиска — в карточку броска Внимательности, без имени ищущего', async () => {
+    const tokens = [token('rogue', 'friendly'), token('goblin', 'hostile')];
+
+    const found = await loadHide({
+      entities: [rogue, hiddenEntity('goblin', 14)],
+      tokens,
+      rollTotal: 15,
+      rollMessageId: 'roll_1',
+    });
+
+    found.startSearch(found.world.get('rogue'));
+
+    assert.deepEqual(found.log.messages, [], 'отдельного сообщения нет');
+
+    assert.deepEqual(found.log.appends, [
+      { id: 'roll_1', content: 'Находит: goblin', kind: undefined },
+    ]);
+
+    const nobody = await loadHide({
+      entities: [rogue, hiddenEntity('goblin', 20)],
+      tokens,
+      rollTotal: 15,
+      rollMessageId: 'roll_1',
+    });
+
+    nobody.startSearch(nobody.world.get('rogue'));
+
+    assert.deepEqual(
+      nobody.log.appends.map((append) => append.content),
+      ['Никого не находит'],
+    );
   });
 
   it('выход из засады по своей воле: в чужой ход тоже, без траты действия; чужой — нет', async () => {

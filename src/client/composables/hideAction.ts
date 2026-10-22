@@ -359,37 +359,45 @@ function findLiveHide(payload: HideEntry): DnDSceneEntity | undefined {
 
 /**
  * Записывает исход поиска: трата действия, снятие каждой найденной засады и
- * сообщение в чат. В чат идут только найденные — остальных сообщение не
- * выдаёт.
+ * итог в чат. В чат идут только найденные — остальных итог не выдаёт.
+ *
+ * Итог дописывается в карточку броска Внимательности, как исход засады в
+ * карточку Скрытности: ищущего называет её шапка. Броска в чате нет —
+ * отдельное сообщение от имени ищущего.
  *
  * @param searcher - кто искал
  * @param hides - засады, которые он мог заметить
- * @param total - итог проверки Внимательности
+ * @param roll - итог проверки Внимательности и сообщение с броском
  */
 function settleSearch(
   searcher: DnDSceneEntity,
   hides: readonly HideEntry[],
-  total: number,
+  roll: Pick<CheckRollResult, 'total' | 'messageId'>,
 ): void {
   const live = hides.filter((hide) => findLiveHide(hide) !== undefined);
 
   recordEntityActionSpend(searcher.id, SEARCH_COST);
 
-  const found = pickFoundHides(total, live).flatMap((hide) => {
+  const found = pickFoundHides(roll.total, live).flatMap((hide) => {
     const revealed = removeHide(hide);
 
     return revealed ? [revealed.name] : [];
   });
 
-  useChatStore().sendMessage(
+  const outcome =
     found.length > 0
-      ? `${searcher.name}${HIDE_LABELS.foundMiddle}${found.join(HIDE_LABELS.foundSeparator)}`
-      : `${searcher.name}${HIDE_LABELS.nothingFoundSuffix}`,
-    'text',
-    undefined,
-    undefined,
-    { speakerEntityId: searcher.id },
-  );
+      ? `${HIDE_LABELS.foundPrefix}${found.join(HIDE_LABELS.foundSeparator)}`
+      : HIDE_LABELS.nothingFoundMessage;
+
+  const chat = useChatStore();
+
+  if (roll.messageId && chat.appendToMessage(roll.messageId, outcome)) {
+    return;
+  }
+
+  chat.sendMessage(outcome, 'text', undefined, undefined, {
+    speakerEntityId: searcher.id,
+  });
 }
 
 /**
@@ -417,7 +425,7 @@ function openSearchCheck(
     rollButtonText: HIDE_LABELS.searchRollButton,
     signedByRoller: true,
     onRoll: (result: CheckRollResult) => {
-      settleSearch(searcher, hides, result.total);
+      settleSearch(searcher, hides, result);
     },
   });
 
