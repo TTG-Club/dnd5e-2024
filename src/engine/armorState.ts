@@ -12,7 +12,7 @@
 
 import type { ArmorCategory } from '@vtt/shared';
 
-import type { DnDActor, DnDCreature } from './dndEntities.js';
+import type { DnDActor, DnDCreature, DnDGameItem } from './dndEntities.js';
 
 import { isItemWorn } from './itemUses.js';
 
@@ -124,6 +124,36 @@ export function getCarrierArmorState(
   }
 
   return { category, hasShield };
+}
+
+/**
+ * Вклад Ловкости в КД надетого доспеха.
+ *
+ * Предел `0` значит «Ловкость не добавляется» — ни плюс, ни минус: в тяжёлом
+ * доспехе КД статичен, и `Math.min(-2, 0)` давал бы штраф, которого правила не
+ * знают. Тяжёлая категория считается так же, даже если предел в записи не
+ * задан — категория надёжнее поля. Положительный предел ограничивает только
+ * сверху: в среднем доспехе отрицательная Ловкость по правилам учитывается.
+ *
+ * @param dexterityModifier - модификатор Ловкости носителя
+ * @param armor - предел бонуса Ловкости и категория доспеха
+ * @returns слагаемое Ловкости в КД
+ */
+export function armorDexterityBonus(
+  dexterityModifier: number,
+  armor: Pick<DnDGameItem, 'equipmentCategory' | 'maxDexBonus'>,
+): number {
+  const maxDexterityBonus = armor.maxDexBonus;
+
+  if (armor.equipmentCategory === 'heavy' || maxDexterityBonus === 0) {
+    return 0;
+  }
+
+  if (maxDexterityBonus === null || maxDexterityBonus === undefined) {
+    return dexterityModifier;
+  }
+
+  return Math.min(dexterityModifier, maxDexterityBonus);
 }
 
 /**

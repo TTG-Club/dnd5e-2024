@@ -91,6 +91,7 @@ import {
 import { isArmorProficient } from './armorProficiency.js';
 import {
   armorConditionMatches,
+  armorDexterityBonus,
   getCarrierArmorState,
   isArmorConditionKind,
 } from './armorState.js';
@@ -3799,13 +3800,7 @@ export function prepareDerivedData(
             ? (equippedArmor.magicBonus ?? 0)
             : 0;
 
-          const maxDex = equippedArmor.maxDexBonus;
-
-          // maxDexBonus: null = без ограничений, 0 = DEX не добавляется, N = cap
-          const effectiveDex =
-            maxDex === null || maxDex === undefined
-              ? dexMod
-              : Math.min(dexMod, maxDex);
+          const effectiveDex = armorDexterityBonus(dexMod, equippedArmor);
 
           calculatedAC = armorBase + effectiveDex + armorMagicBonus;
         } else {

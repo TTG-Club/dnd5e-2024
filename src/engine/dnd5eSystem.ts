@@ -1696,7 +1696,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.333';
+  readonly version = '0.8.334';
 
   /** Раунд D&D 5e — 6 игровых секунд: столько двигает часы мира новый раунд */
   readonly secondsPerRound = DND_SECONDS_PER_ROUND;

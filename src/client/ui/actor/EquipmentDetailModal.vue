@@ -102,7 +102,13 @@
       return '';
     }
 
-    if (props.item?.equipmentCategory === 'shield') {
+    // Тяжёлый доспех статичен и без заданного предела — как в расчёте КД
+    // (armorDexterityBonus), иначе карточка обещала бы Ловкость, которой нет
+    if (
+      props.item?.equipmentCategory === 'shield'
+      || props.item?.equipmentCategory === 'heavy'
+      || props.item?.maxDexBonus === 0
+    ) {
       return '';
     }
 
@@ -111,10 +117,6 @@
       || props.item?.maxDexBonus === undefined
     ) {
       return EQUIPMENT_DETAIL_LABELS.dexBonus;
-    }
-
-    if (props.item.maxDexBonus === 0) {
-      return '';
     }
 
     return `${EQUIPMENT_DETAIL_LABELS.dexBonusCappedPrefix}${props.item.maxDexBonus}${EQUIPMENT_DETAIL_LABELS.dexBonusCappedSuffix}`;
