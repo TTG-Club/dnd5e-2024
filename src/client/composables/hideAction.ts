@@ -200,12 +200,14 @@ function announceHide(
   const chat = useChatStore();
 
   // Исход — в карточку броска, как урон в карточку атаки: одно сообщение.
-  // Видимость и подпись дописанное наследует от броска
+  // Видимость и подпись дописанное наследует от броска. Сл поиска — итог
+  // броска, он уже в карточке: в строке только цена. Сама строка нужна —
+  // под ней кнопки «Найти» и «Шум», пустое дополнение ядро не принимает
   if (
     rollMessageId
     && chat.appendToMessage(
       rollMessageId,
-      `${HIDE_LABELS.hiddenMessage}${HIDE_COST_NOTES[cost] ?? ''}. ${HIDE_LABELS.searchDcPrefix}${searchDc}`,
+      `${HIDE_LABELS.hiddenMessage}${HIDE_COST_NOTES[cost] ?? ''}`,
       'text',
       undefined,
       {
@@ -314,6 +316,7 @@ function rollHide(entity: DnDSceneEntity, cost: EffectActionCost): void {
     title: HIDE_LABELS.title,
     rollButtonText: HIDE_LABELS.rollButton,
     targetDc: HIDE_CHECK_DC,
+    signedByRoller: true,
     ...(hasPlayerOwner(entity) ? {} : { rollVisibility: GM_ONLY_ROLL }),
     onRoll: (result: CheckRollResult) => {
       settleHide(entity.id, cost, result);
@@ -472,6 +475,7 @@ function openSearchCheck(
     modalKey: `${SEARCH_MODAL_KEY_PREFIX}${searcher.id}`,
     title: check.title,
     rollButtonText: HIDE_LABELS.searchRollButton,
+    signedByRoller: true,
     ...(check.targetDc === undefined ? {} : { targetDc: check.targetDc }),
     onRoll: (result: CheckRollResult) => {
       settleSearch(searcher, hides, result.total, check.targetDc !== undefined);

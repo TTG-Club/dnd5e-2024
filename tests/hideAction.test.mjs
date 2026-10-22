@@ -312,6 +312,13 @@ describe('засада на столе', () => {
     player.startHide(player.world.get('rogue'));
 
     assert.equal(player.log.windows[0].options.rollVisibility, undefined);
+
+    assert.equal(
+      player.log.windows[0].options.signedByRoller,
+      true,
+      'имя — в шапке карточки',
+    );
+
     assert.equal(player.log.appends[0].kind, engine.HIDE_FOLLOW_UP_KIND);
     assert.equal(player.world.get('rogue').activeEffects[0].searchDc, 17);
 
@@ -371,7 +378,7 @@ describe('засада в карточке броска', () => {
     assert.deepEqual(player.log.appends, [
       {
         id: 'roll_1',
-        content: 'Входит в засаду действием. Сл поиска: 16',
+        content: 'Входит в засаду действием',
         kind: engine.HIDE_FOLLOW_UP_KIND,
       },
     ]);
@@ -452,6 +459,8 @@ describe('поиск', () => {
       undefined,
       'окно Сл не показывает',
     );
+
+    assert.equal(env.log.windows[0].options.signedByRoller, true);
 
     assert.equal(env.findHiddenEffect(env.world.get('goblin')), undefined);
     assert.notEqual(env.findHiddenEffect(env.world.get('wolf')), undefined);
