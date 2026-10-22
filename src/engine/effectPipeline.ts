@@ -69,6 +69,8 @@ import {
   isSneakAttackKey,
   isUseActivatedEffect,
   isWeaponOverrideKey,
+  JUMP_HIGH_KEY,
+  JUMP_LONG_KEY,
   parseWeaponBaseTypeCondition,
   ROLL_ADVANTAGE_CONDITION,
   ROLL_DISADVANTAGE_CONDITION,
@@ -107,6 +109,7 @@ import { INCAPACITATED_CONDITION_KEY } from './conditionKeys.js';
 import {
   ABILITY_KEYS,
   BASE_UNARMORED_AC,
+  HIGH_JUMP_BASE_FEET,
   isAbilityType,
   isMovementType,
   isSkillType,
@@ -210,6 +213,8 @@ const DERIVED_TARGET_KEYS: ReadonlySet<string> = new Set([
   DEATH_SAVE_KEY,
   'armorClass',
   'initiative',
+  JUMP_HIGH_KEY,
+  JUMP_LONG_KEY,
   'proficiencyBonus',
   'spellSaveDC',
 ]);
@@ -406,6 +411,8 @@ export function prepareBaseData(
     initiative: 0,
     proficiencyBonus: 0,
     movement,
+    // Считается в prepareDerivedData от итоговой Силы
+    jump: { long: 0, high: 0 },
     senses,
     hitPointsMax: resolveHitPointsMax(system.hitPoints),
     critThreshold: DEFAULT_CRIT_THRESHOLD,
@@ -3692,6 +3699,31 @@ export function prepareDerivedData(
     derivedFormulaContext,
   );
 
+  // Прыжок с разбегом (D&D 2024, «Прыжок в длину» / «Прыжок в высоту»):
+  // в длину — значение Силы, в высоту — 3 + модификатор Силы
+  derivedStats.jump = {
+    long: Math.max(
+      0,
+      applyDerivedChanges(
+        derivedStats,
+        JUMP_LONG_KEY,
+        derivedStats.abilities.strength,
+        derivedChanges,
+        derivedFormulaContext,
+      ),
+    ),
+    high: Math.max(
+      0,
+      applyDerivedChanges(
+        derivedStats,
+        JUMP_HIGH_KEY,
+        HIGH_JUMP_BASE_FEET + derivedStats.abilityMods.strength,
+        derivedChanges,
+        derivedFormulaContext,
+      ),
+    ),
+  };
+
   // 7. Класс доспеха (AC)
   const dexMod = derivedStats.abilityMods.dexterity;
 
@@ -4039,6 +4071,7 @@ function cloneResolvedStats(stats: ResolvedActorStats): ResolvedActorStats {
     initiative: stats.initiative,
     proficiencyBonus: stats.proficiencyBonus,
     movement: { ...stats.movement },
+    jump: { ...stats.jump },
     senses: { ...stats.senses },
     hitPointsMax: stats.hitPointsMax,
     critThreshold: stats.critThreshold,

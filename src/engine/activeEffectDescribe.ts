@@ -255,7 +255,10 @@ export function prettifyFormula(value: string): string {
  * @returns подпись значения со знаком, множителем или словом режима
  */
 export function describeChangeValue(change: EffectChange): string {
-  const unit = change.key.startsWith('movement.') ? ' фт' : '';
+  const unit =
+    change.key.startsWith('movement.') || change.key.startsWith('jump.')
+      ? ' фт'
+      : '';
 
   // Характеристика и тип урона оружия — слова из списка, а не формула
   const optionLabel = describeChangeOptionValue(change.key, change.value);

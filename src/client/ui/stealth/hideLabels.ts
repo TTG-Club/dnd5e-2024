@@ -7,6 +7,7 @@ import type { EffectActionCost, HideCost } from '@vtt/shared/system/dnd.js';
 import {
   HIDDEN_CONDITION_ICON,
   HIDE_CHECK_DC,
+  JUMP_RUN_UP_FEET,
 } from '@vtt/shared/system/dnd.js';
 
 /** Значок засады: состояние, кнопка полки, сообщение */
@@ -82,6 +83,16 @@ export const ACTION_SHELF_BUTTONS = {
   jumpId: 'jump',
   jump: 'Прыжок',
   jumpIcon: 'tabler:arrow-bounce',
+  jumpTooltip: (standing: number, running: number): string =>
+    `Прыжок в длину: ${standing} фт с места, ${running} фт с разбегом ${JUMP_RUN_UP_FEET} фт. Наведите на клетку — увидите дальность, щёлкните — прыжок`,
+  jumpStandingTooltip: (standing: number): string =>
+    `Прыжок в длину с места: ${standing} фт. Наведите на клетку — увидите дальность, щёлкните — прыжок`,
+  jumpActiveTooltip:
+    'Режим прыжка: щёлкните клетку, чтобы прыгнуть. Escape, правый щелчок или эта кнопка — выйти',
+  /** Причина недоступной кнопки «Прыжок» */
+  jumpNoMovement: 'Нет хода на прыжок в этот ход',
+  /** Причина недоступной кнопки «Прыжок» на старом приложении */
+  jumpNeedsHost: 'Нужен VTTG 0.9.751 или новее',
   /** Причина недоступной кнопки */
   inDevelopment: 'В разработке',
   /** Причина недоступной кнопки, пока не выбран свой герой */

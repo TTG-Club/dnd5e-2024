@@ -583,9 +583,10 @@ describe('полка действий', () => {
    *
    * @param {boolean} withShelf - есть ли у ядра полка
    * @param {object} selected - выделенная сущность
+   * @param {object} [movementMode] - режим вида перемещения ядра (VTTG 0.9.751+)
    * @returns {Promise<object>} журнал регистраций
    */
-  async function registerOn(withShelf, selected) {
+  async function registerOn(withShelf, selected, movementMode) {
     const calls = [];
     const registered = { shelf: null, followUps: null, calls };
 
@@ -593,6 +594,7 @@ describe('полка действий', () => {
       chatFollowUpActions: (registration) => {
         registered.followUps = registration;
       },
+      ...(movementMode ? { movementMode } : {}),
       ...(withShelf
         ? {
             actionShelf: (provider) => {
@@ -622,7 +624,23 @@ describe('полка действий', () => {
         return true;
       },
       startSearch: () => true,
+      resolveEntityStats: (carrier) => engine.resolveActorStats(carrier),
+      resolveJumpDistances: engine.resolveJumpDistances,
+      resolveTurnSpeed: engine.resolveTurnSpeed,
+      JUMP_MOVEMENT_MODE_ID: engine.JUMP_MOVEMENT_MODE_ID,
     };
+
+    for (const name of [
+      'findMovementModeControl',
+      'describeJump',
+      'buildJumpShelfButton',
+    ]) {
+      ports[name] = await loadHandler(
+        'src/client/composables/jumpAction.ts',
+        name,
+        ports,
+      );
+    }
 
     ports.hasActionShelf = await loadHandler(
       'src/client/composables/actionShelf.ts',
@@ -675,11 +693,14 @@ describe('полка действий', () => {
       ['attack', 'jump', 'hide', 'search'],
     );
 
-    for (const button of buttons.slice(0, 2)) {
-      assert.equal(button.disabled, true);
-      assert.equal(button.disabledReason, 'В разработке');
-      assert.equal(button.onClick, undefined);
-    }
+    assert.equal(buttons[0].disabled, true);
+    assert.equal(buttons[0].disabledReason, 'В разработке');
+    assert.equal(buttons[0].onClick, undefined);
+
+    // Старое приложение режима прыжка не умеет
+    assert.equal(buttons[1].disabled, true);
+    assert.equal(buttons[1].disabledReason, 'Нужен VTTG 0.9.751 или новее');
+    assert.equal(buttons[1].onClick, undefined);
 
     assert.equal(buttons[2].active, false);
     assert.equal(typeof buttons[3].onClick, 'function');
@@ -705,5 +726,55 @@ describe('полка действий', () => {
       assert.equal(button.disabled, true, 'и вся погашена');
       assert.equal(button.onClick, undefined);
     }
+  });
+
+  it('«Прыжок» включает и выключает режим прыжка у ядра', async () => {
+    let current = null;
+
+    const sets = [];
+
+    const movementMode = {
+      set: (selection) => {
+        sets.push(selection);
+        current = selection;
+      },
+      current: () => current,
+    };
+
+    const jumper = entity('jumper', {
+      ownerIds: [PLAYER_ID],
+      system: { abilities: { strength: 15 }, movement: { walk: 30 } },
+    });
+
+    const shelf = (await registerOn(true, jumper, movementMode)).shelf;
+    const idleJump = shelf.list({ entityId: 'jumper' })[1];
+
+    assert.equal(idleJump.disabled, undefined);
+    assert.equal(idleJump.active, false);
+    assert.match(idleJump.tooltip, /7 фт с места, 15 фт с разбегом/);
+
+    idleJump.onClick();
+    // Выбор собран в песочнице обработчика — сравнивается копией
+    assert.deepEqual({ ...sets[0] }, { entityId: 'jumper', modeId: 'jump' });
+
+    const activeJump = shelf.list({ entityId: 'jumper' })[1];
+
+    assert.equal(activeJump.active, true, 'горит, пока режим включён');
+
+    activeJump.onClick();
+    assert.equal(sets.at(-1), null, 'горящая выключает режим');
+
+    // Без хода прыгать некуда
+    const still = entity('still', {
+      ownerIds: [PLAYER_ID],
+      system: { abilities: { strength: 15 }, movement: { walk: 0 } },
+    });
+
+    const stuck = (await registerOn(true, still, movementMode)).shelf.list({
+      entityId: 'still',
+    })[1];
+
+    assert.equal(stuck.disabled, true);
+    assert.equal(stuck.disabledReason, 'Нет хода на прыжок в этот ход');
   });
 });

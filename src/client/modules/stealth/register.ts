@@ -2,12 +2,12 @@
  * Под-модуль системы D&D 5e: ЗАСАДА.
  *
  * Регистрирует полку действий системы слева от панели быстрого доступа:
- * «Атака» и «Прыжок» (пока недоступны), «Спрятаться» и «Поиск». «Спрятаться»
- * в засаде горит, и нажатие на неё выводит из засады. «Поиск» ищет за
- * выделенную фишку — так ищет и игрок, и ведущий за врага. Кнопок под
- * сообщением о засаде нет: всё делается с полки. Полку ядро даёт с VTTG
- * 0.9.725; на старом приложении её нет — модуль её не регистрирует и не
- * падает.
+ * «Атака» (пока недоступна), «Прыжок» (режим прыжка у ядра, `jumpAction.ts`),
+ * «Спрятаться» и «Поиск». «Спрятаться» в засаде горит, и нажатие на неё
+ * выводит из засады. «Поиск» ищет за выделенную фишку — так ищет и игрок, и
+ * ведущий за врага. Кнопок под сообщением о засаде нет: всё делается с полки.
+ * Полку ядро даёт с VTTG 0.9.725; на старом приложении её нет — модуль её не
+ * регистрирует и не падает.
  *
  * @module systems/dnd5e/modules/stealth
  */
@@ -25,6 +25,7 @@ import {
   startHide,
   startSearch,
 } from '../../composables/hideAction';
+import { buildJumpShelfButton } from '../../composables/jumpAction';
 import { useWorldEntities } from '../../composables/useWorldEntities';
 import { ACTION_SHELF_BUTTONS, HIDE_ICON } from '../../ui/stealth/hideLabels';
 
@@ -66,7 +67,7 @@ function buildIdleShelfButtons(): ActionShelfButton[] {
       icon: ACTION_SHELF_BUTTONS.jumpIcon,
       label: ACTION_SHELF_BUTTONS.jump,
       disabled: true,
-      disabledReason: ACTION_SHELF_BUTTONS.inDevelopment,
+      disabledReason: ACTION_SHELF_BUTTONS.noHero,
     },
     {
       id: ACTION_SHELF_BUTTONS.hideId,
@@ -112,13 +113,7 @@ export function register(api: ClientSystemAPI): void {
           disabled: true,
           disabledReason: ACTION_SHELF_BUTTONS.inDevelopment,
         },
-        {
-          id: ACTION_SHELF_BUTTONS.jumpId,
-          icon: ACTION_SHELF_BUTTONS.jumpIcon,
-          label: ACTION_SHELF_BUTTONS.jump,
-          disabled: true,
-          disabledReason: ACTION_SHELF_BUTTONS.inDevelopment,
-        },
+        buildJumpShelfButton(api, entity),
         {
           id: ACTION_SHELF_BUTTONS.hideId,
           icon: HIDE_ICON,

@@ -315,6 +315,20 @@ export const TEMP_HP_GAIN_KEY = 'tempHp.gain';
 export const ATTACK_REACH_KEY = 'attack.reach';
 
 /**
+ * Ключ дальности прыжка в длину с разбегом, в футах. По правилам — значение
+ * Силы; лист считает его в Фазе 3, поэтому «умножить на 2» («Шаг ветра») и
+ * «повысить до 30» (заклинание «Прыжок») ложатся поверх правила. Прыжок с
+ * места — половина итога (`movementModes.ts`).
+ */
+export const JUMP_LONG_KEY = 'jump.long';
+
+/**
+ * Ключ высоты прыжка с разбегом, в футах. По правилам — 3 + модификатор
+ * Силы, не меньше нуля; с места — половина.
+ */
+export const JUMP_HIGH_KEY = 'jump.high';
+
+/**
  * Ключ Скрытой атаки: кости, которые идут в урон атаки оружием, когда
  * выполнено условие строки (`SNEAK_ATTACK_CONDITION`). Общий механизм для
  * любого источника — класса, существа, черты, предмета.
@@ -480,6 +494,8 @@ export type EffectTargetKey =
   | 'damage.spell'
   | 'armorClass'
   | `movement.${MovementType}`
+  | typeof JUMP_LONG_KEY
+  | typeof JUMP_HIGH_KEY
   | 'hitPoints.max'
   | 'initiative'
   | 'proficiencyBonus'
@@ -562,6 +578,8 @@ export const EFFECT_TARGET_SUGGESTIONS: Array<{
   { value: 'movement.swim', label: 'Скорость (Плавание)' },
   { value: 'movement.climb', label: 'Скорость (Лазание)' },
   { value: 'movement.burrow', label: 'Скорость (Копание)' },
+  { value: JUMP_LONG_KEY, label: 'Прыжок в длину с разбегом, фт' },
+  { value: JUMP_HIGH_KEY, label: 'Прыжок в высоту с разбегом, фт' },
 
   // Чувства (дальность в футах)
   { value: 'sense.darkvision', label: 'Чувство: Тёмное зрение' },
@@ -3456,6 +3474,11 @@ export interface ResolvedActorStats {
   proficiencyBonus: number;
   /** Скорости передвижения */
   movement: Record<MovementType, number>;
+  /**
+   * Дальность прыжка с разбегом в футах: в длину ({@link JUMP_LONG_KEY}) и в
+   * высоту ({@link JUMP_HIGH_KEY}) — правило Силы с поправками эффектов
+   */
+  jump: { long: number; high: number };
   /**
    * Дальности чувств в футах (`0` — чувства нет).
    *

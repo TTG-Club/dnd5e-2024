@@ -204,7 +204,8 @@ function groupOfKey(key: string): EffectModifierGroup {
     return 'weapon';
   }
 
-  if (key.startsWith('movement.')) {
+  // Прыжок ищут рядом со скоростями: он тоже тратит ход
+  if (key.startsWith('movement.') || key.startsWith('jump.')) {
     return 'movement';
   }
 
