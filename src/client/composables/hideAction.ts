@@ -1,14 +1,13 @@
 /**
  * Засада и поиск на столе (правила 2024): кто прячется, бросок, состояние,
- * сообщение с кнопками; кто ищет, бросок, снятие засады.
+ * строка в карточке броска; кто ищет, бросок, снятие засады.
  *
- * Правила — в движке (`hiding.ts`); здесь окна, чат и запись в мир. Действия
- * не привязаны к кнопкам: «Спрятаться» и «Поиск» зовёт полка действий системы,
- * «Найти» и «Шум» — кнопки под сообщением о засаде персонажа игрока.
+ * Правила — в движке (`hiding.ts`); здесь окна, чат и запись в мир. Всё зовёт
+ * полка действий системы: «Спрятаться» (горящая — выйти из засады) и «Поиск»
+ * за выделенную фишку. Ведущий ищет за врага так же — выделив его фишку.
  *
- * Засада существа ведущего игрокам не видна: бросок и сообщение — только
- * ведущему (на старом хосте без таких сообщений — уведомление на его экране),
- * кнопки «Найти» и «Шум» под ним видит только он; игроки ищут «Поиском».
+ * Засада существа ведущего игрокам не видна: бросок и строка — только
+ * ведущему (на старом хосте без таких сообщений — уведомление на его экране).
  *
  * Запись — боевым каналом: снять засаду с чужой сущности ищущий вправе только
  * им, а снятие состояния будит на сервере срабатывания «состояние снялось».
@@ -19,7 +18,7 @@ import type {
   ActiveEffect,
   DnDSceneEntity,
   EffectActionCost,
-  HideFollowUpPayload,
+  HideEntry,
 } from '@vtt/shared/system/dnd.js';
 
 import type { CheckRollResult } from '../ui/actor/diceRollTypes';
@@ -32,7 +31,6 @@ import {
   findHiddenEffect,
   getRelativeDisposition,
   HIDE_CHECK_DC,
-  HIDE_FOLLOW_UP_KIND,
   HIDE_SKILL,
   isHideSuccess,
   listHideCosts,
@@ -41,7 +39,6 @@ import {
   resolveActionCostBlock,
   resolveHideSearchDc,
   SEARCH_SKILL,
-  serializeHideFollowUp,
 } from '@vtt/shared/system/dnd.js';
 
 import { useSystemToastStore } from '../stores/systemToastStore';
@@ -51,7 +48,6 @@ import {
   HIDE_LABELS,
 } from '../ui/stealth/hideLabels';
 import { recordEntityActionSpend, warnActionCostBlocked } from './actionSpend';
-import { listEntitiesNear } from './effectEscapeAction';
 import { isEntityOwnTurn } from './encounterTurn';
 import { changeEntityCombatState } from './entityCombatWrite';
 import {
@@ -78,9 +74,6 @@ const SEARCH_MODAL_KEY_PREFIX = 'search:';
 
 /** Поиск — действие (правила 2024, «Поиск») */
 const SEARCH_COST: EffectActionCost = 'action';
-
-/** Вся сцена: искать может любое существо на ней, расстояние решает ведущий */
-const WHOLE_SCENE_FEET = Number.POSITIVE_INFINITY;
 
 /**
  * Показывает, почему действие не пошло: причину не глотают — иначе кнопка
@@ -177,11 +170,11 @@ function refuseAction(entity: DnDSceneEntity, title: string): boolean {
 /**
  * Объявляет удачную засаду — одна точка на все виды объявления.
  *
- * Персонаж игрока: сообщение от его имени («Входит в засаду» и цена) и под ним
- * дополнение с Сл поиска и кнопками «Найти» и «Шум». Существо ведущего: то же
- * сообщение «только для мастера» — игроки его не получают, кнопки под ним
- * видит только ведущий. Хост такого сообщения не умеет — в чат ничего, ни «в
- * засаде», ни Сл: ведущему уведомление на его экране.
+ * Строка «Входит в засаду» с ценой дописывается в карточку броска
+ * Скрытности, как урон в карточку атаки: видимость и подпись она наследует от
+ * броска, Сл поиска — итог броска — там уже есть. Броска в чате нет —
+ * отдельное сообщение с Сл: у персонажа игрока для всех, у существа ведущего
+ * «только для мастера», а на хосте без таких сообщений — уведомление ведущему.
  *
  * @param entity - спрятавшийся
  * @param effect - его состояние «В засаде»
@@ -195,69 +188,32 @@ function announceHide(
   cost: EffectActionCost,
   rollMessageId: string | undefined,
 ): void {
-  const searchDc = resolveHideSearchDc(effect);
-  const gmOnly = !hasPlayerOwner(entity);
   const chat = useChatStore();
+  const announcement = `${HIDE_LABELS.hiddenMessage}${HIDE_COST_NOTES[cost] ?? ''}`;
 
-  // Исход — в карточку броска, как урон в карточку атаки: одно сообщение.
-  // Видимость и подпись дописанное наследует от броска. Сл поиска — итог
-  // броска, он уже в карточке: в строке только цена. Сама строка нужна —
-  // под ней кнопки «Найти» и «Шум», пустое дополнение ядро не принимает
-  if (
-    rollMessageId
-    && chat.appendToMessage(
-      rollMessageId,
-      `${HIDE_LABELS.hiddenMessage}${HIDE_COST_NOTES[cost] ?? ''}`,
-      'text',
-      undefined,
-      {
-        kind: HIDE_FOLLOW_UP_KIND,
-        payload: serializeHideFollowUp({
-          entityId: entity.id,
-          effectId: effect.id,
-          searchDc,
-        }),
-      },
-    )
-  ) {
+  if (rollMessageId && chat.appendToMessage(rollMessageId, announcement)) {
     return;
   }
+
+  const searchDc = `${HIDE_LABELS.searchDcPrefix}${resolveHideSearchDc(effect)}`;
+  const gmOnly = !hasPlayerOwner(entity);
 
   if (gmOnly && !canSendGmOnlyChat()) {
     useSystemToastStore().add({
       title: `${entity.name}${HIDE_LABELS.hiddenSuffix}`,
-      description: `${HIDE_LABELS.searchDcPrefix}${searchDc}`,
+      description: searchDc,
       color: 'info',
     });
 
     return;
   }
 
-  const messageId = chat.sendMessage(
-    `${HIDE_LABELS.hiddenMessage}${HIDE_COST_NOTES[cost] ?? ''}`,
+  chat.sendMessage(
+    `${announcement}. ${searchDc}`,
     'text',
     undefined,
     undefined,
     { speakerEntityId: entity.id, ...(gmOnly ? { gmOnly: true } : {}) },
-  );
-
-  if (!messageId) {
-    return;
-  }
-
-  chat.appendToMessage(
-    messageId,
-    `${HIDE_LABELS.searchDcPrefix}${searchDc}`,
-    'text',
-    undefined,
-    {
-      kind: HIDE_FOLLOW_UP_KIND,
-      payload: serializeHideFollowUp({
-        entityId: entity.id,
-        effectId: effect.id,
-        searchDc,
-      }),
-    },
   );
 }
 
@@ -365,13 +321,12 @@ export function startHide(entity: DnDSceneEntity): boolean {
 }
 
 /**
- * Снимает засаду — ровно тот эффект, о котором сообщение: новая засада той же
- * сущности остаётся.
+ * Снимает засаду — ровно этот эффект: новая засада той же сущности остаётся.
  *
  * @param payload - кто спрятался и каким эффектом
  * @returns сущность после снятия либо `null`, если засады уже нет
  */
-function removeHide(payload: HideFollowUpPayload): DnDSceneEntity | null {
+function removeHide(payload: HideEntry): DnDSceneEntity | null {
   return changeEntityCombatState(payload.entityId, (current) => {
     const effects = current.activeEffects ?? [];
 
@@ -387,14 +342,13 @@ function removeHide(payload: HideFollowUpPayload): DnDSceneEntity | null {
 }
 
 /**
- * Жива ли засада из сообщения: сущность в мире, и на ней тот же эффект.
+ * Жива ли засада: сущность в мире, и на ней тот же эффект. Пока открыто окно
+ * поиска, засаду могли снять — атакой, выходом или чужим поиском.
  *
  * @param payload - кто спрятался и каким эффектом
  * @returns спрятавшийся либо `undefined`, если засады уже нет
  */
-export function findLiveHide(
-  payload: HideFollowUpPayload,
-): DnDSceneEntity | undefined {
+function findLiveHide(payload: HideEntry): DnDSceneEntity | undefined {
   const hidden = useWorldEntities().findCurrentDndEntity(payload.entityId);
 
   return hidden && findHiddenEffect(hidden)?.id === payload.effectId
@@ -407,27 +361,16 @@ export function findLiveHide(
  * сообщение в чат. В чат идут только найденные — остальных сообщение не
  * выдаёт; укрытие и линию зрения ведущий проверяет сам.
  *
- * Поиск против одной засады («Найти»), которой к броску уже нет (нашли, шум,
- * атака), действия не тратит: искать было некого — об этом и сообщение.
- *
  * @param searcher - кто искал
  * @param hides - засады, которые он мог заметить
  * @param total - итог проверки Внимательности
- * @param targeted - поиск против одной известной засады
  */
 function settleSearch(
   searcher: DnDSceneEntity,
-  hides: readonly HideFollowUpPayload[],
+  hides: readonly HideEntry[],
   total: number,
-  targeted: boolean,
 ): void {
   const live = hides.filter((hide) => findLiveHide(hide) !== undefined);
-
-  if (targeted && live.length === 0) {
-    warn(HIDE_LABELS.searchTitle, HIDE_LABELS.goneDescription);
-
-    return;
-  }
 
   recordEntityActionSpend(searcher.id, SEARCH_COST);
 
@@ -449,20 +392,16 @@ function settleSearch(
 }
 
 /**
- * Общий путь поиска для полки и чата: запреты действия, цена и окно проверки
- * Мудрости (Внимательность). Один бросок сравнивается со Сл каждой засады.
+ * Запреты действия, цена и окно проверки Мудрости (Внимательность). Один
+ * бросок сравнивается со Сл каждой засады.
  *
  * @param searcher - кто ищет
  * @param hides - засады, которые он может заметить
- * @param check - заголовок окна и Сл, если засада одна и известна
- * @param check.title - заголовок окна
- * @param check.targetDc - Сл для окна; нет — окно Сл не показывает
  * @returns `true`, если окно проверки открыто
  */
 function openSearchCheck(
   searcher: DnDSceneEntity,
-  hides: readonly HideFollowUpPayload[],
-  check: { title: string; targetDc?: number },
+  hides: readonly HideEntry[],
 ): boolean {
   if (
     refuseAction(searcher, HIDE_LABELS.searchTitle)
@@ -473,50 +412,15 @@ function openSearchCheck(
 
   openSkillCheckModal(searcher, SEARCH_SKILL, {
     modalKey: `${SEARCH_MODAL_KEY_PREFIX}${searcher.id}`,
-    title: check.title,
+    title: HIDE_LABELS.searchTitle,
     rollButtonText: HIDE_LABELS.searchRollButton,
     signedByRoller: true,
-    ...(check.targetDc === undefined ? {} : { targetDc: check.targetDc }),
     onRoll: (result: CheckRollResult) => {
-      settleSearch(searcher, hides, result.total, check.targetDc !== undefined);
+      settleSearch(searcher, hides, result.total);
     },
   });
 
   return true;
-}
-
-/**
- * Поиск против одной засады — «Найти» под сообщением о ней (руками ведущего):
- * Сл известна, окно её показывает.
- *
- * @param searcher - кто ищет
- * @param payload - кого ищут и с какой Сл
- * @returns `true`, если окно проверки открыто
- */
-export function searchForHidden(
-  searcher: DnDSceneEntity,
-  payload: HideFollowUpPayload,
-): boolean {
-  // Лист ищущего или спрятавшегося в режиме правки — действие ждёт
-  if (
-    refuseWhileSheetEditing(searcher.id)
-    || refuseWhileSheetEditing(payload.entityId)
-  ) {
-    return false;
-  }
-
-  const hidden = findLiveHide(payload);
-
-  if (!hidden) {
-    warn(HIDE_LABELS.searchTitle, HIDE_LABELS.goneDescription);
-
-    return false;
-  }
-
-  return openSearchCheck(searcher, [payload], {
-    title: `${HIDE_LABELS.searchTitle}: ${hidden.name}`,
-    targetDc: payload.searchDc,
-  });
 }
 
 /**
@@ -527,9 +431,7 @@ export function searchForHidden(
  * @param searcher - кто ищет
  * @returns засады
  */
-export function listSearchableHides(
-  searcher: DnDSceneEntity,
-): HideFollowUpPayload[] {
+export function listSearchableHides(searcher: DnDSceneEntity): HideEntry[] {
   const tokens = useWorldStore().currentScene?.tokens ?? [];
   const { findCurrentDndEntity } = useWorldEntities();
   const seen = new Set<string>();
@@ -577,102 +479,7 @@ export function startSearch(searcher: DnDSceneEntity): boolean {
     return false;
   }
 
-  return openSearchCheck(searcher, listSearchableHides(searcher), {
-    title: HIDE_LABELS.searchTitle,
-  });
-}
-
-/**
- * Кто может искать: существа текущей сцены, которыми управляет пользователь,
- * кроме самого спрятавшегося и его союзников — свои знают, где он.
- *
- * Ядро не отдаёт системе выделенную фишку пользователя, поэтому ищущего
- * выбирают в плашке; единственный кандидат берётся без вопроса.
- *
- * @param hidden - спрятавшийся
- * @returns кандидаты
- */
-export function listSearchers(hidden: DnDSceneEntity): DnDSceneEntity[] {
-  const tokens = useWorldStore().currentScene?.tokens ?? [];
-
-  return listEntitiesNear(hidden.id, WHOLE_SCENE_FEET).filter(
-    (entity) =>
-      controlsEntityAsUser(entity) && !areAllies(entity, hidden, tokens),
-  );
-}
-
-/**
- * «Найти» под сообщением о засаде: только ведущий — враги ищут спрятавшегося
- * персонажа его руками. Спрашивает, кто ищет, и запускает поиск.
- *
- * @param payload - кого ищут и с какой Сл
- */
-export function searchFromChat(payload: HideFollowUpPayload): void {
-  // Кнопку ядро и так показывает только ведущему, но показ не защищает:
-  // отказывает сам обработчик
-  if (!useWorldStore().isGM) {
-    warn(HIDE_LABELS.searchTitle, HIDE_LABELS.gmOnlyDescription);
-
-    return;
-  }
-
-  const hidden = findLiveHide(payload);
-
-  if (!hidden) {
-    warn(HIDE_LABELS.searchTitle, HIDE_LABELS.goneDescription);
-
-    return;
-  }
-
-  const searchers = listSearchers(hidden);
-
-  if (searchers.length === 0) {
-    warn(HIDE_LABELS.searchTitle, HIDE_LABELS.noSearcherDescription);
-
-    return;
-  }
-
-  chooseOne(
-    HIDE_LABELS.searcherQuestion,
-    HIDE_LABELS.searchTitle,
-    searchers.map((entity) => ({ label: entity.name, value: entity })),
-    (searcher) => {
-      searchForHidden(searcher, payload);
-    },
-  );
-}
-
-/**
- * «Шум»: спрятавшийся издал звук громче шёпота — засада снимается. Вправе
- * ведущий и тот, кто управляет спрятавшимся (автор сообщения о засаде).
- *
- * @param payload - кто спрятался и каким эффектом
- */
-export function endHideByNoise(payload: HideFollowUpPayload): void {
-  // Лист спрятавшегося в режиме правки — снятие ждёт
-  if (refuseWhileSheetEditing(payload.entityId)) {
-    return;
-  }
-
-  const hidden = findLiveHide(payload);
-
-  if (!hidden) {
-    warn(HIDE_LABELS.title, HIDE_LABELS.goneDescription);
-
-    return;
-  }
-
-  if (!controlsEntityAsUser(hidden)) {
-    warn(HIDE_LABELS.title, HIDE_LABELS.notControlledDescription);
-
-    return;
-  }
-
-  if (refuseWhilePaused()) {
-    return;
-  }
-
-  revealHide(payload, HIDE_LABELS.noiseMessage);
+  return openSearchCheck(searcher, listSearchableHides(searcher));
 }
 
 /**
@@ -682,7 +489,7 @@ export function endHideByNoise(payload: HideFollowUpPayload): void {
  * @param message - сообщение чата
  * @returns `true`, если засада снята
  */
-function revealHide(payload: HideFollowUpPayload, message: string): boolean {
+function revealHide(payload: HideEntry, message: string): boolean {
   const revealed = removeHide(payload);
 
   if (!revealed) {

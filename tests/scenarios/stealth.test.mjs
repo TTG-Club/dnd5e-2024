@@ -207,7 +207,7 @@ describe('каталог: засада и невидимость', () => {
     assert.equal(engine.isSearchSuccess(16, 17), false);
     assert.equal(engine.isSearchSuccess(17, 17), true, 'равно Сл — нашёл');
 
-    const { hero, hidden } = hiddenHero();
+    const { hero } = hiddenHero();
     const kept = createEffect('Благословение');
 
     assert.deepEqual(
@@ -215,18 +215,6 @@ describe('каталог: засада и невидимость', () => {
         .withoutHiddenEffects([...hero.activeEffects, kept])
         .map((effect) => effect.id),
       [kept.id],
-    );
-
-    const payload = {
-      entityId: hero.id,
-      effectId: hidden.id,
-      searchDc: 17,
-    };
-
-    assert.deepEqual(
-      engine.parseHideFollowUp(engine.serializeHideFollowUp(payload)),
-      payload,
-      'кнопки под сообщением читают ровно то, что записано',
     );
 
     const hides = [
@@ -242,9 +230,6 @@ describe('каталог: засада и невидимость', () => {
     );
 
     assert.deepEqual(engine.pickFoundHides(11, hides), []);
-
-    assert.equal(engine.parseHideFollowUp('{"entityId":1}'), null);
-    assert.equal(engine.parseHideFollowUp('не json'), null);
   });
 
   it('[H06] Одна причина преимущества: «В засаде», а не ещё «цель не видит атакующего»', () => {

@@ -196,7 +196,6 @@ const UNGUARDED_REASONS = {
     'ничего не пишет: собирает сообщение игроку из ответа сервера',
   listEscapeHelpOffers: 'ничего не пишет',
   formatEscapeTitle: 'ничего не пишет',
-  findLiveHide: 'ничего не пишет: только читает засаду из мира',
   findSpellGroupLimitBlock: 'ничего не пишет: только читает журнал существа',
   formatActionLimitBlock: 'ничего не пишет',
   readLimitedTargetState: 'ничего не пишет: только читает журнал существа',

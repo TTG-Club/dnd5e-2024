@@ -23,11 +23,8 @@ import type { SkillType } from '@vtt/shared';
 import type { ActiveEffect, EffectFlagKey } from './activeEffectTypes.js';
 import type { EffectActionCost } from './effectTriggerTypes.js';
 
-import { z } from 'zod';
-
 import { HIDDEN_CONDITION_KEY } from './conditionKeys.js';
 import { buildConditionActiveEffect } from './conditionTemplates.js';
-import { SYSTEM_ID } from './systemId.js';
 
 /** Сл проверки Ловкости (Скрытность) при засаде */
 export const HIDE_CHECK_DC = 15;
@@ -58,9 +55,6 @@ export const SEARCH_SKILL: SkillType = 'perception';
  * правило работает у класса, у существа и у предмета.
  */
 export const HIDE_AS_BONUS_FLAG: EffectFlagKey = 'hide.bonusAction';
-
-/** Вид дополнения чата об удачной засаде: под ним «Найти» и «Шум» */
-export const HIDE_FOLLOW_UP_KIND = `${SYSTEM_ID}:hide`;
 
 /**
  * Чем носитель может спрятаться: действием всегда, бонусным действием — если
@@ -181,47 +175,12 @@ export function isVerbalSpellCast(
   return spell.components?.verbal === true && !verbalIgnored;
 }
 
-/** Данные кнопок под сообщением о засаде: кто спрятался и с какой Сл */
-const hideFollowUpPayloadSchema = z.object({
+/** Засада на сцене: кто спрятался, каким эффектом и с какой Сл поиска */
+export interface HideEntry {
   /** Спрятавшаяся сущность */
-  entityId: z.string().min(1),
+  entityId: string;
   /** Эффект засады: снимают ровно его, а не новую засаду той же сущности */
-  effectId: z.string().min(1),
+  effectId: string;
   /** Сл поиска */
-  searchDc: z.number().int().min(0),
-});
-
-/** Данные кнопок под сообщением о засаде */
-export type HideFollowUpPayload = z.infer<typeof hideFollowUpPayloadSchema>;
-
-/**
- * Записывает данные кнопок под сообщением о засаде.
- *
- * @param payload - кто спрятался, эффект и Сл
- * @returns строка для дополнения чата
- */
-export function serializeHideFollowUp(payload: HideFollowUpPayload): string {
-  return JSON.stringify(payload);
-}
-
-/**
- * Читает данные кнопок под сообщением о засаде.
- *
- * @param raw - строка дополнения чата
- * @returns данные либо `null`, если строка чужая или битая
- */
-export function parseHideFollowUp(
-  raw: string | undefined,
-): HideFollowUpPayload | null {
-  if (!raw) {
-    return null;
-  }
-
-  try {
-    const parsed = hideFollowUpPayloadSchema.safeParse(JSON.parse(raw));
-
-    return parsed.success ? parsed.data : null;
-  } catch {
-    return null;
-  }
+  searchDc: number;
 }

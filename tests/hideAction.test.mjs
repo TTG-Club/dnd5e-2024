@@ -16,7 +16,7 @@ const labels = await loadEngineBundle(
 
 /**
  * Засада и поиск на столе (`hideAction.ts`): права, ход, пауза, цена, отбор
- * союзников, двойное нажатие, засада существа ведущего, «Найти» и «Шум».
+ * союзников, двойное нажатие, засада существа ведущего, выход из засады.
  * Функции — настоящие, окружение (окна, чат, мир) — журналом.
  */
 
@@ -37,13 +37,9 @@ const HIDE_FUNCTIONS = [
   'findLiveHide',
   'settleSearch',
   'openSearchCheck',
-  'searchForHidden',
   'listSearchableHides',
   'startSearch',
-  'listSearchers',
-  'searchFromChat',
   'revealHide',
-  'endHideByNoise',
   'leaveHide',
 ];
 
@@ -143,7 +139,6 @@ async function loadHide({
     getEntityOwnerIds: engine.getEntityOwnerIds,
     withTokenDisposition: engine.withTokenDisposition,
     HIDE_CHECK_DC: engine.HIDE_CHECK_DC,
-    HIDE_FOLLOW_UP_KIND: engine.HIDE_FOLLOW_UP_KIND,
     HIDE_SKILL: engine.HIDE_SKILL,
     SEARCH_SKILL: engine.SEARCH_SKILL,
     isHideSuccess: engine.isHideSuccess,
@@ -151,7 +146,6 @@ async function loadHide({
     mergeAppliedEffects: engine.mergeAppliedEffects,
     pickFoundHides: engine.pickFoundHides,
     resolveHideSearchDc: engine.resolveHideSearchDc,
-    serializeHideFollowUp: engine.serializeHideFollowUp,
     resolveActionCostBlock: () => null,
     listAmbientEffects: () => [],
     resolveEntityStats: () => ({ activeFlags: flags }),
@@ -259,8 +253,12 @@ describe('засада на столе', () => {
 
     assert.deepEqual(plain.log.questions, [], 'один вариант — без плашки');
     assert.deepEqual(plain.log.spends, [['rogue', 'action']]);
-    assert.equal(plain.log.messages[0], 'Входит в засаду действием');
-    assert.equal(plain.log.appends[0].content, 'Сл поиска: 18');
+
+    assert.equal(
+      plain.log.messages[0],
+      'Входит в засаду действием. Сл поиска: 18',
+      'броска в чате нет — Сл в самом сообщении',
+    );
 
     const cunning = await loadHide({
       entities: [rogue],
@@ -275,7 +273,10 @@ describe('засада на столе', () => {
     assert.equal(cunning.log.questions[0]._modalKey, 'hide-cost:rogue');
     assert.deepEqual(cunning.log.spends, [['rogue', 'bonus']]);
 
-    assert.equal(cunning.log.messages[0], 'Входит в засаду бонусным действием');
+    assert.equal(
+      cunning.log.messages[0],
+      'Входит в засаду бонусным действием. Сл поиска: 18',
+    );
 
     const byAction = await loadHide({
       entities: [rogue],
@@ -306,7 +307,7 @@ describe('засада на столе', () => {
     );
   });
 
-  it('персонаж игрока: сообщение и кнопки; существо ведущего — бросок ведущему, чат молчит', async () => {
+  it('персонаж игрока: сообщение всем; существо ведущего — бросок ведущему, чат молчит', async () => {
     const player = await loadHide({ entities: [rogue], rollTotal: 17 });
 
     player.startHide(player.world.get('rogue'));
@@ -319,7 +320,7 @@ describe('засада на столе', () => {
       'имя — в шапке карточки',
     );
 
-    assert.equal(player.log.appends[0].kind, engine.HIDE_FOLLOW_UP_KIND);
+    assert.equal(player.log.messages.length, 1);
     assert.equal(player.world.get('rogue').activeEffects[0].searchDc, 17);
 
     const gm = await loadHide({ entities: [goblin], rollTotal: 19 });
@@ -328,12 +329,11 @@ describe('засада на столе', () => {
 
     assert.equal(gm.log.windows[0].options.rollVisibility, 'gm');
     assert.deepEqual(gm.log.messages, [], 'в общий чат ни «в засаде», ни Сл');
-    assert.deepEqual(gm.log.appends, [], 'кнопок «Найти» и «Шум» нет');
     assert.equal(gm.log.toasts[0].description, 'Сл поиска: 19');
     assert.equal(gm.world.get('goblin').activeEffects[0].searchDc, 19);
   });
 
-  it('существо ведущего на хосте с gmOnly: сообщение и кнопки только ведущему', async () => {
+  it('существо ведущего на хосте с gmOnly: сообщение только ведущему', async () => {
     const gm = await loadHide({
       entities: [goblin],
       rollTotal: 19,
@@ -344,7 +344,6 @@ describe('засада на столе', () => {
 
     assert.equal(gm.log.messages.length, 1);
     assert.equal(gm.log.messageOptions[0].gmOnly, true);
-    assert.equal(gm.log.appends[0].kind, engine.HIDE_FOLLOW_UP_KIND);
     assert.deepEqual(gm.log.toasts, [], 'уведомление не нужно');
 
     const player = await loadHide({
@@ -364,7 +363,7 @@ describe('засада на столе', () => {
 });
 
 describe('засада в карточке броска', () => {
-  it('исход дописывается в сообщение броска одной строкой с кнопками', async () => {
+  it('исход дописывается в сообщение броска одной строкой, без кнопок', async () => {
     const player = await loadHide({
       entities: [rogue],
       rollTotal: 16,
@@ -379,7 +378,7 @@ describe('засада в карточке броска', () => {
       {
         id: 'roll_1',
         content: 'Входит в засаду действием',
-        kind: engine.HIDE_FOLLOW_UP_KIND,
+        kind: undefined,
       },
     ]);
   });
@@ -468,71 +467,6 @@ describe('поиск', () => {
     assert.match(env.log.messages[0], /находит: goblin\./u);
   });
 
-  it('«Найти»: только ведущий; без союзников спрятавшегося в «Кто ищет?»', async () => {
-    const hidden = hiddenEntity('rogue', 15, { ownerIds: [PLAYER_ID] });
-    const payload = { entityId: 'rogue', effectId: 'hide_rogue', searchDc: 15 };
-
-    const player = await loadHide({ entities: [hidden], userId: PLAYER_ID });
-
-    player.searchFromChat(payload);
-    assert.deepEqual(player.log.questions, []);
-    assert.deepEqual(player.log.windows, []);
-    assert.equal(player.log.toasts.length, 1);
-
-    const gm = await loadHide({
-      entities: [hidden, entity('ally', { ownerIds: [PLAYER_ID] }), goblin],
-      tokens: [
-        token('rogue', 'friendly'),
-        token('ally', 'friendly'),
-        token('goblin', 'hostile'),
-      ],
-    });
-
-    assert.deepEqual(
-      gm.listSearchers(gm.world.get('rogue')).map((item) => item.id),
-      ['goblin'],
-    );
-  });
-
-  it('«Найти» по засаде, которой к броску уже нет: сообщение, действие не тратится', async () => {
-    const env = await loadHide({ entities: [rogue, goblin] });
-
-    env.settleSearch(
-      env.world.get('goblin'),
-      [{ entityId: 'rogue', effectId: 'gone', searchDc: 12 }],
-      20,
-      true,
-    );
-
-    assert.deepEqual(env.log.spends, []);
-
-    assert.equal(
-      env.log.toasts[0].description,
-      labels.HIDE_LABELS.goneDescription,
-    );
-  });
-
-  it('«Шум»: ведущий и владелец спрятавшегося — да, другой игрок — нет', async () => {
-    const hidden = hiddenEntity('rogue', 15, { ownerIds: [PLAYER_ID] });
-    const payload = { entityId: 'rogue', effectId: 'hide_rogue', searchDc: 15 };
-
-    for (const [userId, removed] of [
-      [GM_ID, true],
-      [PLAYER_ID, true],
-      ['user-other', false],
-    ]) {
-      const env = await loadHide({ entities: [hidden], userId });
-
-      env.endHideByNoise(payload);
-
-      assert.equal(
-        env.findHiddenEffect(env.world.get('rogue')) === undefined,
-        removed,
-        userId,
-      );
-    }
-  });
-
   it('выход из засады по своей воле: в чужой ход тоже, без траты действия; чужой — нет', async () => {
     const hidden = hiddenEntity('rogue', 15, { ownerIds: [PLAYER_ID] });
 
@@ -591,16 +525,10 @@ describe('полка действий', () => {
     const ports = {
       ...labels,
       findHiddenEffect: engine.findHiddenEffect,
-      parseHideFollowUp: engine.parseHideFollowUp,
-      HIDE_FOLLOW_UP_KIND: engine.HIDE_FOLLOW_UP_KIND,
-      HIDE_ACTIONS_LAYOUT: 'row',
       useWorldEntities: () => ({
         findCurrentDndEntity: (id) =>
           id === selected.id ? selected : undefined,
       }),
-      findLiveHide: () => undefined,
-      searchFromChat: () => {},
-      endHideByNoise: () => {},
       startHide: () => {
         calls.push('startHide');
 
@@ -626,12 +554,7 @@ describe('полка действий', () => {
       ports,
     );
 
-    for (const name of [
-      'resolveHideActionView',
-      'withHidePayload',
-      'runWithLiveEntity',
-      'buildIdleShelfButtons',
-    ]) {
+    for (const name of ['runWithLiveEntity', 'buildIdleShelfButtons']) {
       ports[name] = await loadHandler(
         'src/client/modules/stealth/register.ts',
         name,
@@ -650,11 +573,15 @@ describe('полка действий', () => {
     return registered;
   }
 
-  it('без полки у ядра — регистрируются только кнопки под сообщением', async () => {
-    const registered = await registerOn(false, rogue);
+  it('без полки у ядра — ничего; кнопок под сообщением нет никогда', async () => {
+    const without = await registerOn(false, rogue);
 
-    assert.equal(registered.shelf, null);
-    assert.ok(registered.followUps);
+    assert.equal(without.shelf, null);
+    assert.equal(without.followUps, null);
+
+    const withShelf = await registerOn(true, rogue);
+
+    assert.equal(withShelf.followUps, null);
   });
 
   it('четыре кнопки по порядку; недоступные без обработчика; «Спрятаться» горит в засаде', async () => {
@@ -696,13 +623,5 @@ describe('полка действий', () => {
       assert.equal(button.disabled, true, 'и вся погашена');
       assert.equal(button.onClick, undefined);
     }
-  });
-
-  it('«Найти» помечен только для ведущего, «Шум» — нет', async () => {
-    const registered = await registerOn(false, rogue);
-    const [search, noise] = registered.followUps.actions;
-
-    assert.equal(search.gmOnly, true);
-    assert.equal(noise.gmOnly, undefined);
   });
 });
