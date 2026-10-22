@@ -177,8 +177,8 @@ function refuseAction(entity: DnDSceneEntity, title: string): boolean {
 /**
  * Объявляет удачную засаду — одна точка на все виды объявления.
  *
- * Персонаж игрока: сообщение от его имени и под ним дополнение с Сл поиска,
- * подсказкой ведущему и кнопками «Найти» и «Шум». Существо ведущего: то же
+ * Персонаж игрока: сообщение от его имени («Входит в засаду» и цена) и под ним
+ * дополнение с Сл поиска и кнопками «Найти» и «Шум». Существо ведущего: то же
  * сообщение «только для мастера» — игроки его не получают, кнопки под ним
  * видит только ведущий. Хост такого сообщения не умеет — в чат ничего, ни «в
  * засаде», ни Сл: ведущему уведомление на его экране.
@@ -208,7 +208,7 @@ function announceHide(
   const chat = useChatStore();
 
   const messageId = chat.sendMessage(
-    `${entity.name}${HIDE_LABELS.hiddenSuffix}${HIDE_COST_NOTES[cost] ?? ''}`,
+    `${HIDE_LABELS.hiddenMessage}${HIDE_COST_NOTES[cost] ?? ''}`,
     'text',
     undefined,
     undefined,
@@ -221,7 +221,7 @@ function announceHide(
 
   chat.appendToMessage(
     messageId,
-    `${HIDE_LABELS.searchDcPrefix}${searchDc}. ${HIDE_LABELS.coverHint}`,
+    `${HIDE_LABELS.searchDcPrefix}${searchDc}`,
     'text',
     undefined,
     {
@@ -644,15 +644,59 @@ export function endHideByNoise(payload: HideFollowUpPayload): void {
     return;
   }
 
+  revealHide(payload, HIDE_LABELS.noiseMessage);
+}
+
+/**
+ * Снимает засаду и пишет об этом в чат от имени спрятавшегося.
+ *
+ * @param payload - кто спрятался и каким эффектом
+ * @param message - сообщение чата
+ * @returns `true`, если засада снята
+ */
+function revealHide(payload: HideFollowUpPayload, message: string): boolean {
   const revealed = removeHide(payload);
 
-  if (revealed) {
-    useChatStore().sendMessage(
-      `${revealed.name}${HIDE_LABELS.noiseSuffix}`,
-      'text',
-      undefined,
-      undefined,
-      { speakerEntityId: revealed.id },
-    );
+  if (!revealed) {
+    return false;
   }
+
+  useChatStore().sendMessage(message, 'text', undefined, undefined, {
+    speakerEntityId: revealed.id,
+  });
+
+  return true;
+}
+
+/**
+ * Выход из засады по своей воле — повторное нажатие горящей «Спрятаться».
+ * Действия не стоит и в чужой ход доступен: выйти можно в любой момент.
+ *
+ * @param entity - спрятавшийся
+ * @returns `true`, если засада снята
+ */
+export function leaveHide(entity: DnDSceneEntity): boolean {
+  // Лист в режиме правки — снятие ждёт «Сохранить» или отмены
+  if (refuseWhileSheetEditing(entity.id)) {
+    return false;
+  }
+
+  if (refuseWhilePaused() || !controlsEntityAsUser(entity)) {
+    return false;
+  }
+
+  const hidden = findHiddenEffect(entity);
+
+  if (!hidden) {
+    return false;
+  }
+
+  return revealHide(
+    {
+      entityId: entity.id,
+      effectId: hidden.id,
+      searchDc: resolveHideSearchDc(hidden),
+    },
+    HIDE_LABELS.leftMessage,
+  );
 }

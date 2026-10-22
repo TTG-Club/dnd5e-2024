@@ -42,7 +42,9 @@ const HIDE_FUNCTIONS = [
   'startSearch',
   'listSearchers',
   'searchFromChat',
+  'revealHide',
   'endHideByNoise',
+  'leaveHide',
 ];
 
 const GM_ID = 'user-gm';
@@ -250,7 +252,8 @@ describe('засада на столе', () => {
 
     assert.deepEqual(plain.log.questions, [], 'один вариант — без плашки');
     assert.deepEqual(plain.log.spends, [['rogue', 'action']]);
-    assert.equal(plain.log.messages[0], 'rogue в засаде');
+    assert.equal(plain.log.messages[0], 'Входит в засаду действием');
+    assert.equal(plain.log.appends[0].content, 'Сл поиска: 18');
 
     const cunning = await loadHide({
       entities: [rogue],
@@ -265,10 +268,7 @@ describe('засада на столе', () => {
     assert.equal(cunning.log.questions[0]._modalKey, 'hide-cost:rogue');
     assert.deepEqual(cunning.log.spends, [['rogue', 'bonus']]);
 
-    assert.equal(
-      cunning.log.messages[0],
-      'rogue в засаде (бонусным действием)',
-    );
+    assert.equal(cunning.log.messages[0], 'Входит в засаду бонусным действием');
 
     const byAction = await loadHide({
       entities: [rogue],
@@ -481,6 +481,33 @@ describe('поиск', () => {
       );
     }
   });
+
+  it('выход из засады по своей воле: в чужой ход тоже, без траты действия; чужой — нет', async () => {
+    const hidden = hiddenEntity('rogue', 15, { ownerIds: [PLAYER_ID] });
+
+    const owner = await loadHide({
+      entities: [hidden],
+      userId: PLAYER_ID,
+      offTurn: ['rogue'],
+    });
+
+    assert.equal(owner.leaveHide(owner.world.get('rogue')), true);
+    assert.equal(owner.findHiddenEffect(owner.world.get('rogue')), undefined);
+    assert.deepEqual(owner.log.messages, ['Выходит из засады']);
+    assert.deepEqual(owner.log.spends, []);
+
+    const stranger = await loadHide({
+      entities: [hidden],
+      userId: 'user-other',
+    });
+
+    assert.equal(stranger.leaveHide(stranger.world.get('rogue')), false);
+
+    assert.notEqual(
+      stranger.findHiddenEffect(stranger.world.get('rogue')),
+      undefined,
+    );
+  });
 });
 
 describe('полка действий', () => {
@@ -492,7 +519,8 @@ describe('полка действий', () => {
    * @returns {Promise<object>} журнал регистраций
    */
   async function registerOn(withShelf, selected) {
-    const registered = { shelf: null, followUps: null };
+    const calls = [];
+    const registered = { shelf: null, followUps: null, calls };
 
     const api = {
       chatFollowUpActions: (registration) => {
@@ -522,7 +550,16 @@ describe('полка действий', () => {
       findLiveHide: () => undefined,
       searchFromChat: () => {},
       endHideByNoise: () => {},
-      startHide: () => true,
+      startHide: () => {
+        calls.push('startHide');
+
+        return true;
+      },
+      leaveHide: () => {
+        calls.push('leaveHide');
+
+        return true;
+      },
       startSearch: () => true,
     };
 
@@ -590,6 +627,11 @@ describe('полка действий', () => {
     const hidden = await registerOn(true, hiddenEntity('rogue', 15));
 
     assert.equal(hidden.shelf.list({ entityId: 'rogue' })[2].active, true);
+
+    buttons[2].onClick();
+    hidden.shelf.list({ entityId: 'rogue' })[2].onClick();
+    assert.deepEqual(plain.calls, ['startHide'], 'не в засаде — прячется');
+    assert.deepEqual(hidden.calls, ['leaveHide'], 'горящая — выходит');
 
     const idle = hidden.shelf.list({ entityId: 'nobody' });
 

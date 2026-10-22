@@ -3,7 +3,8 @@
  *
  * Регистрирует кнопки под сообщением об удачной засаде — «Найти» и «Шум» — и
  * полку действий системы слева от панели быстрого доступа: «Атака» и «Прыжок»
- * (пока недоступны), «Спрятаться» и «Поиск».
+ * (пока недоступны), «Спрятаться» и «Поиск». «Спрятаться» в засаде горит, и
+ * нажатие на неё выводит из засады.
  *
  * Сообщение с кнопками пишется только о засаде персонажа игрока. «Найти» —
  * только ведущему: враги ищут спрятавшегося персонажа его руками. «Шум» —
@@ -34,6 +35,7 @@ import { registerActionShelf } from '../../composables/actionShelf';
 import {
   endHideByNoise,
   findLiveHide,
+  leaveHide,
   searchFromChat,
   startHide,
   startSearch,
@@ -206,7 +208,9 @@ export function register(api: ClientSystemAPI): void {
             ? ACTION_SHELF_BUTTONS.hideActiveTooltip
             : ACTION_SHELF_BUTTONS.hideTooltip,
           active: hidden,
-          onClick: () => runWithLiveEntity(entity.id, startHide),
+          // Горящая кнопка снимает засаду, а не бросает заново
+          onClick: () =>
+            runWithLiveEntity(entity.id, hidden ? leaveHide : startHide),
         },
         {
           id: ACTION_SHELF_BUTTONS.searchId,

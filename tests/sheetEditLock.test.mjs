@@ -132,6 +132,11 @@ const GUARDED_ENTRIES = [
   },
   {
     path: `${COMPOSABLES_DIR}/hideAction.ts`,
+    name: 'leaveHide',
+    call: (entry) => entry({ id: 'hero' }),
+  },
+  {
+    path: `${COMPOSABLES_DIR}/hideAction.ts`,
     name: 'startSearch',
     call: (entry) => entry({ id: 'hero' }),
   },
