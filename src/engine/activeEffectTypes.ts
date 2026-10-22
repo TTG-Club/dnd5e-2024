@@ -329,6 +329,14 @@ export const JUMP_LONG_KEY = 'jump.long';
 export const JUMP_HIGH_KEY = 'jump.high';
 
 /**
+ * Ключ своей цены прыжка в футах хода. По правилам цены нет — фут прыжка
+ * стоит фут хода; строка задаёт фиксированную: заклинание «Прыжок» (2024) —
+ * «заменить» на 10 вместе с «повысить до 30» у {@link JUMP_LONG_KEY}. Такой
+ * прыжок не требует разбега.
+ */
+export const JUMP_COST_KEY = 'jump.cost';
+
+/**
  * Ключ Скрытой атаки: кости, которые идут в урон атаки оружием, когда
  * выполнено условие строки (`SNEAK_ATTACK_CONDITION`). Общий механизм для
  * любого источника — класса, существа, черты, предмета.
@@ -496,6 +504,7 @@ export type EffectTargetKey =
   | `movement.${MovementType}`
   | typeof JUMP_LONG_KEY
   | typeof JUMP_HIGH_KEY
+  | typeof JUMP_COST_KEY
   | 'hitPoints.max'
   | 'initiative'
   | 'proficiencyBonus'
@@ -580,6 +589,7 @@ export const EFFECT_TARGET_SUGGESTIONS: Array<{
   { value: 'movement.burrow', label: 'Скорость (Копание)' },
   { value: JUMP_LONG_KEY, label: 'Прыжок в длину с разбегом, фт' },
   { value: JUMP_HIGH_KEY, label: 'Прыжок в высоту с разбегом, фт' },
+  { value: JUMP_COST_KEY, label: 'Цена прыжка, фт хода (вместо фута за фут)' },
 
   // Чувства (дальность в футах)
   { value: 'sense.darkvision', label: 'Чувство: Тёмное зрение' },
@@ -1790,6 +1800,7 @@ export type EffectFlagKey =
   | 'save.autoFail.charisma'
   | 'speed.zero'
   | 'terrain.ignoreDifficult'
+  | 'terrain.impassable'
   | 'mark.bySource'
   | 'incapacitated'
   | 'initiative.advantage'
@@ -1941,6 +1952,8 @@ const BASE_EFFECT_FLAG_LABELS: Record<
   'speed.zero': 'Скорость равна нулю',
   'terrain.ignoreDifficult':
     'Игнорирует труднопроходимую местность (клетки зон стоят как обычные)',
+  'terrain.impassable':
+    'Зона — провал: пешком не пройти, только перепрыгнуть (яма, пропасть, ручей)',
   'mark.bySource':
     'Метка наложившего: его условие «цель помечена мной» (Метка охотника, Сглаз)',
   'incapacitated': 'Недееспособен (Не может совершать действия/реакции)',
@@ -3476,9 +3489,11 @@ export interface ResolvedActorStats {
   movement: Record<MovementType, number>;
   /**
    * Дальность прыжка с разбегом в футах: в длину ({@link JUMP_LONG_KEY}) и в
-   * высоту ({@link JUMP_HIGH_KEY}) — правило Силы с поправками эффектов
+   * высоту ({@link JUMP_HIGH_KEY}) — правило Силы с поправками эффектов;
+   * `cost` — своя цена прыжка в футах хода ({@link JUMP_COST_KEY}), нет —
+   * фут за фут
    */
-  jump: { long: number; high: number };
+  jump: { long: number; high: number; cost?: number };
   /**
    * Дальности чувств в футах (`0` — чувства нет).
    *

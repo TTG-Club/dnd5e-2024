@@ -96,6 +96,8 @@ export const ACTION_SHELF_BUTTONS = {
     `Прыжок в длину: ${standing} фт с места, ${running} фт с разбегом ${JUMP_RUN_UP_FEET} фт. Наведите на клетку — увидите дальность, щёлкните — прыжок`,
   jumpStandingTooltip: (standing: number): string =>
     `Прыжок в длину с места: ${standing} фт. Наведите на клетку — увидите дальность, щёлкните — прыжок`,
+  jumpFixedCostTooltip: (distance: number, cost: number): string =>
+    `Прыжок: до ${distance} фт за ${cost} фт хода, без разбега. Наведите на клетку — увидите дальность, щёлкните — прыжок`,
   jumpActiveTooltip:
     'Режим прыжка: щёлкните клетку, чтобы прыгнуть. Escape, правый щелчок или эта кнопка — выйти',
   /** Причина недоступной кнопки «Прыжок» */

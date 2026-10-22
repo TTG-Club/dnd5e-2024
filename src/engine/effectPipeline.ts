@@ -69,6 +69,7 @@ import {
   isSneakAttackKey,
   isUseActivatedEffect,
   isWeaponOverrideKey,
+  JUMP_COST_KEY,
   JUMP_HIGH_KEY,
   JUMP_LONG_KEY,
   parseWeaponBaseTypeCondition,
@@ -213,6 +214,7 @@ const DERIVED_TARGET_KEYS: ReadonlySet<string> = new Set([
   DEATH_SAVE_KEY,
   'armorClass',
   'initiative',
+  JUMP_COST_KEY,
   JUMP_HIGH_KEY,
   JUMP_LONG_KEY,
   'proficiencyBonus',
@@ -2878,6 +2880,39 @@ function applyDerivedChanges(
 }
 
 /**
+ * Своя цена прыжка в футах хода ({@link JUMP_COST_KEY}).
+ *
+ * По правилам цены у прыжка нет — фут за фут, поэтому без строк поля нет
+ * вовсе. Отсчёт идёт от бесконечности: «заменить на 10» и «понизить до 10»
+ * дают 10, а одно «повысить до» цену не задаёт — бесконечность остаётся, и
+ * поле не появляется.
+ *
+ * @param stats - статы листа; правится только набор `overriddenKeys`
+ * @param derivedChanges - изменения производных ключей по ключу
+ * @param formulaContext - контекст для вычисления формул
+ * @returns `{ cost }` либо пустой объект, если своей цены нет
+ */
+function resolveJumpCost(
+  stats: ResolvedActorStats,
+  derivedChanges: DerivedChangeMap,
+  formulaContext: FormulaContext,
+): { cost?: number } {
+  if (!derivedChanges.has(JUMP_COST_KEY)) {
+    return {};
+  }
+
+  const cost = applyDerivedChanges(
+    stats,
+    JUMP_COST_KEY,
+    Number.POSITIVE_INFINITY,
+    derivedChanges,
+    formulaContext,
+  );
+
+  return Number.isFinite(cost) ? { cost: Math.max(0, cost) } : {};
+}
+
+/**
  * Извлекает текущее значение поля из ResolvedActorStats по EffectTargetKey.
  *
  * @param stats - статы актора
@@ -3722,6 +3757,7 @@ export function prepareDerivedData(
         derivedFormulaContext,
       ),
     ),
+    ...resolveJumpCost(derivedStats, derivedChanges, derivedFormulaContext),
   };
 
   // 7. Класс доспеха (AC)

@@ -18,9 +18,15 @@
  * `minApproach` 10 фт, весь путь с прыжком — `totalLimit` (Скорость). Старое
  * ядро эти поля не читает и показывает прыжок от клетки фишки.
  *
- * Проверки при прыжке (Сила (Атлетика) Сл 10 через препятствие выше четверти
- * прыжка, Ловкость (Акробатика) Сл 10 при приземлении в труднопроходимую
- * местность) остаются за мастером: сцена не знает высоты препятствий.
+ * Препятствия (VTTG 0.9.756+): стену с высотой не выше четверти длины прыжка
+ * ядро пропускает, выше — режет («вы врезаетесь в препятствие»); стену во всю
+ * высоту не перепрыгнуть. Зону-провал (`terrain.impassable`) пешком не пройти,
+ * но перепрыгнуть можно. Броски остаются за мастером: Сила (Атлетика) Сл 10
+ * через низкое препятствие — по его решению, Ловкость (Акробатика) Сл 10 при
+ * приземлении в труднопроходимую местность.
+ *
+ * Своя цена прыжка (`jump.cost`, заклинание «Прыжок») — участок с `cost`:
+ * ядро списывает с хода цену, а не длину.
  *
  * @module system/dnd/movementModes
  */
@@ -31,7 +37,7 @@ import type { ResolvedActorStats } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 
 import { isTurnMovementSpent } from './actionRestrictions.js';
-import { JUMP_RUN_UP_FEET } from './consts.js';
+import { JUMP_OBSTACLE_RATIO, JUMP_RUN_UP_FEET } from './consts.js';
 
 /** Id вида «Ходьба» — вид обычного перетаскивания фишки */
 export const WALK_MOVEMENT_MODE_ID = 'walk';
@@ -63,6 +69,11 @@ export interface JumpDistances {
   standingHigh: number;
   /** В высоту с разбегом; `0` — на разбег Скорости не хватает */
   runningHigh: number;
+  /**
+   * Своя цена прыжка в длину в футах хода (заклинание «Прыжок»); нет — фут
+   * за фут
+   */
+  fixedCost?: number;
 }
 
 /**
@@ -117,6 +128,10 @@ function capRunningJump(distance: number, speed: number): number {
  * Дальность прыжка сущности: правило Силы с поправками эффектов
  * (`stats.jump`), урезанное Скоростью — фут прыжка стоит фут хода.
  *
+ * Своя цена прыжка (заклинание «Прыжок»: до 30 фт за 10 фт хода) меняет
+ * расчёт длины: разбег не нужен, а ход тратит цена, а не длина — прыжок в
+ * длину весь, если на цену хватает Скорости, иначе его нет.
+ *
  * @param stats - разрешённые статы сущности
  * @param speed - Скорость, которой сущность перемещается
  * @returns дальности в длину и в высоту, с места и с разбегом
@@ -127,11 +142,23 @@ export function resolveJumpDistances(
 ): JumpDistances {
   const ownSpeed = Math.max(0, speed);
 
+  const high = {
+    standingHigh: Math.min(Math.floor(stats.jump.high / 2), ownSpeed),
+    runningHigh: capRunningJump(stats.jump.high, ownSpeed),
+  };
+
+  const fixedCost = stats.jump.cost;
+
+  if (fixedCost !== undefined) {
+    const long = fixedCost <= ownSpeed ? stats.jump.long : 0;
+
+    return { standingLong: long, runningLong: long, ...high, fixedCost };
+  }
+
   return {
     standingLong: Math.min(Math.floor(stats.jump.long / 2), ownSpeed),
     runningLong: capRunningJump(stats.jump.long, ownSpeed),
-    standingHigh: Math.min(Math.floor(stats.jump.high / 2), ownSpeed),
-    runningHigh: capRunningJump(stats.jump.high, ownSpeed),
+    ...high,
   };
 }
 
@@ -143,6 +170,22 @@ export function resolveJumpDistances(
  * @returns участки по возрастанию дальности
  */
 function buildJumpBands(jump: JumpDistances): MovementBand[] {
+  // Своя цена — один участок без разбега: ядро (VTTG 0.9.756+) спишет с хода
+  // цену, а не длину
+  if (jump.fixedCost !== undefined) {
+    return jump.standingLong > 0
+      ? [
+          {
+            id: 'fixed-cost',
+            label: MOVEMENT_MODE_LABELS.jump,
+            upTo: jump.standingLong,
+            tone: 'success',
+            cost: jump.fixedCost,
+          },
+        ]
+      : [];
+  }
+
   const bands: MovementBand[] = [];
 
   if (jump.standingLong > 0) {
@@ -237,6 +280,9 @@ export function buildMovementModes(
         // прыжка стоит фут хода, поэтому подход и прыжок вместе — не больше Скорости
         approach: { modeId: WALK_MOVEMENT_MODE_ID },
         totalLimit: speed,
+        // Низкое препятствие (VTTG 0.9.756+, стена с высотой) не выше четверти
+        // длины прыжка перелетается; выше — «вы врезаетесь», поэтому без оговорки
+        clearance: { ratio: JUMP_OBSTACLE_RATIO },
       },
     ],
   };

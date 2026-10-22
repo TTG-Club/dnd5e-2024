@@ -64,6 +64,13 @@ function describeJump(entity: DnDSceneEntity): string | undefined {
     return undefined;
   }
 
+  if (jump.fixedCost !== undefined) {
+    return ACTION_SHELF_BUTTONS.jumpFixedCostTooltip(
+      jump.standingLong,
+      jump.fixedCost,
+    );
+  }
+
   return jump.runningLong > jump.standingLong
     ? ACTION_SHELF_BUTTONS.jumpTooltip(jump.standingLong, jump.runningLong)
     : ACTION_SHELF_BUTTONS.jumpStandingTooltip(jump.standingLong);

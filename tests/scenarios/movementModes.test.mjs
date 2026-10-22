@@ -2,7 +2,13 @@ import assert from 'node:assert/strict';
 
 import { describe, it } from 'vitest';
 
-import { change, createActor, createEffect, engine } from './_fixtures.mjs';
+import {
+  change,
+  createActor,
+  createEffect,
+  createZone,
+  engine,
+} from './_fixtures.mjs';
 
 /**
  * Виды перемещения для ядра (`getMovementModes`, VTTG 0.9.751+): ходьба с
@@ -171,6 +177,72 @@ describe('виды перемещения D&D 2024', () => {
     assert.deepEqual(
       springy.bands.map((band) => band.upTo),
       [15, 30],
+    );
+  });
+
+  it('препятствие не выше четверти длины прыжка перепрыгивается', () => {
+    const jump = modeOf(
+      system.getMovementModes(hero(15)),
+      engine.JUMP_MOVEMENT_MODE_ID,
+    );
+
+    assert.deepEqual({ ...jump.clearance }, { ratio: 0.25 });
+    // Выше допуска — «врезаетесь»: оговорки нет, ядро режет
+    assert.equal(jump.overClearanceLabel, undefined);
+  });
+
+  it('заклинание «Прыжок»: до 30 фт за 10 фт хода, без разбега', () => {
+    const jumpSpell = createEffect('jump-spell', {
+      changes: [
+        change(engine.JUMP_LONG_KEY, '30', { mode: 'upgrade' }),
+        change(engine.JUMP_COST_KEY, '10', { mode: 'override' }),
+      ],
+    });
+
+    const jump = modeOf(
+      system.getMovementModes(hero(10, 30, [jumpSpell])),
+      engine.JUMP_MOVEMENT_MODE_ID,
+    );
+
+    assert.deepEqual(
+      jump.bands.map((band) => [band.upTo, band.cost, band.minApproach ?? 0]),
+      [[30, 10, 0]],
+    );
+
+    // Без своей цены — фут за фут, поля нет
+    const plain = modeOf(
+      system.getMovementModes(hero(10)),
+      engine.JUMP_MOVEMENT_MODE_ID,
+    );
+
+    assert.ok(plain.bands.every((band) => band.cost === undefined));
+
+    // Цены не хватает хода — прыжка нет
+    const tired = modeOf(
+      system.getMovementModes(hero(10, 5, [jumpSpell])),
+      engine.JUMP_MOVEMENT_MODE_ID,
+    );
+
+    assert.deepEqual(tired.bands, []);
+  });
+
+  it('зона-провал: пешком не пройти — бесконечная цена', () => {
+    const pit = createEffect('Яма', { flags: ['terrain.impassable'] });
+
+    assert.equal(
+      engine.resolveAreaTerrainCost(createZone('ca_pit', [pit])),
+      Number.POSITIVE_INFINITY,
+    );
+
+    // Болото поверх ямы — всё равно провал
+    const swampPit = createEffect('Болотная яма', {
+      flags: ['terrain.impassable'],
+      changes: [change('terrain.movementCost', '2', { mode: 'override' })],
+    });
+
+    assert.equal(
+      engine.resolveAreaTerrainCost(createZone('ca_swamp_pit', [swampPit])),
+      Number.POSITIVE_INFINITY,
     );
   });
 });

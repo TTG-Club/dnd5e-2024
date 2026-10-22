@@ -32,6 +32,7 @@ import {
   EFFECT_CONDITION_SUGGESTIONS,
   EFFECT_TARGET_SUGGESTIONS,
   isEffectTargetKey,
+  JUMP_COST_KEY,
   POISONERS_KIT_TOOL,
   RAGE_DAMAGE_BONUS_FORMULA,
   SHILLELAGH_DAMAGE_TYPE,
@@ -244,6 +245,12 @@ function defaultModeOfKey(key: string): EffectChangeMode {
 
   if (key.startsWith('movement.') && key !== 'movement.walk') {
     return 'upgrade';
+  }
+
+  // Цена прыжка — само значение («прыжок стоит 10 фт хода»), с нуля его не
+  // прибавить: своей цены по правилам нет
+  if (key === JUMP_COST_KEY) {
+    return 'override';
   }
 
   // Кость, характеристику и тип урона оружия не прибавить — только заменить;
