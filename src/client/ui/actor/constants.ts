@@ -6117,6 +6117,9 @@ export const SCROLLABLE_DROPDOWN_UI = {
   viewport: 'overflow-y-auto',
 } as const;
 
+/** Значок остатка срока по игровым часам в строке списка эффектов */
+export const ACTIVE_EFFECT_TIME_LEFT_ICON = 'tabler:hourglass';
+
 /**
  * Значения нового активного эффекта. Это данные записи, а не подписи: они
  * уходят в сохранённый эффект. На них же ссылаются подсказки формы — там, где

@@ -40,6 +40,7 @@
   import { startHotbarDrag } from '@/core/utils/hotbarDrag';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { useItemsStore } from '@/stores/itemsStore';
+  import { useWorldTimeStore } from '@/stores/worldTimeStore';
   import { getActiveSocket } from '@/system-runtime/activeSocket';
   import {
     advanceEffectStage,
@@ -48,6 +49,7 @@
     canPayActivation,
     collectEffectToggleGroup,
     collectEffectUseGroup,
+    describeEffectTimeLeft,
     effectVariantGroupName,
     formatActionCostBlock,
     formatEffectEscapeLabel,
@@ -100,6 +102,7 @@
     ACTIVE_EFFECT_ICON_CLASS,
     ACTIVE_EFFECT_OPEN_HINT,
     ACTIVE_EFFECT_ROW_CLASS,
+    ACTIVE_EFFECT_TIME_LEFT_ICON,
     CARRIED_EFFECT_BADGES,
     CONCENTRATION_END_LABEL,
     EFFECTS_TAB_LABELS,
@@ -315,6 +318,23 @@
    * Строки своих эффектов с готовыми подписями: разметка только показывает,
    * а не считает.
    */
+  const worldTimeStore = useWorldTimeStore();
+
+  /**
+   * Остаток срока по игровым часам — по id эффекта. Отдельно от строк: часы
+   * тикают каждую секунду, и пересобирать ради них весь список незачем.
+   */
+  const timeLeftById = computed(() => {
+    const worldTime = worldTimeStore.worldTime;
+
+    return new Map(
+      customEffects.value.map((effect) => [
+        effect.id,
+        describeEffectTimeLeft(effect.duration, worldTime),
+      ]),
+    );
+  });
+
   const effectRows = computed(() =>
     customEffects.value
       .filter((effect) => props.isEditMode || isGroupLead(effect))
@@ -697,6 +717,18 @@
               class="mt-0.5 text-[10px] text-toned"
             >
               {{ chargesLabel }}
+            </div>
+
+            <div
+              v-if="timeLeftById.get(effect.id)"
+              class="mt-0.5 flex items-center gap-1 text-[10px] text-toned tabular-nums"
+            >
+              <UIcon
+                :name="ACTIVE_EFFECT_TIME_LEFT_ICON"
+                class="size-3 shrink-0"
+              />
+
+              {{ timeLeftById.get(effect.id) }}
             </div>
 
             <div

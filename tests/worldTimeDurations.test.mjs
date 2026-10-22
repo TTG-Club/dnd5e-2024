@@ -148,6 +148,53 @@ describe('сроки эффектов по игровым часам', () => {
     assert.equal(copy.activeEffects[0].duration.expiresAt, undefined);
   });
 
+  it('остаток по часам: секунды, минуты, часы, дни; у раундов — и раунды', () => {
+    assert.equal(engine.formatGameTimeLeft(45), '45 с');
+    assert.equal(engine.formatGameTimeLeft(580), '9:40');
+    assert.equal(engine.formatGameTimeLeft(2 * 3600 + 5 * 60), '2 ч 05 мин');
+    assert.equal(engine.formatGameTimeLeft(3 * 86_400 + 4 * 3600), '3 дн. 4 ч');
+
+    assert.equal(
+      engine.describeEffectTimeLeft(
+        { type: 'rounds', value: 2, expiresAt: NOW + 12 },
+        NOW,
+      ),
+      '12 с (2 раунда)',
+    );
+
+    assert.equal(
+      engine.describeEffectTimeLeft(
+        { type: 'minutes', value: 10, expiresAt: NOW + 580 },
+        null,
+      ),
+      null,
+    );
+  });
+
+  it('карточка эффекта показывает остаток по часам вместо раундов', () => {
+    const effect = createEffect('Щит веры', {
+      duration: {
+        type: 'minutes',
+        value: 10,
+        remaining: 100,
+        expiresAt: NOW + 580,
+      },
+    });
+
+    const lines = engine
+      .buildActiveEffectDetails(effect, NOW)
+      .flatMap((section) => section.lines);
+
+    assert.ok(lines.includes('Осталось 9:40'));
+    assert.ok(!lines.some((line) => line.includes('раундов')));
+
+    const withoutClock = engine
+      .buildActiveEffectDetails(effect)
+      .flatMap((section) => section.lines);
+
+    assert.ok(withoutClock.includes('Осталось 100 раундов'));
+  });
+
   it('истёкшая по часам концентрация заканчивает каст', () => {
     const system = new engine.Dnd5eVttSystem();
     const caster = concentratingCaster(40);

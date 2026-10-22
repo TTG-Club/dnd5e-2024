@@ -9,6 +9,7 @@ import { dnd5eSystemInstance } from '@vtt/shared/system/dnd.js';
 import { promptGmRollRequest } from './composables/gmRollRequest';
 import { promptInitiativeRoll } from './composables/initiativeRollPrompt';
 import { promptRequestedRoll } from './composables/requestedRollPrompt';
+import { DND_GROUP_RESTS } from './composables/restWorldTime';
 import { registerDnd5eMacros } from './macros/dnd5eMacros';
 import { registerSystemDataSync } from './systemDataSync';
 import ActorDeleteConfirmModal from './ui/actor/ActorDeleteConfirmModal.vue';
@@ -118,6 +119,8 @@ export function registerClientSystem(api: ClientSystemAPI) {
     promptInitiativeRoll,
     promptRequestedRoll,
     promptGmRollRequest,
+    // Отдых всей группы из меню игровых часов ведущего (VTTG 0.9.743)
+    groupRests: DND_GROUP_RESTS,
   });
 
   // Система «владеет» своими модалками (лист, просмотрщики, кубики) — регистрируем

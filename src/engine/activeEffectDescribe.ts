@@ -67,6 +67,7 @@ import {
   EFFECT_PRICE_LABELS,
 } from './effectPayTypes.js';
 import { isDiceFormulaValue } from './effectPipeline.js';
+import { describeEffectTimeLeft } from './effectTimeLeft.js';
 import { renderReadableFormula } from './formulaParser.js';
 import {
   detectFormulaDamageType,
@@ -880,11 +881,21 @@ export function describeEffectEscape(escape: EffectEscape): string {
 function durationLines(
   duration: EffectDuration,
   turnCurrent: boolean,
+  worldTime: number | null,
 ): string[] {
   const lines = [
     describeEffectDuration(duration, turnCurrent)
       ?? EFFECT_DURATION_LABELS[duration.type],
   ];
+
+  // Срок по игровым часам: остаток — временем, он идёт и вне боя
+  const timeLeft = describeEffectTimeLeft(duration, worldTime);
+
+  if (timeLeft) {
+    lines.push(`осталось ${timeLeft}`);
+
+    return lines;
+  }
 
   // Остаток минут и часов тоже в раундах: в бою они тикают раундами
   if (
@@ -1042,10 +1053,13 @@ function applicationLines(effect: ActiveEffect): string[] {
  * механику одной строкой (описание эффекта, тултип), эта — списком по темам.
  *
  * @param effect - активный эффект
+ * @param worldTime - текущее игровое время (секунды): с ним остаток срока по
+ *   часам показывается временем; `null` — часов нет, остаток в раундах
  * @returns разделы разбора в порядке показа
  */
 export function buildActiveEffectDetails(
   effect: ActiveEffect,
+  worldTime: number | null = null,
 ): ActiveEffectDetailSection[] {
   const exhaustionSuffix =
     effect.exhaustionLevel && effect.exhaustionLevel > 0
@@ -1123,7 +1137,11 @@ export function buildActiveEffectDetails(
     {
       key: 'duration',
       lines: [
-        ...durationLines(effect.duration, effect.turnCurrent === true),
+        ...durationLines(
+          effect.duration,
+          effect.turnCurrent === true,
+          worldTime,
+        ),
         ...(effect.stackable ? [EFFECT_STACKABLE_DETAIL_LABEL] : []),
       ],
     },

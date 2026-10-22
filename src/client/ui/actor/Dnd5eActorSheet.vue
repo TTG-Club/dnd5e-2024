@@ -86,6 +86,7 @@
 
   import { changeEntityCombatState } from '../../composables/entityCombatWrite';
   import { runRestWithTriggers } from '../../composables/restTriggerPrompt';
+  import { confirmRestWithGm } from '../../composables/restWorldTime';
   import {
     refuseWhileSheetEditing,
     useSheetEditLock,
@@ -899,11 +900,19 @@
   /**
    * Применяет отдых к актёру. Оба типа отдыха открывают модалку: короткий —
    * для траты костей хитов, долгий — для предпросмотра восстановления.
+   * Игрок сперва просит разрешения у ведущего (`confirmRestWithGm`).
    * @param restType - тип отдыха
    */
-  function handleRest(restType: RestType): void {
+  async function handleRest(restType: RestType): Promise<void> {
     // Отдых в режиме правки ждёт «Сохранить» или отмены, как и действия
     if (refuseWhileSheetEditing(localActor.value?.id)) {
+      return;
+    }
+
+    if (
+      !localActor.value
+      || !(await confirmRestWithGm(localActor.value, restType))
+    ) {
       return;
     }
 

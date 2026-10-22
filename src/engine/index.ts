@@ -93,6 +93,7 @@ export * from './effectSaveDc.js';
 export * from './effectSaveDcOwner.js';
 export * from './effectSaveDcProblem.js';
 export * from './effectStages.js';
+export * from './effectTimeLeft.js';
 export * from './effectTokenBinding.js';
 export * from './effectTriggerDescribe.js';
 export * from './effectTriggerRunner.js';

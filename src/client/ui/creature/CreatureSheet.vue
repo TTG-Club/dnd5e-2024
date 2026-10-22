@@ -73,6 +73,7 @@
   } from '@vtt/shared/system/dnd.js';
 
   import { runRestWithTriggers } from '../../composables/restTriggerPrompt';
+  import { confirmRestWithGm } from '../../composables/restWorldTime';
   import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
   import {
     refuseWhileSheetEditing,
@@ -1349,15 +1350,24 @@
 
   /**
    * Отдых существа: сперва владельца спрашивают о срабатываниях «после
-   * отдыха» с ценой или согласием, затем идёт сам отдых.
+   * отдыха» с ценой или согласием, затем идёт сам отдых. Игрок сперва просит
+   * разрешения у ведущего (`confirmRestWithGm`).
    * @param restType - тип отдыха
    */
-  function handleRest(restType: RestType): void {
+  async function handleRest(restType: RestType): Promise<void> {
     // Отдых в режиме правки ждёт «Сохранить» или отмены, как и действия
     if (refuseWhileSheetEditing(localCreature.value?.id)) {
       return;
     }
 
+    if (
+      !localCreature.value
+      || !(await confirmRestWithGm(localCreature.value, restType))
+    ) {
+      return;
+    }
+
+    // Пока ведущий думал, лист мог закрыться или смениться
     if (!localCreature.value) {
       return;
     }

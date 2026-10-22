@@ -14,6 +14,7 @@
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
+  import { useWorldTimeStore } from '@/stores/worldTimeStore';
   import {
     buildActiveEffectDetails,
     describeActiveEffect,
@@ -44,8 +45,13 @@
   }>();
 
   /** Разбор настроек эффекта разделами: движок собирает, окно только показывает */
+  const worldTimeStore = useWorldTimeStore();
+
+  // Остаток срока по игровым часам досчитывается каждую секунду
   const detailSections = computed(() =>
-    props.effect ? buildActiveEffectDetails(props.effect) : [],
+    props.effect
+      ? buildActiveEffectDetails(props.effect, worldTimeStore.worldTime)
+      : [],
   );
 
   /**
