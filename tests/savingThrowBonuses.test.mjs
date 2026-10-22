@@ -16,7 +16,7 @@ const hostFixture = `
 import { reactive } from 'vue';
 export const fixture = reactive({
   rolls: [], formulas: [], messages: [], prompts: [], requests: [], entities: [],
-  outcome: { status: 'noRecipient' }, ambient: [],
+  outcome: { status: 'noRecipient' }, ambient: [], modalCalls: [],
 });
 export const worldStore = {
   connectionState: { loggedAsUserId: 'player' },
@@ -36,7 +36,11 @@ export const chatStore = {
 };
 export const modalManager = { openModal(component, props) {
   fixture.prompts.push({ component, props }); return 'save-modal';
-}, closeModal() {} };
+}, closeModal(modalId) { fixture.modalCalls.push(['close', modalId]); },
+bringToFront(modalId) { fixture.modalCalls.push(['front', modalId]); },
+setModalMinimized(modalId, minimized) {
+  fixture.modalCalls.push(['minimized', modalId, minimized]);
+} };
 export const requestService = { async request(options) {
   fixture.requests.push(options); return fixture.outcome;
 }, async requestMany(options) {
@@ -184,6 +188,7 @@ beforeEach(() => {
     'requests',
     'entities',
     'ambient',
+    'modalCalls',
   ]) {
     runtime.fixture[key].length = 0;
   }
@@ -716,4 +721,280 @@ it('отказ оставляет провал, а успешный бросок
 
   assert.equal(passed.passed, true);
   assert.equal(runtime.fixture.prompts.length, promptsBefore);
+});
+
+/**
+ * Ответ на чужой запрос с записью всего, что система отдала ядру.
+ *
+ * @returns {object} ответ и журнал: ответы, отказы, карточки, снятие
+ */
+function createReply() {
+  const log = { answers: [], declines: 0, cards: [], cancelHandlers: [] };
+
+  return {
+    log,
+    reply: {
+      answer: (result) => log.answers.push(result),
+      decline: () => {
+        log.declines += 1;
+      },
+      onCancelled: (handler) => log.cancelHandlers.push(handler),
+      present: (card) => log.cards.push(card),
+    },
+  };
+}
+
+it('согласие ведущего — карточка центра запросов «Разрешить / Запретить», а не плашка', () => {
+  const { log, reply } = createReply();
+
+  assert.equal(
+    runtime.promptRequestedRoll(
+      {
+        entityId: 'any',
+        requestId: 'gm-approval',
+        takeover: false,
+        payload: {
+          kind: 'effectPrompt',
+          question: 'Разрешить лечение дальше касания?',
+          options: [
+            { id: 'yes', label: 'Разрешить' },
+            { id: 'no', label: 'Запретить' },
+          ],
+          effectSummary: 'Лечение 2к8',
+        },
+      },
+      reply,
+    ),
+    true,
+  );
+
+  assert.equal(runtime.fixture.prompts.length, 0);
+  assert.equal(log.cards.length, 1);
+
+  const [card] = log.cards;
+
+  assert.equal(card.text, 'Разрешить лечение дальше касания?');
+  assert.match(card.details, /Лечение 2к8/);
+
+  assert.deepEqual(card.actions, [
+    { id: 'yes', label: 'Разрешить', color: 'primary' },
+    { id: 'no', label: 'Запретить' },
+  ]);
+
+  card.onAction('yes', []);
+  card.onAction('no', []);
+  card.onCancel();
+
+  // Ответ — ровно один, первый
+  assert.deepEqual(log.answers, [{ optionId: 'yes' }]);
+  assert.equal(log.declines, 0);
+});
+
+it('выбор цели по запросу — карточка с выбором: min/max и отмеченные цели в ответе', () => {
+  const { log, reply } = createReply();
+
+  runtime.promptRequestedRoll(
+    {
+      entityId: 'any',
+      requestId: 'target-choice',
+      takeover: true,
+      payload: {
+        kind: 'targetChoice',
+        candidates: [
+          { id: 'ally-1', name: 'Арагорн', hp: { current: 7, max: 12 } },
+          { id: 'ally-2', name: 'Гимли' },
+          { id: 'ally-3', name: 'Леголас' },
+        ],
+        count: 2,
+      },
+    },
+    reply,
+  );
+
+  assert.equal(runtime.fixture.prompts.length, 0);
+
+  const [card] = log.cards;
+
+  assert.deepEqual(card.pick, {
+    options: [
+      { id: 'ally-1', label: 'Арагорн', hint: 'Хиты 7/12' },
+      { id: 'ally-2', label: 'Гимли' },
+      { id: 'ally-3', label: 'Леголас' },
+    ],
+    min: 1,
+    max: 2,
+  });
+
+  assert.deepEqual(
+    card.actions.map((action) => [action.id, action.requiresPick]),
+    [['confirm', true]],
+  );
+
+  card.onAction('confirm', ['ally-1', 'ally-3']);
+
+  assert.deepEqual(log.answers, [{ chosenIds: ['ally-1', 'ally-3'] }]);
+});
+
+it('добровольный выбор цели: можно ничего не выбрать, «Отказаться» — пустой ответ', () => {
+  const { log, reply } = createReply();
+
+  runtime.promptRequestedRoll(
+    {
+      entityId: 'any',
+      requestId: 'target-choice-optional',
+      takeover: false,
+      payload: {
+        kind: 'targetChoice',
+        candidates: [{ id: 'ally-1', name: 'Арагорн' }],
+        count: 1,
+        optional: true,
+      },
+    },
+    reply,
+  );
+
+  const [card] = log.cards;
+
+  assert.equal(card.pick.min, 0);
+  card.onAction('decline', ['ally-1']);
+  assert.deepEqual(log.answers, [{ chosenIds: [] }]);
+});
+
+it('снятый ядром запрос не отвечает поздним щелчком по карточке', () => {
+  const { log, reply } = createReply();
+
+  runtime.promptRequestedRoll(
+    {
+      entityId: 'any',
+      requestId: 'withdrawn-question',
+      takeover: false,
+      payload: {
+        kind: 'effectPrompt',
+        question: 'Потратить реакцию?',
+        options: [
+          { id: 'yes', label: 'Да' },
+          { id: 'no', label: 'Нет' },
+        ],
+      },
+    },
+    reply,
+  );
+
+  for (const handler of log.cancelHandlers) {
+    handler();
+  }
+
+  log.cards[0].onAction('yes', []);
+  log.cards[0].onCancel();
+
+  assert.deepEqual(log.answers, []);
+  assert.equal(log.declines, 0);
+});
+
+it('«провал в успех» у ведущего — карточка без крестика, согласие тратит ресурс', () => {
+  const creature = createEntity('creature', { activeEffects: [] });
+
+  creature.system.traits = [
+    {
+      name: 'Легендарное сопротивление',
+      description: [],
+      saveSuccessPerDay: 3,
+    },
+  ];
+
+  const { log, reply } = createReply();
+
+  assert.equal(
+    runtime.promptRequestedRoll(
+      {
+        entityId: creature.id,
+        requestId: 'save-override',
+        takeover: false,
+        payload: { kind: 'saveOverride', ability: 'wisdom' },
+      },
+      reply,
+    ),
+    true,
+  );
+
+  assert.equal(runtime.fixture.prompts.length, 0);
+
+  const [card] = log.cards;
+
+  assert.equal(card.hideCancel, true);
+  assert.match(card.text, /осталось 3/);
+
+  assert.deepEqual(
+    card.actions.map((action) => [action.label, action.color]),
+    [
+      ['Преуспеть', 'primary'],
+      ['Оставить провал', undefined],
+    ],
+  );
+
+  card.onAction('accept', []);
+
+  assert.deepEqual(log.answers, [{ optionId: 'accept' }]);
+
+  assert.match(
+    runtime.fixture.messages.at(-1)[0],
+    /Легендарное сопротивление — провал спасброска становится успехом \(осталось 2\)/,
+  );
+});
+
+it('«провал в успех» без ресурса — отказ сразу, без карточки', () => {
+  const creature = createEntity('creature', { activeEffects: [] });
+  const { log, reply } = createReply();
+
+  runtime.promptRequestedRoll(
+    {
+      entityId: creature.id,
+      requestId: 'save-override-empty',
+      takeover: false,
+      payload: { kind: 'saveOverride', ability: 'wisdom' },
+    },
+    reply,
+  );
+
+  assert.deepEqual(log.answers, [{ optionId: 'decline' }]);
+  assert.equal(log.cards.length, 0);
+});
+
+it('повторный вызов слота по открытому окну спасброска поднимает его, второго окна нет', () => {
+  const entity = createEntity('actor', { autoSaves: false });
+
+  const request = {
+    entityId: entity.id,
+    requestId: 'open-save-window',
+    takeover: false,
+    payload: {
+      kind: runtime.SAVING_THROW_REQUEST_KIND,
+      ability: 'constitution',
+      dc: 16,
+      againstMagic: false,
+    },
+  };
+
+  const first = createReply();
+  const second = createReply();
+
+  assert.equal(runtime.promptRequestedRoll(request, first.reply), true);
+  assert.equal(runtime.fixture.prompts.length, 1);
+
+  runtime.promptRequestedRoll(request, second.reply);
+
+  assert.equal(runtime.fixture.prompts.length, 1);
+  assert.equal(second.log.cards.length, 0);
+
+  assert.deepEqual(runtime.fixture.modalCalls, [
+    ['minimized', 'save-modal', false],
+    ['front', 'save-modal'],
+  ]);
+
+  // Снятие запроса закрывает то самое окно
+  for (const handler of second.log.cancelHandlers) {
+    handler();
+  }
+
+  assert.deepEqual(runtime.fixture.modalCalls.at(-1), ['close', 'save-modal']);
 });

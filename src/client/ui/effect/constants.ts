@@ -1247,6 +1247,30 @@ export const EFFECT_QUESTION_PROMPT_LABELS = {
   cancel: 'Закрыть без ответа',
 } as const;
 
+/**
+ * Карточки центра запросов ядра (VTTG 0.9.744): вопрос и выбор целей по ЧУЖОМУ
+ * запросу система не рисует сама, а отдаёт ядру данными через `reply.present`.
+ */
+export const REQUEST_CARD = {
+  /** Иконка вопроса: согласие ведущего, срабатывание, «провал в успех» */
+  questionIcon: 'tabler:help-circle',
+  /** Иконка выбора целей */
+  targetIcon: 'tabler:target',
+  /** Ключ кнопки подтверждения выбора целей */
+  confirmActionId: 'confirm',
+  /** Ключ кнопки добровольного отказа от выбора */
+  declineActionId: 'decline',
+  /** Подпись подтверждения выбора */
+  confirmLabel: 'Подтвердить',
+  /** Подпись добровольного отказа (выбор необязателен) */
+  declineLabel: EFFECT_TARGET_PROMPT_LABELS.decline,
+  /** Вопрос карточки выбора целей: «Выберите целей: до 2» */
+  targetTextPrefix: 'Выберите целей: до ',
+  /** Пояснение кандидата с хитами: «Хиты 7/12» */
+  hpHintPrefix: 'Хиты ',
+  hpHintJoiner: '/',
+} as const;
+
 /** Подписи раздела «Ступени» окна эффекта */
 export const EFFECT_STAGES_SECTION_LABELS = {
   title: 'Ступени',
