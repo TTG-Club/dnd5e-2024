@@ -108,6 +108,143 @@ const ROUNDS_PER_DURATION_UNIT: Partial<Record<EffectDurationType, number>> = {
 };
 
 /**
+ * Сколько игровых секунд длится раунд боя D&D 5e. Им же система отвечает ядру
+ * (`VttSystem.secondsPerRound`): каждый новый раунд двигает игровые часы мира.
+ */
+export const DND_SECONDS_PER_ROUND = 6;
+
+/**
+ * Сколько игровых секунд в единице временного срока — для сроков по игровым
+ * часам мира. Своя таблица, а не константы ядра: система работает и с
+ * приложением, где их ещё нет.
+ */
+const SECONDS_PER_DURATION_UNIT: Partial<Record<EffectDurationType, number>> = {
+  rounds: DND_SECONDS_PER_ROUND,
+  minutes: 60,
+  hours: 3600,
+  days: 86_400,
+};
+
+/**
+ * Сколько игровых секунд осталось эффекту — для момента окончания по часам.
+ * Остаток в раундах (`remaining`), если он уже идёт, точнее исходного срока:
+ * эффект мог отсчитываться раундами до перехода на часы.
+ *
+ * @param duration - длительность эффекта
+ * @returns секунды либо `undefined`, если срок не временной
+ */
+function remainingDurationSeconds(
+  duration: EffectDuration,
+): number | undefined {
+  const secondsPerUnit = SECONDS_PER_DURATION_UNIT[duration.type];
+
+  if (secondsPerUnit === undefined) {
+    return undefined;
+  }
+
+  if (typeof duration.remaining === 'number' && duration.type !== 'days') {
+    return duration.remaining * DND_SECONDS_PER_ROUND;
+  }
+
+  return typeof duration.value === 'number'
+    ? duration.value * secondsPerUnit
+    : undefined;
+}
+
+/**
+ * Нужна ли эффекту правка по игровым часам: срок ещё не начат или уже вышел.
+ *
+ * @param effect - эффект сущности
+ * @param worldTime - текущее игровое время, секунды
+ * @returns `true`, если эффекту нужно поставить момент окончания или снять его
+ */
+function needsWorldTimeUpdate(
+  effect: ActiveEffect,
+  worldTime: number,
+): boolean {
+  const { expiresAt } = effect.duration;
+
+  if (typeof expiresAt === 'number') {
+    return worldTime >= expiresAt;
+  }
+
+  return remainingDurationSeconds(effect.duration) !== undefined;
+}
+
+/**
+ * Есть ли у сущности эффект, которому игровые часы что-то меняют: срок ещё не
+ * начат или уже вышел. Быстрая проверка до любой работы.
+ *
+ * @param entity - сущность
+ * @param worldTime - текущее игровое время, секунды
+ * @returns `true`, если сверка что-то изменит
+ */
+export function hasEffectsToSettleByWorldTime(
+  entity: DnDSceneEntity,
+  worldTime: number,
+): boolean {
+  return (
+    entity.activeEffects?.some((effect) =>
+      needsWorldTimeUpdate(effect, worldTime),
+    ) ?? false
+  );
+}
+
+/**
+ * Ведёт сроки эффектов по игровым часам мира: эффекту с временным сроком без
+ * момента окончания ставит «сейчас + срок», эффект с наступившим моментом
+ * снимает. Зовётся часто (раз в секунду, пока часы идут), поэтому без работы
+ * выходит сразу и ничего не создаёт.
+ *
+ * Длительность пересоздаётся, а не правится на месте — по той же причине, что
+ * в {@link decrementActorEffectDurations}: копии эффектов делят объект
+ * `duration` с оригиналом.
+ *
+ * @param entity - сущность, чьи эффекты сверяются
+ * @param worldTime - текущее игровое время, секунды
+ * @returns `true`, если сущность изменилась
+ */
+export function settleEffectsByWorldTime(
+  entity: DnDSceneEntity,
+  worldTime: number,
+): boolean {
+  const effects = entity.activeEffects;
+
+  if (!effects || !hasEffectsToSettleByWorldTime(entity, worldTime)) {
+    return false;
+  }
+
+  entity.activeEffects = effects.reduce<
+    NonNullable<DnDSceneEntity['activeEffects']>
+  >((kept, effect) => {
+    const { duration } = effect;
+
+    if (typeof duration.expiresAt === 'number') {
+      if (worldTime < duration.expiresAt) {
+        kept.push(effect);
+      }
+
+      return kept;
+    }
+
+    const seconds = remainingDurationSeconds(duration);
+
+    kept.push(
+      seconds === undefined
+        ? effect
+        : {
+            ...effect,
+            duration: { ...duration, expiresAt: worldTime + seconds },
+          },
+    );
+
+    return kept;
+  }, []);
+
+  return true;
+}
+
+/**
  * Отсчитывается ли длительность раундами боя: у неё есть и число, и перевод в
  * раунды.
  *
@@ -161,6 +298,18 @@ export function decrementActorEffectDurations(entity: DnDSceneEntity): boolean {
     const remaining = duration.remaining - 1;
 
     hasChanges = true;
+
+    // Срок по игровым часам снимает `settleEffectsByWorldTime`: раунд лишь
+    // уменьшает остаток для показа и не снимает эффект — иначе срок шёл бы
+    // дважды
+    if (typeof duration.expiresAt === 'number') {
+      kept.push({
+        ...effect,
+        duration: { ...duration, remaining: Math.max(remaining, 1) },
+      });
+
+      return kept;
+    }
 
     if (remaining > 0) {
       kept.push({ ...effect, duration: { ...duration, remaining } });

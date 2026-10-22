@@ -205,13 +205,16 @@ import {
   appendEffectsSummaryNotes,
   buildEffectDiceRolls,
   decrementActorEffectDurations,
+  DND_SECONDS_PER_ROUND,
   expireTurnEffects as expireEntityTurnEffects,
   expireOutsiderTurnEffects,
   formatEffectsSummary,
   formatEntrySaveStatus,
   formatRecurringSaveStatus,
   formatTurnEffectsMessage,
+  hasEffectsToSettleByWorldTime,
   resolveTurnSummaryLabel,
+  settleEffectsByWorldTime,
 } from './turnEffects.js';
 
 /**
@@ -1695,6 +1698,9 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly version = '0.8.333';
 
+  /** Раунд D&D 5e — 6 игровых секунд: столько двигает часы мира новый раунд */
+  readonly secondsPerRound = DND_SECONDS_PER_ROUND;
+
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
    *
@@ -2019,6 +2025,36 @@ export class Dnd5eVttSystem implements VttSystem {
 
         return roundsChanged || turnsChanged;
       }),
+    );
+  }
+
+  /**
+   * Сроки эффектов по игровым часам мира: эффекту с временным сроком ставит
+   * момент окончания, наступивший — снимает. Истёкшая метка концентрации
+   * заканчивает свой каст, кончившееся состояние запускает «когда снимается».
+   *
+   * Ядро зовёт метод раз в секунду у каждой сущности, пока часы идут, —
+   * без работы он выходит сразу, не трогая ни концентрацию, ни сцену.
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  expireTimedEffects(
+    entity: SceneEntity,
+    worldTime: number,
+    context?: SystemTriggerContext,
+  ): SystemDeferredTriggerResult {
+    if (
+      !isDndSceneEntity(entity)
+      || !hasEffectsToSettleByWorldTime(entity, worldTime)
+    ) {
+      return { changed: false, chatSummary: null };
+    }
+
+    return withScenePresence(
+      entity,
+      context,
+      expireWithConcentration(entity, context, (carrier) =>
+        settleEffectsByWorldTime(carrier, worldTime),
+      ),
     );
   }
 
