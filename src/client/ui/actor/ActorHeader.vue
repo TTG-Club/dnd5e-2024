@@ -35,6 +35,7 @@
     MISSING_SHEET_SECTIONS,
     MODAL_BUTTON_LABELS,
     NAME_EDIT_LABELS,
+    REST_ICONS,
     REST_LABELS,
     SHEET_HEADER_CLASSES,
     SHEET_INLINE_EDITABLE_CLASS,
@@ -806,7 +807,7 @@
             :text="REST_LABELS.short"
           >
             <UButton
-              icon="tabler:campfire"
+              :icon="REST_ICONS.short"
               color="neutral"
               variant="ghost"
               size="md"
@@ -821,7 +822,7 @@
             :text="REST_LABELS.long"
           >
             <UButton
-              icon="tabler:moon"
+              :icon="REST_ICONS.long"
               color="neutral"
               variant="ghost"
               size="md"

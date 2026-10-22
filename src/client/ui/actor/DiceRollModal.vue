@@ -279,6 +279,13 @@
      * действием: урон не применялся, в чат не уходило ничего).
      */
     onCancel?: () => void;
+    /**
+     * Отказ от броска по ЧУЖОМУ запросу. Есть — рядом с кнопкой броска стоит
+     * кнопка-иконка «Отказаться», а крестик окна только прячет окно (запрос
+     * ждёт дальше, окно возвращается из карточки центра запросов). Нет — окно
+     * своё, и крестик, как раньше, значит «не бросать».
+     */
+    onDecline?: () => void;
     /** Коллбэк при попадании атаки (вызывается даже если нет формулы урона). */
     onHit?: (attack?: AttackRollSnapshot) => void;
     /**
@@ -355,6 +362,7 @@
     evaluateBonusDamageParts: undefined,
     onCheckRoll: undefined,
     onCancel: undefined,
+    onDecline: undefined,
     onHit: undefined,
     damageTypeChoice: undefined,
     damageVariants: undefined,
@@ -1054,6 +1062,17 @@
     cancelNotified = true;
 
     props.onCancel?.();
+  }
+
+  /**
+   * Кнопка «Отказаться» у броска по чужому запросу: вызывающий отказывается
+   * от запроса, окно закрывается. Отмена при закрытии уже не нужна — о ней
+   * сообщено отказом.
+   */
+  function declineRequest(): void {
+    cancelNotified = true;
+    props.onDecline?.();
+    isOpen.value = false;
   }
 
   watch(
@@ -2398,20 +2417,39 @@
           </div>
         </div>
 
-        <!-- Кнопка броска -->
-        <UButton
-          color="primary"
-          size="lg"
-          block
-          :disabled="hasRolled"
-          @click.left.exact.prevent="performRoll"
-        >
-          <UIcon
-            name="tabler:dice-filled"
-            class="mr-2 h-5 w-5"
-          />
-          {{ rollButtonText }}
-        </UButton>
+        <!-- Кнопка броска; у броска по чужому запросу рядом — отказ иконкой -->
+        <div class="flex gap-2">
+          <UButton
+            color="primary"
+            size="lg"
+            block
+            class="flex-1"
+            :disabled="hasRolled"
+            @click.left.exact.prevent="performRoll"
+          >
+            <UIcon
+              name="tabler:dice-filled"
+              class="mr-2 h-5 w-5"
+            />
+            {{ rollButtonText }}
+          </UButton>
+
+          <UTooltip
+            v-if="onDecline"
+            :text="DICE_ROLL_LABELS.declineRequest"
+          >
+            <UButton
+              color="neutral"
+              variant="soft"
+              size="lg"
+              square
+              :icon="DICE_ROLL_LABELS.declineRequestIcon"
+              :aria-label="DICE_ROLL_LABELS.declineRequest"
+              :disabled="hasRolled"
+              @click.left.exact.prevent="declineRequest"
+            />
+          </UTooltip>
+        </div>
 
         <!-- Согласная цель: спасбросок не бросается вовсе -->
         <UButton

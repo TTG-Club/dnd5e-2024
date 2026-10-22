@@ -21,8 +21,10 @@ import type {
   CarriedEffectSourceKind,
   CounterRecoveryChoice,
   CounterRestKey,
+  GmApprovalVerdict,
   HitDie,
   PersonalityTextFieldKey,
+  RestType,
   SkillInfluenceTone,
   SpellCastRollKind,
 } from '@vtt/shared/system/dnd.js';
@@ -2257,6 +2259,72 @@ export const TOAST_TITLES = {
 export const REST_LABELS = {
   short: 'Короткий отдых',
   long: 'Продолжительный отдых',
+} as const;
+
+/**
+ * Короткие подписи кнопок отдыха всей группы в меню часов ведущего: кнопки
+ * стоят в одну строку под заголовком «Отдых всей группы»
+ */
+export const REST_SHORT_LABELS = {
+  short: 'Короткий',
+  long: 'Продолжительный',
+} as const;
+
+/** Виды отдыха по порядку: короткий, продолжительный */
+export const REST_TYPES: readonly RestType[] = ['short', 'long'];
+
+/**
+ * Сколько игровых часов длится отдых: на столько отдых всей группы переводит
+ * часы мира
+ */
+export const REST_DURATION_HOURS: Record<RestType, number> = {
+  short: 1,
+  long: 8,
+};
+
+/**
+ * Значки отдыха — одни на всё: кнопки шапки листа, меню часов ведущего,
+ * счётчики «восстанавливается после отдыха»
+ */
+export const REST_ICONS: Record<RestType, string> = {
+  short: 'tabler:campfire',
+  long: 'tabler:moon',
+};
+
+/** Вопрос ведущему: «Игрок 1 (Плут) просит продолжительный отдых.» */
+export const REST_APPROVAL_QUESTION = 'просит';
+
+/** Что случится по разрешению отдыха: пояснение в карточке вопроса ведущему */
+export const REST_APPROVAL_DETAILS = 'Игровые часы при этом не сдвинутся.';
+
+/** Уведомления, когда ведущий отдых не разрешил */
+export const REST_REFUSAL_TOASTS: Record<
+  Exclude<GmApprovalVerdict, 'approved'>,
+  { title: string; description: string }
+> = {
+  denied: {
+    title: 'Ведущий не разрешил отдых',
+    description: 'Отдых не начался.',
+  },
+  noGameMaster: {
+    title: 'Ведущего нет в сети',
+    description: 'Отдохнуть можно, когда ведущий будет за столом.',
+  },
+  unanswered: {
+    title: 'Ведущий не ответил',
+    description: 'Отдых не начался — попросите ещё раз.',
+  },
+};
+
+/**
+ * Части подписи просящего в вопросе ведущему: «Игрок 1 (Плут)» — имя игрока
+ * и, в скобках, за кого он просит
+ */
+export const GM_APPROVAL_REQUESTER_PARTS = {
+  /** Перед именем персонажа */
+  characterPrefix: ' (',
+  /** После имени персонажа */
+  characterSuffix: ')',
 } as const;
 
 /**
@@ -4562,8 +4630,8 @@ export const COUNTER_REST_FIELDS: Record<
   CounterRestKey,
   { label: string; icon: string }
 > = {
-  shortRest: { label: REST_LABELS.short, icon: 'tabler:campfire' },
-  longRest: { label: REST_LABELS.long, icon: 'tabler:sun' },
+  shortRest: { label: REST_LABELS.short, icon: REST_ICONS.short },
+  longRest: { label: REST_LABELS.long, icon: REST_ICONS.long },
 };
 
 /**
@@ -5392,6 +5460,14 @@ export const SNEAK_ATTACK_OPTION_CHIP_STYLES = {
  * подписи в нём общие.
  */
 export const DICE_ROLL_LABELS = {
+  /**
+   * Отказ от броска по чужому запросу — иконка рядом с кнопкой броска.
+   * Крестик окна от запроса не отказывается: он только прячет окно, а вернуть
+   * его можно щелчком по карточке в центре запросов
+   */
+  declineRequest: 'Отказаться от броска',
+  /** Иконка кнопки отказа от броска по запросу */
+  declineRequestIcon: 'tabler:hand-off',
   /** Подпись цели, когда цель броска не выбрана */
   targetFallback: 'Цель',
   /** Заголовок плашки Скрытой атаки в окне атаки; с ним сравнивается источник */

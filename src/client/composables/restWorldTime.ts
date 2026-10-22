@@ -11,17 +11,27 @@ import type { GroupRestAction } from '@/core/systems/uiSystemRegistry';
 import type {
   DnDActor,
   DnDSceneEntity,
-  GmApprovalVerdict,
   RestType,
 } from '@vtt/shared/system/dnd.js';
 
 import { useChatStore } from '@/stores/chatStore';
 import { useWorldStore } from '@/stores/worldStore';
+import { SECONDS_PER_HOUR } from '@vtt/shared';
 import { applyActorRest, isDndActor } from '@vtt/shared/system/dnd.js';
 
 import { useSystemToastStore } from '../stores/systemToastStore';
-import { REST_LABELS } from '../ui/actor/constants';
 import {
+  REST_APPROVAL_DETAILS,
+  REST_APPROVAL_QUESTION,
+  REST_DURATION_HOURS,
+  REST_ICONS,
+  REST_LABELS,
+  REST_REFUSAL_TOASTS,
+  REST_SHORT_LABELS,
+  REST_TYPES,
+} from '../ui/actor/constants';
+import {
+  formatRequesterName,
   hasPlayerOwner,
   isGameMasterUser,
   requestGmApproval,
@@ -30,44 +40,10 @@ import { runRestWithTriggers } from './restTriggerPrompt';
 import { saveEntityFields } from './useEntityDraftWrite';
 import { useWorldEntities } from './useWorldEntities';
 
-/** Секунд в игровом часе */
-const SECONDS_PER_HOUR = 3600;
-
 /** На сколько игровых секунд отдых всей группы переводит часы */
 export const REST_DURATION_SECONDS: Record<RestType, number> = {
-  short: SECONDS_PER_HOUR,
-  long: 8 * SECONDS_PER_HOUR,
-};
-
-/** Значки отдыха — как на кнопках шапки листа */
-const REST_ICONS: Record<RestType, string> = {
-  short: 'tabler:campfire',
-  long: 'tabler:moon',
-};
-
-/** Вопрос ведущему: дальше — имя персонажа и вид отдыха */
-const REST_APPROVAL_QUESTION = 'просит разрешения:';
-
-/** Что случится по разрешению */
-const REST_APPROVAL_DETAILS = 'Игровые часы при этом не сдвинутся.';
-
-/** Уведомления, когда ведущий отдых не разрешил */
-const REST_REFUSAL_TOASTS: Record<
-  Exclude<GmApprovalVerdict, 'approved'>,
-  { title: string; description: string }
-> = {
-  denied: {
-    title: 'Ведущий не разрешил отдых',
-    description: 'Отдых не начался.',
-  },
-  noGameMaster: {
-    title: 'Ведущего нет в сети',
-    description: 'Отдохнуть можно, когда ведущий будет за столом.',
-  },
-  unanswered: {
-    title: 'Ведущий не ответил',
-    description: 'Отдых не начался — попросите ещё раз.',
-  },
+  short: REST_DURATION_HOURS.short * SECONDS_PER_HOUR,
+  long: REST_DURATION_HOURS.long * SECONDS_PER_HOUR,
 };
 
 /**
@@ -84,14 +60,21 @@ export async function confirmRestWithGm(
 ): Promise<boolean> {
   const userId = useWorldStore().connectionState.loggedAsUserId;
 
-  if (!userId || isGameMasterUser(userId)) {
+  // Сессия не определилась — кто просит, неизвестно: отдыха нет
+  if (!userId) {
+    return false;
+  }
+
+  if (isGameMasterUser(userId)) {
     return true;
   }
 
+  const restLabel = REST_LABELS[restType].toLowerCase();
+
   const verdict = await requestGmApproval(
     {
-      question: `${entity.name} ${REST_APPROVAL_QUESTION} ${REST_LABELS[restType].toLowerCase()}.`,
-      sourceName: entity.name,
+      question: `${formatRequesterName(entity.name)} ${REST_APPROVAL_QUESTION} ${restLabel}.`,
+      sourceName: restLabel,
       details: REST_APPROVAL_DETAILS,
     },
     { aboutEntityId: entity.id, fromEntityId: entity.id },
@@ -165,12 +148,13 @@ export async function runGroupRest(restType: RestType): Promise<void> {
 }
 
 /** Отдых всей группы для меню игровых часов ведущего */
-export const DND_GROUP_RESTS: readonly GroupRestAction[] = (
-  ['short', 'long'] as const
-).map((restType) => ({
-  id: restType,
-  label: REST_LABELS[restType],
-  icon: REST_ICONS[restType],
-  advanceSeconds: REST_DURATION_SECONDS[restType],
-  run: () => runGroupRest(restType),
-}));
+export const DND_GROUP_RESTS: readonly GroupRestAction[] = REST_TYPES.map(
+  (restType) => ({
+    id: restType,
+    label: REST_LABELS[restType],
+    shortLabel: REST_SHORT_LABELS[restType],
+    icon: REST_ICONS[restType],
+    advanceSeconds: REST_DURATION_SECONDS[restType],
+    run: () => runGroupRest(restType),
+  }),
+);

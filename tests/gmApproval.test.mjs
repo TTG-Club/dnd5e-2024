@@ -85,10 +85,10 @@ it('разрешение засчитывается только от ведущ
   assert.equal(verdictOf({ status: 'timeout' }), 'unanswered');
 });
 
-it('подпись просьбы в плашках ядра называет источник', () => {
+it('подпись просьбы — коротко, на что просят разрешения', () => {
   assert.equal(
     engine.formatGmApprovalTitle('Зелье лечения'),
-    'Зелье лечения — Разрешение ведущего',
+    'Разрешение: Зелье лечения',
   );
 
   assert.equal(engine.formatGmApprovalTitle(), 'Разрешение ведущего');

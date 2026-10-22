@@ -2,8 +2,8 @@
  * Просьба к ведущему со стороны клиента: «разрешить ли то, чего правила сами
  * не позволяют». Вопрос уходит каналом запросов ядра с адресатом «ведущий»
  * (`recipient: 'gm'`, VTTG 0.9.547), у ведущего
- * открывается окно вопроса
- * (`EffectQuestionPromptModal` через `promptRequestedRoll`), а ответ
+ * появляется карточка центра запросов ядра (`promptRequestedRoll` →
+ * `reply.present`, VTTG 0.9.744), а ответ
  * засчитывается, только если отвечал ведущий ({@link readGmApprovalVerdict}).
  */
 
@@ -24,12 +24,33 @@ import {
   readGmApprovalVerdict,
 } from '@vtt/shared/system/dnd.js';
 
+import { GM_APPROVAL_REQUESTER_PARTS } from '../ui/actor/constants';
+
 /** О ком и от чьего имени просят */
 export interface GmApprovalParties {
   /** Сущность, о которой спрашивают: её имя ведущий видит в плашке ядра */
   aboutEntityId: string;
   /** Сущность просящего: по ней сервер проверяет, вправе ли он просить */
   fromEntityId: string;
+}
+
+/**
+ * Кто просит ведущего: «Игрок 1 (Плут)» — имя игрока и, в скобках, за кого он
+ * просит. Без имени игрока — одно имя персонажа.
+ *
+ * @param characterName - имя персонажа или существа, за которого просят
+ * @returns подпись просящего
+ */
+export function formatRequesterName(characterName: string): string {
+  const username = useWorldStore().currentUser?.username;
+
+  if (!username) {
+    return characterName;
+  }
+
+  const { characterPrefix, characterSuffix } = GM_APPROVAL_REQUESTER_PARTS;
+
+  return `${username}${characterPrefix}${characterName}${characterSuffix}`;
 }
 
 /**
