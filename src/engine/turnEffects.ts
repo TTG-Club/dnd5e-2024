@@ -447,6 +447,49 @@ export function stampAppliedEffect(
 }
 
 /**
+ * Эффект с отсчётом срока заново — действие срабатывания «Продлить срок»
+ * («Ярость» продлевается атакой). Срок хода штампуется той же функцией, что
+ * при наложении: атака на своём ходу снова даёт «до конца следующего хода».
+ * Раунды, минуты и часы получают остаток, равный полному сроку.
+ *
+ * Выключенный переключатель не трогается: продление его не включает. Эффект
+ * без идущего срока (постоянный, до отдыха) возвращается как был.
+ *
+ * @param effect - эффект на носителе
+ * @param context - носитель и текущий ход
+ * @returns эффект с новым сроком либо `undefined`, если продлевать нечего
+ */
+export function restartEffectDuration(
+  effect: ActiveEffect,
+  context: TurnDurationContext,
+): ActiveEffect | undefined {
+  if (effect.disabled) {
+    return undefined;
+  }
+
+  const { duration } = effect;
+
+  if (duration.type === 'turn') {
+    // Наложивший остаётся прежним: продление — не новое наложение
+    return stampTurnDuration(effect, {
+      ...context,
+      sourceId: effect.sourceActorId,
+    });
+  }
+
+  const perUnit = roundsPerUnit(duration);
+
+  if (perUnit === undefined || typeof duration.value !== 'number') {
+    return undefined;
+  }
+
+  return {
+    ...effect,
+    duration: { ...duration, remaining: duration.value * perUnit },
+  };
+}
+
+/**
  * Эффект после своей границы хода: первая граница «хода наложения» только
  * снимает пропуск, следующая — снимает эффект (переключаемый — выключает).
  *

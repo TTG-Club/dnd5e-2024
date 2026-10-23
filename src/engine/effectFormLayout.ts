@@ -1092,6 +1092,11 @@ function resolveTriggerListLayout(place: {
       ...(place.canRemoveSelf
         ? (['endCast', 'removeSelf'] as const)
         : (['endCast'] as const)),
+      // Продлить можно только свой идущий срок: у включённого переключателя
+      // и у эффекта, лежащего на носителе
+      ...(place.switchesOn || place.canRemoveSelf
+        ? (['refreshDuration'] as const)
+        : []),
     ],
     triggerTurnOwners: place.hasSource
       ? EFFECT_TRIGGER_TURN_OWNERS

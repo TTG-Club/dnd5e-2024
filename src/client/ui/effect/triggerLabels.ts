@@ -344,6 +344,7 @@ export const EFFECT_TRIGGER_ACTION_LABELS: Record<
   notify: 'Сообщить человеку',
   nextStage: 'Следующая ступень',
   removeSelf: 'Снять эффект',
+  refreshDuration: 'Продлить срок',
 };
 
 /** Иконки видов действий */
@@ -371,6 +372,7 @@ export const EFFECT_TRIGGER_ACTION_ICONS: Record<
   notify: 'tabler:message-2',
   nextStage: 'tabler:stairs-up',
   removeSelf: 'tabler:circle-x',
+  refreshDuration: 'tabler:clock-plus',
 };
 
 /** Исход спасброска, при котором выполняется действие */

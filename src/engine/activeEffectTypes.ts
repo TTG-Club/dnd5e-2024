@@ -4008,6 +4008,10 @@ const EFFECT_TRIGGER_PLAIN_ACTION_SCHEMAS = [
   }),
   z.object({ type: z.literal('nextStage'), on: EffectTriggerGateSchema }),
   z.object({ type: z.literal('removeSelf'), on: EffectTriggerGateSchema }),
+  z.object({
+    type: z.literal('refreshDuration'),
+    on: EffectTriggerGateSchema,
+  }),
 ] as const;
 
 /** Zod-схема футов перемещения, которыми платят цену `move` */

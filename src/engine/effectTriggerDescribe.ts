@@ -158,6 +158,7 @@ const TRIGGER_LABELS = {
   halfDamage: 'половина урона',
   effect: 'эффект',
   removeSelf: 'эффект снимается',
+  refreshDuration: 'срок эффекта начинается заново',
   tagPrefix: 'отметка ',
   conditionJoiner: ' и ',
   setHpPrefix: 'хиты становятся ',
@@ -655,6 +656,8 @@ function describeAction(
         : TRIGGER_LABELS.endCast;
     case 'removeSelf':
       return TRIGGER_LABELS.removeSelf;
+    case 'refreshDuration':
+      return TRIGGER_LABELS.refreshDuration;
     default:
       return '';
   }

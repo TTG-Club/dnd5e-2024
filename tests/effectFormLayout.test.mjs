@@ -1097,6 +1097,7 @@ describe('список «Срабатывания»', () => {
       'nextStage',
       'endCast',
       'removeSelf',
+      'refreshDuration',
     ]);
 
     assert.deepEqual(
@@ -1119,6 +1120,7 @@ describe('список «Срабатывания»', () => {
         'nextStage',
         'endCast',
         'removeSelf',
+        'refreshDuration',
       ],
       'урон на броске атаки выполняет сервер',
     );
@@ -1146,6 +1148,7 @@ describe('список «Срабатывания»', () => {
         'nextStage',
         'endCast',
         'removeSelf',
+        'refreshDuration',
       ],
       '«хиты становятся» — только когда хиты упали до 0',
     );

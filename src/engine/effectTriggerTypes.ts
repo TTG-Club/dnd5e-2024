@@ -823,6 +823,26 @@ export interface EffectTriggerRemoveSelfAction {
   on?: EffectTriggerActionGate;
 }
 
+/**
+ * Продлить срок самого эффекта: отсчёт начинается заново, как при
+ * включении/наложении («Ярость» продлевается атакой по врагу). Выключенный
+ * переключатель и эффект без идущего срока не трогаются; получатель — всегда
+ * сам эффект.
+ */
+export interface EffectTriggerRefreshDurationAction {
+  type: 'refreshDuration';
+  on?: EffectTriggerActionGate;
+}
+
+/**
+ * Действия над самим эффектом, а не над получателем: снять его, закончить его
+ * каст, продлить его срок. Они достаются эффекту субъекта, кому бы ни ушли
+ * остальные действия, и только эффекту, лежащему на субъекте, — у предмета и
+ * черты существа нет ни своего каста, ни своего срока.
+ */
+export const SELF_EFFECT_ACTIONS: ReadonlySet<EffectTriggerAction['type']> =
+  new Set(['removeSelf', 'endCast', 'refreshDuration']);
+
 /** Кому адресовано сообщение срабатывания */
 export const EFFECT_NOTIFY_TARGETS = ['subject', 'source'] as const;
 
@@ -1130,7 +1150,8 @@ export type EffectTriggerAction =
   | EffectTriggerGrantInspirationAction
   | EffectTriggerMoveAction
   | EffectTriggerMoveAreaAction
-  | EffectTriggerRemoveSelfAction;
+  | EffectTriggerRemoveSelfAction
+  | EffectTriggerRefreshDurationAction;
 
 /** Срабатывание эффекта */
 export interface EffectTrigger {
