@@ -4,7 +4,11 @@ import type { ClientSystemAPI } from '@/core/systemBootstrap';
 
 import { defineAsyncComponent } from 'vue';
 
-import { dnd5eSystemInstance } from '@vtt/shared/system/dnd.js';
+import { useHealthConditionsStore } from '@/stores/healthConditionsStore';
+import {
+  dnd5eSystemInstance,
+  setHpDisplayDefaultResolver,
+} from '@vtt/shared/system/dnd.js';
 
 import { promptGmRollRequest } from './composables/gmRollRequest';
 import { promptInitiativeRoll } from './composables/initiativeRollPrompt';
@@ -101,6 +105,14 @@ export function registerClientSystem(api: ClientSystemAPI) {
   // здесь `setActiveSessionSystem`/`setActiveSystem` НЕ дублируем (потребители
   // активной системы — рантайм-код: лист/компендиум, а не сама регистрация).
   api.defineSystem(dnd5eSystemInstance);
+
+  // Вид ХП по умолчанию задаёт мастер для мира (окно ядра «Состояния
+  // здоровья»). По нему же движок решает, показывать ли игрокам хиты числом в
+  // карточках урона. Стор берётся при вызове: к регистрации системы Pinia
+  // хоста уже есть, но читать выбор надо свежим, а не снимком.
+  setHpDisplayDefaultResolver((kind) =>
+    useHealthConditionsStore().getDefaultHpDisplayMode(kind),
+  );
 
   // UI-слоты системы: макросы + модалки удаления/эффектов/быстрые (их рендерит
   // ядро — custom-areas, удаление актёра/существа, быстрые окна) + два окна

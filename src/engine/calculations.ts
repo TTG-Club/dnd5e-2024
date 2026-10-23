@@ -1858,21 +1858,18 @@ export function normalizeCreature(creature: BaseCreature): void {
     raw.spells = synced.spells;
   }
 
-  // Нормализация token: дефолты для существ — имя скрыто, ХП текстом
+  // Нормализация token: дефолты для существ — имя скрыто. Вид ХП не
+  // записывается: без своего выбора существо показывает ХП так, как задано
+  // для мира (настройка ядра «Состояния здоровья»)
   if (!creature.token) {
     creature.token = {
       frameUrl: 'assets/token-frames/0.png',
       showName: false,
-      hpDisplayMode: 'text',
       disposition: 'hostile',
     };
   } else {
     if (creature.token.showName === undefined) {
       creature.token.showName = false;
-    }
-
-    if (!creature.token.hpDisplayMode) {
-      creature.token.hpDisplayMode = 'text';
     }
 
     if (!creature.token.disposition) {

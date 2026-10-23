@@ -1497,7 +1497,6 @@ export const DEFAULT_CREATURE: Omit<
   token: {
     frameUrl: 'assets/token-frames/0.png',
     showName: false,
-    hpDisplayMode: 'text',
     disposition: 'hostile',
   },
   activeEffects: [],

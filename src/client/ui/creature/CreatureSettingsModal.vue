@@ -60,6 +60,7 @@
     TOKEN_VISION_ANGLE_PRESETS,
     TOKEN_VISION_ANGLE_STEP,
   } from '../actor/constants';
+  import TokenHpDisplayField from '../actor/TokenHpDisplayField.vue';
   import { readTokenVision } from '../actor/tokenVision';
   import { ENTITY_OWNERSHIP_CONFLICT_TOAST } from '../entity-ownership/constants';
   import EntityOwnersSelect from '../entity-ownership/EntityOwnersSelect.vue';
@@ -160,7 +161,8 @@
     tint: string;
     disposition: Disposition;
     showName: boolean;
-    hpDisplayMode: HpDisplayMode;
+    /** Вид ХП над токеном; не задан — берётся вид по умолчанию для мира */
+    hpDisplayMode: HpDisplayMode | undefined;
     /** Переключатель «Вращение»: стрелка и поворот при круговом обзоре */
     facingEnabled: boolean;
   }
@@ -176,7 +178,7 @@
     tint: TOKEN_TINT_DEFAULT,
     disposition: 'hostile',
     showName: false,
-    hpDisplayMode: 'text',
+    hpDisplayMode: undefined,
     facingEnabled: false,
   });
 
@@ -380,7 +382,7 @@
       || tokenSettings.value.showName
         !== (creature.value.token?.showName ?? false)
       || tokenSettings.value.hpDisplayMode
-        !== (creature.value.token?.hpDisplayMode ?? 'text')
+        !== creature.value.token?.hpDisplayMode
       || tokenSettings.value.facingEnabled
         !== (creature.value.token?.facingEnabled ?? false);
 
@@ -492,7 +494,7 @@
         tint: creature.value.token?.tint || TOKEN_TINT_DEFAULT,
         disposition: creature.value.token?.disposition || 'hostile',
         showName: creature.value.token?.showName ?? false,
-        hpDisplayMode: creature.value.token?.hpDisplayMode ?? 'text',
+        hpDisplayMode: creature.value.token?.hpDisplayMode,
         facingEnabled: creature.value.token?.facingEnabled ?? false,
       };
 
@@ -659,30 +661,11 @@
     }
   });
 
-  /** Классы для кнопки режима отображения ХП */
-  const HP_MODE_ACTIVE_CLASS =
-    'border-primary/50 bg-primary/10 text-highlighted';
-
-  const HP_MODE_INACTIVE_CLASS =
-    'border-default/50 bg-elevated/20 text-toned hover:bg-elevated/40';
-
   /** Классы для кнопки размера токена */
   const TOKEN_SIZE_ACTIVE_CLASS = 'border-primary bg-primary/20 text-primary';
 
   const TOKEN_SIZE_INACTIVE_CLASS =
     'border-default/50 bg-elevated/30 text-muted hover:border-accented hover:text-toned';
-
-  const hpBarModeClass = computed(() =>
-    tokenSettings.value.hpDisplayMode === 'bar'
-      ? HP_MODE_ACTIVE_CLASS
-      : HP_MODE_INACTIVE_CLASS,
-  );
-
-  const hpTextModeClass = computed(() =>
-    tokenSettings.value.hpDisplayMode === 'text'
-      ? HP_MODE_ACTIVE_CLASS
-      : HP_MODE_INACTIVE_CLASS,
-  );
 
   function getTokenSizeClass(sizeValue: number): string {
     return tokenSettings.value.scale === sizeValue
@@ -873,62 +856,10 @@
                 </div>
 
                 <!-- Отображение ХП -->
-                <div
-                  class="rounded border border-default/50 bg-elevated/30 p-3"
-                >
-                  <div class="mb-2 flex items-center gap-2">
-                    <UIcon
-                      name="tabler:heart"
-                      class="size-4 text-muted"
-                    />
-
-                    <label class="flex-1 text-sm font-medium text-toned">
-                      {{ TOKEN_SETTINGS_LABELS.hpDisplay }}
-                    </label>
-                  </div>
-
-                  <div class="grid grid-cols-2 gap-2">
-                    <button
-                      class="flex items-center gap-2 rounded border p-2 text-left text-sm transition-colors"
-                      :class="hpBarModeClass"
-                      :disabled="!(isAdmin || isOwner)"
-                      @click.left.exact.prevent="
-                        tokenSettings.hpDisplayMode = 'bar'
-                      "
-                    >
-                      <UIcon
-                        name="tabler:chart-bar"
-                        class="size-4 shrink-0"
-                      />
-
-                      <div>
-                        <div class="font-medium">
-                          {{ TOKEN_SETTINGS_LABELS.hpBar }}
-                        </div>
-                      </div>
-                    </button>
-
-                    <button
-                      class="flex items-center gap-2 rounded border p-2 text-left text-sm transition-colors"
-                      :class="hpTextModeClass"
-                      :disabled="!(isAdmin || isOwner)"
-                      @click.left.exact.prevent="
-                        tokenSettings.hpDisplayMode = 'text'
-                      "
-                    >
-                      <UIcon
-                        name="tabler:text-size"
-                        class="size-4 shrink-0"
-                      />
-
-                      <div>
-                        <div class="font-medium">
-                          {{ TOKEN_SETTINGS_LABELS.hpState }}
-                        </div>
-                      </div>
-                    </button>
-                  </div>
-                </div>
+                <TokenHpDisplayField
+                  v-model="tokenSettings.hpDisplayMode"
+                  :disabled="!(isAdmin || isOwner)"
+                />
               </div>
 
               <!-- Размер токена -->

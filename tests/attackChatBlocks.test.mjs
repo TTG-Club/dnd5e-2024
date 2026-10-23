@@ -375,6 +375,36 @@ describe('хиты цели до и после', () => {
       false,
     );
   });
+
+  it('без своего вида у сущности хиты открыты так, как задал мастер для мира', () => {
+    const actor = { entityType: 'actor', token: {} };
+    const creature = { entityType: 'creature', token: {} };
+
+    // Мастер выбрал наоборот: персонажам состояние, существам полоска
+    engine.setHpDisplayDefaultResolver((kind) =>
+      kind === 'actor' ? 'text' : 'bar',
+    );
+
+    try {
+      assert.equal(engine.isEntityHpShownToPlayers(actor), false);
+      assert.equal(engine.isEntityHpShownToPlayers(creature), true);
+
+      // Свой вид сущности сильнее мирового
+      assert.equal(
+        engine.isEntityHpShownToPlayers({
+          ...creature,
+          token: { hpDisplayMode: 'text' },
+        }),
+        false,
+      );
+    } finally {
+      engine.setHpDisplayDefaultResolver(null);
+    }
+
+    // Сброс возвращает встроенный вид
+    assert.equal(engine.isEntityHpShownToPlayers(actor), true);
+    assert.equal(engine.isEntityHpShownToPlayers(creature), false);
+  });
 });
 
 describe('buildAttackLabel', () => {

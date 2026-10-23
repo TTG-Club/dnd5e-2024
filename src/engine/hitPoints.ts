@@ -27,6 +27,8 @@
  * @module system/dnd/hitPoints
  */
 
+import type { HpDisplayMode } from '@vtt/shared';
+
 import type { DnDSceneEntity } from './dndEntities.js';
 
 import { isActorEntity, isCreatureEntity } from '@vtt/shared';
@@ -163,11 +165,46 @@ export function isEntityBloodied(entity: DnDSceneEntity): boolean {
   );
 }
 
+/** Тип сущности, для которого мир задаёт вид ХП по умолчанию */
+export type HpDisplayEntityKind = 'actor' | 'creature';
+
+/** Откуда берётся вид ХП, когда у сущности не выбран свой */
+export type HpDisplayDefaultResolver = (
+  kind: HpDisplayEntityKind,
+) => HpDisplayMode;
+
+/**
+ * Вид ХП без настройки мира — так же, как рисует ядро, пока мастер ничего не
+ * выбрал: персонажу полоска, существу состояние.
+ *
+ * @param kind - тип сущности
+ * @returns вид ХП по умолчанию
+ */
+function resolveBuiltinHpDisplayMode(kind: HpDisplayEntityKind): HpDisplayMode {
+  return kind === 'actor' ? 'bar' : 'text';
+}
+
+/** Текущий источник вида ХП по умолчанию; клиент подменяет его настройкой мира */
+let resolveDefaultHpDisplayMode: HpDisplayDefaultResolver =
+  resolveBuiltinHpDisplayMode;
+
+/**
+ * Подключает вид ХП по умолчанию, заданный мастером для мира. Движок не знает,
+ * где живут настройки мира, — их приносит клиент системы при регистрации.
+ *
+ * @param resolver - вид ХП для типа сущности; `null` — вернуть встроенный
+ */
+export function setHpDisplayDefaultResolver(
+  resolver: HpDisplayDefaultResolver | null,
+): void {
+  resolveDefaultHpDisplayMode = resolver ?? resolveBuiltinHpDisplayMode;
+}
+
 /**
  * Видят ли игроки хиты сущности числом. Настройка токена «Отображение ХП»:
  * полоска показывает запас хитов всем, текстовое состояние («Невредим»,
- * «Ранен») числа скрывает — их знает только мастер. Не задано — как рисует
- * ядро: персонажу полоска, существу состояние.
+ * «Ранен») числа скрывает — их знает только мастер. Не задано — вид по
+ * умолчанию для мира (см. `setHpDisplayDefaultResolver`).
  *
  * По этому же правилу карточка чата решает, кому показать хиты цели до и
  * после удара.
@@ -177,7 +214,10 @@ export function isEntityBloodied(entity: DnDSceneEntity): boolean {
  */
 export function isEntityHpShownToPlayers(entity: DnDSceneEntity): boolean {
   const displayMode =
-    entity.token?.hpDisplayMode ?? (isActorEntity(entity) ? 'bar' : 'text');
+    entity.token?.hpDisplayMode
+    ?? resolveDefaultHpDisplayMode(
+      isActorEntity(entity) ? 'actor' : 'creature',
+    );
 
   return displayMode === 'bar';
 }

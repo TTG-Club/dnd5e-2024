@@ -24,6 +24,7 @@ import type {
   CounterRestKey,
   GmApprovalVerdict,
   HitDie,
+  HpDisplayMode,
   PersonalityTextFieldKey,
   RestType,
   SkillInfluenceTone,
@@ -2423,6 +2424,7 @@ export const TOKEN_SETTINGS_LABELS = {
     'По умолчанию имя токена скрыто и отображается только при включении этой '
     + 'опции.',
   hpDisplay: 'Отображение ХП',
+  hpWorld: 'Как в мире',
   hpBar: 'Полоска',
   hpState: 'Состояние',
   tokenSize: 'Размер токена',
@@ -2477,6 +2479,29 @@ export const TOKEN_SETTINGS_LABELS = {
   hintNoDarkvision:
     'Без тёмного зрения в ночи токен видит только освещённые области',
 } as const;
+
+/** Вариант выбора вида ХП над токеном в настройках токена */
+export interface TokenHpDisplayOption {
+  /** Вид ХП; `undefined` — свой не выбран, токен показывает ХП как в мире */
+  mode: HpDisplayMode | undefined;
+  label: string;
+  icon: string;
+}
+
+/** Варианты вида ХП над токеном — одни и те же у персонажа и существа */
+export const TOKEN_HP_DISPLAY_OPTIONS: readonly TokenHpDisplayOption[] = [
+  {
+    mode: undefined,
+    label: TOKEN_SETTINGS_LABELS.hpWorld,
+    icon: 'tabler:world',
+  },
+  { mode: 'bar', label: TOKEN_SETTINGS_LABELS.hpBar, icon: 'tabler:chart-bar' },
+  {
+    mode: 'text',
+    label: TOKEN_SETTINGS_LABELS.hpState,
+    icon: 'tabler:text-size',
+  },
+];
 
 /** Подписи окна настроек, свои у листа персонажа */
 export const ACTOR_SETTINGS_LABELS = {

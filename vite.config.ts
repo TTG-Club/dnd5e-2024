@@ -74,6 +74,7 @@ const HOST_MODULE_IDS: string[] = [
   '@/stores/auraStore',
   '@/stores/chatStore',
   '@/stores/diceRollerStore',
+  '@/stores/healthConditionsStore',
   '@/stores/hotbarStore',
   '@/stores/initiativeStore',
   '@/stores/itemsStore',
