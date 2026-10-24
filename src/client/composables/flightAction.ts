@@ -155,8 +155,9 @@ export function buildFlightShelfButtons(
         tooltip: active ? spec.activeTooltip : spec.tooltip,
         active,
         // Горящая кнопка приземляет, а не включает заново
-        onClick: () =>
-          control.setActive(heroTokenId, active ? null : spec.modeId),
+        onClick: async () => {
+          await control.setActive(heroTokenId, active ? null : spec.modeId);
+        },
       },
     ];
   });
