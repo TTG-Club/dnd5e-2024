@@ -4,15 +4,12 @@
  * Полёт и левитация — виды перемещения системы (`movementModes.ts`) со своей
  * Скоростью и правом менять высоту (VTTG 0.9.780). Кнопка есть, только когда
  * вид у героя есть: Скорость полёта (у существа или от эффекта «Полёт»), флаг
- * «Левитация». Нажатие включает вид у ядра (`api.movementMode`) на следующее
- * перемещение: перетаскивание меряется полётом, высота меняется. Включённый
- * СОСТОЯНИЕМ вид фишки (`Token.activeMovementModeId`) кнопка показывает
- * горящей; переключать состояние ядро системе пока не даёт (README, пробелы
- * ядра).
+ * «Левитация». Нажатие включает вид СОСТОЯНИЕМ фишки
+ * (`Token.activeMovementModeId`, `api.movementMode.setActive`): перетаскивание
+ * меряется полётом, высота меняется, летун не падает.
  */
 
 import type { ClientSystemAPI } from '@/core/systemBootstrap';
-import type { Token } from '@vtt/shared';
 import type { DnDSceneEntity } from '@vtt/shared/system/dnd.js';
 
 import type { ActionShelfButton } from './actionShelf';
@@ -66,28 +63,59 @@ const FLIGHT_BUTTON_SPECS: readonly FlightButtonSpec[] = [
 ];
 
 /**
- * Фишка сущности на текущей сцене: выделенная, иначе первая.
+ * Включение вида СОСТОЯНИЕМ фишки — члены `api.movementMode` ядра этажей
+ * (этап 2): `setActive` и `activeOf`. Состояние живёт только в фишке
+ * (`Token.activeMovementModeId`), сущность его не хранит.
+ */
+interface ActiveMovementModeControl {
+  /** Включить вид у фишки; `null` — вид по умолчанию */
+  setActive: (tokenId: string, modeId: string | null) => void;
+  /** Включённый вид фишки; нет — `null` */
+  activeOf: (tokenId: string) => string | null;
+}
+
+/**
+ * Умеет ли ядро включать вид состоянием фишки.
+ *
+ * @param control - управление видом у ядра
+ * @returns true, если оба члена есть
+ */
+function hasActiveModeControl(
+  control: object,
+): control is ActiveMovementModeControl {
+  return (
+    'setActive' in control
+    && typeof control.setActive === 'function'
+    && 'activeOf' in control
+    && typeof control.activeOf === 'function'
+  );
+}
+
+/**
+ * Фишка героя на текущей сцене: выделенная, иначе первая.
  *
  * @param entityId - сущность
  * @param tokenId - выделенная фишка
- * @returns фишка либо `undefined`
+ * @returns id фишки либо `undefined`
  */
-function findEntityToken(
+function findEntityTokenId(
   entityId: string,
   tokenId: string | null,
-): Token | undefined {
+): string | undefined {
   const tokens = useWorldStore().currentScene?.tokens ?? [];
 
   return (
     tokens.find((token) => token.id === tokenId && token.actorId === entityId)
     ?? tokens.find((token) => token.actorId === entityId)
-  );
+  )?.id;
 }
 
 /**
  * Кнопки «Полёт» и «Левитация» для выделенного героя: только те виды, что у
- * него есть. Горит, пока вид включён у ядра на перемещение или состоянием
- * фишки; нажатие на горящую выключает разовый вид.
+ * него есть. Кнопка включает вид состоянием фишки — летун держится в воздухе
+ * и меняет высоту; горящая — выключает, и фишку без опоры ядро уронит. Ядро
+ * без включения состоянием кнопок не показывает: эффект «Полёт» там просто
+ * даёт Скорость полёта.
  *
  * @param api - API ядра для системы
  * @param entity - выделенный герой
@@ -100,36 +128,24 @@ export function buildFlightShelfButtons(
   tokenId: string | null,
 ): ActionShelfButton[] {
   const control = findMovementModeControl(api);
+  const heroTokenId = findEntityTokenId(entity.id, tokenId);
 
-  // Без режима вида у ядра (VTTG до 0.9.751) включать нечего
-  if (!control) {
+  if (!control || !hasActiveModeControl(control) || !heroTokenId) {
     return [];
   }
 
-  const stats = resolveEntityStats(entity);
-
   const modes = buildVerticalMovementModes(
-    resolveMovementModesState(entity, stats),
+    resolveMovementModesState(entity, resolveEntityStats(entity)),
   );
 
-  const current = control.current();
-
-  const persistentModeId = findEntityToken(
-    entity.id,
-    tokenId,
-  )?.activeMovementModeId;
+  const activeModeId = control.activeOf(heroTokenId);
 
   return FLIGHT_BUTTON_SPECS.flatMap((spec): ActionShelfButton[] => {
-    const mode = modes.find((entry) => entry.id === spec.modeId);
-
-    if (!mode) {
+    if (!modes.some((mode) => mode.id === spec.modeId)) {
       return [];
     }
 
-    const selected =
-      current?.entityId === entity.id && current.modeId === spec.modeId;
-
-    const active = selected || persistentModeId === spec.modeId;
+    const active = activeModeId === spec.modeId;
 
     return [
       {
@@ -138,11 +154,9 @@ export function buildFlightShelfButtons(
         label: spec.label,
         tooltip: active ? spec.activeTooltip : spec.tooltip,
         active,
-        // Горящая кнопка выключает разовый вид, а не включает заново
+        // Горящая кнопка приземляет, а не включает заново
         onClick: () =>
-          control.set(
-            selected ? null : { entityId: entity.id, modeId: spec.modeId },
-          ),
+          control.setActive(heroTokenId, active ? null : spec.modeId),
       },
     ];
   });

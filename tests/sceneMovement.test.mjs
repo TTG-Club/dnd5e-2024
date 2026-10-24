@@ -358,3 +358,84 @@ describe('толчок по вертикали', () => {
     assert.equal(position.aboveFloor, 0);
   });
 });
+
+describe('вид фишки по эффектам (сервер)', () => {
+  /**
+   * Контекст правил со сменой вида у ядра.
+   *
+   * @param {object} entity - сущность
+   * @param {string | undefined} activeModeId - включённый вид фишки
+   * @param {boolean} withSetter - ядро умеет менять вид
+   * @returns {{ context: object, calls: Array }} контекст и вызовы
+   */
+  function contextOf(entity, activeModeId, withSetter = true) {
+    const calls = [];
+
+    const token = createToken(entity.id, 0, 0, {
+      activeMovementModeId: activeModeId,
+    });
+
+    return {
+      calls,
+      context: {
+        getSceneSurroundings: () => ({
+          token,
+          gridSettings: GRID,
+          neighbors: [],
+        }),
+        ...(withSetter
+          ? {
+              setTokenMovementMode: (tokenId, modeId) =>
+                calls.push([tokenId, modeId]),
+            }
+          : {}),
+      },
+    };
+  }
+
+  it('«Левитация» поднимает цель сама', () => {
+    const target = createCreature({
+      activeEffects: [
+        createEffect('Левитация', { flags: ['movement.levitate'] }),
+      ],
+    });
+
+    const { context, calls } = contextOf(target, undefined);
+
+    engine.reconcileMovementMode(target, context);
+    assert.deepEqual(calls, [[`token_${target.id}`, 'levitate']]);
+  });
+
+  it('кончился «Полёт» — вид выключен, летуна уронит ядро', () => {
+    const walker = createCreature();
+    const { context, calls } = contextOf(walker, 'fly');
+
+    engine.reconcileMovementMode(walker, context);
+    assert.deepEqual(calls, [[`token_${walker.id}`, null]]);
+  });
+
+  it('«Полёт» действует — взлёт выбирает летун, вид не трогается', () => {
+    const flyer = createCreature({
+      activeEffects: [
+        createEffect('Полёт', {
+          changes: [{ key: 'movement.fly', mode: 'override', value: '60' }],
+        }),
+      ],
+    });
+
+    for (const activeModeId of [undefined, 'fly']) {
+      const { context, calls } = contextOf(flyer, activeModeId);
+
+      engine.reconcileMovementMode(flyer, context);
+      assert.deepEqual(calls, []);
+    }
+  });
+
+  it('старое ядро без смены вида — сверка молчит', () => {
+    const walker = createCreature();
+    const { context, calls } = contextOf(walker, 'fly', false);
+
+    engine.reconcileMovementMode(walker, context);
+    assert.deepEqual(calls, []);
+  });
+});

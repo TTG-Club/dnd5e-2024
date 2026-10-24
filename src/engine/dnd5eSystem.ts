@@ -198,6 +198,7 @@ import {
   resolveMovementModesState,
   resolveTurnSpeed,
 } from './movementModes.js';
+import { reconcileMovementMode } from './movementModeSync.js';
 import {
   applyAuraTriggerEffects as computeAuraTriggerEffects,
   runPresenceTriggerSources,
@@ -526,9 +527,15 @@ function withScenePresence<Result extends SystemDeferredTriggerResult>(
   context: SystemTriggerContext | undefined,
   result: Result,
 ): Result {
-  const note = isDndSceneEntity(entity)
-    ? reconcileScenePresence(entity, context)
-    : null;
+  if (!isDndSceneEntity(entity)) {
+    return result;
+  }
+
+  // Вид перемещения фишки — по тем же эффектам: левитация поднимает,
+  // кончившийся «Полёт» выключает вид, и ядро роняет летуна
+  reconcileMovementMode(entity, context);
+
+  const note = reconcileScenePresence(entity, context);
 
   if (!note) {
     return result;

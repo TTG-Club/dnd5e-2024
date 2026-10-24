@@ -127,6 +127,7 @@ export * from './itemSchemas.js';
 export * from './itemTransfer.js';
 export * from './itemUses.js';
 export * from './movementModes.js';
+export * from './movementModeSync.js';
 export * from './offSheetChanges.js';
 export * from './ownEffectFormulas.js';
 export * from './packRefResolution.js';
