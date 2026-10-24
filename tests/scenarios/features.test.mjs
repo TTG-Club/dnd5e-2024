@@ -75,9 +75,6 @@ function deltaOf(entity, effects, read) {
   return withEffects - base;
 }
 
-/** Контекст броска */
-const roll = (hasAdvantage) => ({ hasAdvantage, hasDisadvantage: false });
-
 describe('каталог: классы и черты', () => {
   it('[F01] Ярость [≈]: сопротивление физическому урону, +2 к урону, преимущество на Силу', () => {
     const rage = createEffect(engine.buildClassEffectId('barbarian', 'rage'), {
@@ -940,34 +937,6 @@ describe('каталог: классы и черты', () => {
       0,
     );
   });
-
-  it('[F07] Скрытая атака [≈]: +к6 урона при преимуществе', () => {
-    const sneak = createEffect('Скрытая атака', {
-      changes: [
-        change('damage.melee', '3d6', {
-          condition: 'roll.hasAdvantage === true',
-        }),
-      ],
-    });
-
-    authoredScenario(sneak, 'feature');
-
-    assert.deepEqual(
-      engine
-        .collectBonusDamageFormulas([sneak], 'damage.melee', roll(true))
-        .map((part) => part.formula),
-      ['3d6'],
-    );
-
-    assert.deepEqual(
-      engine.collectBonusDamageFormulas([sneak], 'damage.melee', roll(false)),
-      [],
-    );
-  });
-
-  it.todo(
-    '[F07b] Скрытая атака: союзник рядом с целью вместо преимущества и «раз в ход» — пробел',
-  );
 
   it('[F08] Увёртливость: успех спасброска Ловкости — без урона, провал — половина', () => {
     const evasion = createEffect('Увёртливость', {

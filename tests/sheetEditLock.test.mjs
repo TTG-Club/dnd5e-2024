@@ -126,6 +126,26 @@ const GUARDED_ENTRIES = [
       ),
   },
   {
+    path: `${COMPOSABLES_DIR}/hideAction.ts`,
+    name: 'startHide',
+    call: (entry) => entry({ id: 'hero' }),
+  },
+  {
+    path: `${COMPOSABLES_DIR}/hideAction.ts`,
+    name: 'leaveHide',
+    call: (entry) => entry({ id: 'hero' }),
+  },
+  {
+    path: `${COMPOSABLES_DIR}/hideAction.ts`,
+    name: 'startSearch',
+    call: (entry) => entry({ id: 'hero' }),
+  },
+  {
+    path: `${COMPOSABLES_DIR}/creatureActionLimit.ts`,
+    name: 'restoreLimitedTarget',
+    call: (entry) => entry('hero', { key: 'actionLimit:bite' }),
+  },
+  {
     path: `${COMPOSABLES_DIR}/spellCasts.ts`,
     name: 'endEntityConcentration',
     call: (entry) =>
@@ -176,12 +196,20 @@ const UNGUARDED_REASONS = {
     'ничего не пишет: собирает сообщение игроку из ответа сервера',
   listEscapeHelpOffers: 'ничего не пишет',
   formatEscapeTitle: 'ничего не пишет',
+  findSpellGroupLimitBlock: 'ничего не пишет: только читает журнал существа',
+  formatActionLimitBlock: 'ничего не пишет',
+  readLimitedTargetState: 'ничего не пишет: только читает журнал существа',
+  resolveActionLimitTarget: 'ничего не пишет',
   listSelfEscapeEffects: 'ничего не пишет',
   readEntityCounters: 'ничего не пишет',
   sendGmRollRequest:
     'запрос броска мастера из окна сцены, не с листа: сам пишет только броски в чат',
   runRestWithTriggers:
     'отдых останавливают входы листа (handleRest и «Применить» окна отдыха); тест ниже',
+  confirmRestWithGm:
+    'только спрашивает ведущего и ничего не пишет; handleRest проверяет лист и до вопроса, и после ответа',
+  buildRollBonusEvaluator:
+    'сборщик бонусов окна: сам ничего не пишет, расход Скрытой атаки — бросок окна, открытого охраняемым входом',
   dispatchAttackRollTriggers:
     'бросок окна, открытого охраняемым входом; цель в правке не действует',
   reportAttackRoll:

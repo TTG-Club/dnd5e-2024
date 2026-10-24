@@ -131,6 +131,9 @@ async function resolveWithoutTargets(parts, options = {}) {
       resolveGridCellSize: () => 5,
       resolveSelectedAttackTarget: () => null,
       resolveAttackerIgnoredResistances: () => [],
+      // Ключ применения у этих бросков не проверяется — контекст как есть
+      withSpellActionId: (context) => context,
+      withPartTargetPayload: (context) => context,
       isSaveAbility: () => false,
       getPartKindLabel: (part) => part.label,
       formatTargetGateSuffix: () => '',
@@ -259,6 +262,13 @@ it('лечение без цели остаётся обычным сообще�
   assert.equal(sent[0].options.speakerEntityId, 'caster');
 });
 
+/** Плашки исхода проверки — как в константах окна */
+const CHECK_OUTCOME_BADGES = {
+  success: { label: 'Успех', accent: 'success' },
+  fail: { label: 'Провал', accent: 'error' },
+  autoFail: { label: 'Автопровал', accent: 'error' },
+};
+
 /**
  * Бросает окном броска без броска попадания и отдаёт параметры сообщения.
  *
@@ -269,18 +279,28 @@ async function rollWindowWithoutAttack(window) {
   const sent = [];
   const rolls = [];
 
+  const props = {
+    rollLabel: 'Раздирание',
+    modifier: 0,
+    isHealing: window.isHealing ?? false,
+    skipChatMessage: false,
+    skipDamageApplication: false,
+    attackerId: window.attackerId,
+    targetDc: window.targetDc,
+  };
+
+  const resolveCheckOutcomeBadge = await loadHandler(
+    'src/client/ui/actor/DiceRollModal.vue',
+    'resolveCheckOutcomeBadge',
+    { props, CHECK_OUTCOME_BADGES },
+  );
+
   const performSimpleRoll = await loadHandler(
     'src/client/ui/actor/DiceRollModal.vue',
     'performSimpleRoll',
     {
-      props: {
-        rollLabel: 'Раздирание',
-        modifier: 0,
-        isHealing: window.isHealing ?? false,
-        skipChatMessage: false,
-        skipDamageApplication: false,
-        attackerId: window.attackerId,
-      },
+      props,
+      resolveCheckOutcomeBadge,
       rollFormula: { value: window.formula },
       effectiveFormula: { value: window.formula },
       bonusValue: { value: 0 },
@@ -364,4 +384,31 @@ it('бросок урона подписывается атакующим, а н
     }),
     { ...DAMAGE_CHAT_OPTIONS, speakerEntityId: 'familiar' },
   );
+});
+
+it('проверка со Сл — карточкой: что бросали шапкой, исход плашкой', async () => {
+  const success = await rollWindowWithoutAttack({
+    targetDc: 10,
+    returnsRoll: true,
+  });
+
+  // Блок собран в песочнице обработчика — сравнивается по содержимому
+  assert.deepEqual(JSON.parse(JSON.stringify(success.block)), {
+    title: 'Раздирание',
+    badge: CHECK_OUTCOME_BADGES.success,
+  });
+
+  const fail = await rollWindowWithoutAttack({
+    targetDc: 11,
+    returnsRoll: true,
+  });
+
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(fail.block.badge)),
+    CHECK_OUTCOME_BADGES.fail,
+  );
+
+  const plain = await rollWindowWithoutAttack({ returnsRoll: true });
+
+  assert.equal(plain.block, undefined, 'без Сл исхода нет — и карточки');
 });

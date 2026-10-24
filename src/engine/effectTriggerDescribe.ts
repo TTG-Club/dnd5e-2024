@@ -29,12 +29,18 @@ import type {
 } from './triggerConditions.js';
 
 import {
+  CONDITION_OR_JOINER,
   describeConditionName,
   describeEffectChangeCondition,
   describeEffectDamageParts,
   describeEffectDuration,
   formatEffectSaveDc,
+  prettifyFormula,
 } from './activeEffectDescribe.js';
+import {
+  joinConditionGroups,
+  splitConditionGroups,
+} from './activeEffectTypes.js';
 import {
   ABILITY_GENITIVE_LABELS,
   ABILITY_LABELS,
@@ -43,7 +49,6 @@ import {
   isAbilityType,
   isCreatureCategory,
   isCreatureSize,
-  labelFormulaVariables,
 } from './consts.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
 import { describeEffectPay, EFFECT_PRICE_LABELS } from './effectPayTypes.js';
@@ -103,11 +108,13 @@ const TRIGGER_EVENT_LABELS: Record<EffectTriggerEvent, string> = {
   healed: 'когда носителя лечат',
   hpZero: 'когда хиты падают до 0',
   downedOther: 'когда носитель сваливает цель',
+  damageDealt: 'когда носитель наносит урон',
   allyHurt: 'когда на глазах носителя ранят союзника',
   conditionLost: 'когда состояние снимается',
   rest: 'после отдыха',
   activate: 'при включении',
   castEnd: 'когда заклинание заканчивается',
+  spellCast: 'когда носитель накладывает заклинание',
   moved: 'когда носитель проходит путь',
 };
 
@@ -151,6 +158,7 @@ const TRIGGER_LABELS = {
   halfDamage: 'половина урона',
   effect: 'эффект',
   removeSelf: 'эффект снимается',
+  refreshDuration: 'срок эффекта начинается заново',
   tagPrefix: 'отметка ',
   conditionJoiner: ' и ',
   setHpPrefix: 'хиты становятся ',
@@ -397,6 +405,7 @@ const TRIGGER_CONDITION_PHRASES: Record<
     `атака считается характеристикой «${describeAbilityName(value)}»`,
   attackLanded: () => 'атака попала',
   attackMissed: () => 'атака промахнулась',
+  attackSneakAttack: () => 'урон нанесён Скрытой атакой',
   combatRoundIs: (value) => `на ${value}-м раунде боя`,
   combatRoundAtLeast: (value) => `с ${value}-го раунда боя`,
   movementOwn: () => 'носитель шёл сам',
@@ -409,6 +418,7 @@ const TRIGGER_CONDITION_PHRASES: Record<
   selfInLight: () => 'носитель на свету',
   otherInDarkness: () => 'другая сторона в темноте',
   otherInLight: () => 'другая сторона на свету',
+  spellVerbal: () => 'у заклинания вербальный компонент',
 };
 
 /**
@@ -492,16 +502,20 @@ function describeCreatureTypeNot(value: string): string {
  * @returns подпись
  */
 export function describeTriggerCondition(condition: string): string {
-  return readTriggerConditionParts(condition)
-    .map((part) =>
-      typeof part === 'string'
-        ? describeEffectChangeCondition(part)
-        : TRIGGER_CONDITION_PHRASES[part.kind](
-            part.value ?? '',
-            part.amount ?? DEFAULT_TAG_COUNT_THRESHOLD,
-          ),
+  return splitConditionGroups(condition)
+    .map((group) =>
+      readTriggerConditionParts(joinConditionGroups([group]))
+        .map((part) =>
+          typeof part === 'string'
+            ? describeEffectChangeCondition(part)
+            : TRIGGER_CONDITION_PHRASES[part.kind](
+                part.value ?? '',
+                part.amount ?? DEFAULT_TAG_COUNT_THRESHOLD,
+              ),
+        )
+        .join(TRIGGER_LABELS.conditionJoiner),
     )
-    .join(TRIGGER_LABELS.conditionJoiner);
+    .join(CONDITION_OR_JOINER);
 }
 
 /**
@@ -577,7 +591,7 @@ function describeAction(
       }
 
       return action.formula
-        ? `${TRIGGER_LABELS.setHpFormulaPrefix}${labelFormulaVariables(action.formula)}`
+        ? `${TRIGGER_LABELS.setHpFormulaPrefix}${prettifyFormula(action.formula)}`
         : `${TRIGGER_LABELS.setHpPrefix}${action.value}`;
     }
     case 'tempHp':
@@ -607,7 +621,7 @@ function describeAction(
       const counter = `«${action.counter ?? ''}»`;
 
       const amount =
-        action.amount === undefined ? '' : labelFormulaVariables(action.amount);
+        action.amount === undefined ? '' : prettifyFormula(action.amount);
 
       if (action.set) {
         return `${counter}${TRIGGER_LABELS.restoreSetPrefix}${amount || DEFAULT_RESTORE_AMOUNT_TEXT}`;
@@ -618,7 +632,7 @@ function describeAction(
     case 'dispel':
       return `${TRIGGER_LABELS.dispelPrefix}${
         action.maxLevelFormula
-          ? labelFormulaVariables(action.maxLevelFormula)
+          ? prettifyFormula(action.maxLevelFormula)
           : action.maxLevel
       }`;
     case 'grantInspiration':
@@ -642,6 +656,8 @@ function describeAction(
         : TRIGGER_LABELS.endCast;
     case 'removeSelf':
       return TRIGGER_LABELS.removeSelf;
+    case 'refreshDuration':
+      return TRIGGER_LABELS.refreshDuration;
     default:
       return '';
   }

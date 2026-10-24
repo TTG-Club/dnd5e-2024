@@ -1171,6 +1171,28 @@ export function payActivation(
 }
 
 /**
+ * Счётчики после возврата оплаты: применение отменили («Отменить урон» вернул
+ * ресурс «Раздирания разума»). Не выше максимума счётчика.
+ *
+ * @param counters - счётчики листа
+ * @param activation - применение или включение
+ * @returns новые счётчики
+ */
+export function refundActivation(
+  counters: readonly ActorCounterState[],
+  activation: EffectActivation | undefined,
+): ActorCounterState[] {
+  const key = activation?.counter;
+  const amount = activation?.amount ?? DEFAULT_ACTIVATION_AMOUNT;
+
+  return counters.map((counter) =>
+    key && counter.counterKey === key
+      ? { ...counter, current: Math.min(counter.max, counter.current + amount) }
+      : counter,
+  );
+}
+
+/**
  * Выполняет на копии сущности срабатывания одного её эффекта без второй
  * стороны: «при включении» и «При действии».
  *

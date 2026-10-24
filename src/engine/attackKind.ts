@@ -110,12 +110,19 @@ export function withWeaponAttackKind(
   weapon: DnDGameItem,
   kind: AttackKind,
 ): DnDGameItem {
+  // Дальность самого оружия помнится только у БРОШЕННОГО рукопашного: по
+  // ней, а не по виду атаки, решается «дальнобойное оружие» у Скрытой атаки.
+  // Удар дальнобойным оружием вплотную (лук как дубинка) — атака
+  // рукопашная, и «дальнобойным оружием» Скрытую атаку он не даёт
   if (kind === 'melee' || weapon.rangeType === 'ranged') {
-    return { ...weapon, rangeType: kind };
+    return { ...weapon, rangeType: kind, sourceRangeType: undefined };
   }
+
+  const sourceRangeType = weapon.sourceRangeType ?? weapon.rangeType;
 
   return {
     ...weapon,
+    sourceRangeType,
     rangeType: 'ranged',
     attackAbility:
       weapon.attackAbility ?? getDefaultWeaponAbility(weapon.rangeType),

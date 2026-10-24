@@ -1095,6 +1095,8 @@ export interface AttackRollEventOptions extends TriggerEventOptions {
   landed?: boolean;
   /** Попадание критическое: урон срабатывания цели атаки удваивает кости */
   critical?: boolean;
+  /** Кости Скрытой атаки вошли в урон этой (попавшей) атаки */
+  sneakAttack?: boolean;
 }
 
 /**
@@ -1164,6 +1166,9 @@ export function settleAttackRollTriggers(
             kinds: [],
             landed: options.landed,
             ...(criticalTargetId === undefined ? {} : { criticalTargetId }),
+            ...(options.landed === true && options.sneakAttack === true
+              ? { sneakAttack: true }
+              : {}),
           },
         }),
   };
@@ -1488,6 +1493,142 @@ export function settleAllyHurtEvents(
     }
 
     mergeRelatedRun(result, witness, own);
+  }
+
+  return result;
+}
+
+/** Сколько действий «нанёс урон» помнит сервер, чтобы не сработать дважды */
+const MAX_REMEMBERED_DAMAGE_ACTIONS = 256;
+
+/**
+ * Действия, по которым «носитель нанёс урон» уже сработал: `нанёсший|действие`.
+ * Одно действие по трём целям приходит тремя снимками — по снимку на цель, —
+ * а срабатывание у нанёсшего должно быть одно. Память сервера, не данные мира:
+ * после перезапуска действие, начатое до него, может сработать ещё раз.
+ */
+const firedDamageActions = new Set<string>();
+
+/**
+ * Запоминает действие нанёсшего и говорит, было ли оно уже.
+ *
+ * @param key - `нанёсший|действие`
+ * @returns `true`, если действие уже срабатывало
+ */
+function wasDamageActionFired(key: string): boolean {
+  if (firedDamageActions.has(key)) {
+    return true;
+  }
+
+  firedDamageActions.add(key);
+
+  // Самое старое забывается: множество хранит порядок добавления
+  if (firedDamageActions.size > MAX_REMEMBERED_DAMAGE_ACTIONS) {
+    const [oldest] = firedDamageActions;
+
+    if (oldest !== undefined) {
+      firedDamageActions.delete(oldest);
+    }
+  }
+
+  return false;
+}
+
+/**
+ * Удары снимка по нанёсшим и действиям: удары одного действия по одной цели
+ * (оружие и кости Скрытой атаки, части урона) сливаются в один; удары без
+ * действия — тоже, в один на снимок.
+ *
+ * @param hurt - раненый
+ * @param hits - удары снимка
+ * @returns нанёсший → слитые удары его действий
+ */
+function groupDealtHits(
+  hurt: DnDSceneEntity,
+  hits: readonly DamageHit[],
+): Map<string, DamageHit[]> {
+  const byAction = new Map<string, DamageHit[]>();
+
+  for (const hit of hits) {
+    if (hit.amount > 0 && hit.sourceId && hit.sourceId !== hurt.id) {
+      const key = `${hit.sourceId}|${hit.actionId ?? ''}`;
+
+      byAction.set(key, [...(byAction.get(key) ?? []), hit]);
+    }
+  }
+
+  const byDealer = new Map<string, DamageHit[]>();
+
+  for (const group of byAction.values()) {
+    const merged = mergeLandingHits(group);
+    const actionId = group[0]?.actionId;
+
+    if (merged?.sourceId) {
+      byDealer.set(merged.sourceId, [
+        ...(byDealer.get(merged.sourceId) ?? []),
+        actionId ? { ...merged, actionId } : merged,
+      ]);
+    }
+  }
+
+  return byDealer;
+}
+
+/**
+ * «Носитель нанёс урон»: срабатывания тех, чей удар лёг в снимок. Событие
+ * идёт на ЭФФЕКТАХ НАНЁСШЕГО, по разу на действие: раненый — другая сторона,
+ * урон события — урон этого действия по нему. Им кончается «Невидимость» 2024
+ * («цель наносит урон»).
+ *
+ * Действие по нескольким целям приходит несколькими снимками; по ключу
+ * действия (`DamageHit.actionId`) срабатывание идёт только на первом из них.
+ * Удар без ключа считается своим действием в каждом снимке.
+ *
+ * Нанёсшего называет удар (`DamageHit.sourceId`), а сущность отдаёт ядро
+ * (`getEntity`). Удар без источника (урон срабатываний сервера, зоны, правка
+ * хитов рукой) и удар по себе событие не будят: назвать нанёсшего некого, а
+ * «нанёс урон себе» правила нанесённым другим не считают.
+ *
+ * @param hurt - раненый: в него уже записан урон
+ * @param hits - удары снимка
+ * @param options - с чем прогоняются события
+ * @returns итог: нанёсшие, которых изменило срабатывание
+ */
+export function settleDamageDealtEvents(
+  hurt: DnDSceneEntity,
+  hits: readonly DamageHit[],
+  options: TriggerEventOptions,
+): DamageEventsResult {
+  const result = createDamageEventsResult();
+
+  for (const [dealerId, dealt] of groupDealtHits(hurt, hits)) {
+    const dealer = options.getEntity?.(dealerId);
+    const sources = dealer ? listOwnEventSources(dealer, 'damageDealt') : [];
+
+    if (!dealer || sources.length === 0) {
+      continue;
+    }
+
+    // Срабатывания идут на нанёсшем: он субъект своих эффектов
+    const own = createDamageEventsResult();
+
+    for (const hit of dealt) {
+      if (hit.actionId && wasDamageActionFired(`${dealerId}|${hit.actionId}`)) {
+        continue;
+      }
+
+      for (const source of sources) {
+        runTriggerEventSource(
+          dealer,
+          source,
+          { damage: hit, other: hurt },
+          options,
+          own,
+        );
+      }
+    }
+
+    mergeRelatedRun(result, dealer, own);
   }
 
   return result;

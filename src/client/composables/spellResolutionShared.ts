@@ -14,6 +14,7 @@ import type {
   HpChangeDetail,
   ProjectileOutcome,
   SaveDamageDefense,
+  SneakAttackDoubleSave,
   Spell,
   TargetHpGate,
 } from '@vtt/shared/system/dnd.js';
@@ -36,6 +37,7 @@ import {
   removesItselfOnApply,
   resolveActorStats,
   resolveDamageTypeLabel,
+  SAVE_EFFECT_DOUBLE,
   SAVE_TYPE_LABELS,
   stampAppliedEffect,
   withInitializedDuration,
@@ -119,6 +121,78 @@ export interface SpellResolutionContext {
    * же снимком (`listAttackResolutionEntities`)
    */
   attack?: AttackRollSnapshot;
+  /**
+   * Ключ этого применения заклинания: удары по всем целям одного каста несут
+   * его, и «носитель нанёс урон» срабатывает у заклинателя один раз на каст
+   * (`DamageHit.actionId`). Нет — разбор заводит свой
+   */
+  actionId?: string;
+}
+
+/**
+ * Приставка ключа применения заклинания (`SpellResolutionContext.actionId`)
+ */
+const SPELL_ACTION_ID_PREFIX = 'spell-action';
+
+/**
+ * Контекст разбора с тем, что принесли сами части урона Скрытой атаки:
+ * - эффекты «на цель» (приёмы Хитрого удара) идут к цели вместе с эффектами
+ *   оружия — тем же спасброском, условием наложения и защитами;
+ * - спасбросок «провал — урон атаки удвоен» («Смертельный удар») становится
+ *   спасброском источника удара: его берут до записи урона, провал удваивает
+ *   все части. У источника со своим спасброском он не ставится — окно атаки
+ *   такому оружию Скрытую атаку и не даёт.
+ *
+ * @param context - контекст разбора
+ * @param parts - брошенные части урона
+ * @returns контекст с эффектами и спасброском частей
+ */
+export function withPartTargetPayload(
+  context: SpellResolutionContext,
+  parts: readonly {
+    targetEffects?: ActiveEffect[];
+    attackSave?: SneakAttackDoubleSave;
+  }[],
+): SpellResolutionContext {
+  const extra = parts.flatMap((part) => part.targetEffects ?? []);
+  const attackSave = parts.find((part) => part.attackSave)?.attackSave;
+
+  const withSave =
+    attackSave && !isSaveAbility(context.spell.saveType)
+      ? {
+          ...context,
+          spellSaveDC: attackSave.dc,
+          spell: {
+            ...context.spell,
+            saveType: attackSave.ability,
+            saveEffect: SAVE_EFFECT_DOUBLE,
+          },
+        }
+      : context;
+
+  return extra.length === 0
+    ? withSave
+    : {
+        ...withSave,
+        spell: {
+          ...withSave.spell,
+          activeEffects: [...(withSave.spell.activeEffects ?? []), ...extra],
+        },
+      };
+}
+
+/**
+ * Контекст разбора с ключом применения: один на все цели этого разбора.
+ *
+ * @param context - контекст разбора
+ * @returns тот же контекст, но с ключом применения
+ */
+export function withSpellActionId(
+  context: SpellResolutionContext,
+): SpellResolutionContext {
+  return context.actionId
+    ? context
+    : { ...context, actionId: generateId(SPELL_ACTION_ID_PREFIX) };
 }
 
 /**
@@ -152,6 +226,26 @@ export interface SpellDamagePartInput {
   targetStatusGate?: string;
   /** Часть получает усиление высших кругов (слот-скейлинг) при броске */
   applySlotScaling?: boolean;
+  /** Своя подпись части в окне и чате: «Скрытая атака» */
+  label?: string;
+  /** Кости Скрытой атаки: их бросок тратит её лимит хода */
+  sneakAttack?: true;
+  /**
+   * Эффекты «на цель», которые идут с этой частью: приёмы Хитрого удара,
+   * выбранные в окне атаки. Ложатся после попадания тем же путём, что
+   * эффекты оружия, — со спасброском и условием наложения
+   */
+  targetEffects?: ActiveEffect[];
+  /**
+   * Наименьшее значение кости части: «1 или 2 считайте за 3». Роллер такой
+   * записи не знает — окно поднимает кости после броска
+   */
+  minDie?: number;
+  /**
+   * Спасбросок цели, провал которого удваивает урон всей атаки («Смертельный
+   * удар»): едет с частью Скрытой атаки и ставится источнику удара
+   */
+  attackSave?: SneakAttackDoubleSave;
 }
 
 /**
@@ -184,6 +278,16 @@ export interface RolledSpellDamagePart {
   targetStatusGate?: string;
   /** Часть брошена критом: событиям урона цели нужен крит */
   critical?: boolean;
+  /** Своя подпись части в чате: «Скрытая атака» */
+  label?: string;
+  /** Кости Скрытой атаки */
+  sneakAttack?: true;
+  /** Эффекты «на цель», которые идут с этой частью (приёмы Хитрого удара) */
+  targetEffects?: ActiveEffect[];
+  /** Наименьшее значение кости части — запоминается для переброса из чата */
+  minDie?: number;
+  /** Спасбросок «провал — урон атаки удвоен», который едет с этой частью */
+  attackSave?: SneakAttackDoubleSave;
 }
 
 /** Контекст AoE шаблона */
@@ -520,15 +624,39 @@ export function getDamageTypeLabel(
 
 /**
  * Лейбл вида части: «Лечение» / «Временные ХП» / локализованный тип урона.
+ * У части со своей подписью — подпись и вид: «Скрытая атака (Колющий)».
  *
  * @param part - часть урона/лечения (брошенная или входная)
  * @param part.isHealing - является ли часть лечением
  * @param part.healTemp - лечение временными ХП (`@heal.temp`)
  * @param part.type - тип урона (для лечения не используется)
  * @param part.types - все типы урона части, если их несколько (рубящий+огонь)
+ * @param part.label - своя подпись части
  * @returns подпись вида для чата и описаний
  */
 export function getPartKindLabel(part: {
+  isHealing: boolean;
+  healTemp?: boolean;
+  type?: string;
+  types?: string[];
+  label?: string;
+}): string {
+  const kind = getPartKindOnlyLabel(part);
+
+  return part.label ? `${part.label} (${kind})` : kind;
+}
+
+/**
+ * Вид части без своей подписи: «Лечение», «Временные ХП» или тип урона.
+ *
+ * @param part - часть урона/лечения
+ * @param part.isHealing - является ли часть лечением
+ * @param part.healTemp - лечение временными ХП
+ * @param part.type - тип урона
+ * @param part.types - все типы урона части
+ * @returns подпись вида
+ */
+function getPartKindOnlyLabel(part: {
   isHealing: boolean;
   healTemp?: boolean;
   type?: string;

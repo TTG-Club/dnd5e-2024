@@ -47,6 +47,7 @@ import {
   isDndSceneEntity,
   isSpellAreaPlacedAtRange,
   isTargetAtFullHp,
+  isVerbalSpellCast,
   resolveCreatureSpellSaveDC,
   resolveEntityCreatureType,
   resolveSpellAreaAtLevel,
@@ -65,6 +66,11 @@ import { recordEntityActionSpend } from './actionSpend';
 import { resolveTargetedAttackRoll } from './attackRollMode';
 import { listAttackResolutionEntities } from './attackRollSnapshot';
 import { runWithCastFailure } from './castFailure';
+import {
+  findSpellGroupLimitBlock,
+  resolveSpellGroupLimitTarget,
+  spendLimitedTarget,
+} from './creatureActionLimit';
 import {
   requestDamageTypeChoiceFor,
   runWithDamageTypeChoices,
@@ -87,6 +93,7 @@ import {
 import { beginSpellCast } from './spellCasts';
 import { discardSpellTemplate } from './spellResolutionShared';
 import { useBonusDamageParts } from './useBonusDamageParts';
+import { dispatchSpellCastTriggers } from './useEffectTriggerEvents';
 import { listAmbientEffects } from './useResolvedStats';
 import { useSpellResolution } from './useSpellResolution';
 import { useWorldEntities } from './useWorldEntities';
@@ -122,6 +129,15 @@ export function spendCreatureSpellUse(
   spell: Spell,
   placement: CreatureSpellPlacement | undefined,
 ): void {
+  // Перезарядка и «раз в N ходов» группы — журналом боевым каналом, отдельно
+  // от зарядов листа
+  if (placement) {
+    spendLimitedTarget(
+      creatureId,
+      resolveSpellGroupLimitTarget(placement.group),
+    );
+  }
+
   const isPool =
     placement !== undefined && isCreatureSpellPoolMode(placement.group.mode);
 
@@ -251,6 +267,20 @@ export function startCreatureSpellCast(
         return;
       }
 
+      const groupBlock = findSpellGroupLimitBlock(
+        liveCreature,
+        placement?.group,
+      );
+
+      if (groupBlock) {
+        port.refuse(spell, {
+          title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
+          description: groupBlock,
+        });
+
+        return;
+      }
+
       /** Списывает применение заклинания */
       const spendUse = (): void => port.spendUse(spell, placement);
 
@@ -297,8 +327,32 @@ export function startCreatureSpellCast(
           return false;
         }
 
+        const liveGroupBlock = findSpellGroupLimitBlock(
+          caster,
+          placement?.group,
+        );
+
+        if (liveGroupBlock) {
+          port.refuse(spell, {
+            title: ACTOR_SPELLS_TAB_LABELS.noUsesTitle,
+            description: liveGroupBlock,
+          });
+
+          return false;
+        }
+
         spendTurn();
         spendUse();
+
+        // Каст состоялся: засада кончается заклинанием с вербальным
+        // компонентом — если группа статблока его не опускает
+        dispatchSpellCastTriggers(
+          caster.id,
+          isVerbalSpellCast(
+            spell,
+            placement?.block.ignoredComponents?.verbal === true,
+          ),
+        );
 
         return true;
       };

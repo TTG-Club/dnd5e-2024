@@ -1,11 +1,17 @@
 import type {
+  RequestCardAction,
+  RequestCardPickOption,
+  RequestedRollCard,
   RequestedRollPrompt,
   RequestedRollReply,
 } from '@/core/systems/uiSystemRegistry';
 import type {
   AbilityCheckRequestPayload,
+  ActionRechargeRequestPayload,
+  EffectPromptOption,
   EffectPromptRequestPayload,
   SaveOverrideRequestPayload,
+  TargetChoiceCandidate,
   TargetChoiceRequestPayload,
 } from '@vtt/shared/system/dnd.js';
 
@@ -13,13 +19,17 @@ import type { SavingThrowTarget } from './useSpellSavingThrows';
 
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import {
+  EFFECT_PROMPT_CONFIRM,
   findSaveOverride,
   formatSaveOverrideQuestion,
+  isDndCreature,
   parseAbilityCheckRequestPayload,
+  parseActionRechargeRequestPayload,
   parseEffectPromptRequestPayload,
   parseSaveOverrideRequestPayload,
   parseSavingThrowRequestPayload,
   parseTargetChoiceRequestPayload,
+  readAutoRecharge,
   resolveAutoSaves,
   SAVE_OVERRIDE_ACCEPT,
   SAVE_OVERRIDE_DECLINE,
@@ -27,9 +37,15 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import {
-  EFFECT_QUESTION_PROMPT_MODAL,
-  EFFECT_TARGET_PROMPT_MODAL,
+  EFFECT_QUESTION_PROMPT_LABELS,
+  REQUEST_ANSWER_CHAT,
+  REQUEST_CARD,
 } from '../ui/effect/constants';
+import {
+  answerActionRechargeInTurn,
+  openActionRechargeModal,
+} from './actionRechargeRoll';
+import { postRequestAnswerToChat } from './requestAnswerChat';
 import { openRequestedCheckModal } from './requestedCheckRoll';
 import {
   answerWithSaveOverride,
@@ -50,10 +66,10 @@ const REQUESTED_ROLL_MODAL_KEY_PREFIX = 'roll-request:';
 /**
  * Окна открытых запросов: идентификатор запроса → идентификатор окна.
  *
- * Ядро может позвать слот по одному запросу повторно (адресат перезагрузил
- * страницу, ГМ взял бросок на себя). Второе окно тогда не открывается —
- * менеджер поднимает прежнее и отдаёт `null`, — но закрывать по снятию
- * запроса всё равно нужно именно его.
+ * Ядро может позвать слот по одному запросу повторно: адресат переподключился
+ * или нажал на карточке центра запросов «К окну броска». Второе окно тогда не
+ * открывается — прежнее поднимается наверх (и разворачивается из шторки), а
+ * закрывать по снятию запроса всё равно нужно именно его.
  */
 const openRequestModals = new Map<string, string>();
 
@@ -61,15 +77,151 @@ const openRequestModals = new Map<string, string>();
 const REQUEST_MODAL_FAILURES = {
   save: 'Окно спасброска не открылось',
   check: 'Окно проверки не открылось',
-  choice: 'Окно выбора цели не открылось',
-  question: 'Плашка вопроса не открылась',
+  recharge: 'Окно перезарядки не открылось',
 } as const;
 
 /**
- * Ответ из окна запроса: `respond` говорит инициатору, что выбрали. Зовётся
- * не больше раза — повтор молча пропускается.
+ * Ответ из окна или карточки запроса: `respond` говорит инициатору, что
+ * выбрали. Зовётся не больше раза — повтор молча пропускается.
  */
 type RequestSettler = (respond?: () => void) => void;
+
+/**
+ * Замок «ответить ровно один раз».
+ *
+ * @param onSettled - что сделать при первом срабатывании замка, до ответа
+ * @returns замок ответа
+ */
+function createRequestSettler(onSettled?: () => void): RequestSettler {
+  let settled = false;
+
+  return (respond) => {
+    if (settled) {
+      return;
+    }
+
+    settled = true;
+    onSettled?.();
+    respond?.();
+  };
+}
+
+/**
+ * Показывает вопрос по чужому запросу карточкой центра запросов ядра.
+ *
+ * По запросу отвечают РОВНО один раз: снятие запроса ядром (ответил другой
+ * ведущий, инициатор отозвал, истёк срок) закрывает тот же замок, и поздний
+ * щелчок по карточке ответа уже не шлёт. Карточку ядро снимает само.
+ *
+ * @param reply - ответ инициатору
+ * @param build - собирает карточку; получает замок ответа
+ */
+function presentTrackedRequestCard(
+  reply: RequestedRollReply,
+  build: (settle: RequestSettler) => RequestedRollCard,
+): void {
+  const settle = createRequestSettler();
+
+  reply.onCancelled(() => {
+    settle();
+  });
+
+  reply.present(build(settle));
+}
+
+/**
+ * Ответ словами для чата: подпись выбранного варианта.
+ *
+ * @param options - варианты ответа
+ * @param optionId - выбранный вариант
+ * @returns подпись варианта, а без неё — его ключ
+ */
+function describeChosenOption(
+  options: readonly EffectPromptOption[],
+  optionId: string,
+): string {
+  return options.find((option) => option.id === optionId)?.label ?? optionId;
+}
+
+/**
+ * Выбранные цели словами для чата: имена через запятую или «без цели».
+ *
+ * @param candidates - кандидаты из запроса
+ * @param chosenIds - выбранные цели
+ * @returns строка ответа
+ */
+function describeChosenTargets(
+  candidates: readonly TargetChoiceCandidate[],
+  chosenIds: readonly string[],
+): string {
+  const names = candidates
+    .filter((candidate) => chosenIds.includes(candidate.id))
+    .map((candidate) => candidate.name);
+
+  return names.length > 0
+    ? names.join(REQUEST_ANSWER_CHAT.namesSeparator)
+    : REQUEST_ANSWER_CHAT.noTargets;
+}
+
+/**
+ * Цвет кнопки ответа: согласие выделено, остальные варианты нейтральны.
+ * Согласие — вариант «да» / «преуспеть», а без него — первый в списке.
+ *
+ * @param options - варианты ответа
+ * @returns кнопки карточки
+ */
+function buildQuestionActions(
+  options: readonly EffectPromptOption[],
+): RequestCardAction[] {
+  const affirmativeIds: readonly string[] = [
+    EFFECT_PROMPT_CONFIRM.yes,
+    SAVE_OVERRIDE_ACCEPT,
+  ];
+
+  const affirmative =
+    options.find((option) => affirmativeIds.includes(option.id)) ?? options[0];
+
+  const affirmativeStyle: Pick<RequestCardAction, 'color'> = {
+    color: 'primary',
+  };
+
+  return options.map((option): RequestCardAction => ({
+    id: option.id,
+    label: option.label,
+    ...(option.hint ? { hint: option.hint } : {}),
+    ...(option.id === affirmative?.id ? affirmativeStyle : {}),
+  }));
+}
+
+/**
+ * Пояснение «что случится по согласию» мелким шрифтом карточки.
+ *
+ * @param effectSummary - что случится, если известно
+ * @returns строка пояснения либо `undefined`
+ */
+function formatSummaryDetails(effectSummary?: string): string | undefined {
+  return effectSummary
+    ? `${EFFECT_QUESTION_PROMPT_LABELS.summaryPrefix}${effectSummary}`
+    : undefined;
+}
+
+/**
+ * Вариант выбора цели на карточке: имя и хиты пояснением.
+ *
+ * @param candidate - кандидат из нагрузки запроса
+ * @returns вариант выбора карточки
+ */
+function toPickOption(candidate: TargetChoiceCandidate): RequestCardPickOption {
+  const { hpHintPrefix, hpHintJoiner } = REQUEST_CARD;
+
+  return candidate.hp
+    ? {
+        id: candidate.id,
+        label: candidate.name,
+        hint: `${hpHintPrefix}${candidate.hp.current}${hpHintJoiner}${candidate.hp.max}`,
+      }
+    : { id: candidate.id, label: candidate.name };
+}
 
 /**
  * Открывает окно по чужому запросу и держит его на учёте.
@@ -77,8 +229,14 @@ type RequestSettler = (respond?: () => void) => void;
  * По запросу отвечают РОВНО один раз. Закрытие окна ядром (запрос сняли:
  * бросил ГМ, инициатор отозвал, истёк срок) тоже проходит через этот замок:
  * иначе закрытие окна прислало бы вслед лишний `decline`. Окно по запросу,
- * доставленному повторно (адресат переподключился), второй раз не открывается
- * — ответит первое, со своим замком.
+ * доставленному повторно (адресат переподключился, нажал «К окну броска» на
+ * карточке центра запросов), второй раз не открывается — прежнее поднимается
+ * наверх и разворачивается из шторки; ответит оно, со своим замком.
+ *
+ * Крестик окна — НЕ отказ: человек прячет окно, чтобы посмотреть, что
+ * происходит на сцене, а запрос ждёт дальше. Окно снимается с учёта (`hide`),
+ * и щелчок по карточке центра запросов откроет его заново. Отказ — отдельная
+ * кнопка-иконка рядом с кнопкой броска (`onDecline`).
  *
  * @param request - запрос от ядра
  * @param reply - ответ инициатору
@@ -89,27 +247,19 @@ type RequestSettler = (respond?: () => void) => void;
 function openTrackedRequestModal(
   request: RequestedRollPrompt,
   reply: RequestedRollReply,
-  open: (settle: RequestSettler, modalKey: string) => string | null,
+  open: (
+    settle: RequestSettler,
+    modalKey: string,
+    hide: () => void,
+  ) => string | null,
   failure: string,
 ): void {
-  const { closeModal } = useModalManager();
+  const { bringToFront, closeModal, setModalMinimized } = useModalManager();
 
-  let settled = false;
-
-  /**
-   * Закрывает запрос: снимает окно с учёта и отдаёт ответ инициатору.
-   *
-   * @param respond - что сказать инициатору; не зовётся, если уже отвечали
-   */
-  const settle: RequestSettler = (respond) => {
-    if (settled) {
-      return;
-    }
-
-    settled = true;
+  // Первый ответ снимает окно с учёта: дальше его по этому запросу не ищут
+  const settle = createRequestSettler(() => {
     openRequestModals.delete(request.requestId);
-    respond?.();
-  };
+  });
 
   /** Запрос сняли: окно закрывается, отвечать по нему уже некому */
   function closeOnCancelled(): void {
@@ -122,15 +272,28 @@ function openTrackedRequestModal(
     }
   }
 
-  if (openRequestModals.has(request.requestId)) {
+  const existingModalId = openRequestModals.get(request.requestId);
+
+  if (existingModalId) {
+    setModalMinimized(existingModalId, false);
+    bringToFront(existingModalId);
+    // Повторная регистрация безопасна: ядро держит по ключу запроса только
+    // последний обработчик снятия (`cancelHandlers.set`), а замок ответа
+    // срабатывает один раз — второй вызов `settle` ничего не делает
     reply.onCancelled(closeOnCancelled);
 
     return;
   }
 
+  /** Окно спрятали крестиком: запрос ждёт, окно откроется заново по карточке */
+  function hide(): void {
+    openRequestModals.delete(request.requestId);
+  }
+
   const modalId = open(
     settle,
     `${REQUESTED_ROLL_MODAL_KEY_PREFIX}${request.requestId}`,
+    hide,
   );
 
   // Окна нет и не будет (менеджер нашёл чужое окно с тем же ключом) —
@@ -147,6 +310,9 @@ function openTrackedRequestModal(
 
   openRequestModals.set(request.requestId, modalId);
 
+  // Окно, открытое заново после `hide`, регистрирует обработчик снятия ещё
+  // раз — это безопасно: ядро держит по ключу запроса только последний
+  // (`cancelHandlers.set`), а прежнее окно уже закрыто и до ответа не дойдёт
   reply.onCancelled(closeOnCancelled);
 }
 
@@ -190,6 +356,13 @@ export function promptRequestedRoll(
 
   if (override) {
     return promptSaveOverride(request, reply, override);
+  }
+
+  // Перезарядка потраченного действия в начале хода существа
+  const recharge = parseActionRechargeRequestPayload(request.payload);
+
+  if (recharge) {
+    return promptActionRecharge(request, reply, recharge);
   }
 
   // Проверка характеристики или навыка — мастер попросил бросить
@@ -254,7 +427,7 @@ export function promptRequestedRoll(
   openTrackedRequestModal(
     request,
     reply,
-    (settle, modalKey) =>
+    (settle, modalKey, hide) =>
       openSavingThrowModal(target, {
         modalKey,
         takeover: request.takeover,
@@ -270,7 +443,8 @@ export function promptRequestedRoll(
             );
           });
         },
-        onCancel: () => {
+        onCancel: hide,
+        onDecline: () => {
           settle(() => reply.decline());
         },
       }),
@@ -281,8 +455,59 @@ export function promptRequestedRoll(
 }
 
 /**
- * Открывает окно проверки по запросу мастера. Закрытие окна — отказ, как и у
- * спасброска; бросок считается по своей сущности (флаги, «Наставление»).
+ * Бросок перезарядки в начале хода существа: окно к6 либо, при «кидать
+ * автоматически», бросок без окна. Крестик окна только прячет его, запрос
+ * ждёт; отказ — кнопка «Отказаться от броска», и тогда действие остаётся
+ * потраченным до следующего хода.
+ *
+ * @param request - запрос от ядра
+ * @param reply - ответ инициатору
+ * @param payload - разобранная нагрузка перезарядки
+ * @returns `true`, если бросок взяла система; `false` — существа нет, пусть
+ *   ядро бросит формулу запроса само
+ */
+function promptActionRecharge(
+  request: RequestedRollPrompt,
+  reply: RequestedRollReply,
+  payload: ActionRechargeRequestPayload,
+): boolean {
+  const entity = useWorldEntities().findCurrentDndEntity(request.entityId);
+
+  if (!entity || !isDndCreature(entity)) {
+    return false;
+  }
+
+  if (readAutoRecharge(entity)) {
+    answerActionRechargeInTurn(entity, payload, reply);
+
+    return true;
+  }
+
+  openTrackedRequestModal(
+    request,
+    reply,
+    (settle, modalKey, hide) =>
+      openActionRechargeModal(entity, payload, {
+        modalKey,
+        takeover: request.takeover,
+        onResult: (answer) => {
+          settle(() => reply.answer(answer));
+        },
+        onCancel: hide,
+        onDecline: () => {
+          settle(() => reply.decline());
+        },
+      }),
+    REQUEST_MODAL_FAILURES.recharge,
+  );
+
+  return true;
+}
+
+/**
+ * Открывает окно проверки по запросу мастера. Крестик окна только прячет его
+ * (запрос ждёт), отказ — кнопка «Отказаться от броска», как и у спасброска;
+ * бросок считается по своей сущности (флаги, «Наставление»).
  *
  * @param request - запрос от ядра
  * @param reply - ответ инициатору
@@ -304,14 +529,15 @@ function promptAbilityCheck(
   openTrackedRequestModal(
     request,
     reply,
-    (settle, modalKey) =>
+    (settle, modalKey, hide) =>
       openRequestedCheckModal(entity, payload, {
         modalKey,
         takeover: request.takeover,
         onResult: (result) => {
           settle(() => reply.answer(result));
         },
-        onCancel: () => {
+        onCancel: hide,
+        onDecline: () => {
           settle(() => reply.decline());
         },
       }),
@@ -322,10 +548,12 @@ function promptAbilityCheck(
 }
 
 /**
- * Открывает окно выбора цели по чужому запросу.
+ * Выбор цели по чужому запросу — карточкой центра запросов ядра.
  *
  * Кандидатов считает инициатор — у него сцена; здесь их только показывают и
- * возвращают отмеченных. Закрытие окна — отказ, как и у спасброска.
+ * возвращают отмеченных. Отказ есть только у добровольного выбора — кнопка
+ * «Отказаться» (пустой выбор, срабатывание не состоится); у обязательного
+ * отказа нет. Крестик карточки ядро делает «спрятать»: запрос ждёт дальше.
  *
  * @param request - запрос от ядра
  * @param reply - ответ инициатору
@@ -337,27 +565,50 @@ function promptTargetChoice(
   reply: RequestedRollReply,
   payload: TargetChoiceRequestPayload,
 ): boolean {
-  const { openModal } = useModalManager();
+  const {
+    confirmActionId,
+    confirmLabel,
+    declineActionId,
+    declineLabel,
+    targetIcon,
+    targetTextPrefix,
+  } = REQUEST_CARD;
 
-  openTrackedRequestModal(
-    request,
-    reply,
-    (settle, modalKey) =>
-      openModal(EFFECT_TARGET_PROMPT_MODAL, {
-        _modalKey: modalKey,
-        candidates: payload.candidates,
-        count: payload.count,
-        optional: payload.optional,
-        sourceName: payload.sourceName,
-        onConfirm: (chosenIds: string[]) => {
-          settle(() => reply.answer({ chosenIds }));
-        },
-        onCancel: () => {
-          settle(() => reply.decline());
-        },
-      }),
-    REQUEST_MODAL_FAILURES.choice,
-  );
+  const confirmAction: RequestCardAction = {
+    id: confirmActionId,
+    label: confirmLabel,
+    color: 'primary',
+    requiresPick: true,
+  };
+
+  const actions: RequestCardAction[] = payload.optional
+    ? [confirmAction, { id: declineActionId, label: declineLabel }]
+    : [confirmAction];
+
+  presentTrackedRequestCard(reply, (settle) => ({
+    icon: targetIcon,
+    text: `${targetTextPrefix}${payload.count}`,
+    details: formatSummaryDetails(payload.effectSummary),
+    actions,
+    pick: {
+      options: payload.candidates.map(toPickOption),
+      // Обязательный выбор — хотя бы одна цель, как и в окне выбора
+      min: payload.optional ? 0 : 1,
+      max: payload.count,
+    },
+    onAction: (actionId, pickedIds) => {
+      const chosenIds = actionId === confirmActionId ? pickedIds : [];
+
+      settle(() => {
+        reply.answer({ chosenIds });
+
+        postRequestAnswerToChat(
+          request,
+          describeChosenTargets(payload.candidates, chosenIds),
+        );
+      });
+    },
+  }));
 
   return true;
 }
@@ -392,49 +643,42 @@ function promptSaveOverride(
     return true;
   }
 
-  const { openModal } = useModalManager();
+  presentTrackedRequestCard(reply, (settle) => ({
+    icon: REQUEST_CARD.questionIcon,
+    text: formatSaveOverrideQuestion(
+      entity.name,
+      payload.ability,
+      available.source.label,
+      available.remaining,
+    ),
+    actions: buildQuestionActions(SAVE_OVERRIDE_OPTIONS),
+    onAction: (optionId) => {
+      settle(() => {
+        if (optionId === SAVE_OVERRIDE_ACCEPT) {
+          spendEntitySaveOverride(entity, available);
+        }
 
-  openTrackedRequestModal(
-    request,
-    reply,
-    (settle, modalKey) =>
-      openModal(EFFECT_QUESTION_PROMPT_MODAL, {
-        _modalKey: modalKey,
-        question: formatSaveOverrideQuestion(
-          entity.name,
-          payload.ability,
-          available.source.label,
-          available.remaining,
-        ),
-        options: SAVE_OVERRIDE_OPTIONS,
-        // Закрыть без ответа — то же «оставить провал»
-        hideCancel: true,
-        sourceName: payload.sourceName,
-        onAnswer: (optionId: string) => {
-          settle(() => {
-            if (optionId === SAVE_OVERRIDE_ACCEPT) {
-              spendEntitySaveOverride(entity, available);
-            }
+        reply.answer({ optionId });
 
-            reply.answer({ optionId });
-          });
-        },
-        onCancel: () => {
-          settle(() => reply.decline());
-        },
-      }),
-    REQUEST_MODAL_FAILURES.question,
-  );
+        postRequestAnswerToChat(
+          request,
+          describeChosenOption(SAVE_OVERRIDE_OPTIONS, optionId),
+        );
+      });
+    },
+  }));
 
   return true;
 }
 
 /**
- * Открывает плашку вопроса человеку по чужому запросу.
+ * Вопрос человеку по чужому запросу — карточкой центра запросов ядра:
+ * согласие ведущего («Разрешить / Запретить»), срабатывание, расход реакции.
  *
  * Варианты ответа приходят в нагрузке закрытым списком; инициатор сверяет
- * ответ с тем же списком, поэтому окно только показывает их и возвращает
- * выбранный ключ. Закрытие — отказ, как и у спасброска.
+ * ответ с тем же списком, поэтому карточка только показывает их и возвращает
+ * выбранный ключ. Ответ «нет» — одна из кнопок; крестик карточки ядро
+ * делает «спрятать», запрос при этом ждёт.
  *
  * @param request - запрос от ядра
  * @param reply - ответ инициатору
@@ -446,27 +690,22 @@ function promptEffectQuestion(
   reply: RequestedRollReply,
   payload: EffectPromptRequestPayload,
 ): boolean {
-  const { openModal } = useModalManager();
+  presentTrackedRequestCard(reply, (settle) => ({
+    icon: REQUEST_CARD.questionIcon,
+    text: payload.question,
+    details: formatSummaryDetails(payload.effectSummary),
+    actions: buildQuestionActions(payload.options),
+    onAction: (optionId) => {
+      settle(() => {
+        reply.answer({ optionId });
 
-  openTrackedRequestModal(
-    request,
-    reply,
-    (settle, modalKey) =>
-      openModal(EFFECT_QUESTION_PROMPT_MODAL, {
-        _modalKey: modalKey,
-        question: payload.question,
-        options: payload.options,
-        sourceName: payload.sourceName,
-        effectSummary: payload.effectSummary,
-        onAnswer: (optionId: string) => {
-          settle(() => reply.answer({ optionId }));
-        },
-        onCancel: () => {
-          settle(() => reply.decline());
-        },
-      }),
-    REQUEST_MODAL_FAILURES.question,
-  );
+        postRequestAnswerToChat(
+          request,
+          describeChosenOption(payload.options, optionId),
+        );
+      });
+    },
+  }));
 
   return true;
 }

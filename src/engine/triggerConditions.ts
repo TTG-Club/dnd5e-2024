@@ -27,9 +27,13 @@ import {
   ATTACK_ABILITY_CONDITION_PREFIX,
   CARRIER_TYPE_CONDITION_PREFIX,
   CARRIER_TYPE_NOT_CONDITION_PREFIX,
-  CONDITION_AND_SEPARATOR,
+  conditionHolds,
+  hasConditionAlternatives,
   hasEntityCondition,
+  joinConditionGroups,
   listLiveEffects,
+  SNEAK_ATTACK_APPLIED_CONDITION,
+  splitConditionGroups,
   splitConditionParts,
   TARGET_TYPE_CONDITION_PREFIX,
   TARGET_TYPE_NOT_CONDITION_PREFIX,
@@ -70,6 +74,7 @@ import {
   MOVEMENT_TRIGGER_EVENTS,
   OTHER_PARTY_TRIGGER_EVENTS,
   OWN_DEED_TRIGGER_EVENTS,
+  SPELL_CAST_TRIGGER_EVENTS,
 } from './effectTriggerTypes.js';
 import {
   isEntityBloodied,
@@ -151,6 +156,10 @@ export interface TriggerAttackData {
   /** Характеристика, которой считается атака */
   ability?: AbilityType;
   /**
+   * Кости Скрытой атаки вошли в урон этой атаки (попавшей). Не задано — нет
+   */
+  sneakAttack?: boolean;
+  /**
    * Цель, по которой эта атака попала критически. Урон срабатывания, идущий
    * ей, удваивает кости, как урон самой атаки; остальным получателям — нет
    */
@@ -197,6 +206,14 @@ export interface TriggerEventData {
    * неизвестно, и части условия о видимости и свете НЕ выполняются.
    */
   sight?: SceneSight;
+  /** Заклинание, которое накладывает носитель, — у события «накладывает заклинание» */
+  spell?: {
+    /**
+     * У заклинания есть вербальный компонент, и заклинатель его не опускает
+     * (статблок существа может колдовать без него)
+     */
+    verbal: boolean;
+  };
   /** Перемещение носителя — у события «прошёл N футов» */
   movement?: {
     /** Фишку переставили правила (толчок, притягивание), а не носитель */
@@ -247,6 +264,7 @@ export const TRIGGER_CONDITION_KINDS = [
   'attackAbility',
   'attackLanded',
   'attackMissed',
+  'attackSneakAttack',
   'combatRoundIs',
   'combatRoundAtLeast',
   'movementOwn',
@@ -266,6 +284,7 @@ export const TRIGGER_CONDITION_KINDS = [
   'selfInLight',
   'otherInDarkness',
   'otherInLight',
+  'spellVerbal',
 ] as const;
 
 /**
@@ -322,7 +341,9 @@ export const TRIGGER_CONDITION_KINDS = [
  *   или тусклом);
  * - `otherInDarkness` / `otherInLight` — другая сторона в темноте / на свету;
  * - `otherIsSourceSide` — другая сторона — наложивший эффект или его союзник
- *   («пока вы или ваши союзники не нанесёте ей урон»).
+ *   («пока вы или ваши союзники не нанесёте ей урон»);
+ * - `spellVerbal` — заклинание события с вербальным компонентом (засада
+ *   кончается заклинанием с вербальным компонентом).
  */
 export type TriggerConditionKind = (typeof TRIGGER_CONDITION_KINDS)[number];
 
@@ -402,6 +423,8 @@ const KIND_EVENTS: Record<
   attackAbility: ATTACK_DATA_TRIGGER_EVENTS,
   attackLanded: ATTACK_DATA_TRIGGER_EVENTS,
   attackMissed: ATTACK_DATA_TRIGGER_EVENTS,
+  // Скрытая атака известна только броску атаки: при наложении её нет
+  attackSneakAttack: ['attackRoll'],
   combatRoundIs: COMBAT_ROUND_TRIGGER_EVENTS,
   combatRoundAtLeast: COMBAT_ROUND_TRIGGER_EVENTS,
   movementOwn: MOVEMENT_TRIGGER_EVENTS,
@@ -421,6 +444,7 @@ const KIND_EVENTS: Record<
   selfInLight: undefined,
   otherInDarkness: OTHER_CONDITION_EVENTS,
   otherInLight: OTHER_CONDITION_EVENTS,
+  spellVerbal: SPELL_CAST_TRIGGER_EVENTS,
 };
 
 /** Приставка части «тип урона события из списка» */
@@ -584,6 +608,7 @@ const FIXED_PARTS: Partial<Record<TriggerConditionKind, string>> = {
   otherBloodied: 'target.hp.value <= (target.hp.max / 2)',
   attackLanded: 'attack.landed === true',
   attackMissed: 'attack.landed === false',
+  attackSneakAttack: SNEAK_ATTACK_APPLIED_CONDITION,
   movementOwn: 'move.forced === false',
   movementForced: 'move.forced === true',
   selfSeesOther: 'self.canSee === true',
@@ -594,6 +619,7 @@ const FIXED_PARTS: Partial<Record<TriggerConditionKind, string>> = {
   selfInLight: 'self.light !== "dark"',
   otherInDarkness: 'target.light === "dark"',
   otherInLight: 'target.light !== "dark"',
+  spellVerbal: 'spell.verbal === true',
 };
 
 /** Целое неотрицательное число строкой */
@@ -885,12 +911,20 @@ export function parseTriggerConditionPart(
  * Части условия срабатывания: разобранные и строки, которых словарь не знает
  * (их окно показывает как есть, чтобы не терять).
  *
+ * Условие с «или» окно по частям не разбирает: оно приходит одной строкой как
+ * есть, а {@link writeTriggerCondition} при добавлении к нему частей
+ * раскрывает скобки сам — «(a или b) и c» становится «a и c или b и c».
+ *
  * @param condition - условие срабатывания
  * @returns части по порядку
  */
 export function readTriggerConditionParts(
   condition: string | undefined,
 ): Array<TriggerConditionPart | string> {
+  if (condition && hasConditionAlternatives(condition)) {
+    return [condition.trim()];
+  }
+
   return splitConditionParts(condition ?? '').map(
     (text) => parseTriggerConditionPart(text) ?? text,
   );
@@ -905,15 +939,25 @@ export function readTriggerConditionParts(
 export function writeTriggerCondition(
   parts: ReadonlyArray<TriggerConditionPart | string>,
 ): string | undefined {
-  const texts = parts
+  // Части соединяются «и»; часть с «или» умножает группы: скобок в условии
+  // нет, и «(a или b) и c» пишется как «a и c или b и c»
+  const groups = parts
     .map((part) =>
       typeof part === 'string' ? part : buildTriggerConditionPart(part),
     )
-    .filter((text) => text.length > 0);
+    .map(splitConditionGroups)
+    .filter((alternatives) => alternatives.length > 0)
+    .reduce<string[][]>(
+      (combined, alternatives) =>
+        combined.flatMap((group) =>
+          alternatives.map((alternative) => [...group, ...alternative]),
+        ),
+      [[]],
+    );
 
-  return texts.length > 0
-    ? texts.join(` ${CONDITION_AND_SEPARATOR} `)
-    : undefined;
+  const condition = joinConditionGroups(groups);
+
+  return condition.length > 0 ? condition : undefined;
 }
 
 /**
@@ -1156,6 +1200,10 @@ function isConditionPartMet(
       return eventData.attack?.landed === true;
     case 'attackMissed':
       return eventData.attack?.landed === false;
+    // Кости Скрытой атаки вошли в урон попавшей атаки — для «Раздирания
+    // разума», «Воплей из могилы» и прочих «когда наносите урон Скрытой атакой»
+    case 'attackSneakAttack':
+      return eventData.attack?.sneakAttack === true;
     // Раунд знает только ядро: без него расписание НЕ выполняется — «на втором
     // раунде» не должно сработать там, где номера раунда нет
     case 'combatRoundIs':
@@ -1187,6 +1235,8 @@ function isConditionPartMet(
       return eventData.movement?.forced === false;
     case 'movementForced':
       return eventData.movement?.forced === true;
+    case 'spellVerbal':
+      return eventData.spell?.verbal === true;
     default:
       return evaluateConditionPart(
         text.trim(),
@@ -1309,7 +1359,7 @@ export function passesLandingCondition(
 
 /**
  * Выполняется ли условие срабатывания. Нет условия — выполняется всегда;
- * части соединены «и».
+ * части соединены «и», группы — «или».
  *
  * @param entity - субъект срабатывания
  * @param trigger - срабатывание
@@ -1325,10 +1375,7 @@ export function isTriggerConditionMet(
     return true;
   }
 
-  const parts = splitConditionParts(trigger.condition);
-
-  return (
-    parts.length > 0
-    && parts.every((part) => isConditionPartMet(entity, part, eventData))
+  return conditionHolds(trigger.condition, (part) =>
+    isConditionPartMet(entity, part, eventData),
   );
 }

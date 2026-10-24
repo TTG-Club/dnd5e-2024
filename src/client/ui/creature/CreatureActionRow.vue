@@ -8,13 +8,14 @@
 
   import { computed } from 'vue';
 
+  import { resolveActionLimit } from '@vtt/shared/system/dnd.js';
+
   import { SHEET_ROW_ARIA_LABELS } from '../actor/constants';
   import SheetRowStats from '../actor/SheetRowStats.vue';
   import {
     CREATURE_ACTION_MENU_LABELS,
-    CREATURE_RECHARGE_HINTS,
-    CREATURE_RECHARGE_LABELS,
     CREATURE_ROW_ARIA_LABELS,
+    describeActionLimitBadge,
   } from './constants';
 
   interface Props {
@@ -37,6 +38,8 @@
      * подсказка значка называет причину, а бросок отвечает плашкой
      */
     blockedReason?: string | null;
+    /** Запись потрачена (перезарядка, «раз в N ходов»): значок горит предупреждением */
+    isSpent?: boolean;
   }
 
   const props = withDefaults(defineProps<Props>(), {
@@ -46,6 +49,7 @@
     canUse: false,
     canDrag: false,
     blockedReason: null,
+    isSpent: false,
   });
 
   /** Подсказка значка: причина запрета главнее «Совершить» */
@@ -69,16 +73,14 @@
   /** Сколько активных эффектов накладывает запись; 0 — бейджа нет */
   const effectsCount = computed(() => props.action.activeEffects?.length ?? 0);
 
-  /** Короткая подпись перезарядки; пустая — значка нет */
-  const rechargeLabel = computed(() =>
-    props.action.recharge
-      ? CREATURE_RECHARGE_LABELS[props.action.recharge]
-      : '',
+  /** Значок перезарядки или «раз в N ходов»; нет ограничения — значка нет */
+  const limitBadge = computed(() =>
+    describeActionLimitBadge(resolveActionLimit(props.action)),
   );
 
-  /** Расшифровка условия перезарядки — уходит в подсказку значка */
-  const rechargeHint = computed(() =>
-    props.action.recharge ? CREATURE_RECHARGE_HINTS[props.action.recharge] : '',
+  /** Потраченная запись выделяет свой значок ограничения */
+  const limitBadgeColor = computed(() =>
+    props.isSpent ? 'warning' : 'neutral',
   );
 
   /**
@@ -179,11 +181,11 @@
               </UTooltip>
 
               <UTooltip
-                v-if="rechargeLabel"
-                :text="rechargeHint"
+                v-if="limitBadge"
+                :text="limitBadge.hint"
               >
                 <UBadge
-                  color="neutral"
+                  :color="limitBadgeColor"
                   variant="subtle"
                   size="sm"
                   class="relative z-10 shrink-0"
@@ -192,7 +194,7 @@
                     name="tabler:refresh"
                     class="mr-0.5 size-3"
                   />
-                  {{ rechargeLabel }}
+                  {{ limitBadge.label }}
                 </UBadge>
               </UTooltip>
             </span>

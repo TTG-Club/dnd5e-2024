@@ -35,10 +35,13 @@
     isDiceFormulaValue,
     isEffectModifierSubmenu,
     isEffectTargetKey,
+    isIgnoredAlternativesCondition,
     isNoOpEffectChange,
     isOptionValueKey,
     isRollTimeDiceKey,
     MAX_EFFECT_CHANGE_STEP,
+    SNEAK_ATTACK_DAMAGE_KEY,
+    SNEAK_ATTACK_DICE_KEY,
     toStoredEffectChangeValue,
     validateChangeOptionValue,
     validateFormula,
@@ -60,6 +63,7 @@
     EFFECT_CHANGE_STEP_LABELS,
     EFFECT_MODIFIERS_STEP_LABELS,
     EFFECT_TEMPLATES_MODAL_IDS,
+    SNEAK_ATTACK_KEY_HINTS,
   } from '../constants';
   import { EFFECT_CHANGE_STEP_PER_OPTIONS } from '../effectFormOptions';
 
@@ -149,6 +153,20 @@
    * @returns текст пояснения либо пустая строка
    */
   function describeValueHelp(change: EffectChange): string {
+    if (change.key === SNEAK_ATTACK_DAMAGE_KEY) {
+      return EFFECT_CHANGE_ROW_LABELS.sneakAttackDamageHint;
+    }
+
+    if (change.key === SNEAK_ATTACK_DICE_KEY) {
+      return EFFECT_CHANGE_ROW_LABELS.sneakAttackDiceHint;
+    }
+
+    const sneakAttackHint = SNEAK_ATTACK_KEY_HINTS[change.key];
+
+    if (sneakAttackHint) {
+      return sneakAttackHint;
+    }
+
     if (change.key.startsWith(DAMAGE_CHANGE_KEY_PREFIX)) {
       return EFFECT_CHANGE_ROW_LABELS.damageFormulaHint;
     }
@@ -197,6 +215,9 @@
           || change.priority !== DEFAULT_EFFECT_CHANGE_PRIORITY,
         conditionLabel: condition
           ? `${EFFECT_CHANGE_ROW_LABELS.conditionOnlyPrefix}${describeEffectChangeCondition(condition)}`
+          : '',
+        conditionWarning: isIgnoredAlternativesCondition(change)
+          ? EFFECT_CHANGE_ROW_LABELS.alternativesIgnoredWarning
           : '',
         valueLabel: describeValueLabel(change),
         valueHelp: describeValueHelp(change),
@@ -661,6 +682,13 @@
           class="text-xs text-muted"
         >
           {{ row.conditionLabel }}
+        </p>
+
+        <p
+          v-if="row.conditionWarning"
+          class="text-xs text-warning"
+        >
+          {{ row.conditionWarning }}
         </p>
       </div>
 

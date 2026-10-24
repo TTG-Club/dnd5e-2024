@@ -27,6 +27,7 @@ import type { SaveDamageDefense } from './saveDamage.js';
 
 import { generateId } from '@vtt/shared';
 
+import { SNEAK_ATTACK_APPLIED_CONDITION } from './activeEffectTypes.js';
 import {
   DEFAULT_TRIGGER_RECIPIENT,
   isEffectTag,
@@ -485,7 +486,8 @@ const SERVER_TRIGGER_ACTIONS: ReadonlySet<EffectTriggerAction['type']> =
 /**
  * Выполняется ли срабатывание броска атаки на клиенте до броска: без
  * спасброска, вопроса человеку, урона, конца каста и действий другой стороне —
- * только снятие и наложения на субъекте. Такое снятие должно опередить урон атаки, иначе два
+ * только снятие и наложения на субъекте, и условие не про Скрытую атаку. Такое
+ * снятие должно опередить урон атаки, иначе два
  * снимка сущности гонятся. Остальное выполняет сервер после броска
  * (`settleAttackRollTriggers`).
  *
@@ -495,6 +497,8 @@ const SERVER_TRIGGER_ACTIONS: ReadonlySet<EffectTriggerAction['type']> =
 export function isClientAttackRollTrigger(trigger: EffectTrigger): boolean {
   return (
     !trigger.save
+    // «Нанёс урон Скрытой атакой» известно только после урона — сервер
+    && !trigger.condition?.includes(SNEAK_ATTACK_APPLIED_CONDITION)
     // Вопрос человеку (согласие, реакция, цена ресурсом) задаёт сервер
     && !triggerAsksPermission(trigger)
     && (trigger.recipient ?? DEFAULT_TRIGGER_RECIPIENT) === 'subject'

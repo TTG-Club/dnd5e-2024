@@ -29,6 +29,8 @@ import type {
   ConditionKey,
   ConditionRef,
   DEATH_CONDITION_KEY,
+  HIDDEN_CONDITION_KEY,
+  SURPRISED_CONDITION_KEY,
 } from './conditionKeys.js';
 // `AreaEffectTrigger`, `BaseActiveEffect`, `EffectAura`, `EffectDuration`,
 // `EffectDurationType`, `EffectTurnAnchor`, `EffectTurnTiming` — нейтральные
@@ -58,6 +60,7 @@ import {
 import {
   CONDITIONS,
   CREATURE_CATEGORIES,
+  FINESSE_WEAPON_PROPERTY,
   isAbilityType,
   isCreatureCategory,
   isSkillType,
@@ -312,6 +315,135 @@ export const TEMP_HP_GAIN_KEY = 'tempHp.gain';
 export const ATTACK_REACH_KEY = 'attack.reach';
 
 /**
+ * Ключ дальности прыжка в длину с разбегом, в футах. По правилам — значение
+ * Силы; лист считает его в Фазе 3, поэтому «умножить на 2» («Шаг ветра») и
+ * «повысить до 30» (заклинание «Прыжок») ложатся поверх правила. Прыжок с
+ * места — половина итога (`movementModes.ts`).
+ */
+export const JUMP_LONG_KEY = 'jump.long';
+
+/**
+ * Ключ высоты прыжка с разбегом, в футах. По правилам — 3 + модификатор
+ * Силы, не меньше нуля; с места — половина.
+ */
+export const JUMP_HIGH_KEY = 'jump.high';
+
+/**
+ * Ключ своей цены прыжка в футах хода. По правилам цены нет — фут прыжка
+ * стоит фут хода; строка задаёт фиксированную: заклинание «Прыжок» (2024) —
+ * «заменить» на 10 вместе с «повысить до 30» у {@link JUMP_LONG_KEY}. Такой
+ * прыжок не требует разбега.
+ */
+export const JUMP_COST_KEY = 'jump.cost';
+
+/**
+ * Ключ Скрытой атаки: кости, которые идут в урон атаки оружием, когда
+ * выполнено условие строки (`SNEAK_ATTACK_CONDITION`). Общий механизм для
+ * любого источника — класса, существа, черты, предмета.
+ *
+ * Метка Скрытой атаки — сам ключ, отдельного поля нет. Всё, что отличает её
+ * от обычного бонуса урона, следует из правила и одинаково у всех источников:
+ * - раз в ход: одна копилка на все источники (`SNEAK_ATTACK_USAGE_KEY`);
+ * - необязательна: окно атаки показывает переключатель «добавить»;
+ * - из нескольких источников берётся наибольший, кости не складываются;
+ * - урон подписан «Скрытая атака» в окне и в чате; тип — как у оружия.
+ * Поле с одним и тем же значением у каждой такой строки было бы только
+ * лишним местом для ошибки данных.
+ *
+ * Ключ новый, а не `damage.*` с условием: движок, который его не знает
+ * (старый модуль в мире с новыми данными), строку пропускает, а не кидает
+ * кости при каждом преимуществе без лимита и переключателя.
+ */
+export const SNEAK_ATTACK_DAMAGE_KEY = 'sneakAttack.damage';
+
+/**
+ * Ключ прибавки к костям Скрытой атаки: «+1к6 к Скрытой атаке». Значение —
+ * ЧИСЛО костей (формулой: `1`, `@prof`), их размер — как у самой Скрытой
+ * атаки. Действует, только когда Скрытая атака идёт; условие строки
+ * проверяется в том же броске.
+ */
+export const SNEAK_ATTACK_DICE_KEY = 'sneakAttack.dice';
+
+/**
+ * Ключ приёма Хитрого удара: строка на эффекте приёма («Отравить»,
+ * «Повалить»), значение — ЦЕНА в костях Скрытой атаки (формулой: `1`, `6`).
+ * Эффект приёма — обычный эффект «на цель» с кнопкой «Применить»
+ * (`activation: use`): спасбросок, состояние, флаги. Окно атаки показывает
+ * его выбором, когда идёт Скрытая атака и костей хватает; выбранный убирает
+ * столько костей ДО броска (крит удваивает оставшиеся) и после попадания
+ * ложится на цель тем же путём, что эффекты оружия. Условие строки —
+ * доступность приёма (набор отравителя, оружие).
+ *
+ * Строка на кнопке, а не своё поле эффекта: старый модуль незнакомый ключ
+ * пропускает, и эффект остаётся той же кнопкой, что и сейчас.
+ */
+export const SNEAK_ATTACK_CUNNING_STRIKE_KEY = 'sneakAttack.cunningStrike';
+
+/**
+ * Ключ прибавки к числу приёмов Хитрого удара за один удар: один — по
+ * правилу, «Улучшенный хитрый удар» прибавляет `1`.
+ */
+export const SNEAK_ATTACK_CUNNING_STRIKE_COUNT_KEY =
+  'sneakAttack.cunningStrikeCount';
+
+/**
+ * Ключ эффекта по выбору при уроне Скрытой атаки, который приёмом Хитрого
+ * удара не считается («Раздирание разума» Клинка души): значение — цена в
+ * костях (обычно `0`), в число приёмов не входит. Ресурс — как у кнопки,
+ * счётчиком применения (`activation.counter`).
+ */
+export const SNEAK_ATTACK_RIDER_KEY = 'sneakAttack.rider';
+
+/**
+ * Ключ наименьшего значения кости Скрытой атаки: «результат 1 или 2 считайте
+ * за 3» («Убийственное намерение») — значение `3`. Из нескольких строк
+ * берётся наибольшее.
+ */
+export const SNEAK_ATTACK_MIN_DIE_KEY = 'sneakAttack.minDie';
+
+/**
+ * Ключ спасброска цели при уроне Скрытой атаки, ПРОВАЛ которого удваивает урон
+ * всей атаки («Смертельный удар» Убийцы). Значение — характеристика
+ * спасброска (`constitution`), условие строки — когда («первый раунд»). Сл —
+ * правило ключа, как у Хитрого удара: 8 + Ловкость + БМ
+ * ({@link SNEAK_ATTACK_SAVE_DC_FORMULA}). Спасбросок берётся до записи урона —
+ * тем же путём, что спасбросок оружия.
+ */
+export const SNEAK_ATTACK_SAVE_DOUBLE_KEY = 'sneakAttack.saveDouble';
+
+/** Сл спасбросков от умений Скрытой атаки: 8 + Ловкость + бонус мастерства */
+export const SNEAK_ATTACK_SAVE_DC_FORMULA = '8 + @prof + @mod.dex';
+
+/**
+ * Кости Скрытой атаки плута по уровню в классе: 1к6 на 1-м, +1к6 на каждом
+ * нечётном (10к6 на 19-м).
+ */
+export const SNEAK_ATTACK_DICE_FORMULA =
+  '(1 + steps(@classLevel, 3, 5, 7, 9, 11, 13, 15, 17, 19))к6';
+
+/** Все ключи Скрытой атаки: их читает окно атаки, а не лист */
+const SNEAK_ATTACK_KEYS: ReadonlySet<string> = new Set([
+  SNEAK_ATTACK_DAMAGE_KEY,
+  SNEAK_ATTACK_DICE_KEY,
+  SNEAK_ATTACK_CUNNING_STRIKE_KEY,
+  SNEAK_ATTACK_CUNNING_STRIKE_COUNT_KEY,
+  SNEAK_ATTACK_RIDER_KEY,
+  SNEAK_ATTACK_MIN_DIE_KEY,
+  SNEAK_ATTACK_SAVE_DOUBLE_KEY,
+]);
+
+/**
+ * Относится ли ключ к Скрытой атаке. Такие строки — не числа листа: их
+ * читает окно атаки в момент броска.
+ *
+ * @param key - ключ строки эффекта
+ * @returns `true` для `sneakAttack.*`
+ */
+export function isSneakAttackKey(key: string): boolean {
+  return SNEAK_ATTACK_KEYS.has(key);
+}
+
+/**
  * Ключи строк, которых нет на листе: их читает не конвейер статов, а тот, кому
  * они нужны в свой момент — выдача временных хитов, проверка расстояния
  * атаки, каст заклинания.
@@ -320,6 +452,7 @@ const OFF_SHEET_CHANGE_KEYS: ReadonlySet<string> = new Set([
   TEMP_HP_GAIN_KEY,
   ATTACK_REACH_KEY,
   SPELL_DAMAGE_TYPE_KEY,
+  ...SNEAK_ATTACK_KEYS,
 ]);
 
 /**
@@ -340,7 +473,11 @@ export function isOffSheetChangeKey(key: string): boolean {
  * @returns `true`, если значение формулой не проверяют
  */
 export function isOptionValueKey(key: string): boolean {
-  return isWeaponOverrideKey(key) || key === SPELL_DAMAGE_TYPE_KEY;
+  return (
+    isWeaponOverrideKey(key)
+    || key === SPELL_DAMAGE_TYPE_KEY
+    || key === SNEAK_ATTACK_SAVE_DOUBLE_KEY
+  );
 }
 
 /**
@@ -365,6 +502,9 @@ export type EffectTargetKey =
   | 'damage.spell'
   | 'armorClass'
   | `movement.${MovementType}`
+  | typeof JUMP_LONG_KEY
+  | typeof JUMP_HIGH_KEY
+  | typeof JUMP_COST_KEY
   | 'hitPoints.max'
   | 'initiative'
   | 'proficiencyBonus'
@@ -380,7 +520,14 @@ export type EffectTargetKey =
   | 'creatureType.extra'
   | typeof TEMP_HP_GAIN_KEY
   | typeof ATTACK_REACH_KEY
-  | typeof SPELL_DAMAGE_TYPE_KEY;
+  | typeof SPELL_DAMAGE_TYPE_KEY
+  | typeof SNEAK_ATTACK_DAMAGE_KEY
+  | typeof SNEAK_ATTACK_DICE_KEY
+  | typeof SNEAK_ATTACK_CUNNING_STRIKE_KEY
+  | typeof SNEAK_ATTACK_CUNNING_STRIKE_COUNT_KEY
+  | typeof SNEAK_ATTACK_RIDER_KEY
+  | typeof SNEAK_ATTACK_MIN_DIE_KEY
+  | typeof SNEAK_ATTACK_SAVE_DOUBLE_KEY;
 
 /**
  * Ключ строки модификатора: известный ключ движка либо ПУСТАЯ строка — «ключ
@@ -440,6 +587,9 @@ export const EFFECT_TARGET_SUGGESTIONS: Array<{
   { value: 'movement.swim', label: 'Скорость (Плавание)' },
   { value: 'movement.climb', label: 'Скорость (Лазание)' },
   { value: 'movement.burrow', label: 'Скорость (Копание)' },
+  { value: JUMP_LONG_KEY, label: 'Прыжок в длину с разбегом, фт' },
+  { value: JUMP_HIGH_KEY, label: 'Прыжок в высоту с разбегом, фт' },
+  { value: JUMP_COST_KEY, label: 'Цена прыжка, фт хода (вместо фута за фут)' },
 
   // Чувства (дальность в футах)
   { value: 'sense.darkvision', label: 'Чувство: Тёмное зрение' },
@@ -488,6 +638,34 @@ export const EFFECT_TARGET_SUGGESTIONS: Array<{
   { value: 'damage.all', label: 'Урон: Весь наносимый' },
   { value: 'damage.weapon', label: 'Урон: Только этим предметом' },
   { value: 'attack.weapon', label: 'Атака: Только этим предметом' },
+  {
+    value: SNEAK_ATTACK_DAMAGE_KEY,
+    label: 'Скрытая атака: кости (раз в ход, можно не добавлять)',
+  },
+  {
+    value: SNEAK_ATTACK_DICE_KEY,
+    label: 'Скрытая атака: прибавка к числу костей',
+  },
+  {
+    value: SNEAK_ATTACK_CUNNING_STRIKE_KEY,
+    label: 'Хитрый удар: приём (цена в костях Скрытой атаки)',
+  },
+  {
+    value: SNEAK_ATTACK_CUNNING_STRIKE_COUNT_KEY,
+    label: 'Хитрый удар: прибавка к числу приёмов за удар',
+  },
+  {
+    value: SNEAK_ATTACK_RIDER_KEY,
+    label: 'Скрытая атака: эффект по выбору при её уроне (цена в костях)',
+  },
+  {
+    value: SNEAK_ATTACK_MIN_DIE_KEY,
+    label: 'Скрытая атака: наименьшее значение кости',
+  },
+  {
+    value: SNEAK_ATTACK_SAVE_DOUBLE_KEY,
+    label: 'Скрытая атака: спасбросок цели, провал — урон атаки удвоен',
+  },
 
   // Замены свойств оружия («Дубинка»)
   { value: WEAPON_DAMAGE_DICE_KEY, label: 'Оружие: кость урона' },
@@ -562,6 +740,15 @@ export const CARRIER_TYPE_CONDITION_PREFIX = 'self.creatureType === ';
 export const CARRIER_ARMOR_CONDITION_PREFIX = 'self.armor === ';
 
 /**
+ * Приставка условия «у носителя в снаряжении инструмент этого вида»: значение
+ * — вид инструмента (`baseToolType`), например `"poisoners-kit"`.
+ */
+export const CARRIER_TOOL_CONDITION_PREFIX = 'self.tool === ';
+
+/** Вид инструмента «набор отравителя» — для приёма «Отравить» */
+export const POISONERS_KIT_TOOL = 'poisoners-kit';
+
+/**
  * Приставка условия «атака идёт этой характеристикой». Общая для модификаторов
  * («Ярость»: бонус урона только атакам Силой) и срабатываний.
  */
@@ -620,6 +807,60 @@ export const WEAPON_PROPERTY_CONDITION_PREFIX = 'weapon.property === ';
  */
 export const THROWN_WEAPON_CONDITION = `${WEAPON_PROPERTY_CONDITION_PREFIX}"${THROWN_WEAPON_PROPERTY}"`;
 
+/** Условие «оружие броска фехтовальное» — ветка Скрытой атаки */
+export const FINESSE_WEAPON_CONDITION = `${WEAPON_PROPERTY_CONDITION_PREFIX}"${FINESSE_WEAPON_PROPERTY}"`;
+
+/**
+ * Приставка условия «дальность самого оружия»: `weapon.rangeType === "ranged"`.
+ *
+ * Считается по ОРУЖИЮ, а не по виду атаки: лук, арбалет, праща и дротик —
+ * дальнобойное оружие, а брошенный кинжал или топорик — рукопашное оружие,
+ * которым атакуют издали (`withWeaponAttackKind` даёт копии вид атаки, но
+ * исходную дальность помнит в `sourceRangeType`). У действия существа оружия
+ * нет — условие не выполняется.
+ */
+export const WEAPON_RANGE_CONDITION_PREFIX = 'weapon.rangeType === ';
+
+/** Условие «оружие дальнобойное» (по самому оружию, не по виду атаки) */
+export const RANGED_WEAPON_CONDITION = `${WEAPON_RANGE_CONDITION_PREFIX}"ranged"`;
+
+/** Условие «бросок с преимуществом» */
+export const ROLL_ADVANTAGE_CONDITION = 'roll.hasAdvantage === true';
+
+/** Условие «бросок с помехой» */
+export const ROLL_DISADVANTAGE_CONDITION = 'roll.hasDisadvantage === true';
+
+/**
+ * Условие «у броска нет помехи». Погашенная преимуществом помеха — тоже «нет
+ * помехи»: по глоссарию 2024 они отменяют друг друга, и бросок обычный.
+ */
+export const ROLL_NO_DISADVANTAGE_CONDITION = 'roll.hasDisadvantage === false';
+
+/**
+ * Условие «в этой атаке идёт Скрытая атака»: истинно, только когда кости
+ * строки `sneakAttack.damage` реально вошли в урон — условия выполнены,
+ * переключатель окна включён и лимит хода не потрачен. Для зависимых строк
+ * («+1к6 урона этим ножом, если идёт Скрытая атака»).
+ */
+export const SNEAK_ATTACK_APPLIED_CONDITION = 'attack.sneakAttack === true';
+
+/**
+ * Приставка условия «идёт раунд боя N» — та же строка, что у срабатываний
+ * (`combat.round === 1`): «Ликвидация» Убийцы действует в первом раунде. Вне
+ * боя номера нет, и условие не выполняется.
+ */
+export const COMBAT_ROUND_CONDITION_PREFIX = 'combat.round === ';
+
+/** Приставка условия «идёт раунд боя не раньше N» — как у срабатываний */
+export const COMBAT_ROUND_AT_LEAST_CONDITION_PREFIX = 'combat.round >= ';
+
+/**
+ * Условие «цель ещё не ходила в этом бою»: в первом раунде её место в порядке
+ * инициативы ещё не наступило. Считает клиент по трекеру инициативы — ядро
+ * признака «участник уже ходил» не даёт (пробел SDK). Вне боя не выполняется.
+ */
+export const TARGET_NOT_ACTED_CONDITION = 'target.hasActed === false';
+
 /** Приставка условия по типу ЦЕЛИ броска. */
 export const TARGET_TYPE_CONDITION_PREFIX = 'target.creatureType === ';
 
@@ -629,9 +870,11 @@ export const CARRIER_TYPE_NOT_CONDITION_PREFIX = 'self.creatureType !== ';
 /** Приставка условия «цель не этого типа» */
 export const TARGET_TYPE_NOT_CONDITION_PREFIX = 'target.creatureType !== ';
 
+/** Приставка условий входящей атаки — их проверяет защита (КД) */
+export const INCOMING_CONDITION_PREFIX = 'incoming.';
+
 /** Приставка условия по типу АТАКУЮЩЕГО — у защитного эффекта. */
-export const INCOMING_ATTACKER_TYPE_CONDITION_PREFIX =
-  'incoming.attackerCreatureType === ';
+export const INCOMING_ATTACKER_TYPE_CONDITION_PREFIX = `${INCOMING_CONDITION_PREFIX}attackerCreatureType === `;
 
 /**
  * Условие «цель броска — тот, кто наложил этот эффект»: «помеха на броски
@@ -648,15 +891,13 @@ export const TARGET_NOT_SOURCE_CONDITION = 'target.isSource === false';
 /**
  * Условие защитного эффекта «атакует тот, кто наложил этот эффект».
  */
-export const INCOMING_ATTACKER_IS_SOURCE_CONDITION =
-  'incoming.attackerIsSource === true';
+export const INCOMING_ATTACKER_IS_SOURCE_CONDITION = `${INCOMING_CONDITION_PREFIX}attackerIsSource === true`;
 
 /**
  * Условие защитного эффекта «атакует НЕ тот, кто наложил этот эффект»:
  * «преимущество на атаки по цели для всех, кроме вас».
  */
-export const INCOMING_ATTACKER_NOT_SOURCE_CONDITION =
-  'incoming.attackerIsSource === false';
+export const INCOMING_ATTACKER_NOT_SOURCE_CONDITION = `${INCOMING_CONDITION_PREFIX}attackerIsSource === false`;
 
 /**
  * Условие «рядом с целью мой дееспособный союзник» («Тактика стаи» PHB 2024:
@@ -722,11 +963,24 @@ export function isAdjacentAllyCondition(condition: string): boolean {
  *
  * Это НЕ выражение и не шаг к нему: каждая часть по-прежнему обязана быть
  * строкой из закрытого словаря, а `&&` только позволяет требовать нескольких
- * условий разом — «нет доспеха И нет щита» у наручей защиты. Другой связки
- * (`||`, отрицания, скобок) намеренно нет: разбирать их пришлось бы парсером,
- * а словарь должен оставаться перечнем.
+ * условий разом — «нет доспеха И нет щита» у наручей защиты. Вторая связка —
+ * «или» ({@link CONDITION_OR_SEPARATOR}); отрицаний и скобок нет.
  */
 export const CONDITION_AND_SEPARATOR = '&&';
+
+/**
+ * Разделитель групп условия, соединённых «или»: `a && b || c` — «(a и b) или
+ * c». «И» связывает сильнее, скобок нет: условие — это перечень групп, и
+ * выполнено оно, когда выполнена хоть одна группа целиком. Так записывается
+ * Скрытая атака: (фехтовальное ∨ дальнобойное) × (преимущество ∨ союзник
+ * рядом без помехи) — четыре группы.
+ *
+ * Разбор один на всю систему ({@link splitConditionGroups}); места, которые
+ * считают условие по листу (условие носителя, бонус «при атаке Силой»,
+ * замены свойств оружия), «или» не понимают и такую строку туда не берут —
+ * она считается только в броске.
+ */
+export const CONDITION_OR_SEPARATOR = '||';
 
 /**
  * Части составного условия.
@@ -743,6 +997,90 @@ export function splitConditionParts(condition: string): string[] {
     .map((part) => part.trim())
     .filter((part) => part.length > 0);
 }
+
+/**
+ * Группы условия, соединённые «или»; в каждой — части, соединённые «и».
+ *
+ * Условие без «или» — одна группа, так что оценка у всех одна: выполнена
+ * хоть одна группа целиком ({@link conditionHolds}).
+ *
+ * @param condition - строка условия
+ * @returns непустые группы непустых частей
+ */
+export function splitConditionGroups(condition: string): string[][] {
+  return condition
+    .split(CONDITION_OR_SEPARATOR)
+    .map(splitConditionParts)
+    .filter((group) => group.length > 0);
+}
+
+/**
+ * Есть ли в условии «или». Такое условие считается только в броске: по листу
+ * его части не проверить по одной.
+ *
+ * @param condition - строка условия
+ * @returns `true`, если групп больше одной
+ */
+export function hasConditionAlternatives(condition: string): boolean {
+  return splitConditionGroups(condition).length > 1;
+}
+
+/**
+ * Выполнено ли условие: хоть одна группа «или», в которой выполнены все
+ * части «и». Пустое условие не выполнено — такое пишет только недописанная
+ * форма.
+ *
+ * @param condition - строка условия
+ * @param partHolds - проверка одной части
+ * @returns `true`, если условие выполнено
+ */
+export function conditionHolds(
+  condition: string,
+  partHolds: (part: string) => boolean,
+): boolean {
+  return splitConditionGroups(condition).some((group) =>
+    group.every(partHolds),
+  );
+}
+
+/**
+ * Собирает условие из групп «или» с частями «и».
+ *
+ * @param groups - группы частей
+ * @returns строка условия; пустых групп в ней нет
+ */
+export function joinConditionGroups(
+  groups: ReadonlyArray<readonly string[]>,
+): string {
+  return groups
+    .filter((group) => group.length > 0)
+    .map((group) => group.join(` ${CONDITION_AND_SEPARATOR} `))
+    .join(` ${CONDITION_OR_SEPARATOR} `);
+}
+
+/**
+ * Условие Скрытой атаки 2024: фехтовальное или дальнобойное оружие, и
+ * преимущество на атаку либо дееспособный союзник в 5 фт от цели без помехи
+ * на бросок. Четыре группы «или»: скобок в условиях нет.
+ */
+export const SNEAK_ATTACK_CONDITION = joinConditionGroups(
+  [FINESSE_WEAPON_CONDITION, RANGED_WEAPON_CONDITION].flatMap((weapon) => [
+    [weapon, ROLL_ADVANTAGE_CONDITION],
+    [weapon, TARGET_ALLY_ADJACENT_CONDITION, ROLL_NO_DISADVANTAGE_CONDITION],
+  ]),
+);
+
+/**
+ * Условие Скрытой атаки существа: без частей про оружие. У действия
+ * существа нет свойств оружия (ни в статблоке, ни в данных компендиума), и
+ * условие плута с «фехтовальным или дальнобойным оружием» у него не
+ * выполнялось бы никогда. Какое действие — оружие, автор решает сам, вешая
+ * строку на существо.
+ */
+export const SNEAK_ATTACK_CREATURE_CONDITION = joinConditionGroups([
+  [ROLL_ADVANTAGE_CONDITION],
+  [TARGET_ALLY_ADJACENT_CONDITION, ROLL_NO_DISADVANTAGE_CONDITION],
+]);
 
 /** Разделы библиотеки условий — в порядке показа */
 export const EFFECT_CONDITION_SECTIONS = {
@@ -777,12 +1115,46 @@ export const EFFECT_CONDITION_SUGGESTIONS: readonly EffectLibrarySuggestion[] =
       EFFECT_CONDITION_SECTIONS.roll,
       [
         {
-          value: 'roll.hasAdvantage === true',
+          value: ROLL_ADVANTAGE_CONDITION,
           label: 'Бросок: уже идёт с преимуществом',
         },
         {
-          value: 'roll.hasDisadvantage === true',
+          value: ROLL_DISADVANTAGE_CONDITION,
           label: 'Бросок: уже идёт с помехой',
+        },
+        {
+          value: ROLL_NO_DISADVANTAGE_CONDITION,
+          label: 'Бросок: без помехи',
+          hint: 'Помеха, погашенная преимуществом, — тоже «без помехи».',
+        },
+        {
+          value: SNEAK_ATTACK_CONDITION,
+          label:
+            'Скрытая атака возможна: подходящее оружие, преимущество или союзник рядом с целью',
+          hint:
+            `Фехтовальное или дальнобойное оружие; преимущество либо союзник рядом с целью без помехи. `
+            + `Группы соединены «${CONDITION_OR_SEPARATOR}» — нужна любая.`,
+        },
+        {
+          value: SNEAK_ATTACK_CREATURE_CONDITION,
+          label:
+            'Скрытая атака существа возможна: преимущество или союзник рядом с целью',
+          hint: 'У действия существа нет свойств оружия: преимущество либо союзник рядом с целью без помехи.',
+        },
+        {
+          value: `${COMBAT_ROUND_CONDITION_PREFIX}1`,
+          label: 'Бой: первый раунд',
+          hint: 'Вне боя не выполняется.',
+        },
+        {
+          value: TARGET_NOT_ACTED_CONDITION,
+          label: 'Цель: ещё не ходила в этом бою',
+          hint: 'По порядку инициативы: в первом раунде её ход ещё впереди. Вне боя не выполняется.',
+        },
+        {
+          value: SNEAK_ATTACK_APPLIED_CONDITION,
+          label: 'Атака: идёт Скрытая атака',
+          hint: 'Строка добавляется, только если кости Скрытой атаки вошли в этот урон.',
         },
         // Бонус урона оружия считается по характеристике, которой оно бьёт:
         // на листе он виден у каждого оружия своим, а в бросок идёт из того же
@@ -800,6 +1172,15 @@ export const EFFECT_CONDITION_SUGGESTIONS: readonly EffectLibrarySuggestion[] =
           value: THROWN_WEAPON_CONDITION,
           label: 'Оружие: метательное',
           hint: 'Сражение метательным оружием: вместе с «Урон: дальнобойная атака».',
+        },
+        {
+          value: FINESSE_WEAPON_CONDITION,
+          label: 'Оружие: фехтовальное',
+        },
+        {
+          value: RANGED_WEAPON_CONDITION,
+          label: 'Оружие: дальнобойное',
+          hint: 'По самому оружию: лук и дротик — да, брошенный кинжал — нет.',
         },
         // Только для замен свойств оружия (`weapon.*`): каждое оружие листа
         // сверяется со списком само
@@ -833,6 +1214,11 @@ export const EFFECT_CONDITION_SUGGESTIONS: readonly EffectLibrarySuggestion[] =
           label: 'Носитель: в тяжёлом доспехе',
         },
         { value: 'self.armor === "shield"', label: 'Носитель: со щитом' },
+        {
+          value: `${CARRIER_TOOL_CONDITION_PREFIX}"${POISONERS_KIT_TOOL}"`,
+          label: 'Носитель: с набором отравителя',
+          hint: 'Инструмент этого вида есть в снаряжении — «Отравить» Хитрого удара.',
+        },
         { value: 'self.armor === "noShield"', label: 'Носитель: без щита' },
         {
           value: `${CARRIER_ARMOR_CONDITION_PREFIX}"none" ${CONDITION_AND_SEPARATOR} ${CARRIER_ARMOR_CONDITION_PREFIX}"noShield"`,
@@ -1297,11 +1683,16 @@ export type SkillFlagKey = SkillAdvantageFlagKey | SkillDisadvantageFlagKey;
  * Состояние, против которого бывает преимущество или помеха на спасбросок.
  *
  * Метка смерти и окровавленность сюда не идут: спасброска против них не
- * бывает — их ставит и снимает запас хитов существа.
+ * бывает — их ставит и снимает запас хитов существа. «В засаде» и
+ * «Застигнутый врасплох» — тоже: их даёт своё действие или начало боя, а не
+ * чужой эффект со спасброском.
  */
 export type SaveConditionKey = Exclude<
   ConditionKey,
-  typeof DEATH_CONDITION_KEY | typeof BLOODIED_CONDITION_KEY
+  | typeof DEATH_CONDITION_KEY
+  | typeof BLOODIED_CONDITION_KEY
+  | typeof HIDDEN_CONDITION_KEY
+  | typeof SURPRISED_CONDITION_KEY
 >;
 
 /** Флаг преимущества на спасбросок против состояния. */
@@ -1409,6 +1800,7 @@ export type EffectFlagKey =
   | 'save.autoFail.charisma'
   | 'speed.zero'
   | 'terrain.ignoreDifficult'
+  | 'terrain.impassable'
   | 'mark.bySource'
   | 'incapacitated'
   | 'initiative.advantage'
@@ -1431,6 +1823,7 @@ export type EffectFlagKey =
   | 'actions.oneOfMoveActionBonus'
   | 'actions.oneAttackPerAction'
   | 'actions.noOpportunityAttack'
+  | 'hide.bonusAction'
   | 'spellcasting.blocked'
   | 'spellcasting.noVerbal'
   | 'spellcasting.noMagicAction'
@@ -1559,6 +1952,8 @@ const BASE_EFFECT_FLAG_LABELS: Record<
   'speed.zero': 'Скорость равна нулю',
   'terrain.ignoreDifficult':
     'Игнорирует труднопроходимую местность (клетки зон стоят как обычные)',
+  'terrain.impassable':
+    'Зона — провал: пешком не пройти, только перепрыгнуть (яма, пропасть, ручей)',
   'mark.bySource':
     'Метка наложившего: его условие «цель помечена мной» (Метка охотника, Сглаз)',
   'incapacitated': 'Недееспособен (Не может совершать действия/реакции)',
@@ -1573,6 +1968,8 @@ const BASE_EFFECT_FLAG_LABELS: Record<
   'actions.oneAttackPerAction': 'Действием «Атака» — только одна атака за ход',
   'actions.noOpportunityAttack':
     'Не может совершать провоцированные атаки (остальные реакции доступны)',
+  'hide.bonusAction':
+    'Засада бонусным действием (Хитрое действие, Проворный побег)',
   'spellcasting.blocked': 'Не может накладывать заклинания',
   'spellcasting.noVerbal':
     'Не может накладывать заклинания с вербальным компонентом',
@@ -2722,6 +3119,13 @@ export interface ActiveEffect extends BaseActiveEffect {
   consumeOn?: EffectAttackTrigger;
 
   /**
+   * Сл поиска у состояния «В засаде»: итог проверки Ловкости (Скрытность),
+   * которой носитель спрятался (правила 2024, действие «Засада»). Ищущий
+   * бросает Мудрость (Внимательность) против неё — успех снимает засаду.
+   */
+  searchDc?: number;
+
+  /**
    * Урон, наносимый при наложении эффекта (гейтится `applySave`: провал —
    * полный, успех — по `onSuccess`). Единая со заклинаниями система `DamagePart`
    * (напр. яд паука «2к8, половина при успехе»).
@@ -3083,6 +3487,13 @@ export interface ResolvedActorStats {
   proficiencyBonus: number;
   /** Скорости передвижения */
   movement: Record<MovementType, number>;
+  /**
+   * Дальность прыжка с разбегом в футах: в длину ({@link JUMP_LONG_KEY}) и в
+   * высоту ({@link JUMP_HIGH_KEY}) — правило Силы с поправками эффектов;
+   * `cost` — своя цена прыжка в футах хода ({@link JUMP_COST_KEY}), нет —
+   * фут за фут
+   */
+  jump: { long: number; high: number; cost?: number };
   /**
    * Дальности чувств в футах (`0` — чувства нет).
    *
@@ -3597,6 +4008,10 @@ const EFFECT_TRIGGER_PLAIN_ACTION_SCHEMAS = [
   }),
   z.object({ type: z.literal('nextStage'), on: EffectTriggerGateSchema }),
   z.object({ type: z.literal('removeSelf'), on: EffectTriggerGateSchema }),
+  z.object({
+    type: z.literal('refreshDuration'),
+    on: EffectTriggerGateSchema,
+  }),
 ] as const;
 
 /** Zod-схема футов перемещения, которыми платят цену `move` */
@@ -4013,6 +4428,7 @@ export const ActiveEffectSchema = z.object({
   applyOnSuccess: z.boolean().optional(),
   applyOnSuccessOnly: z.boolean().optional(),
   consumeOn: z.enum(['carrierAttack', 'attackOnCarrier']).optional(),
+  searchDc: z.number().int().min(0).optional().catch(undefined),
   damageParts: z.array(EffectDamagePartSchema).optional(),
   recurringSave: RecurringSaveSchema.optional(),
   recurringDamage: RecurringDamageSchema.optional(),

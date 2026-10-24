@@ -25,6 +25,16 @@ const TERRAIN_COST_KEY = 'terrain.movementCost';
 /** Флаг сущности, для которой труднопроходимости не существует. */
 const IGNORE_TERRAIN_FLAG = 'terrain.ignoreDifficult';
 
+/** Флаг эффекта зоны-провала: пешком не пройти, только перепрыгнуть. */
+const IMPASSABLE_TERRAIN_FLAG = 'terrain.impassable';
+
+/**
+ * Цена провала для ядра (VTTG 0.9.756+): поиск пути обходит такую зону, а
+ * прыжок над ней пролетает, но в ней не начинается и не кончается. Старое ядро
+ * нечисловую цену пропускает — зона для него обычная земля.
+ */
+const IMPASSABLE_COST = Number.POSITIVE_INFINITY;
+
 /** Цена обычной земли: зона без правил ничего не меняет. */
 const NEUTRAL_COST = 1;
 
@@ -77,7 +87,8 @@ function applyChange(cost: number, change: ActiveEffect['changes'][number]) {
  * Множитель цены клетки внутри зоны.
  *
  * @param area - пользовательская зона сцены
- * @returns множитель; `1` — зона на перемещение не влияет
+ * @returns множитель; `1` — зона на перемещение не влияет; бесконечность —
+ *   провал (флаг `terrain.impassable`)
  */
 export function resolveAreaTerrainCost(area: CustomArea): number {
   const effects = area.effects;
@@ -94,7 +105,12 @@ export function resolveAreaTerrainCost(area: CustomArea): number {
       continue;
     }
 
-    for (const change of effect.changes ?? []) {
+    // Провал главнее любой цены: болото поверх ямы пешком всё равно не пройти
+    if (effect.flags.includes(IMPASSABLE_TERRAIN_FLAG)) {
+      return IMPASSABLE_COST;
+    }
+
+    for (const change of effect.changes) {
       if (change.key !== TERRAIN_COST_KEY) {
         continue;
       }
@@ -115,6 +131,6 @@ export function resolveAreaTerrainCost(area: CustomArea): number {
  */
 export function entityIgnoresTerrainCost(entity: DnDSceneEntity): boolean {
   return collectActiveEffects(entity).some((effect) =>
-    effect.flags?.includes(IGNORE_TERRAIN_FLAG),
+    effect.flags.includes(IGNORE_TERRAIN_FLAG),
   );
 }

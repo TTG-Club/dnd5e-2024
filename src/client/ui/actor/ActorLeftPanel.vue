@@ -18,6 +18,7 @@
   import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
   import { useChatStore } from '@/stores/chatStore';
   import {
+    armorDexterityBonus,
     BASE_UNARMORED_AC,
     buildDeathSavePatch,
     calculateAbilityModifier,
@@ -539,12 +540,7 @@
             : undefined;
 
         if (armor) {
-          const maxDex = armor.maxDexBonus;
-
-          const effectiveDex =
-            maxDex === null || maxDex === undefined
-              ? dexMod
-              : Math.min(dexMod, maxDex);
+          const effectiveDex = armorDexterityBonus(dexMod, armor);
 
           const magicBonus = armor.magicBonus ?? 0;
 

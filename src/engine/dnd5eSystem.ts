@@ -11,6 +11,7 @@ import type {
   GridSettings,
   HealthCondition,
   MeasurementTemplate,
+  MovementModes,
   MovementRange,
   SceneEntity,
   ServerRollRequester,
@@ -61,6 +62,7 @@ import type {
 
 import { getHealthCondition, HEALTH_CONDITIONS, isRecord } from '@vtt/shared';
 
+import { settleActionLimitsOnTurnStart } from './actionLimitTurn.js';
 import {
   isTurnMovementSpent,
   listBlockedConcentrationCasts,
@@ -76,6 +78,11 @@ import {
   normalizeActorData as normalizeDndActorData,
   validateActorData as validateDndActorData,
 } from './actorValidation.js';
+import {
+  D20_DICE_BY_MODE,
+  resolveInitiativeRollMode,
+  rollD20WithMode,
+} from './attackUtils.js';
 import { shapeAuraCondition } from './auraCondition.js';
 import {
   collectAllAuraEffects,
@@ -103,6 +110,7 @@ import {
   CREATURE_CATEGORIES,
   CREATURE_SIZE_LABELS,
   DEFAULT_ACTOR,
+  DND_SECONDS_PER_ROUND,
   RARITY_LABELS,
 } from './consts.js';
 import {
@@ -140,6 +148,7 @@ import {
   settleAppliedEvents,
   settleAttackRollTriggers,
   settleConditionLostEvents,
+  settleDamageDealtEvents,
   settleDamageEvents,
   settleDownedOtherEvents,
   settleEffectActionEvents,
@@ -175,6 +184,11 @@ import {
 import { validateGameItem } from './itemSchemas.js';
 import { transferItem } from './itemTransfer.js';
 import {
+  buildMovementModes,
+  resolveJumpDistances,
+  resolveTurnSpeed,
+} from './movementModes.js';
+import {
   applyAuraTriggerEffects as computeAuraTriggerEffects,
   runPresenceTriggerSources,
   syncActorAreaEffects,
@@ -204,7 +218,9 @@ import {
   formatEntrySaveStatus,
   formatRecurringSaveStatus,
   formatTurnEffectsMessage,
+  hasEffectsToSettleByWorldTime,
   resolveTurnSummaryLabel,
+  settleEffectsByWorldTime,
 } from './turnEffects.js';
 
 /**
@@ -284,6 +300,9 @@ const DOWNED_OTHER_SUMMARY_LABEL = 'когда цель свалена';
 
 /** Подпись сводки события «на глазах носителя ранили союзника» */
 const ALLY_HURT_SUMMARY_LABEL = 'когда ранили союзника на глазах';
+
+/** Подпись сводки события «носитель нанёс урон» */
+const DAMAGE_DEALT_SUMMARY_LABEL = 'когда нанёс урон';
 
 /**
  * Состояния, снятые снимком: те, чьих эффектов в новом списке не стало.
@@ -1068,6 +1087,7 @@ function settleAttackRollEvent(
       },
       ...(event.landed === undefined ? {} : { landed: event.landed }),
       ...(event.critical === true ? { critical: true } : {}),
+      ...(event.sneakAttack === true ? { sneakAttack: true } : {}),
     });
 
     const subject = outcomeOf(side.subject);
@@ -1654,6 +1674,11 @@ function settleSnapshotEvents(
     ],
     // Идёт на эффектах свидетелей: раненый для них — другая сторона
     [settleAllyHurtEvents(entity, hits, options), ALLY_HURT_SUMMARY_LABEL],
+    // Идёт на эффектах нанёсших: раненый для них — другая сторона
+    [
+      settleDamageDealtEvents(entity, hits, options),
+      DAMAGE_DEALT_SUMMARY_LABEL,
+    ],
     ...downedExtra,
   ];
 
@@ -1677,7 +1702,10 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.317';
+  readonly version = '0.8.340';
+
+  /** Раунд D&D 5e — 6 игровых секунд: столько двигает часы мира новый раунд */
+  readonly secondsPerRound = DND_SECONDS_PER_ROUND;
 
   /**
    * Выполняет валидацию данных актера по правилам системы D&D 5e.
@@ -1789,7 +1817,9 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * Совершает бросок инициативы (1к20 + модификатор)
+   * Совершает бросок инициативы (1к20 + модификатор) — с преимуществом или
+   * помехой по флагам сущности: «Невидимый» и «В засаде» бросают с
+   * преимуществом, «Застигнутый врасплох» и «Недееспособный» — с помехой.
    */
   rollInitiative(
     actor: BaseActor,
@@ -1797,9 +1827,14 @@ export class Dnd5eVttSystem implements VttSystem {
   ): SystemRollResult {
     const modifier = this.getInitiativeModifier(actor);
 
+    const rollMode = isDndSceneEntity(actor)
+      ? resolveInitiativeRollMode(resolveActorStats(actor).activeFlags)
+      : 'normal';
+
     if (rollFn) {
-      // Клиент: Делаем бросок через стор (DiceRoller)
-      const rollData = rollFn('1к20');
+      // Клиент: Делаем бросок через стор (DiceRoller); формула без
+      // модификатора — итог броска и есть значение кости
+      const rollData = rollFn(D20_DICE_BY_MODE[rollMode]);
 
       return {
         roll: rollData.total, // Это чистое значение кубика от 1 до 20
@@ -1810,7 +1845,7 @@ export class Dnd5eVttSystem implements VttSystem {
     }
 
     // Сервер (или если rollFn не передан): Автоматический математический бросок
-    const roll = Math.floor(Math.random() * 20) + 1;
+    const roll = rollD20WithMode(rollMode);
 
     return {
       roll,
@@ -1855,18 +1890,37 @@ export class Dnd5eVttSystem implements VttSystem {
    * повторные спасброски D&D 5e) и возвращает флаг изменения и сводку для чата.
    *
    * Повторный спасбросок сущности без авто-спасбросков спрашивается у игрока:
-   * ход не ждёт, исход приходит отложенным срабатыванием.
+   * ход не ждёт, исход приходит отложенным срабатыванием. В начале хода
+   * существа здесь же отсчитывается «раз в N ходов» и просится бросок
+   * перезарядки потраченных действий (`actionLimitTurn.ts`).
    */
   runTurnEffects(
     entity: SceneEntity,
     timing: 'startOfTurn' | 'endOfTurn',
     context?: SystemTriggerContext,
   ): SystemDeferredTriggerResult {
-    return withScenePresence(
+    const effects = settleTurnEffects(
       entity,
+      timing,
       context,
-      settleTurnEffects(entity, timing, context, this.pendingTurnSaveKeys),
+      this.pendingTurnSaveKeys,
     );
+
+    // Перезарядка и «раз в N ходов» — после эффектов хода: те могли выключить
+    // существо, но отсчёт хода от этого не зависит
+    const result =
+      timing === 'startOfTurn'
+        ? mergeTriggerResults(
+            effects,
+            settleActionLimitsOnTurnStart(
+              entity,
+              context,
+              this.pendingTurnSaveKeys,
+            ),
+          )
+        : effects;
+
+    return withScenePresence(entity, context, result);
   }
 
   /**
@@ -1977,6 +2031,36 @@ export class Dnd5eVttSystem implements VttSystem {
 
         return roundsChanged || turnsChanged;
       }),
+    );
+  }
+
+  /**
+   * Сроки эффектов по игровым часам мира: эффекту с временным сроком ставит
+   * момент окончания, наступивший — снимает. Истёкшая метка концентрации
+   * заканчивает свой каст, кончившееся состояние запускает «когда снимается».
+   *
+   * Ядро зовёт метод раз в секунду у каждой сущности, пока часы идут, —
+   * без работы он выходит сразу, не трогая ни концентрацию, ни сцену.
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  expireTimedEffects(
+    entity: SceneEntity,
+    worldTime: number,
+    context?: SystemTriggerContext,
+  ): SystemDeferredTriggerResult {
+    if (
+      !isDndSceneEntity(entity)
+      || !hasEffectsToSettleByWorldTime(entity, worldTime)
+    ) {
+      return { changed: false, chatSummary: null };
+    }
+
+    return withScenePresence(
+      entity,
+      context,
+      expireWithConcentration(entity, context, (carrier) =>
+        settleEffectsByWorldTime(carrier, worldTime),
+      ),
     );
   }
 
@@ -2385,12 +2469,9 @@ export class Dnd5eVttSystem implements VttSystem {
   }
 
   /**
-   * Дальность хода сущности за один ход — ядро красит по ней маршрут токена.
-   *
-   * Скорость по правилам D&D 2024 — это Скорость ходьбы. Существо, которое
-   * ходить не умеет (парящее, плавающее, роющее), перемещается своим режимом,
-   * поэтому при нулевой ходьбе берётся самый быстрый из остальных: иначе у
-   * дракона в полёте зона хода схлопнулась бы в точку.
+   * Дальность хода сущности за один ход — старое приложение (до VTTG 0.9.751)
+   * красит по ней маршрут токена; новое берёт {@link getMovementModes}.
+   * Скорость на ход — {@link resolveTurnSpeed}.
    *
    * «Рывок» даёт прибавку, равную Скорости, — отсюда удвоение предела.
    *
@@ -2410,30 +2491,41 @@ export class Dnd5eVttSystem implements VttSystem {
       return null;
     }
 
-    const { movement, activeFlags } = resolveActorStats(
+    const base = resolveTurnSpeed(
+      entity,
+      resolveActorStats(entity, collectDndAmbientEffects(ambientEffects)),
+    );
+
+    return base > 0 ? { base, extended: base * 2 } : { base: 0, extended: 0 };
+  }
+
+  /**
+   * Виды перемещения сущности (VTTG 0.9.751+): ходьба с «Рывком» по маршруту
+   * и прыжок по прямой. Ядро с этим методом `getMovementRange` уже не зовёт —
+   * тот остаётся для старого приложения, и числа ходьбы у них общие
+   * (`resolveTurnSpeed`).
+   *
+   * @param entity - сущность токена
+   * @param ambientEffects - эффекты аур, накрывающих токен
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  getMovementModes(
+    entity: SceneEntity,
+    ambientEffects: readonly BaseActiveEffect[] = [],
+  ): MovementModes | null {
+    // Сущность без данных системы считать не по чему
+    if (!isDndSceneEntity(entity)) {
+      return null;
+    }
+
+    const stats = resolveActorStats(
       entity,
       collectDndAmbientEffects(ambientEffects),
     );
 
-    // Ход потрачен на действие под «одним из трёх» — запаса хода нет
-    if (isTurnMovementSpent(entity, activeFlags)) {
-      return { base: 0, extended: 0 };
-    }
+    const speed = resolveTurnSpeed(entity, stats);
 
-    const base =
-      movement.walk
-      || Math.max(
-        movement.fly || 0,
-        movement.swim || 0,
-        movement.climb || 0,
-        movement.burrow || 0,
-      );
-
-    if (base <= 0) {
-      return { base: 0, extended: 0 };
-    }
-
-    return { base, extended: base * 2 };
+    return buildMovementModes(speed, resolveJumpDistances(stats, speed));
   }
 
   /**

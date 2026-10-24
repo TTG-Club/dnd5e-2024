@@ -15,6 +15,7 @@ import type { TypedWebSocketClient } from '@vtt/shared';
 import type {
   DnDGameItem,
   ItemGrantSource,
+  RefSearchPack,
   StartingEquipmentItem,
 } from '@vtt/shared/system/dnd.js';
 
@@ -29,6 +30,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import { orderPacksPreferring } from './useCompendiumCatalog';
+import { describeCandidate, resolveRefForActor } from './usePackChoicePrompt';
 
 /** Слаг страницы записи компендиума; пусто — запись в индекс не попадает. */
 function entrySrcUrl(entry: unknown): string | undefined {
@@ -121,18 +123,117 @@ export function buildEquipmentItems(
   return items.map((item) => {
     const found = item.url ? index.get(item.url.toLowerCase()) : undefined;
 
-    if (!found) {
-      return fallbackItem(item);
-    }
-
-    return normalizeCompendiumItem({
-      ...found,
-      id: generateId('eq'),
-      quantity: startingEquipmentQuantity(item),
-      equipped: false,
-      isReadOnly: false,
-    });
+    return found ? itemFromEntry(found, item) : fallbackItem(item);
   });
+}
+
+/**
+ * Предметы компендиума по пакам: в каждом паке — первая запись со слагом (у
+ * раскрытых магических предметов слаг общий, и якорная запись идёт первой).
+ *
+ * @param socket - WebSocket-клиент
+ * @returns паки с предметами, у которых есть слаг страницы
+ */
+async function loadEquipmentPacks(
+  socket: TypedWebSocketClient,
+): Promise<RefSearchPack<DnDGameItem>[]> {
+  const byPack = new Map<
+    string,
+    RefSearchPack<DnDGameItem> & { seen: Set<string> }
+  >();
+
+  for (const kind of STARTING_EQUIPMENT_ITEM_KINDS) {
+    const packs = await loadCompendiumKindByPack(socket, kind);
+
+    for (const pack of packs) {
+      const target = byPack.get(pack.packId) ?? {
+        packId: pack.packId,
+        packName: pack.packName,
+        entries: [],
+        seen: new Set<string>(),
+      };
+
+      const entries: DnDGameItem[] = [...target.entries];
+
+      for (const entry of pack.entries) {
+        const srcUrl = entrySrcUrl(entry);
+
+        if (srcUrl && !target.seen.has(srcUrl) && isDnDGameItem(entry)) {
+          target.seen.add(srcUrl);
+          entries.push(entry);
+        }
+      }
+
+      byPack.set(pack.packId, { ...target, entries });
+    }
+  }
+
+  return [...byPack.values()].map(({ packId, packName, entries }) => ({
+    packId,
+    packName,
+    entries,
+  }));
+}
+
+/**
+ * Предмет инвентаря из записи компендиума для позиции снаряжения.
+ *
+ * @param found - запись предмета
+ * @param item - позиция снаряжения
+ */
+function itemFromEntry(
+  found: DnDGameItem,
+  item: StartingEquipmentItem,
+): DnDGameItem {
+  return normalizeCompendiumItem({
+    ...found,
+    id: generateId('eq'),
+    quantity: startingEquipmentQuantity(item),
+    equipped: false,
+    isReadOnly: false,
+  });
+}
+
+/**
+ * Разворачивает позиции для персонажа по правилу «свой пак → единственный
+ * другой → выбор игрока». Не нашлось нигде или окно закрыли — простой предмет
+ * по названию, как и раньше: строка снаряжения не должна пропасть.
+ *
+ * @param socket - WebSocket-клиент
+ * @param items - позиции снаряжения
+ * @param actor - персонаж и что выдаёт снаряжение
+ * @param actor.actorId - персонаж, которому выдаётся снаряжение
+ * @param actor.grantedByName - что выдаёт: подпись окна выбора
+ * @param ownPackId - пак записи класса или предыстории
+ */
+async function resolveEquipmentForActor(
+  socket: TypedWebSocketClient,
+  items: StartingEquipmentItem[],
+  actor: { actorId: string; grantedByName: string },
+  ownPackId: string | undefined,
+): Promise<DnDGameItem[]> {
+  const packs = await loadEquipmentPacks(socket);
+  const result: DnDGameItem[] = [];
+
+  for (const item of items) {
+    const url = item.url?.toLowerCase();
+
+    // Вопросы идут по одному: следующий ждёт ответа на предыдущий
+    const found = url
+      ? await resolveRefForActor(actor.actorId, {
+          packs,
+          key: url,
+          keyOf: entrySrcUrl,
+          ownPackId,
+          grantedBy: actor.grantedByName,
+          toOption: describeCandidate,
+        })
+      : undefined;
+
+    result.push(found ? itemFromEntry(found.entry, item) : fallbackItem(item));
+  }
+
+  return result;
 }
 
 /**
@@ -144,6 +245,10 @@ export function buildEquipmentItems(
  * @param grantedBy - кто выдаёт снаряжение: пометка ложится на каждый предмет,
  * и по ней удаление класса или предыстории предложит его забрать; пусто —
  * предметы остаются без пометки
+ * @param recipient - кому выдаётся: с ним копия предмета, лежащая в нескольких
+ * чужих компендиумах, выбирается игроком; без него — первая по порядку паков
+ * @param recipient.actorId - персонаж, которому выдаётся снаряжение
+ * @param recipient.grantedByName - что выдаёт: подпись окна выбора
  * @returns предметы, готовые лечь в `actor.equipment`
  */
 export async function resolveStartingEquipment(
@@ -151,15 +256,24 @@ export async function resolveStartingEquipment(
   items: StartingEquipmentItem[],
   preferredPackId?: string,
   grantedBy?: ItemGrantSource,
+  recipient?: { actorId: string; grantedByName: string },
 ): Promise<DnDGameItem[]> {
   if (items.length === 0) {
     return [];
   }
 
-  const granted = buildEquipmentItems(
-    await loadEquipmentIndex(socket, preferredPackId),
-    items,
-  );
+  const granted =
+    recipient && socket
+      ? await resolveEquipmentForActor(
+          socket,
+          items,
+          recipient,
+          preferredPackId,
+        )
+      : buildEquipmentItems(
+          await loadEquipmentIndex(socket, preferredPackId),
+          items,
+        );
 
   return grantedBy ? granted.map((item) => ({ ...item, grantedBy })) : granted;
 }

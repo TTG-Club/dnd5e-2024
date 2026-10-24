@@ -33,6 +33,8 @@
     CREATURE_SIZE_LABELS,
     getAlignmentLabel,
     isDndCreature,
+    readAutoRecharge,
+    readSneakAttackAutoAdd,
     resolveCreatureHitPointsByRules,
     resolveCreatureTokenScale,
     TOKEN_SCALE_TO_CREATURE_SIZE,
@@ -58,6 +60,7 @@
     TOKEN_VISION_ANGLE_PRESETS,
     TOKEN_VISION_ANGLE_STEP,
   } from '../actor/constants';
+  import TokenHpDisplayField from '../actor/TokenHpDisplayField.vue';
   import { readTokenVision } from '../actor/tokenVision';
   import { ENTITY_OWNERSHIP_CONFLICT_TOAST } from '../entity-ownership/constants';
   import EntityOwnersSelect from '../entity-ownership/EntityOwnersSelect.vue';
@@ -124,6 +127,10 @@
 
   const isSaving = ref(false);
   const autoSaves = ref(true);
+  /** Скрытая атака добавляется в окне атаки сама — настройка листа */
+  const sneakAttackAutoAdd = ref(true);
+  /** Бросок перезарядки в начале хода кидается сам — настройка листа */
+  const autoRecharge = ref(false);
   const isPublic = ref(false);
 
   const currentUser = computed(() => {
@@ -154,7 +161,8 @@
     tint: string;
     disposition: Disposition;
     showName: boolean;
-    hpDisplayMode: HpDisplayMode;
+    /** Вид ХП над токеном; не задан — берётся вид по умолчанию для мира */
+    hpDisplayMode: HpDisplayMode | undefined;
     /** Переключатель «Вращение»: стрелка и поворот при круговом обзоре */
     facingEnabled: boolean;
   }
@@ -170,7 +178,7 @@
     tint: TOKEN_TINT_DEFAULT,
     disposition: 'hostile',
     showName: false,
-    hpDisplayMode: 'text',
+    hpDisplayMode: undefined,
     facingEnabled: false,
   });
 
@@ -374,7 +382,7 @@
       || tokenSettings.value.showName
         !== (creature.value.token?.showName ?? false)
       || tokenSettings.value.hpDisplayMode
-        !== (creature.value.token?.hpDisplayMode ?? 'text')
+        !== creature.value.token?.hpDisplayMode
       || tokenSettings.value.facingEnabled
         !== (creature.value.token?.facingEnabled ?? false);
 
@@ -387,7 +395,9 @@
       || visionSettings.value.angle !== savedVision.angle;
 
     const autoSavesChanged =
-      autoSaves.value !== (creature.value.autoSaves ?? true);
+      autoSaves.value !== (creature.value.autoSaves ?? true)
+      || sneakAttackAutoAdd.value !== readSneakAttackAutoAdd(creature.value)
+      || autoRecharge.value !== readAutoRecharge(creature.value);
 
     const ownerChanged = isAdmin.value && ownersChanged.value;
     const publicChanged = isPublic.value !== (creature.value.isPublic || false);
@@ -484,7 +494,7 @@
         tint: creature.value.token?.tint || TOKEN_TINT_DEFAULT,
         disposition: creature.value.token?.disposition || 'hostile',
         showName: creature.value.token?.showName ?? false,
-        hpDisplayMode: creature.value.token?.hpDisplayMode ?? 'text',
+        hpDisplayMode: creature.value.token?.hpDisplayMode,
         facingEnabled: creature.value.token?.facingEnabled ?? false,
       };
 
@@ -501,6 +511,8 @@
         : createDefaultLightEmitter();
 
       autoSaves.value = creature.value.autoSaves ?? true;
+      sneakAttackAutoAdd.value = readSneakAttackAutoAdd(creature.value);
+      autoRecharge.value = readAutoRecharge(creature.value);
       resetOwnership();
       isPublic.value = creature.value.isPublic || false;
     }
@@ -553,7 +565,16 @@
         size:
           TOKEN_SCALE_TO_CREATURE_SIZE[tokenSettings.value.scale]
           ?? creature.value.system.size,
+        // «Добавлять сама» — по умолчанию: поле хранится только у отказа
+        sneakAttackAutoAdd: sneakAttackAutoAdd.value ? undefined : false,
+        // «Не автоматически» — по умолчанию: поле хранится только у согласия
+        autoRecharge: autoRecharge.value ? true : undefined,
       };
+
+      const systemChanged =
+        updatedSystem.size !== creature.value.system.size
+        || sneakAttackAutoAdd.value !== readSneakAttackAutoAdd(creature.value)
+        || autoRecharge.value !== readAutoRecharge(creature.value);
 
       const adjustedHitPoints =
         updatedSystem.size !== creature.value.system.size
@@ -566,7 +587,7 @@
 
       const updates: Partial<DnDCreature> = {
         token: updatedToken,
-        ...(updatedSystem.size !== creature.value.system.size
+        ...(systemChanged
           ? {
               system: {
                 ...updatedSystem,
@@ -640,30 +661,11 @@
     }
   });
 
-  /** Классы для кнопки режима отображения ХП */
-  const HP_MODE_ACTIVE_CLASS =
-    'border-primary/50 bg-primary/10 text-highlighted';
-
-  const HP_MODE_INACTIVE_CLASS =
-    'border-default/50 bg-elevated/20 text-toned hover:bg-elevated/40';
-
   /** Классы для кнопки размера токена */
   const TOKEN_SIZE_ACTIVE_CLASS = 'border-primary bg-primary/20 text-primary';
 
   const TOKEN_SIZE_INACTIVE_CLASS =
     'border-default/50 bg-elevated/30 text-muted hover:border-accented hover:text-toned';
-
-  const hpBarModeClass = computed(() =>
-    tokenSettings.value.hpDisplayMode === 'bar'
-      ? HP_MODE_ACTIVE_CLASS
-      : HP_MODE_INACTIVE_CLASS,
-  );
-
-  const hpTextModeClass = computed(() =>
-    tokenSettings.value.hpDisplayMode === 'text'
-      ? HP_MODE_ACTIVE_CLASS
-      : HP_MODE_INACTIVE_CLASS,
-  );
 
   function getTokenSizeClass(sizeValue: number): string {
     return tokenSettings.value.scale === sizeValue
@@ -768,6 +770,46 @@
                     :disabled="!(isAdmin || isOwner)"
                   />
                 </div>
+
+                <!-- Скрытая атака: включён ли переключатель в окне атаки -->
+                <div
+                  class="flex items-center justify-between rounded border border-default/50 bg-elevated/30 p-3"
+                >
+                  <div class="space-y-0.5">
+                    <label class="text-sm font-medium text-toned">
+                      {{ TOKEN_SETTINGS_LABELS.sneakAttackAutoAdd }}
+                    </label>
+
+                    <p class="text-xs text-dimmed">
+                      {{ TOKEN_SETTINGS_LABELS.sneakAttackAutoAddHint }}
+                    </p>
+                  </div>
+
+                  <USwitch
+                    v-model="sneakAttackAutoAdd"
+                    :disabled="!(isAdmin || isOwner)"
+                  />
+                </div>
+
+                <!-- Перезарядка: кидать к6 в начале хода самой, без окна -->
+                <div
+                  class="flex items-center justify-between rounded border border-default/50 bg-elevated/30 p-3"
+                >
+                  <div class="space-y-0.5">
+                    <label class="text-sm font-medium text-toned">
+                      {{ TOKEN_SETTINGS_LABELS.autoRecharge }}
+                    </label>
+
+                    <p class="text-xs text-dimmed">
+                      {{ TOKEN_SETTINGS_LABELS.autoRechargeHint }}
+                    </p>
+                  </div>
+
+                  <USwitch
+                    v-model="autoRecharge"
+                    :disabled="!(isAdmin || isOwner)"
+                  />
+                </div>
               </div>
 
               <!-- Направление взгляда: стрелка, поворот и автоповорот.
@@ -814,62 +856,10 @@
                 </div>
 
                 <!-- Отображение ХП -->
-                <div
-                  class="rounded border border-default/50 bg-elevated/30 p-3"
-                >
-                  <div class="mb-2 flex items-center gap-2">
-                    <UIcon
-                      name="tabler:heart"
-                      class="size-4 text-muted"
-                    />
-
-                    <label class="flex-1 text-sm font-medium text-toned">
-                      {{ TOKEN_SETTINGS_LABELS.hpDisplay }}
-                    </label>
-                  </div>
-
-                  <div class="grid grid-cols-2 gap-2">
-                    <button
-                      class="flex items-center gap-2 rounded border p-2 text-left text-sm transition-colors"
-                      :class="hpBarModeClass"
-                      :disabled="!(isAdmin || isOwner)"
-                      @click.left.exact.prevent="
-                        tokenSettings.hpDisplayMode = 'bar'
-                      "
-                    >
-                      <UIcon
-                        name="tabler:chart-bar"
-                        class="size-4 shrink-0"
-                      />
-
-                      <div>
-                        <div class="font-medium">
-                          {{ TOKEN_SETTINGS_LABELS.hpBar }}
-                        </div>
-                      </div>
-                    </button>
-
-                    <button
-                      class="flex items-center gap-2 rounded border p-2 text-left text-sm transition-colors"
-                      :class="hpTextModeClass"
-                      :disabled="!(isAdmin || isOwner)"
-                      @click.left.exact.prevent="
-                        tokenSettings.hpDisplayMode = 'text'
-                      "
-                    >
-                      <UIcon
-                        name="tabler:text-size"
-                        class="size-4 shrink-0"
-                      />
-
-                      <div>
-                        <div class="font-medium">
-                          {{ TOKEN_SETTINGS_LABELS.hpState }}
-                        </div>
-                      </div>
-                    </button>
-                  </div>
-                </div>
+                <TokenHpDisplayField
+                  v-model="tokenSettings.hpDisplayMode"
+                  :disabled="!(isAdmin || isOwner)"
+                />
               </div>
 
               <!-- Размер токена -->

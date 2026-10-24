@@ -24,6 +24,7 @@ import type {
 import type { ConditionKey, ConditionRef } from './conditionKeys.js';
 import type { WorldConditionDefinition } from './conditionRegistry.js';
 import type { ConditionEntry } from './consts.js';
+import type { EffectTrigger } from './effectTriggerTypes.js';
 
 import { generateId } from '@vtt/shared';
 
@@ -89,6 +90,17 @@ export interface ConditionEffectTemplate {
    * автор выхода не описал.
    */
   escape?: EffectEscape;
+  /**
+   * Снятие после броска атаки: «В засаде» кончается своей атакой. Правило
+   * состояния, как и выход из захвата: правка из мира его не отменяет.
+   */
+  consumeOn?: ActiveEffect['consumeOn'];
+  /**
+   * Срабатывания, которые состояние несёт само: «В засаде» снимается
+   * заклинанием с вербальным компонентом, «Застигнутый врасплох» — в начале
+   * своего хода. Правило состояния: правка из мира его не отменяет.
+   */
+  triggers?: readonly EffectTrigger[];
 }
 
 /**
@@ -106,6 +118,32 @@ const GRAPPLED_ESCAPE: EffectEscape = {
     askDc: true,
   },
 };
+
+/**
+ * Засада кончается заклинанием с вербальным компонентом (правила 2024,
+ * действие «Засада»). Своя атака снимает её полем `consumeOn`, «шум» и
+ * «нашли» — кнопками под сообщением о засаде.
+ */
+const HIDDEN_TRIGGERS: readonly EffectTrigger[] = [
+  {
+    id: 'hidden.verbalSpell',
+    event: 'spellCast',
+    condition: 'spell.verbal === true',
+    actions: [{ type: 'removeSelf' }],
+  },
+];
+
+/**
+ * «Застигнутый врасплох» нужен только броску инициативы: к первому ходу
+ * существа инициатива уже брошена, и состояние снимается само.
+ */
+const SURPRISED_TRIGGERS: readonly EffectTrigger[] = [
+  {
+    id: 'surprised.firstTurn',
+    event: 'turnStart',
+    actions: [{ type: 'removeSelf' }],
+  },
+];
 
 // ── Шаблоны Conditions ────────────────────────────────────────
 
@@ -165,6 +203,20 @@ export const CONDITION_EFFECT_TEMPLATES: Record<
     changes: [],
     flags: ['speed.zero'],
     escape: GRAPPLED_ESCAPE,
+  },
+
+  // Как «Невидимый», но без `vision.invisible`: ядро прячет от игроков фишку
+  // с этим флагом, а спрятавшегося союзники видят. Врагам фишку прячет
+  // ведущий, как обычно
+  hidden: {
+    changes: [],
+    flags: [
+      'attack.advantage',
+      'attacksAgainst.disadvantage',
+      'initiative.advantage',
+    ],
+    consumeOn: 'carrierAttack',
+    triggers: HIDDEN_TRIGGERS,
   },
 
   incapacitated: {
@@ -247,6 +299,12 @@ export const CONDITION_EFFECT_TEMPLATES: Record<
     // Скорость НЕ обнуляется: у Ошеломлённого 2024 нет пункта «не может
     // двигаться» (в отличие от Парализованного и Находящегося без сознания).
     flags: [...INCAPACITATED_FLAGS, ...HELPLESS_FLAGS],
+  },
+
+  surprised: {
+    changes: [],
+    flags: ['initiative.disadvantage'],
+    triggers: SURPRISED_TRIGGERS,
   },
 
   unconscious: {
@@ -412,6 +470,8 @@ export function listRuntimeConditions(): RuntimeCondition[] {
             hasLevels: canonTemplate.hasLevels,
             maxLevel: canonTemplate.maxLevel,
             escape: canonTemplate.escape,
+            consumeOn: canonTemplate.consumeOn,
+            triggers: canonTemplate.triggers,
           },
       isCanon: true,
       isOverridden: true,
@@ -836,6 +896,14 @@ export function buildConditionActiveEffect(
 
   if (template.escape) {
     effect.escape = template.escape;
+  }
+
+  if (template.consumeOn) {
+    effect.consumeOn = template.consumeOn;
+  }
+
+  if (template.triggers && template.triggers.length > 0) {
+    effect.triggers = template.triggers.map((trigger) => ({ ...trigger }));
   }
 
   return effect;

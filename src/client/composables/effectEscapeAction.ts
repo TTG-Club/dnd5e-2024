@@ -54,7 +54,6 @@ import {
   EFFECT_ESCAPE_LABELS,
   EFFECT_ESCAPE_MODAL_KEY_PREFIX,
   EFFECT_ESCAPE_PROMPT_MODAL,
-  EFFECT_QUESTION_PROMPT_MODAL,
 } from '../ui/effect/constants';
 import { EFFECT_ESCAPE_PROMPT_LABELS } from '../ui/effect/escapeLabels';
 import { recordEntityActionSpend } from './actionSpend';
@@ -63,6 +62,7 @@ import { isEntityOwnTurn } from './encounterTurn';
 import { changeEntityCombatState } from './entityCombatWrite';
 import { controlsEntityAsUser } from './gmApprovalRequest';
 import { refuseWhilePaused } from './pauseLock';
+import { chooseOne } from './questionChoice';
 import { refuseWhileSheetEditing } from './sheetEditLock';
 import { openSkillCheckModal } from './skillCheckRoll';
 import { resolveEntityStats } from './useResolvedStats';
@@ -213,52 +213,6 @@ export function listEscapeActors(
     : [];
 
   return [...self, ...helpers];
-}
-
-/**
- * Спрашивает одно из нескольких плашкой вопроса; единственный вариант берётся
- * сразу, без вопроса. Закрытая плашка — отказ: продолжения нет.
- *
- * @param question - о чём спрашивают
- * @param sourceName - чей вопрос
- * @param options - варианты с подписями
- * @param proceed - продолжение с выбранным вариантом
- */
-function chooseOne<Option>(
-  question: string,
-  sourceName: string,
-  options: ReadonlyArray<{ label: string; value: Option }>,
-  proceed: (value: Option) => void,
-): void {
-  const [only] = options;
-
-  if (!only) {
-    return;
-  }
-
-  if (options.length === 1) {
-    proceed(only.value);
-
-    return;
-  }
-
-  useModalManager().openModal(EFFECT_QUESTION_PROMPT_MODAL, {
-    allowMultiple: true,
-    question,
-    options: options.map((option, index) => ({
-      id: String(index),
-      label: option.label,
-    })),
-    sourceName,
-    onAnswer: (optionId: string) => {
-      const chosen = options[Number(optionId)];
-
-      if (chosen) {
-        proceed(chosen.value);
-      }
-    },
-    onCancel: () => {},
-  });
 }
 
 /**

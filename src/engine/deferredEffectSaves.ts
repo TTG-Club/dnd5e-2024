@@ -21,7 +21,6 @@ import type {
 } from './effectTriggerRunner.js';
 import type {
   EffectTrigger,
-  EffectTriggerAction,
   EffectTriggerChoice,
 } from './effectTriggerTypes.js';
 import type { TriggerEventData } from './triggerConditions.js';
@@ -77,7 +76,10 @@ import {
   listEffectListTriggers,
   turnTriggerEventOf,
 } from './effectTriggers.js';
-import { triggerAsksPermission } from './effectTriggerTypes.js';
+import {
+  SELF_EFFECT_ACTIONS,
+  triggerAsksPermission,
+} from './effectTriggerTypes.js';
 import { bindOwnEffectFormulas } from './ownEffectFormulas.js';
 import {
   formatTargetChoiceRequestTitle,
@@ -1007,12 +1009,6 @@ export const TARGET_CHOICE_CHAT_NOTES = {
   noCandidates: 'выбирать не из кого',
 } as const;
 
-/** Действия, которые всегда остаются эффекту субъекта, а не выбранным */
-const SUBJECT_ONLY_ACTIONS: readonly EffectTriggerAction['type'][] = [
-  'removeSelf',
-  'endCast',
-];
-
 /**
  * Срабатывание только с теми действиями, что достаются выбранным, — или
  * только с теми, что остаются субъекту.
@@ -1030,7 +1026,7 @@ function narrowChoiceSource(
     trigger: {
       ...source.trigger,
       actions: source.trigger.actions.filter(
-        (action) => SUBJECT_ONLY_ACTIONS.includes(action.type) === subjectOnly,
+        (action) => SELF_EFFECT_ACTIONS.has(action.type) === subjectOnly,
       ),
     },
   };

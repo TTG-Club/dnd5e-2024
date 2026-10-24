@@ -379,7 +379,7 @@ describe('каталог: цена ресурсом', () => {
 
     assert.match(
       authoredScenario(mutation, 'feature'),
-      /«mutation-points» становится круг потраченной ячейки \+ max\(1, мод\. Мудрости\)/,
+      /«mutation-points» становится круг потраченной ячейки \+ большее из \(1; мод\. Мудрости\)/,
     );
 
     const druid = hero({
@@ -431,7 +431,7 @@ describe('каталог: цена ресурсом', () => {
 
     assert.match(
       authoredScenario(hunt, 'feature'),
-      /хиты становятся 5 \* круг потраченной ячейки, цена: ячейка от 4 круга/,
+      /хиты становятся 5 × круг потраченной ячейки, цена: ячейка от 4 круга/,
     );
 
     const ranger = withHp(

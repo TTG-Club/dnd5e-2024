@@ -20,6 +20,7 @@ import type {
 import { describeEffectFlag } from './activeEffectDescribe.js';
 import { isEffectDormant } from './activeEffectTypes.js';
 import { listAttackRollModeFlags } from './attackUtils.js';
+import { HIDDEN_CONDITION_KEY } from './conditionKeys.js';
 import {
   collectIncomingAttackFlags,
   collectRollConditionFlags,
@@ -141,6 +142,41 @@ function describeAttackerFlagWithoutEffect(flag: string): string {
     : describeEffectFlag(flag);
 }
 
+/** Флаг невидимости: по нему сцена и не видит сторону */
+const INVISIBLE_FLAG = 'vision.invisible';
+
+/**
+ * Прячет ли эффект сторону от глаз: невидимость или засада. Засада флага
+ * невидимости не несёт — иначе ядро спрятало бы фишку от союзников, — но
+ * «не видит атакующего» при ней — та же причина, что «В засаде».
+ *
+ * @param effect - эффект стороны
+ * @param flags - его флаги в этом броске
+ * @returns `true`, если эффект прячет сторону
+ */
+function hidesSide(effect: ActiveEffect, flags: readonly string[]): boolean {
+  return (
+    flags.includes(INVISIBLE_FLAG)
+    || effect.conditionKey === HIDDEN_CONDITION_KEY
+  );
+}
+
+/**
+ * Объясняет ли невидимость или засада стороны режим уже эффектом: у стороны
+ * есть эффект-причина этого режима и эффект, который её прячет. Тогда строка
+ * «цель не видна» или «цель не видит атакующего» повторила бы его.
+ *
+ * @param effectReasonCount - сколько причин этой стороны дали эффекты
+ * @param entries - эффекты стороны: прячет ли каждый её
+ * @returns `true`, если строку о зрении показывать не нужно
+ */
+function explainsBySightFlag(
+  effectReasonCount: number,
+  entries: ReadonlyArray<{ hides: boolean }>,
+): boolean {
+  return effectReasonCount > 0 && entries.some((entry) => entry.hides);
+}
+
 /**
  * Причины одной стороны режима: преимущества или помехи.
  *
@@ -154,15 +190,17 @@ function listReasonsOfKind(
 ): string[] {
   const keys = listAttackRollModeFlags(kind, params.attackType);
 
-  const attackerEntries = params.attackerEffects.map((effect) => ({
-    name: effect.name,
-    flags: attackerEffectFlags(effect, params.rollContext),
-  }));
+  const attackerEntries = params.attackerEffects.map((effect) => {
+    const flags = attackerEffectFlags(effect, params.rollContext);
 
-  const targetEntries = params.targetEffects.map((effect) => ({
-    name: effect.name,
-    flags: targetEffectFlags(effect, params.incomingAttack),
-  }));
+    return { name: effect.name, flags, hides: hidesSide(effect, flags) };
+  });
+
+  const targetEntries = params.targetEffects.map((effect) => {
+    const flags = targetEffectFlags(effect, params.incomingAttack);
+
+    return { name: effect.name, flags, hides: hidesSide(effect, flags) };
+  });
 
   const fromAttacker = keys.attacker
     .filter((flag) => params.attackerFlags.has(flag))
@@ -186,11 +224,17 @@ function listReasonsOfKind(
       ? [REASON_LABELS.beyondNormalRange]
       : [];
 
+  // Невидимость стороны — уже названная причина («Невидимый»): сцена не
+  // видит её по той же невидимости, и вторая строка о том же только путала
   const fromSight = [
-    ...(kind === 'disadvantage' && params.isTargetUnseen === true
+    ...(kind === 'disadvantage'
+    && params.isTargetUnseen === true
+    && !explainsBySightFlag(fromTarget.length, targetEntries)
       ? [REASON_LABELS.targetUnseen]
       : []),
-    ...(kind === 'advantage' && params.isAttackerUnseen === true
+    ...(kind === 'advantage'
+    && params.isAttackerUnseen === true
+    && !explainsBySightFlag(fromAttacker.length, attackerEntries)
       ? [REASON_LABELS.attackerUnseen]
       : []),
   ];

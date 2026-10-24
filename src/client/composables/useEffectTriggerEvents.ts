@@ -17,7 +17,9 @@ import {
   hasServerAttackRollTriggers,
   isDndSceneEntity,
   listHeldAttackEffects,
+  listSpellCastSources,
   runAttackRollTriggers,
+  runSpellCastTriggers,
   toTriggerAttackKinds,
 } from '@vtt/shared/system/dnd.js';
 
@@ -32,7 +34,8 @@ import { emitSystemClientEvent } from './systemClientEvents';
 import { useWorldEntities } from './useWorldEntities';
 
 /**
- * События срабатываний эффектов, которые происходят на клиенте: бросок атаки.
+ * События срабатываний эффектов, которые происходят на клиенте: бросок атаки
+ * и каст заклинания.
  *
  * Бросок атаки делает окно броска (`DiceRollModal`). Простые срабатывания («на
  * своей следующей атаке», «на следующей атаке по носителю» — снятие и
@@ -240,6 +243,7 @@ export function dispatchAttackRollTriggers(
  *   (серия снарядов: броски делает вызывающий уже после события)
  * @param critical - попадание критическое: урон срабатываний цели этой атаки
  *   удвоит кости
+ * @param sneakAttack - в урон вошли кости Скрытой атаки
  */
 export function reportAttackRoll(
   attackerId: string,
@@ -247,6 +251,7 @@ export function reportAttackRoll(
   rollMode: AttackRollMode,
   landed?: boolean,
   critical = false,
+  sneakAttack = false,
 ): void {
   const attacker = findDndWorldEntity(attackerId);
 
@@ -263,7 +268,56 @@ export function reportAttackRoll(
 
   if (needsServer) {
     emitSystemClientEvent(
-      buildAttackRollEvent(attackerId, targetIds, rollMode, landed, critical),
+      buildAttackRollEvent(
+        attackerId,
+        targetIds,
+        rollMode,
+        landed,
+        critical,
+        sneakAttack,
+      ),
     );
+  }
+}
+
+/**
+ * Носитель наложил заклинание: выполняет его срабатывания «накладывает
+ * заклинание» — засада кончается заклинанием с вербальным компонентом,
+ * «Невидимость» 2024 — любым. Зовётся в момент, когда каст состоялся (ход и
+ * ячейка потрачены), до спасбросков и урона.
+ *
+ * Сбой не срывает каст: эффект останется, а заклинание пройдёт.
+ *
+ * @param casterId - заклинатель
+ * @param verbal - у заклинания вербальный компонент, и заклинатель его не
+ *   опускает
+ */
+export function dispatchSpellCastTriggers(
+  casterId: string | undefined,
+  verbal: boolean,
+): void {
+  const caster = casterId ? findDndWorldEntity(casterId) : undefined;
+
+  // Слушать некому — снимок не шлётся вовсе
+  if (!caster || listSpellCastSources(caster).length === 0) {
+    return;
+  }
+
+  try {
+    changeEntityCombatState(caster.id, (current) => {
+      // Deep clone: shallow spread теряет вложенные Vue reactive-свойства
+      const updated = cloneEntityData(current);
+
+      const result = runSpellCastTriggers(updated, {
+        spell: { verbal },
+        inCombat: isEntityInCombat(caster.id),
+        activeTurnActorId: resolveActiveTurnActorId(),
+        combatRound: resolveCombatRound(),
+      });
+
+      return result.changed ? updated : null;
+    });
+  } catch (error) {
+    console.error(TRIGGER_EVENTS_LOG_PREFIX, error);
   }
 }

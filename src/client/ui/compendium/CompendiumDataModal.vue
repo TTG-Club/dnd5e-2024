@@ -2501,6 +2501,7 @@
                       flat
                       entity-type="feat"
                       :entry="toCardEntry(entry)"
+                      :pack-id="packIdOf(entry)"
                       show-copy
                       :show-edit="canAuthor"
                       :show-delete="canAuthor"

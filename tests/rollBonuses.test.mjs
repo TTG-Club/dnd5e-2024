@@ -286,6 +286,7 @@ it('actual save modal reports natural d20 and complete bonus without adding d4 t
     buildDamageChatBlock: () => ({ rows: [{ name: 'Урон' }] }),
     buildActionChatHeader: () => ({}),
     getNaturalD20Roll: engine.getNaturalD20Roll,
+    resolveCheckOutcomeBadge: () => undefined,
     diceRollerStore: {
       parseAndRoll: (formula) => {
         formulas.push(formula);

@@ -9,6 +9,7 @@
 import type {
   AbilityType,
   ArmorCalculation,
+  ChatBadge,
   ProficiencyLevel,
   SpellCastingTimeUnit,
   WeaponRangeType,
@@ -21,7 +22,11 @@ import type {
   CarriedEffectSourceKind,
   CounterRecoveryChoice,
   CounterRestKey,
+  GmApprovalVerdict,
   HitDie,
+  HpDisplayMode,
+  PersonalityTextFieldKey,
+  RestType,
   SkillInfluenceTone,
   SpellCastRollKind,
 } from '@vtt/shared/system/dnd.js';
@@ -40,6 +45,7 @@ import {
   HIT_DICE_FORMULA_LETTER,
   HIT_DIE_OPTIONS,
   SAVING_THROW_REQUEST_TITLE_PARTS,
+  SNEAK_ATTACK_LABEL,
 } from '@vtt/shared/system/dnd.js';
 
 // Реэкспорт из единого shared-источника (производные от ABILITY_OPTIONS и SKILLS_LIST)
@@ -243,9 +249,12 @@ export const HEADER_ROUND_BUTTON_CLASS =
 /**
  * Та же строка на листе персонажа: там она стоит порознь с соседями, и без
  * плашки её не отличить от фона.
+ *
+ * Цвет общий с карточками ядра (записи журнала, группы звуков, актёры):
+ * плашка `bg-elevated/40`, под курсором `bg-elevated/70`.
  */
 export const LIST_ROW_CARD_CLASS =
-  'rounded-lg bg-elevated/30 px-3 hover:bg-accented/40';
+  'rounded-lg bg-elevated/40 px-3 hover:bg-elevated/70';
 
 /**
  * Строка черты на листе персонажа: выше и темнее остальных — с ней там работают
@@ -259,7 +268,7 @@ export const LIST_ROW_SHEET_FEAT_CLASS =
  * остальных, и рамка отделяет наведённую от соседних.
  */
 export const LIST_ROW_CARD_BORDERED_CLASS =
-  'rounded-lg border border-transparent bg-elevated/30 px-3 hover:border-default/50 hover:bg-accented/40';
+  'rounded-lg border border-transparent bg-elevated/40 px-3 hover:border-default/50 hover:bg-elevated/70';
 
 /**
  * Колонка в начале строки списка — флажок окна выбора или стрелка подвидов.
@@ -2255,6 +2264,72 @@ export const REST_LABELS = {
 } as const;
 
 /**
+ * Короткие подписи кнопок отдыха всей группы в меню часов ведущего: кнопки
+ * стоят в одну строку под заголовком «Отдых всей группы»
+ */
+export const REST_SHORT_LABELS = {
+  short: 'Короткий',
+  long: 'Продолжительный',
+} as const;
+
+/** Виды отдыха по порядку: короткий, продолжительный */
+export const REST_TYPES: readonly RestType[] = ['short', 'long'];
+
+/**
+ * Сколько игровых часов длится отдых: на столько отдых всей группы переводит
+ * часы мира
+ */
+export const REST_DURATION_HOURS: Record<RestType, number> = {
+  short: 1,
+  long: 8,
+};
+
+/**
+ * Значки отдыха — одни на всё: кнопки шапки листа, меню часов ведущего,
+ * счётчики «восстанавливается после отдыха»
+ */
+export const REST_ICONS: Record<RestType, string> = {
+  short: 'tabler:campfire',
+  long: 'tabler:moon',
+};
+
+/** Вопрос ведущему: «Игрок 1 (Плут) просит продолжительный отдых.» */
+export const REST_APPROVAL_QUESTION = 'просит';
+
+/** Что случится по разрешению отдыха: пояснение в карточке вопроса ведущему */
+export const REST_APPROVAL_DETAILS = 'Игровые часы при этом не сдвинутся.';
+
+/** Уведомления, когда ведущий отдых не разрешил */
+export const REST_REFUSAL_TOASTS: Record<
+  Exclude<GmApprovalVerdict, 'approved'>,
+  { title: string; description: string }
+> = {
+  denied: {
+    title: 'Ведущий не разрешил отдых',
+    description: 'Отдых не начался.',
+  },
+  noGameMaster: {
+    title: 'Ведущего нет в сети',
+    description: 'Отдохнуть можно, когда ведущий будет за столом.',
+  },
+  unanswered: {
+    title: 'Ведущий не ответил',
+    description: 'Отдых не начался — попросите ещё раз.',
+  },
+};
+
+/**
+ * Части подписи просящего в вопросе ведущему: «Игрок 1 (Плут)» — имя игрока
+ * и, в скобках, за кого он просит
+ */
+export const GM_APPROVAL_REQUESTER_PARTS = {
+  /** Перед именем персонажа */
+  characterPrefix: ' (',
+  /** После имени персонажа */
+  characterSuffix: ')',
+} as const;
+
+/**
  * Минимальный поворот изображения токена в градусах.
  *
  * Ноль означает «как нарисовано»: поворот текстуры общий для всей сущности и
@@ -2336,11 +2411,20 @@ export const TOKEN_SETTINGS_LABELS = {
   visibleToAll: 'Виден всем',
   autoSaves: 'Авто-спасброски',
   autoSavesHint: 'Спасброски при заклинаниях кидаются автоматически.',
+  sneakAttackAutoAdd: 'Скрытая атака: добавлять сама',
+  sneakAttackAutoAddHint:
+    'В окне атаки переключатель «Скрытая атака» включён сразу. Выключено — '
+    + 'включайте его сами, когда хотите её нанести.',
+  autoRecharge: 'Авто-перезарядка',
+  autoRechargeHint:
+    'к6 в начале хода бросается сам, виден мастеру и бросившему. Выключено — '
+    + 'придёт запрос.',
   showName: 'Показывать имя',
   showNameHint:
     'По умолчанию имя токена скрыто и отображается только при включении этой '
     + 'опции.',
   hpDisplay: 'Отображение ХП',
+  hpWorld: 'Как в мире',
   hpBar: 'Полоска',
   hpState: 'Состояние',
   tokenSize: 'Размер токена',
@@ -2395,6 +2479,29 @@ export const TOKEN_SETTINGS_LABELS = {
   hintNoDarkvision:
     'Без тёмного зрения в ночи токен видит только освещённые области',
 } as const;
+
+/** Вариант выбора вида ХП над токеном в настройках токена */
+export interface TokenHpDisplayOption {
+  /** Вид ХП; `undefined` — свой не выбран, токен показывает ХП как в мире */
+  mode: HpDisplayMode | undefined;
+  label: string;
+  icon: string;
+}
+
+/** Варианты вида ХП над токеном — одни и те же у персонажа и существа */
+export const TOKEN_HP_DISPLAY_OPTIONS: readonly TokenHpDisplayOption[] = [
+  {
+    mode: undefined,
+    label: TOKEN_SETTINGS_LABELS.hpWorld,
+    icon: 'tabler:world',
+  },
+  { mode: 'bar', label: TOKEN_SETTINGS_LABELS.hpBar, icon: 'tabler:chart-bar' },
+  {
+    mode: 'text',
+    label: TOKEN_SETTINGS_LABELS.hpState,
+    icon: 'tabler:text-size',
+  },
+];
 
 /** Подписи окна настроек, свои у листа персонажа */
 export const ACTOR_SETTINGS_LABELS = {
@@ -2957,6 +3064,29 @@ export const CHOICE_PICKER_LABELS = {
   clear: 'Снять всё',
 } as const;
 
+/**
+ * Подписи окна «из какого компендиума взять»: запись ссылается на другую, своей
+ * копии в её компендиуме нет, а в мире таких копий несколько.
+ */
+export const PACK_CHOICE_LABELS = {
+  /** Заголовок: дальше — название записи */
+  titlePrefix: 'Из какого компендиума взять: ',
+  /** Подзаголовок: между приставкой и окончанием — что выдаёт запись */
+  subtitlePrefix: 'Выдаёт: ',
+  subtitleSuffix:
+    '. В её компендиуме такой записи нет, а в мире есть несколько копий.',
+  /** Уведомление о записях, которых нет ни в одном компендиуме мира */
+  missingTitle: 'Не найдено в компендиумах мира',
+  /** Разделитель «кто выдаёт: что» в строке уведомления */
+  missingSeparator: ': ',
+} as const;
+
+/** Сколько компендиумов выбирают в окне «откуда взять»: ровно один */
+export const PACK_CHOICE_PICK_COUNT = 1;
+
+/** С чего начинается окно «откуда взять»: ничего не отмечено */
+export const PACK_CHOICE_INITIAL_SELECTION: readonly string[] = [];
+
 /** Подписи окна выбора при взятии черты */
 export const FEAT_CHOICES_LABELS = {
   title: 'Выбор при взятии черты',
@@ -3184,7 +3314,45 @@ export const INITIATIVE_ROLL_LABELS = {
 export const ACTOR_TAB_LABELS = {
   notes: 'Заметки',
   notesEmpty: 'Нет заметок',
+  personality: 'Личность',
 } as const;
+
+/** Подписи вкладки «Личность» */
+export const PERSONALITY_TAB_LABELS = {
+  appearanceTitle: 'Приметы',
+  alignment: 'Мировоззрение',
+  alignmentPlaceholder: 'Выбери мировоззрение',
+  appearanceModalTitle: 'Приметы персонажа',
+  editAppearance: 'Изменить приметы',
+  editAppearanceTile: 'Изменить',
+  reset: 'Сбросить',
+  backgroundTitle: 'Предыстория',
+  backgroundHint: 'Меняется в шапке листа',
+  backgroundEmpty: 'Предыстория не выбрана — её выбирают в шапке листа',
+  backgroundFeat: 'Черта',
+  descriptionTitle: 'Подробное описание',
+  descriptionEmpty:
+    'Расскажите о персонаже: характер, привычки, прошлое, цели и связи.',
+  descriptionModalTitle: 'Подробное описание персонажа',
+  editDescription: 'Изменить подробное описание',
+  addDescription: 'Добавить описание',
+} as const;
+
+/** Значение незаполненной приметы */
+export const PERSONALITY_EMPTY_VALUE = '—';
+
+/** Подписи и подсказки примет вкладки «Личность» */
+export const PERSONALITY_TEXT_FIELD_LABELS: Record<
+  PersonalityTextFieldKey,
+  { label: string; placeholder: string }
+> = {
+  age: { label: 'Возраст', placeholder: '27 лет' },
+  height: { label: 'Рост', placeholder: '178 см' },
+  weight: { label: 'Вес', placeholder: '74 кг' },
+  eyes: { label: 'Цвет глаз', placeholder: 'Серо-зелёные' },
+  hair: { label: 'Цвет волос', placeholder: 'Русые' },
+  skin: { label: 'Кожа', placeholder: 'Смуглая' },
+};
 
 /**
  * Вкладка «Основное». Есть только у узкого листа (телефон, суженное окно): на
@@ -4488,8 +4656,8 @@ export const COUNTER_REST_FIELDS: Record<
   CounterRestKey,
   { label: string; icon: string }
 > = {
-  shortRest: { label: REST_LABELS.short, icon: 'tabler:campfire' },
-  longRest: { label: REST_LABELS.long, icon: 'tabler:sun' },
+  shortRest: { label: REST_LABELS.short, icon: REST_ICONS.short },
+  longRest: { label: REST_LABELS.long, icon: REST_ICONS.long },
 };
 
 /**
@@ -5295,13 +5463,89 @@ export const SPELL_DETAIL_LABELS = {
 /** Значок того, кто бросает, — над формулой окна броска */
 export const DICE_ROLL_ACTOR_ICON = 'tabler:user';
 
+/** Значки плашки Скрытой атаки в окне атаки */
+export const SNEAK_ATTACK_PANEL_ICONS = {
+  doubleSave: 'tabler:alert-triangle',
+  selected: 'tabler:check',
+  hint: 'tabler:info-circle-filled',
+} as const;
+
+/** Вид чипа приёма Хитрого удара: выбранный — залитый, с галочкой */
+export const SNEAK_ATTACK_OPTION_CHIP_STYLES = {
+  selected: {
+    icon: SNEAK_ATTACK_PANEL_ICONS.selected,
+    color: 'primary',
+    variant: 'solid',
+  },
+  idle: { icon: undefined, color: 'neutral', variant: 'soft' },
+  blocked: { icon: undefined, color: 'neutral', variant: 'ghost' },
+} as const;
+
 /**
  * Подписи окна броска кубиков. Окно одно у листов персонажа и существа, и
  * подписи в нём общие.
  */
 export const DICE_ROLL_LABELS = {
+  /**
+   * Отказ от броска по чужому запросу — иконка рядом с кнопкой броска.
+   * Крестик окна от запроса не отказывается: он только прячет окно, а вернуть
+   * его можно щелчком по карточке в центре запросов
+   */
+  declineRequest: 'Отказаться от броска',
+  /** Иконка кнопки отказа от броска по запросу */
+  declineRequestIcon: 'tabler:hand-off',
   /** Подпись цели, когда цель броска не выбрана */
   targetFallback: 'Цель',
+  /** Заголовок плашки Скрытой атаки в окне атаки; с ним сравнивается источник */
+  sneakAttack: SNEAK_ATTACK_LABEL,
+  /** Отметка плашки: кости идут к урону */
+  sneakAttackActive: 'активна',
+  /** Отметка плашки: в этом броске костей не будет */
+  sneakAttackInactive: 'не активна',
+  /** Отметка плашки: игрок отказался добавлять */
+  sneakAttackDeclinedBadge: 'не добавлена',
+  /** Перед костями: «+3к6 к урону при попадании» */
+  sneakAttackDamagePrefix: '+',
+  /** После костей: «+3к6 к урону при попадании» */
+  sneakAttackDamageSuffix: ' к урону при попадании',
+  /** Пояснение плашки, когда игрок отказался */
+  sneakAttackDeclinedText:
+    'Вы отказались: кости не пойдут к урону и не потратятся в этом ходу',
+  /** Пояснение плашки, когда лимит хода уже потрачен */
+  sneakAttackSpent: 'Уже нанесена в этом ходу',
+  /** Пояснение плашки, когда условие не выполнено */
+  sneakAttackUnavailableText:
+    'Условия не выполнены: нужно фехтовальное или дальнобойное оружие, '
+    + 'а ещё преимущество или союзник рядом с целью',
+  /** Подсказка к невыполненным условиям — оговорки правила */
+  sneakAttackUnavailableHint:
+    'Союзник рядом засчитывается, только если у атаки нет помехи. У существа '
+    + 'условия про оружие нет. Если преимущество у вас есть, нажмите «Преим.».',
+  /** Между названием приёма и его ценой: «Отравить −1к6» */
+  sneakAttackOptionCostPrefix: ' −',
+  /** Начало названия приёма, которое в плашке под заголовком лишнее */
+  cunningStrikeNamePrefix: 'Хитрый удар: ',
+  /** Причина под чипом: на приём нет использований */
+  sneakAttackOptionNoResource: 'нет использований',
+  /** Причина под чипом: эффект приёма на эту цель не ляжет («Повалить» Огромную) */
+  sneakAttackOptionTargetUnfit: 'не действует на эту цель',
+  /** Причина под чипом: костей Скрытой атаки не хватает на цену */
+  sneakAttackOptionNoDice: 'не хватает костей Скрытой атаки',
+  /** Причина в подсказке чипа: приёмов за удар уже выбрано сколько можно */
+  sneakAttackOptionLimit: 'приёмов за удар больше не взять',
+  /** Между причинами и описанием приёма в подсказке */
+  sneakAttackOptionReasonSeparator: ' — ',
+  /** «Смертельный удар»: «Спасбросок цели: Телосложение, Сл 17 — провал удвоит урон атаки» */
+  sneakAttackDoubleSavePrefix: 'Спасбросок цели: ',
+  sneakAttackDoubleSaveDc: ', Сл ',
+  sneakAttackDoubleSaveSuffix: ' — провал удвоит урон атаки',
+  /** Заголовок приёмов в плашке */
+  cunningStrikeTitle: 'Хитрый удар',
+  /** Заголовок, когда в списке только эффекты по выбору, без Хитрого удара */
+  sneakAttackOptionsTitle: 'Приёмы',
+  /** Счётчик приёмов: «выбрано 1 из 2» */
+  cunningStrikePickedPrefix: 'выбрано ',
+  cunningStrikePickedSeparator: ' из ',
   autoFail: 'Автоматический провал',
   autoFailHint:
     'Из-за наложенных состояний (например, Парализованный) этот спасбросок '
@@ -5344,6 +5588,16 @@ export const DICE_ROLL_LABELS = {
   outcomeSuccess: ' ✓ Успех',
   outcomeFail: ' ✗ Провал',
 } as const;
+
+/**
+ * Плашки исхода проверки и спасброска со Сл в карточке чата — как «Попадание»
+ * и «Промах» у атаки: ядро ставит плашку в строку итога броска
+ */
+export const CHECK_OUTCOME_BADGES = {
+  success: { label: 'Успех', accent: 'success' },
+  fail: { label: 'Провал', accent: 'error' },
+  autoFail: { label: 'Автопровал', accent: 'error' },
+} as const satisfies Record<string, ChatBadge>;
 
 /**
  * Значок и цвет строки «откуда режим броска»: преимущество — как кнопка
@@ -5975,6 +6229,9 @@ export const SCROLLABLE_DROPDOWN_UI = {
   viewport: 'overflow-y-auto',
 } as const;
 
+/** Значок остатка срока по игровым часам в строке списка эффектов */
+export const ACTIVE_EFFECT_TIME_LEFT_ICON = 'tabler:hourglass';
+
 /**
  * Значения нового активного эффекта. Это данные записи, а не подписи: они
  * уходят в сохранённый эффект. На них же ссылаются подсказки формы — там, где
@@ -6057,3 +6314,9 @@ export const WILLING_SAVE_TOTAL = 1;
  */
 export const WINDOW_TAB_CONTENT_CLASS =
   "overflow-y-auto in-[[role=dialog][style*='height:_auto']]:max-h-150";
+
+/**
+ * Приставка ключа действия окна броска: удары одного броска по всем целям
+ * несут один ключ (`DamageHit.actionId`)
+ */
+export const ROLL_ACTION_ID_PREFIX = 'roll-action';

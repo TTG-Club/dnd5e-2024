@@ -40,6 +40,10 @@ import type {
 
 import { isCreatureEntity, isRecord } from '@vtt/shared';
 
+import {
+  CREATURE_RECHARGE_KEYS,
+  normalizeCooldownTurns,
+} from './actionLimit.js';
 import { getTotalLevel } from './classTypes.js';
 import {
   ABILITY_KEYS,
@@ -1540,16 +1544,18 @@ export function normalizeActor(actor: BaseActor): void {
 }
 
 /**
- * Приводит тип дальности всех записей боевого блока существа к канону:
- * компендиум TTG Club может прислать «рукопашную или дальнобойную» и в
- * написании перечисления сайта (`MELEE_OR_RANGE`). Незнакомое значение не
- * трогается — см. `normalizeCreatureActionRangeType`.
+ * Приводит записи боевого блока существа к канону.
+ *
+ * - Тип дальности: компендиум TTG Club может прислать «рукопашную или
+ *   дальнобойную» и в написании перечисления сайта (`MELEE_OR_RANGE`).
+ *   Незнакомое значение не трогается — см. `normalizeCreatureActionRangeType`.
+ * - Перезарядка и «раз в N ходов»: по ним теперь закрывается кнопка, и
+ *   заглавное `D5` или «раз в 0 ходов» молча сломали бы действие. Негодное
+ *   значение убирается; заданы оба — остаётся перезарядка.
  *
  * @param system - `system` существа (мутабельная запись)
  */
-function normalizeCreatureActionRangeTypes(
-  system: Record<string, unknown>,
-): void {
+function normalizeCreatureActionFields(system: Record<string, unknown>): void {
   const legendary = isRecord(system.legendary) ? system.legendary : {};
   const lair = isRecord(system.lair) ? system.lair : {};
 
@@ -1568,10 +1574,40 @@ function normalizeCreatureActionRangeTypes(
     }
 
     for (const action of list) {
-      if (isRecord(action) && action.rangeType !== undefined) {
+      if (!isRecord(action)) {
+        continue;
+      }
+
+      if (action.rangeType !== undefined) {
         action.rangeType = normalizeCreatureActionRangeType(action.rangeType);
       }
+
+      normalizeCreatureActionLimitFields(action);
     }
+  }
+}
+
+/**
+ * Перезарядка и «раз в N ходов» записи статблока — к канону.
+ *
+ * @param action - запись статблока (мутабельная)
+ */
+function normalizeCreatureActionLimitFields(
+  action: Record<string, unknown>,
+): void {
+  if (action.recharge !== undefined) {
+    const recharge =
+      typeof action.recharge === 'string'
+        ? action.recharge.toLowerCase()
+        : undefined;
+
+    action.recharge = CREATURE_RECHARGE_KEYS.find((key) => key === recharge);
+  }
+
+  if (action.cooldownTurns !== undefined) {
+    action.cooldownTurns = action.recharge
+      ? undefined
+      : normalizeCooldownTurns(action.cooldownTurns);
   }
 }
 
@@ -1738,7 +1774,7 @@ export function normalizeCreature(creature: BaseCreature): void {
     system.customEnvironments = '';
   }
 
-  normalizeCreatureActionRangeTypes(system);
+  normalizeCreatureActionFields(system);
 
   // Записям боевого блока — `id`: без него частичная запись шлёт их списки
   // целиком
@@ -1822,21 +1858,18 @@ export function normalizeCreature(creature: BaseCreature): void {
     raw.spells = synced.spells;
   }
 
-  // Нормализация token: дефолты для существ — имя скрыто, ХП текстом
+  // Нормализация token: дефолты для существ — имя скрыто. Вид ХП не
+  // записывается: без своего выбора существо показывает ХП так, как задано
+  // для мира (настройка ядра «Состояния здоровья»)
   if (!creature.token) {
     creature.token = {
       frameUrl: 'assets/token-frames/0.png',
       showName: false,
-      hpDisplayMode: 'text',
       disposition: 'hostile',
     };
   } else {
     if (creature.token.showName === undefined) {
       creature.token.showName = false;
-    }
-
-    if (!creature.token.hpDisplayMode) {
-      creature.token.hpDisplayMode = 'text';
     }
 
     if (!creature.token.disposition) {

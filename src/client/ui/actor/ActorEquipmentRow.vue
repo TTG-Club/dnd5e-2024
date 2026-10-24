@@ -8,7 +8,10 @@
 
   import { computed } from 'vue';
 
-  import { isItemDepleted } from '@vtt/shared/system/dnd.js';
+  import {
+    isAwaitingAttunement,
+    isItemDepleted,
+  } from '@vtt/shared/system/dnd.js';
 
   import {
     EQUIPMENT_BADGE_HINTS,
@@ -78,9 +81,7 @@
    * не работают, и значок об этом предупреждает. У необязательной настройки
    * (`optional`) предупреждения нет — предмет работает и без неё.
    */
-  const isAttunementRequired = computed(
-    () => props.item.magicAttunement === 'required' && !props.item.isAttuned,
-  );
+  const isAttunementRequired = computed(() => isAwaitingAttunement(props.item));
 
   const isAttuned = computed(
     () =>

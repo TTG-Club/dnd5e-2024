@@ -87,6 +87,7 @@ import {
   OTHER_PARTY_TRIGGER_EVENTS,
   OWN_DEED_TRIGGER_EVENTS,
   PRESENCE_TRIGGER_EVENTS,
+  SPELL_CAST_TRIGGER_EVENTS,
   TURN_TRIGGER_EVENTS,
   WITNESS_TRIGGER_EVENTS,
 } from './effectTriggerTypes.js';
@@ -1051,6 +1052,8 @@ function resolveTriggerListLayout(place: {
     // действует и с которого что-то снимают
     ...(place.actsWithCarrier ? CONDITION_LOST_TRIGGER_EVENTS : []),
     ...(place.actsWithCarrier ? OWN_DEED_TRIGGER_EVENTS : []),
+    // «Накладывает заклинание» — тоже поступок живого носителя
+    ...(place.actsWithCarrier ? SPELL_CAST_TRIGGER_EVENTS : []),
     // «На глазах ранили союзника» — про носителя с фишкой: кого он видит,
     // знает только сцена
     ...(place.actsWithCarrier ? WITNESS_TRIGGER_EVENTS : []),
@@ -1089,6 +1092,11 @@ function resolveTriggerListLayout(place: {
       ...(place.canRemoveSelf
         ? (['endCast', 'removeSelf'] as const)
         : (['endCast'] as const)),
+      // Продлить можно только свой идущий срок: у включённого переключателя
+      // и у эффекта, лежащего на носителе
+      ...(place.switchesOn || place.canRemoveSelf
+        ? (['refreshDuration'] as const)
+        : []),
     ],
     triggerTurnOwners: place.hasSource
       ? EFFECT_TRIGGER_TURN_OWNERS

@@ -78,3 +78,31 @@ export function resolveTurnStamp(): string {
     ? `${encounter.round}:${encounter.currentTurnIndex}`
     : NO_COMBAT_TURN_STAMP;
 }
+
+/**
+ * Ходила ли сущность в идущем бою — для условия «цель ещё не ходила»
+ * («Ликвидация» Убийцы). Со второго раунда ходили все; в первом — те, чьё
+ * место в порядке инициативы уже наступило (идущий ход тоже считается).
+ * Ядро такого признака не даёт (пробел SDK): участник, добавленный в бой
+ * посреди раунда, считается по своему месту в порядке.
+ *
+ * @param entityId - сущность
+ * @returns ходила ли; вне боя или не участник — `undefined`
+ */
+export function hasEntityActedInCombat(entityId: string): boolean | undefined {
+  const encounter = useInitiativeStore().encounter;
+
+  if (!encounter || !isEntityInCombat(entityId)) {
+    return undefined;
+  }
+
+  if (encounter.round > 1) {
+    return true;
+  }
+
+  const index = encounter.entries.findIndex(
+    (entry) => entry.actorId === entityId,
+  );
+
+  return index <= encounter.currentTurnIndex;
+}

@@ -97,9 +97,9 @@ export async function loadHandler(relativePath, name, ports, macro = false) {
     .createPrinter()
     .printNode(typescript.EmitHint.Unspecified, handler, sourceFile);
 
-  const moduleSource = expression
-    ? `const execute = ${handlerSource};`
-    : handlerSource;
+  // Выражение — значением скрипта, без своего имени: объявление в общем
+  // контексте VM мешало загрузить в одни порты больше одного выражения
+  const moduleSource = expression ? `(${handlerSource});` : handlerSource;
 
   const compiled = typescript.transpileModule(moduleSource, {
     compilerOptions: { target: typescript.ScriptTarget.ES2022 },
@@ -124,6 +124,15 @@ export async function loadHandler(relativePath, name, ports, macro = false) {
   ports.requestDamageTypeChoiceFor ??= () => undefined;
   ports.runWithDamageTypeChoices ??= (source, proceed) => proceed(source);
   ports.applySourceDamageTypeChoices ??= (source) => source;
+
+  // Перезарядки и «раз в N ходов» у фикстур нет: ограничение действия и
+  // группы заклинаний проходное, отметка траты ничего не пишет
+  ports.findActionLimitBlock ??= () => null;
+  ports.findSpellGroupLimitBlock ??= () => null;
+  ports.resolveActionLimitTarget ??= () => undefined;
+  ports.resolveSpellGroupLimitTarget ??= () => undefined;
+
+  ports.spendLimitedTarget ??= () => {};
 
   // Сл спасброска у фикстур считается: проверка непосчитанной Сл проходная
   ports.findUnresolvedTargetSaveDc ??= () => null;
@@ -171,7 +180,7 @@ export async function loadHandler(relativePath, name, ports, macro = false) {
   }
 
   return runInNewContext(
-    `${compiled.outputText}\n${expression ? 'execute' : name}`,
+    expression ? compiled.outputText : `${compiled.outputText}\n${name}`,
     ports,
   );
 }

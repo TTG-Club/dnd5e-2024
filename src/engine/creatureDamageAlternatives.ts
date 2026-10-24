@@ -9,14 +9,17 @@
  * основной урон, а не прибавляется к нему.
  *
  * Условие варианта пишется в его формуле — состоянием (`@self.status.*`,
- * `@target.status.*`). Вариант с состоянием берётся САМ, когда все его
- * состояния есть, и выпадает, когда нет: частное главнее общего. Способ
+ * `@target.status.*`) или режимом броска (`@roll.advantage` — «если у атаки
+ * было преимущество», гоблины и химера MM 2024). Вариант с состоянием берётся
+ * САМ, когда все его состояния есть, и выпадает, когда нет: частное главнее
+ * общего. Вариант с режимом броска решает окно атаки — по итоговому режиму,
+ * и переизбрать его там же можно руками. Способ
  * `formula` — «по формуле» — как раз такой вариант; остальные способы — для
  * вариантов без состояний: спросить бросающего или бросить случай.
  *
- * Выбор делается до окна броска: окно получает уже выбранные части, и весь
- * дальнейший путь (бонусы эффектов, спасброски, защиты цели) о вариантах не
- * знает.
+ * Выбор делается до окна броска либо в нём (режим броска, «на выбор»): окно
+ * получает наборы частей, и весь дальнейший путь (бонусы эффектов,
+ * спасброски, защиты цели) о вариантах не знает.
  */
 
 import type { DamagePart } from '@vtt/shared';
@@ -96,6 +99,19 @@ export const DAMAGE_STATUS_PHRASE_PREFIXES: Record<
 const STATUS_PHRASE_JOINER = ' и ';
 
 /**
+ * Токен условия варианта «атака с преимуществом». Пишется в формулу любой
+ * части варианта, как состояния; бросать его роллеру нечего — он снимается
+ * вместе с выбором набора ({@link applyCreatureDamageOption}).
+ */
+export const ROLL_ADVANTAGE_TOKEN = '@roll.advantage';
+
+/** Токен {@link ROLL_ADVANTAGE_TOKEN} с пробелами перед ним — для вырезания */
+const ROLL_ADVANTAGE_TOKEN_STRIP_REGEX = /\s*@roll\.advantage\b/gi;
+
+/** Фраза условия «с преимуществом» в сводке и чате */
+const ROLL_ADVANTAGE_PHRASE = 'если атака с преимуществом';
+
+/**
  * Предел вариантов у одного действия. Статблоки 2024 года обходятся одним;
  * предел нужен против мусорных данных, а не против автора.
  */
@@ -142,6 +158,11 @@ export interface CreatureDamageOption {
   damageParts: DamagePart[];
   /** Вариант, из которого набор взят; нет — это основной урон действия */
   alternative?: CreatureDamageAlternative;
+  /**
+   * Набор берётся, когда атака идёт с преимуществом: окно выбирает его само по
+   * итоговому режиму броска
+   */
+  whenAdvantage?: true;
 }
 
 /**
@@ -239,6 +260,50 @@ export function listAlternativeStatuses(
 }
 
 /**
+ * Требует ли вариант преимущества на атаке (токен {@link ROLL_ADVANTAGE_TOKEN}
+ * в формуле какой-либо части).
+ *
+ * @param alternative - вариант урона
+ * @returns `true`, если вариант решает режим броска
+ */
+export function alternativeNeedsAdvantage(
+  alternative: Pick<CreatureDamageAlternative, 'damageParts'>,
+): boolean {
+  return alternative.damageParts.some((part) =>
+    part.formula.toLowerCase().includes(ROLL_ADVANTAGE_TOKEN),
+  );
+}
+
+/**
+ * Берётся ли вариант сам, без вопроса: по состояниям в формуле или по
+ * режиму броска.
+ *
+ * @param alternative - вариант урона
+ * @returns `true`, если условие варианта записано в формуле
+ */
+export function isAutomaticAlternative(
+  alternative: Pick<CreatureDamageAlternative, 'damageParts'>,
+): boolean {
+  return (
+    listAlternativeStatuses(alternative).length > 0
+    || alternativeNeedsAdvantage(alternative)
+  );
+}
+
+/**
+ * Снимает токен режима броска из формулы: роллер его не знает.
+ *
+ * @param formula - формула части
+ * @returns формула без токена
+ */
+function stripRollTokens(formula: string): string {
+  return formula
+    .replace(ROLL_ADVANTAGE_TOKEN_STRIP_REGEX, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+}
+
+/**
  * Части варианта для показа: без состояний в формуле. Состояния у варианта —
  * его условие: бросается он, только когда они все есть, так что в строке урона
  * они лишь повторили бы подпись условия.
@@ -251,7 +316,7 @@ export function readAlternativeShownParts(
 ): DamagePart[] {
   return alternative.damageParts.map((part) => ({
     ...part,
-    formula: stripStatusTokens(part.formula),
+    formula: stripStatusTokens(stripRollTokens(part.formula)),
   }));
 }
 
@@ -270,16 +335,21 @@ export function describeCreatureDamageCondition(
     ? listAlternativeStatuses({ damageParts: alternative.damageParts })
     : [];
 
-  if (statuses.length === 0) {
+  const needsAdvantage = alternative.damageParts
+    ? alternativeNeedsAdvantage({ damageParts: alternative.damageParts })
+    : false;
+
+  if (statuses.length === 0 && !needsAdvantage) {
     return CONDITION_PHRASES[alternative.condition];
   }
 
-  return statuses
-    .map(
+  return [
+    ...(needsAdvantage ? [ROLL_ADVANTAGE_PHRASE] : []),
+    ...statuses.map(
       (token) =>
         `${DAMAGE_STATUS_PHRASE_PREFIXES[token.side]}${readDamageStatusName(token.status)}`,
-    )
-    .join(STATUS_PHRASE_JOINER);
+    ),
+  ].join(STATUS_PHRASE_JOINER);
 }
 
 /**
@@ -307,7 +377,10 @@ function statusesMatch(
  *
  * Сначала варианты с состояниями в формуле — побеждает верхний, у которого все
  * состояния есть; остальные варианты с состояниями выпадают, как и «по
- * формуле» без состояний. Не сработал ни один — среди основного урона и
+ * формуле» без состояний. Варианты «с преимуществом» (`@roll.advantage`, и
+ * их состояния, если есть, выполнены) решает окно броска: выбор уходит туда
+ * вопросом, набор помечен {@link CreatureDamageOption.whenAdvantage}. Не
+ * сработал ни один — среди основного урона и
  * вариантов без состояний: есть «на выбор» —
  * спрашивают человека; только «случайно» — набор выпадает сам (основной и
  * «случайные» равны); иначе основной урон.
@@ -338,22 +411,48 @@ export function chooseCreatureActionDamage(
   const matched = alternatives.find((alternative) => {
     const statuses = listAlternativeStatuses(alternative);
 
-    return statuses.length > 0 && statusesMatch(statuses, context);
+    return (
+      statuses.length > 0
+      && !alternativeNeedsAdvantage(alternative)
+      && statusesMatch(statuses, context)
+    );
   });
 
   if (matched) {
     return { kind: 'resolved', option: toOption(matched), matched: true };
   }
 
+  // Преимущество известно только в окне: там набор и выберется
+  const byAdvantage = alternatives.filter(
+    (alternative) =>
+      alternativeNeedsAdvantage(alternative)
+      && statusesMatch(listAlternativeStatuses(alternative), context),
+  );
+
   // «По формуле» без состояний выбирать нечем: автор вариант не дописал
   const pickable = alternatives.filter(
     (alternative) =>
       alternative.condition !== FORMULA_CREATURE_DAMAGE_CONDITION
-      && listAlternativeStatuses(alternative).length === 0,
+      && !isAutomaticAlternative(alternative),
   );
 
-  if (pickable.some((alternative) => alternative.condition === 'ask')) {
-    return { kind: 'ask', options: [baseOption, ...pickable.map(toOption)] };
+  if (
+    byAdvantage.length > 0
+    || pickable.some((alternative) => alternative.condition === 'ask')
+  ) {
+    return {
+      kind: 'ask',
+      options: [
+        baseOption,
+        ...byAdvantage.map((alternative): CreatureDamageOption => ({
+          ...toOption(alternative),
+          whenAdvantage: true,
+        })),
+        ...pickable
+          .filter((alternative) => alternative.condition === 'ask')
+          .map(toOption),
+      ],
+    };
   }
 
   if (pickable.length === 0) {
@@ -383,9 +482,13 @@ export function applyCreatureDamageOption(
   action: CreatureAction,
   option: CreatureDamageOption,
 ): CreatureAction {
-  return {
-    ...action,
-    damageParts: option.damageParts,
-    damageAlternatives: undefined,
-  };
+  // Токен режима броска — условие выбора, роллеру он не нужен
+  const damageParts = alternativeNeedsAdvantage(option)
+    ? option.damageParts.map((part) => ({
+        ...part,
+        formula: stripRollTokens(part.formula),
+      }))
+    : option.damageParts;
+
+  return { ...action, damageParts, damageAlternatives: undefined };
 }

@@ -26,6 +26,10 @@ import type { DnDCreature, Spell, SpellUsesRecovery } from './dndEntities.js';
 
 import { generateId, isRecord } from '@vtt/shared';
 
+import {
+  CREATURE_RECHARGE_KEYS,
+  normalizeCooldownTurns,
+} from './actionLimit.js';
 import { isAbilityType } from './consts.js';
 import { withLiveSpellUses } from './spellLiveUses.js';
 
@@ -46,6 +50,7 @@ export type CreatureSpellUsageMode =
   | 'perRestEach'
   | 'perRestPool'
   | 'recharge'
+  | 'cooldown'
   | 'constant';
 
 /**
@@ -89,6 +94,8 @@ export interface CreatureSpellGroup {
   rest?: CreatureSpellRestKind;
   /** Условие перезарядки; только у режима перезарядки (подписью, как у действий) */
   recharge?: CreatureRecharge;
+  /** «Раз в N ходов» (2–20); только у режима `cooldown` — как у действий */
+  cooldownTurns?: number;
   /** Своя подпись группы вместо выведенной из режима */
   label?: string;
   /**
@@ -731,6 +738,7 @@ const RAW_USAGE_MODES: Record<string, CreatureSpellUsageMode> = {
   PER_REST_EACH: 'perRestEach',
   PER_REST_POOL: 'perRestPool',
   RECHARGE: 'recharge',
+  COOLDOWN: 'cooldown',
   CONSTANT: 'constant',
   atWill: 'atWill',
   perDayEach: 'perDayEach',
@@ -738,6 +746,7 @@ const RAW_USAGE_MODES: Record<string, CreatureSpellUsageMode> = {
   perRestEach: 'perRestEach',
   perRestPool: 'perRestPool',
   recharge: 'recharge',
+  cooldown: 'cooldown',
   constant: 'constant',
 };
 
@@ -750,16 +759,6 @@ const RAW_REST_KINDS: Record<string, CreatureSpellRestKind> = {
   shortRest: 'shortRest',
   longRest: 'longRest',
 };
-
-/** Условия перезарядки — те же ключи, что у действий существа */
-const RECHARGE_KEYS: readonly CreatureRecharge[] = [
-  'd3',
-  'd4',
-  'd5',
-  'd6',
-  'slr',
-  'lr',
-];
 
 /**
  * Целое число из «сырого» значения.
@@ -834,7 +833,8 @@ function readGroup(raw: unknown): CreatureSpellGroup | undefined {
     mode: RAW_USAGE_MODES[String(raw.mode)] ?? 'atWill',
     count: readNumber(raw.count),
     rest: RAW_REST_KINDS[String(raw.rest)],
-    recharge: RECHARGE_KEYS.find((key) => key === rawRecharge),
+    recharge: CREATURE_RECHARGE_KEYS.find((key) => key === rawRecharge),
+    cooldownTurns: normalizeCooldownTurns(raw.cooldownTurns),
     label: readText(raw.label),
     spells: rawSpells
       .map(readSpellRef)

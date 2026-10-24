@@ -24,6 +24,7 @@
   import type { ItemTransferResult } from '../../composables/useItemTransfer';
   import type { ActorSubclassBadgeEntry } from './ActorHeader.vue';
   import type { ProficiencyHoldings } from './class/classRollback';
+  import type { ClassResolver } from './class/sneakAttackMigration';
   import type { PickedDefinition } from './CompendiumPickerModal.vue';
   import type { MissingSheetSectionKey } from './constants';
   import type { AppliedFeatFeature } from './feat/featApply';
@@ -83,7 +84,9 @@
     subspeciesFitsPack,
   } from '@vtt/shared/system/dnd.js';
 
+  import { changeEntityCombatState } from '../../composables/entityCombatWrite';
   import { runRestWithTriggers } from '../../composables/restTriggerPrompt';
+  import { confirmRestWithGm } from '../../composables/restWorldTime';
   import {
     refuseWhileSheetEditing,
     useSheetEditLock,
@@ -95,6 +98,7 @@
     isItemTransferDrop,
     useItemTransfer,
   } from '../../composables/useItemTransfer';
+  import { usePackChoiceQueue } from '../../composables/usePackChoicePrompt';
   import { useSheetLayout } from '../../composables/useSheetLayout';
   import { useSheetMinimize } from '../../composables/useSheetMinimize';
   import {
@@ -113,12 +117,14 @@
     rollbackBackgroundProficiencies,
   } from './background/backgroundRollback';
   import BackgroundSetupWizard from './background/BackgroundSetupWizard.vue';
+  import ChoicePickerModal from './ChoicePickerModal.vue';
   import { isClassEffect } from './class/classEffects';
   import {
     diffProficiencyHoldings,
     rollbackClassProficiencies,
   } from './class/classRollback';
   import ClassSetupWizard from './class/ClassSetupWizard.vue';
+  import { buildSneakAttackMigration } from './class/sneakAttackMigration';
   import CompendiumPickerModal from './CompendiumPickerModal.vue';
   import {
     ACTOR_SHEET_LABELS,
@@ -137,6 +143,8 @@
     GAME_FEATURE_MIME,
     GAME_ITEM_MIME,
     MODAL_BUTTON_LABELS,
+    PACK_CHOICE_INITIAL_SELECTION,
+    PACK_CHOICE_PICK_COUNT,
     REST_LABELS,
     SHEET_FRAME_CLASSES,
     SHEET_SUMMARY_COMPACT_CLASSES,
@@ -281,6 +289,15 @@
    * поле не пусто.
    */
   const pendingSubspeciesChoice = ref<PendingSubspeciesChoice | null>(null);
+
+  /**
+   * Вопросы «из какого компендиума взять запись» для этого персонажа: мастера и
+   * выдачи черт спрашивают через общую очередь, лист показывает по одному.
+   */
+  const {
+    currentQuestion: packChoiceQuestion,
+    answerCurrent: answerPackChoice,
+  } = usePackChoiceQueue(computed(() => localActor.value?.id));
 
   // Модалка мастера предыстории
   const isBackgroundWizardOpen = ref(false);
@@ -606,6 +623,53 @@
   });
 
   /**
+   * Определение класса записи актора из каталога: ключ и пак записи.
+   *
+   * @param entry - запись класса актора
+   * @param entry.classKey - ключ класса
+   * @param entry.packId - пак, из которого класс взят
+   * @returns определение класса либо `undefined`
+   */
+  const resolveClassEntry: ClassResolver = (entry) =>
+    classCatalog.resolve({ key: entry.classKey, packId: entry.packId });
+
+  /**
+   * Старая кнопка Скрытой атаки на листе заменяется новой строкой из
+   * определения класса — при открытии листа, тем, кто вправе его менять.
+   * Эффекты пишет боевой канал: запись листа их не трогает. Повтор безвреден:
+   * после замены менять уже нечего.
+   */
+  const pendingSneakAttackMigration = computed(() => {
+    const actor = storeActor.value;
+
+    if (!actor || !canEdit.value) {
+      return undefined;
+    }
+
+    return buildSneakAttackMigration(actor, resolveClassEntry);
+  });
+
+  watch(
+    pendingSneakAttackMigration,
+    (migrated) => {
+      if (!migrated) {
+        return;
+      }
+
+      changeEntityCombatState(props.actorId, (current) => {
+        if (!isDndActor(current)) {
+          return null;
+        }
+
+        const effects = buildSneakAttackMigration(current, resolveClassEntry);
+
+        return effects ? { ...current, activeEffects: effects } : null;
+      });
+    },
+    { immediate: true },
+  );
+
+  /**
    * Выбранные подклассы для значка в шапке. На записи актора лежит только
    * ключ подкласса, название берётся из определения класса. Подкласс, которого
    * в каталоге нет (каталог ещё грузится или запись удалили), не показывается:
@@ -836,11 +900,27 @@
   /**
    * Применяет отдых к актёру. Оба типа отдыха открывают модалку: короткий —
    * для траты костей хитов, долгий — для предпросмотра восстановления.
+   * Игрок сперва просит разрешения у ведущего (`confirmRestWithGm`).
    * @param restType - тип отдыха
    */
-  function handleRest(restType: RestType): void {
+  async function handleRest(restType: RestType): Promise<void> {
     // Отдых в режиме правки ждёт «Сохранить» или отмены, как и действия
     if (refuseWhileSheetEditing(localActor.value?.id)) {
+      return;
+    }
+
+    const actorId = localActor.value?.id;
+
+    if (
+      !localActor.value
+      || !(await confirmRestWithGm(localActor.value, restType))
+    ) {
+      return;
+    }
+
+    // Пока ведущий думал, лист могли сменить на другого персонажа или
+    // перевести в режим правки — тогда разрешённый отдых не начинается
+    if (localActor.value.id !== actorId || refuseWhileSheetEditing(actorId)) {
       return;
     }
 
@@ -1263,6 +1343,9 @@
       isRecord(value)
       && typeof value.name === 'string'
       && typeof value.description === 'string'
+      // Пак черты приезжает с перетаскиванием из компендиума: чужая строка
+      // вместо него ушла бы на лист и сломала поиск выдаваемых записей
+      && (value.packId === undefined || typeof value.packId === 'string')
     );
   }
 
@@ -1486,6 +1569,26 @@
 
     if (pending) {
       proceedSpeciesSetup(pending.species, pending.packId, subspecies.key);
+    }
+  }
+
+  /**
+   * Игрок выбрал компендиум в окне «откуда взять».
+   *
+   * @param values - выбранное: один id компендиума
+   */
+  function handlePackChoiceApply(values: string[]) {
+    answerPackChoice(values[0] ?? null);
+  }
+
+  /**
+   * Окно «откуда взять» закрыли без выбора — запись не выдаётся.
+   *
+   * @param isOpen - новое состояние окна
+   */
+  function handlePackChoiceOpen(isOpen: boolean) {
+    if (!isOpen) {
+      answerPackChoice(null);
     }
   }
 
@@ -3030,6 +3133,7 @@
                   :is-equipment-drag-over="isEquipmentDragOver"
                   :is-feature-drag-over="isFeatureDragOver"
                   :has-main-tab="!isWide"
+                  :can-edit="canEdit"
                   class="flex-1"
                   @update:actor="handleActorUpdate"
                   @immediate-save="handleImmediateSave"
@@ -3176,6 +3280,20 @@
     :pack-id="pendingSubspeciesChoice.packId"
     @update:open="handleSubspeciesChoiceOpen"
     @choose="handleSubspeciesChoice"
+  />
+
+  <!-- Запись есть в нескольких компендиумах мира: откуда взять -->
+  <ChoicePickerModal
+    v-if="packChoiceQuestion"
+    :key="packChoiceQuestion.id"
+    :open="true"
+    :title="packChoiceQuestion.title"
+    :subtitle="packChoiceQuestion.subtitle"
+    :options="packChoiceQuestion.options"
+    :selected="PACK_CHOICE_INITIAL_SELECTION"
+    :max="PACK_CHOICE_PICK_COUNT"
+    @apply="handlePackChoiceApply"
+    @update:open="handlePackChoiceOpen"
   />
 
   <!-- Мастер настройки предыстории -->

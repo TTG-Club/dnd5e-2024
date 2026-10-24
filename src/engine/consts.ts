@@ -24,11 +24,30 @@ import type {
 import type { CreatureSize } from './types.js';
 
 import { DEFAULT_CARRYING_CAPACITY } from './carryingCapacity.js';
-import { BLOODIED_AUTO_APPLY, DEATH_CONDITION_KEY } from './conditionKeys.js';
+import {
+  BLOODIED_AUTO_APPLY,
+  DEATH_CONDITION_KEY,
+  HIDDEN_CONDITION_ICON,
+  HIDDEN_CONDITION_KEY,
+  SURPRISED_CONDITION_KEY,
+} from './conditionKeys.js';
 import { DEFAULT_PREPARED_LIMIT } from './preparedSpells.js';
 
 /** Общий предел бонусных костей одной d20-проверки; соответствует пределу группы клиентского роллера. */
 export const MAX_ROLL_BONUS_DICE = 1_000;
+
+/**
+ * Сколько игровых секунд длится раунд боя D&D 5e. Им же система отвечает ядру
+ * (`VttSystem.secondsPerRound`): каждый новый раунд двигает игровые часы мира.
+ */
+export const DND_SECONDS_PER_ROUND = 6;
+
+/** Формы слова «раунд» для склонения по числу: один, два, пять */
+export const ROUND_PLURAL_FORMS: [string, string, string] = [
+  'раунд',
+  'раунда',
+  'раундов',
+];
 
 /** Ограничивает грани бонусной кости и сохраняет безопасную целую сумму при максимальном числе костей. */
 export const MAX_ROLL_BONUS_DIE_SIDES = 1_000_000;
@@ -97,6 +116,18 @@ export const BASE_UNARMORED_AC = 10;
 
 /** Базовое слагаемое Сл спасброска от заклинаний (8 + мастерство + мод.) */
 export const SPELL_SAVE_DC_BASE = 8;
+
+/** Слагаемое высоты прыжка с разбегом (D&D 2024: 3 + модификатор Силы), фт */
+export const HIGH_JUMP_BASE_FEET = 3;
+
+/** Разбег, без которого прыжок считается прыжком с места (D&D 2024), фт */
+export const JUMP_RUN_UP_FEET = 10;
+
+/**
+ * Какую долю длины прыжка может быть высотой препятствие, чтобы его
+ * перепрыгнуть (D&D 2024, «Прыжок в длину»: не выше четверти)
+ */
+export const JUMP_OBSTACLE_RATIO = 0.25;
 
 // ============================================================
 // Характеристики (Abilities)
@@ -883,6 +914,14 @@ export const CONDITIONS: readonly ConditionEntry[] = [
       'Скорость равна 0. Помеха на броски атаки по любой цели, кроме схватившего. Схвативший может тащить существо за собой.',
   },
   {
+    key: HIDDEN_CONDITION_KEY,
+    nameRu: 'В засаде',
+    nameEn: 'Hidden',
+    icon: HIDDEN_CONDITION_ICON,
+    description:
+      'Итог действия «Засада»: преимущество на инициативу, ваши атаки — с преимуществом, атаки против вас — с помехой. Кончается, когда вы атакуете, накладываете заклинание с вербальным компонентом, издаёте звук громче шёпота или враг находит вас проверкой Мудрости (Внимательность) против Сл поиска.',
+  },
+  {
     key: 'incapacitated',
     nameRu: 'Недееспособный',
     nameEn: 'Incapacitated',
@@ -950,6 +989,14 @@ export const CONDITIONS: readonly ConditionEntry[] = [
     customImage: '/assets/status/stunned.svg',
     description:
       'Недееспособен. Автопровал спасбросков СИЛ и ЛОВ. Атаки по вам с преимуществом.',
+  },
+  {
+    key: SURPRISED_CONDITION_KEY,
+    nameRu: 'Застигнутый врасплох',
+    nameEn: 'Surprised',
+    icon: 'tabler:mood-surprised',
+    description:
+      'Начало боя для вас — неожиданность: помеха на бросок инициативы. Снимается в начале вашего первого хода.',
   },
   {
     key: 'unconscious',
@@ -1450,7 +1497,6 @@ export const DEFAULT_CREATURE: Omit<
   token: {
     frameUrl: 'assets/token-frames/0.png',
     showName: false,
-    hpDisplayMode: 'text',
     disposition: 'hostile',
   },
   activeEffects: [],
@@ -1580,3 +1626,6 @@ export const HIT_DICE_FORMULA_LETTER = 'к';
  * бросить) и проверяют условие «метательным оружием».
  */
 export const THROWN_WEAPON_PROPERTY: WeaponProperty = 'thrown';
+
+/** Свойство оружия «Фехтовальное»: по нему работает условие Скрытой атаки */
+export const FINESSE_WEAPON_PROPERTY: WeaponProperty = 'finesse';

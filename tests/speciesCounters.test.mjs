@@ -23,6 +23,8 @@ const { build } = require('esbuild');
  * своим адресом: подставляет его правило резолва ниже.
  */
 const SPELL_COMPENDIUM_STUB = 'stub:spellCompendium';
+/** Выдача заклинаний листу: окно выбора компендиума этим проверкам не нужно. */
+const SPELL_GRANTS_STUB = 'stub:grantedSpellPacks';
 
 const HOST_STUBS = {
   '@/core/entityUtils':
@@ -31,6 +33,8 @@ const HOST_STUBS = {
     'export const useItemsStore = () => ({ itemsByType: () => [] });',
   [SPELL_COMPENDIUM_STUB]:
     'export const extractWorldSpells = () => []; export const loadSpellPacks = async () => ({ packs: [] });',
+  [SPELL_GRANTS_STUB]:
+    'export const resolveSpellGrantsForActor = async () => [];',
   '@/core/mimeTypes':
     "export const GAME_ITEM_TRANSFER_MIME = 'application/x-vttg-test';",
 };
@@ -64,6 +68,16 @@ const bundle = await build({
           path: SPELL_COMPENDIUM_STUB,
           namespace: 'host-api',
         }));
+
+        // Выдача заклинаний листу — тоже наш модуль, но тянет окно выбора
+        // компендиума и уведомления хоста: ресурсам вида они не нужны.
+        builder.onResolve(
+          { filter: /composables\/grantedSpellPacks$/ },
+          () => ({
+            path: SPELL_GRANTS_STUB,
+            namespace: 'host-api',
+          }),
+        );
 
         builder.onLoad({ filter: /.*/, namespace: 'host-api' }, (request) => {
           if (!(request.path in HOST_STUBS)) {

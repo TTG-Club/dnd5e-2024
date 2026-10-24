@@ -33,6 +33,10 @@ import {
   EFFECT_ACTION_COST_LABELS,
   EFFECT_ACTIVATION_COSTS,
   EFFECT_USE_AREA_SHAPES,
+  SNEAK_ATTACK_CUNNING_STRIKE_COUNT_KEY,
+  SNEAK_ATTACK_CUNNING_STRIKE_KEY,
+  SNEAK_ATTACK_MIN_DIE_KEY,
+  SNEAK_ATTACK_RIDER_KEY,
   SUBTRACT_MODE_CHOICE,
 } from '@vtt/shared/system/dnd.js';
 
@@ -613,12 +617,41 @@ export const EFFECT_CHANGE_ROW_LABELS = {
     + 'урона: «2к6», тип — «2к6@dmg.fire», только по цели с полным HP — '
     + '«2к6@dmg.fire@target.full», только по раненой — «@target.notFull».',
   rollDiceHint: 'Кость бросается заново при каждом броске.',
+  alternativesIgnoredWarning:
+    '«Или» в условии считается только в броске, а этот ключ — число листа: '
+    + 'строка не подействует нигде. Разбейте её на строки без «||».',
+  sneakAttackDamageHint:
+    'Кости Скрытой атаки: тип урона — как у оружия, раз в ход, в окне атаки '
+    + 'их можно не добавлять. Из нескольких источников берётся наибольший.',
+  sneakAttackDiceHint:
+    'Число костей, прибавляемых к Скрытой атаке, когда она идёт: «1» — +1к6.',
+  cunningStrikeHint:
+    'Цена приёма в костях Скрытой атаки: «1» — минус 1к6 до броска. Строка '
+    + 'ставится на кнопку «Применить» с эффектом на цель (спасбросок, '
+    + 'состояние); в окне атаки приём выбирают, когда идёт Скрытая атака. '
+    + 'Условие строки — когда приём доступен.',
+  cunningStrikeCountHint:
+    'Сколько приёмов Хитрого удара прибавить к одному за удар: «1» — два.',
+  sneakAttackRiderHint:
+    'Эффект кнопки по выбору при уроне Скрытой атаки, не приём Хитрого удара: '
+    + 'значение — цена в костях (обычно «0»), ресурс — счётчик кнопки.',
+  sneakAttackMinDieHint:
+    'Наименьшее значение кости Скрытой атаки: «3» — 1 и 2 считаются за 3.',
   diceNotRolledError:
     'Здесь кость никто не бросит: она работает только у атак, спасбросков, '
     + 'проверок, навыков и урона. Укажите число.',
   diceModeError:
     'Кость работает только в режимах «Добавить (+)» и «Вычесть (−)».',
 } as const;
+
+/** Пояснения к значениям строк Хитрого удара и прочих ключей Скрытой атаки */
+export const SNEAK_ATTACK_KEY_HINTS: Readonly<Record<string, string>> = {
+  [SNEAK_ATTACK_CUNNING_STRIKE_KEY]: EFFECT_CHANGE_ROW_LABELS.cunningStrikeHint,
+  [SNEAK_ATTACK_CUNNING_STRIKE_COUNT_KEY]:
+    EFFECT_CHANGE_ROW_LABELS.cunningStrikeCountHint,
+  [SNEAK_ATTACK_RIDER_KEY]: EFFECT_CHANGE_ROW_LABELS.sneakAttackRiderHint,
+  [SNEAK_ATTACK_MIN_DIE_KEY]: EFFECT_CHANGE_ROW_LABELS.sneakAttackMinDieHint,
+};
 
 /** Подписи режимов модификатора */
 export const EFFECT_CHANGE_MODE_OPTIONS: ReadonlyArray<{
@@ -656,14 +689,16 @@ export const EFFECT_DURATION_STEP_LABELS = {
     + '«1 + @mod.con» у умения.',
   formulaPlaceholder: 'Например, 1к4',
   permanentHint: 'Пока не снимут вручную.',
-  roundsHint: 'Отсчитывается в бою каждый раунд.',
+  roundsHint:
+    'Раунд — 6 игровых секунд: в бою срок идёт раундами, вне боя — по игровым '
+    + 'часам мира.',
   turnHint:
     'Спадает точно на ходу носителя или источника — «до конца следующего '
     + 'хода». Работает в бою.',
   specialHint: 'Особое условие: снимает мастер.',
   timeHint:
-    'В бою минуты и часы отсчитываются раундами (минута — 10); вне боя время '
-    + 'не идёт.',
+    'Срок идёт по игровым часам мира: вне боя — вместе с реальным временем '
+    + '(с коэффициентом мира), в бою — раундами по 6 секунд.',
 } as const;
 
 /** Подписи плашки неработающих настроек */
@@ -1210,6 +1245,46 @@ export const EFFECT_QUESTION_PROMPT_LABELS = {
   summaryPrefix: 'По согласию: ',
   /** Подсказка кнопки закрытия */
   cancel: 'Закрыть без ответа',
+} as const;
+
+/**
+ * Ответ на вопрос по чужому запросу — строкой в чат: «Разрешение:
+ * продолжительный отдых — Разрешить». Видят ответивший, просивший и мастер
+ * (`ChatSendOptions.audienceUserIds`, VTTG 0.9.745).
+ */
+export const REQUEST_ANSWER_CHAT = {
+  /** Подпись запроса, когда просивший не дал свою */
+  untitled: 'Запрос',
+  /** Между подписью запроса и ответом */
+  answerSeparator: ' — ',
+  /** Между именами выбранных целей */
+  namesSeparator: ', ',
+  /** Цель выбрать отказались */
+  noTargets: 'без цели',
+} as const;
+
+/**
+ * Карточки центра запросов ядра (VTTG 0.9.744): вопрос и выбор целей по ЧУЖОМУ
+ * запросу система не рисует сама, а отдаёт ядру данными через `reply.present`.
+ */
+export const REQUEST_CARD = {
+  /** Иконка вопроса: согласие ведущего, срабатывание, «провал в успех» */
+  questionIcon: 'tabler:help-circle',
+  /** Иконка выбора целей */
+  targetIcon: 'tabler:target',
+  /** Ключ кнопки подтверждения выбора целей */
+  confirmActionId: 'confirm',
+  /** Ключ кнопки добровольного отказа от выбора */
+  declineActionId: 'decline',
+  /** Подпись подтверждения выбора */
+  confirmLabel: 'Подтвердить',
+  /** Подпись добровольного отказа (выбор необязателен) */
+  declineLabel: EFFECT_TARGET_PROMPT_LABELS.decline,
+  /** Вопрос карточки выбора целей: «Выберите целей: до 2» */
+  targetTextPrefix: 'Выберите целей: до ',
+  /** Пояснение кандидата с хитами: «Хиты 7/12» */
+  hpHintPrefix: 'Хиты ',
+  hpHintJoiner: '/',
 } as const;
 
 /** Подписи раздела «Ступени» окна эффекта */

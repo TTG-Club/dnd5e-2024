@@ -71,8 +71,18 @@ export function bindOpenDiceRollWindow(useModalManager) {
  */
 export async function loadPerformRoll(ports) {
   ports.hasRolled ??= { value: false };
+  // Скрытая атака в этих бросках не участвует: окно без её порта
+  ports.attackRollMode ??= { value: 'normal' };
+  ports.isSneakAttackApplied ??= { value: false };
+  ports.pickedSneakAttackOptionIds ??= { value: [] };
 
-  for (const name of ['claimRoll', 'isRollAllowed']) {
+  for (const name of [
+    'claimRoll',
+    'isRollAllowed',
+    'readRollModeFlags',
+    'buildRollContext',
+    'buildLiveRollContext',
+  ]) {
     ports[name] = await loadHandler(DICE_ROLL_MODAL_PATH, name, ports);
   }
 

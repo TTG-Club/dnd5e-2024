@@ -27,7 +27,7 @@ import {
   EFFECT_USE_TARGET_LABELS,
   EFFECT_USE_TARGET_MODAL_KEY_PREFIX,
 } from '../ui/effect/constants';
-import { requestGmApproval } from './gmApprovalRequest';
+import { formatRequesterName, requestGmApproval } from './gmApprovalRequest';
 import { checkSpellRangeOnScene } from './useSceneRangeCheck';
 import { useWorldEntities } from './useWorldEntities';
 
@@ -85,7 +85,8 @@ function resolveTokenEntity(tokenId: string): DnDSceneEntity | undefined {
 }
 
 /**
- * Вопрос ведущему: кто, что, к кому и насколько дальше касания.
+ * Вопрос ведущему: кто просит (имя игрока и, в скобках, его персонаж —
+ * «Игрок 1 (Плут)»), что, к кому и насколько дальше касания.
  *
  * @param spell - псевдо-заклинание применения
  * @param user - кто применяет
@@ -101,7 +102,7 @@ function formatUseGmQuestion(
 ): string {
   const parts = EFFECT_USE_GM_QUESTION_PARTS;
   const rangeCheck = checkSpellRangeOnScene(spell, user.id, tokenId);
-  const request = `${user.name}${parts.wantsToApply}${spell.name}${parts.toTarget}${target.name}`;
+  const request = `${formatRequesterName(user.name)}${parts.wantsToApply}${spell.name}${parts.toTarget}${target.name}`;
 
   if (!rangeCheck) {
     return `${request}${parts.end}`;

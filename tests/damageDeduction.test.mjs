@@ -119,6 +119,7 @@ describe('вычет кости из урона', () => {
       doubleDiceInFormula: engine.doubleDiceInFormula,
       isDeductionFormula: engine.isDeductionFormula,
       toRollerFormula: engine.toRollerFormula,
+      raiseDiceToMinimum: engine.raiseDiceToMinimum,
       rollOnRollParts: { value: (parts) => applied.push(...parts) },
     };
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-  import type { DamageApplyResult, DamageType } from '@vtt/shared';
+  import type { ChatBadge, DamageApplyResult, DamageType } from '@vtt/shared';
   import type {
     AttackHitConsequences,
     AttackRollMode,
@@ -10,15 +10,25 @@
     RollContext,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { TargetedAttackRoll } from '../../composables/attackRollMode';
   import type { AttackRollSnapshot } from '../../composables/attackRollSnapshot';
   import type { DamageTypeChoiceRequest } from '../../composables/damageTypeChoice';
   import type { RollBonusEvaluator } from '../../composables/rollBonusEvaluator';
+  import type {
+    BonusPartsRollContext,
+    SneakAttackRollPort,
+  } from '../../composables/useBonusDamageParts';
   import type {
     ProjectileAttackContext,
     RolledSpellDamagePart,
     SpellDamagePartInput,
   } from '../../composables/useSpellResolution';
-  import type { CheckRollResult, RollDamageVariant } from './diceRollTypes';
+  import type {
+    CheckRollResult,
+    RollDamageVariant,
+    RollVisibility,
+  } from './diceRollTypes';
+  import type { SneakAttackPanelState } from './sneakAttackPanel';
 
   import { promiseTimeout } from '@vueuse/core';
   import { computed, onBeforeUnmount, ref, watch } from 'vue';
@@ -28,16 +38,20 @@
   import { useChatStore } from '@/stores/chatStore';
   import { useDiceRollerStore } from '@/stores/diceRollerStore';
   import { useTargetStore } from '@/stores/targetStore';
+  import { generateId } from '@vtt/shared';
   import {
+    addDiceToFormula,
     buildActionChatHeader,
     buildAttackFormula,
     buildDamageChatBlock,
     buildSingleTargetDamageRecord,
+    canAddSneakAttackOption,
     CHOICE_DAMAGE_TYPE,
     damageTypeChoiceKey,
     doubleDiceInFormula,
     formatAttackRollModeReasons,
     formatDamageDefenseSuffix,
+    formatSneakAttackDice,
     getNaturalD20Roll,
     getShortDamageTypeLabel,
     isDamageType,
@@ -46,11 +60,15 @@
     listPartDamageTypeChoices,
     listRolledDiceValues,
     performTwoStageAttack,
+    pickSneakAttackOptions,
     previewDamageConsequences,
+    raiseDiceToMinimum,
     resolveAttackLanded,
     rollRandomDamageTypeChoices,
+    SAVE_TYPE_LABELS,
     scaleDamageFormula,
     settleDamageTypeChoices,
+    sumSneakAttackOptionCost,
     toRollerFormula,
     uniqueDamageTypeChoices,
   } from '@vtt/shared/system/dnd.js';
@@ -66,6 +84,7 @@
   } from '../../composables/damageTypeChoice';
   import { buildIncomingAttackContext } from '../../composables/incomingAttack';
   import { resolveAttackerIgnoredResistances } from '../../composables/spellResolutionShared';
+  import { isSneakAttackOptionSelectable } from '../../composables/useBonusDamageParts';
   import {
     dispatchAttackRollTriggers,
     reportAttackRoll,
@@ -73,16 +92,21 @@
   import { useWorldEntities } from '../../composables/useWorldEntities';
   import { useSystemDataStore } from '../../stores/systemDataStore';
   import {
+    CHECK_OUTCOME_BADGES,
     DICE_ROLL_ACTOR_ICON,
     DICE_ROLL_DEFAULT_BUTTON,
     DICE_ROLL_LABELS,
     DICE_ROLL_LOG_PREFIX,
+    ROLL_ACTION_ID_PREFIX,
     ROLL_MODE_REASON_STYLES,
     SPELL_LEVEL_SUFFIX,
     WILLING_SAVE_TOTAL,
   } from './constants';
-
-  type RollVisibility = 'public' | 'gm' | 'private';
+  import {
+    describeSneakAttackOptionBlock,
+    stripCunningStrikePrefix,
+  } from './sneakAttackPanel';
+  import SneakAttackRollPanel from './SneakAttackRollPanel.vue';
 
   interface Props {
     open: boolean;
@@ -125,10 +149,10 @@
     attackModifier?: number;
     /** Функция для вычисления условных бонусов в момент броска */
     // eslint-disable-next-line vue/require-default-prop -- отсутствие расчёта и означает «условных бонусов нет», пустышка по умолчанию это бы скрыла
-    evaluateConditionalBonuses?: (context: {
-      hasAdvantage: boolean;
-      hasDisadvantage: boolean;
-    }) => { attackBonus: number; damageBonus: number };
+    evaluateConditionalBonuses?: (context: BonusPartsRollContext) => {
+      attackBonus: number;
+      damageBonus: number;
+    };
     /** Кубиковые бонусы к атаке или стандартному d20-спасброску на момент броска. */
     evaluateBonusRollFormulas?: RollBonusEvaluator;
     /** Бонусы назначенных целей снарядов, собранные до расхода одноразовых эффектов. */
@@ -137,10 +161,28 @@
     ) => ReadonlyMap<string, readonly string[]>;
     initialRollMode?: AttackRollMode;
     /**
+     * Кому видно бросок при открытии: засаду существа ведущего игрокам не
+     * показывают. Нет — всем
+     */
+    initialRollVisibility?: RollVisibility;
+    /**
      * Откуда стартовый режим атаки: состояния, эффекты, доспех, дистанция.
      * Без них окно показывало помеху «без причины».
      */
     rollModeReasons?: AttackRollModeReasons;
+    /**
+     * Режим атаки и его причины по текущей цели. Окно зовёт его, когда цель
+     * меняется при открытом окне: иначе режим остался бы от прежней цели
+     * («союзник рядом», невидимость, дистанция). Нет — режим считается один
+     * раз, при открытии
+     */
+    resolveRollMode?: () => TargetedAttackRoll;
+    /**
+     * Скрытая атака бросающего: переключатель «Скрытая атака +Nк6» показывается,
+     * пока её условия выполнены при текущем режиме и цели. Нет — источников у
+     * бросающего нет
+     */
+    sneakAttack?: SneakAttackRollPort;
     /** С какой натуральной кости атака — крит (у оружия Чемпиона 19) */
     critThreshold?: number;
     /** Тип входящей атаки для расчёта условных бонусов к AC цели (melee/ranged/spell) */
@@ -218,10 +260,9 @@
      * броска с фактическим режимом (преимущество/помеха); результат добавляется
      * к `damageParts`. Работает только в многочастном пути.
      */
-    evaluateBonusDamageParts?: (context: {
-      hasAdvantage: boolean;
-      hasDisadvantage: boolean;
-    }) => SpellDamagePartInput[];
+    evaluateBonusDamageParts?: (
+      context: BonusPartsRollContext,
+    ) => SpellDamagePartInput[];
     /**
      * Коллбэк чистой d20-проверки (окно без `formula`, без частей урона и без
      * броска попадания): отдаёт бросок В РАЗБИВКЕ — натуральную кость и
@@ -239,6 +280,13 @@
      * действием: урон не применялся, в чат не уходило ничего).
      */
     onCancel?: () => void;
+    /**
+     * Отказ от броска по ЧУЖОМУ запросу. Есть — рядом с кнопкой броска стоит
+     * кнопка-иконка «Отказаться», а крестик окна только прячет окно (запрос
+     * ждёт дальше, окно возвращается из карточки центра запросов). Нет — окно
+     * своё, и крестик, как раньше, значит «не бросать».
+     */
+    onDecline?: () => void;
     /** Коллбэк при попадании атаки (вызывается даже если нет формулы урона). */
     onHit?: (attack?: AttackRollSnapshot) => void;
     /**
@@ -294,7 +342,10 @@
     isHealing: false,
     attackModifier: undefined,
     initialRollMode: 'normal',
+    initialRollVisibility: 'public',
     rollModeReasons: undefined,
+    resolveRollMode: undefined,
+    sneakAttack: undefined,
     evaluateBonusRollFormulas: undefined,
     evaluateProjectileBonusRollFormulas: undefined,
     incomingAttackType: undefined,
@@ -312,6 +363,7 @@
     evaluateBonusDamageParts: undefined,
     onCheckRoll: undefined,
     onCancel: undefined,
+    onDecline: undefined,
     onHit: undefined,
     damageTypeChoice: undefined,
     damageVariants: undefined,
@@ -421,6 +473,31 @@
       : props.onRollParts,
   );
 
+  /** Есть ли среди наборов урона набор «если у атаки преимущество» */
+  const hasAdvantageVariant = computed(() =>
+    (props.damageVariants ?? []).some((variant) => variant.whenAdvantage),
+  );
+
+  /**
+   * Выбирает набор урона по режиму броска: «с преимуществом» — пока режим
+   * преимущество, основной — пока нет. Выбор руками держится до следующей
+   * смены режима.
+   *
+   * @param mode - режим броска
+   */
+  function selectVariantForMode(mode: AttackRollMode): void {
+    if (!hasAdvantageVariant.value) {
+      return;
+    }
+
+    const advantageIndex = (props.damageVariants ?? []).findIndex(
+      (variant) => variant.whenAdvantage,
+    );
+
+    selectedDamageVariantIndex.value =
+      mode === 'advantage' && advantageIndex >= 0 ? advantageIndex : 0;
+  }
+
   // --- Стейт выбора типа урона ---
   const selectedChoiceDamageType = ref<DamageType>('fire');
 
@@ -493,6 +570,35 @@
   /** Режим броска атаки (обычный / преимущество / помеха) */
   const attackRollMode = ref<AttackRollMode>('normal');
 
+  /**
+   * Режим, выбранный игроком руками («Точное прицеливание», совет мастера).
+   * Смена цели его не затирает: пересчёт по цели меняет только причины
+   */
+  const manualRollMode = ref<AttackRollMode | undefined>();
+
+  /**
+   * Режим броска кнопкой окна — выбор игрока.
+   *
+   * @param mode - выбранный режим
+   */
+  function chooseRollMode(mode: AttackRollMode): void {
+    manualRollMode.value = mode;
+    attackRollMode.value = mode;
+  }
+
+  /** Причины режима: со сменой цели при открытом окне считаются заново */
+  const currentRollModeReasons = ref<AttackRollModeReasons | undefined>();
+
+  /** Переключатель «Скрытая атака»: включён при открытии по настройке листа */
+  const applySneakAttack = ref(true);
+
+  /**
+   * Выбранные приёмы Хитрого удара — id эффектов-кнопок по порядку выбора.
+   * Что из выбранного проходит при текущем числе костей, решает
+   * `sneakAttackOptionRows`
+   */
+  const selectedSneakAttackOptionIds = ref<string[]>([]);
+
   // --- Тип урона на выбор у частей (`@dmg.choice(…)`) ---
   const getDamageTypeLabel = useDamageTypeLabel();
 
@@ -508,10 +614,7 @@
    */
   const partTypeChoiceRows = computed(() => {
     const bonusParts = rollDamageParts.value?.length
-      ? (rollEvaluateBonusDamageParts.value?.({
-          hasAdvantage: attackRollMode.value === 'advantage',
-          hasDisadvantage: attackRollMode.value === 'disadvantage',
-        }) ?? [])
+      ? (rollEvaluateBonusDamageParts.value?.(buildRollContext()) ?? [])
       : [];
 
     return uniqueDamageTypeChoices([
@@ -627,14 +730,235 @@
    * причины посчитал вызывающий — по цели, а без неё только со стороны атакующего.
    */
   const rollModeReasonLines = computed(() =>
-    hasAttackRoll.value && props.rollModeReasons
-      ? formatAttackRollModeReasons(props.rollModeReasons).map((line) => ({
-          ...line,
-          ...ROLL_MODE_REASON_STYLES[line.kind],
-          heading: `${line.title}${DICE_ROLL_LABELS.rollModeReasonTitleSuffix}`,
-        }))
+    hasAttackRoll.value && currentRollModeReasons.value
+      ? formatAttackRollModeReasons(currentRollModeReasons.value).map(
+          (line) => ({
+            ...line,
+            ...ROLL_MODE_REASON_STYLES[line.kind],
+            heading: `${line.title}${DICE_ROLL_LABELS.rollModeReasonTitleSuffix}`,
+          }),
+        )
       : [],
   );
+
+  /**
+   * Режим атаки флагами — так его ждут сборщики бонусов и Скрытой атаки.
+   *
+   * @returns преимущество и помеха текущего режима
+   */
+  function readRollModeFlags(): Pick<
+    BonusPartsRollContext,
+    'hasAdvantage' | 'hasDisadvantage'
+  > {
+    return {
+      hasAdvantage: attackRollMode.value === 'advantage',
+      hasDisadvantage: attackRollMode.value === 'disadvantage',
+    };
+  }
+
+  /**
+   * Скрытая атака при текущем режиме и цели. Только у атаки с частями урона:
+   * без броска попадания (спасбросок, лечение) её не бывает.
+   */
+  const sneakAttackPreview = computed(() =>
+    hasAttackRoll.value && rollDamageParts.value?.length
+      ? props.sneakAttack?.preview(readRollModeFlags())
+      : undefined,
+  );
+
+  /** Идёт ли Скрытая атака в этом броске: доступна, не потрачена, включена */
+  const isSneakAttackApplied = computed(
+    () =>
+      applySneakAttack.value
+      && sneakAttackPreview.value !== undefined
+      && !sneakAttackPreview.value.spent,
+  );
+
+  /**
+   * Показывать ли плашку Скрытой атаки: у бросающего она есть, а бросок —
+   * атака с уроном. Условие при этом может быть не выполнено — плашка тогда
+   * говорит «не активна», а не пропадает молча.
+   */
+  const showSneakAttackPanel = computed(
+    () =>
+      props.sneakAttack !== undefined
+      && hasAttackRoll.value
+      && (rollDamageParts.value?.length ?? 0) > 0,
+  );
+
+  /** Состояние плашки: идёт к урону, отказ игрока, потрачена, нет условия */
+  const sneakAttackPanelState = computed((): SneakAttackPanelState => {
+    const preview = sneakAttackPreview.value;
+
+    if (!preview) {
+      return 'unavailable';
+    }
+
+    if (preview.spent) {
+      return 'spent';
+    }
+
+    return applySneakAttack.value ? 'active' : 'declined';
+  });
+
+  /** Чья она — называется, только если это не сама «Скрытая атака» плута */
+  const sneakAttackSourceName = computed(() => {
+    const sourceName = sneakAttackPreview.value?.sourceName ?? '';
+
+    return sourceName === DICE_ROLL_LABELS.sneakAttack ? '' : sourceName;
+  });
+
+  /**
+   * Кнопка плашки: игрок добавляет Скрытую атаку или отказывается от неё.
+   * Потраченная в этом ходу кнопки не имеет.
+   *
+   * @param value - добавлять ли кости в этом броске
+   */
+  function setSneakAttackApplied(value: boolean): void {
+    applySneakAttack.value = value;
+  }
+
+  /**
+   * Приёмы Хитрого удара под переключателем: доступные в этом броске, с
+   * отметкой выбранных. Выбор проверяется заново при каждой смене режима и
+   * цели: костей стало меньше — лишний приём снимается, приёмов за удар не
+   * больше положенного, без ресурса приём не выбрать.
+   */
+  const sneakAttackOptionRows = computed(() => {
+    const preview = sneakAttackPreview.value;
+
+    if (!preview || !isSneakAttackApplied.value) {
+      return [];
+    }
+
+    const picked = pickSneakAttackOptions(
+      preview.options.filter(isSneakAttackOptionSelectable),
+      selectedSneakAttackOptionIds.value,
+      preview.diceCount,
+      preview.cunningStrikeLimit,
+    );
+
+    const pickedIds = new Set(picked.map((option) => option.id));
+
+    return preview.options.map((option) => {
+      const selected = pickedIds.has(option.id);
+
+      const reason = selected
+        ? ''
+        : describeSneakAttackOptionBlock(
+            option,
+            canAddSneakAttackOption(
+              picked,
+              option,
+              preview.diceCount,
+              preview.cunningStrikeLimit,
+            ),
+            sumSneakAttackOptionCost(picked) + option.cost > preview.diceCount,
+          );
+
+      return {
+        id: option.id,
+        selected,
+        disabled: reason !== '',
+        reason,
+        label:
+          option.cost > 0
+            ? `${stripCunningStrikePrefix(option.name)}${DICE_ROLL_LABELS.sneakAttackOptionCostPrefix}${formatSneakAttackDice(preview.formula, option.cost)}`
+            : stripCunningStrikePrefix(option.name),
+        hint: option.description,
+        cost: option.cost,
+        cunningStrike: option.cunningStrike,
+      };
+    });
+  });
+
+  /** Приёмы, которые пойдут в этот удар */
+  const pickedSneakAttackOptionIds = computed(() =>
+    sneakAttackOptionRows.value
+      .filter((row) => row.selected)
+      .map((row) => row.id),
+  );
+
+  /**
+   * «Смертельный удар»: какой спасбросок цель сделает до записи урона —
+   * подпись под переключателем Скрытой атаки
+   */
+  const sneakAttackDoubleSaveLabel = computed(() => {
+    const save = isSneakAttackApplied.value
+      ? sneakAttackPreview.value?.doubleSave
+      : undefined;
+
+    return save
+      ? `${DICE_ROLL_LABELS.sneakAttackDoubleSavePrefix}${SAVE_TYPE_LABELS[save.ability]}${DICE_ROLL_LABELS.sneakAttackDoubleSaveDc}${save.dc}${DICE_ROLL_LABELS.sneakAttackDoubleSaveSuffix}`
+      : '';
+  });
+
+  /**
+   * Отмечает приём или снимает отметку. Выбор хранится по порядку: при
+   * нехватке костей отбрасываются выбранные последними.
+   *
+   * @param optionId - id эффекта-кнопки приёма
+   */
+  function toggleSneakAttackOption(optionId: string): void {
+    const isSelected = selectedSneakAttackOptionIds.value.includes(optionId);
+
+    const rest = selectedSneakAttackOptionIds.value.filter(
+      (id) => id !== optionId,
+    );
+
+    selectedSneakAttackOptionIds.value = isSelected
+      ? rest
+      : [...rest, optionId];
+  }
+
+  /** Сколько приёмов Хитрого удара можно взять за удар */
+  const sneakAttackCunningStrikeLimit = computed(
+    () => sneakAttackPreview.value?.cunningStrikeLimit ?? 0,
+  );
+
+  /** Сколько костей отдано выбранным приёмам */
+  const sneakAttackOptionsCost = computed(() =>
+    sumSneakAttackOptionCost(
+      sneakAttackOptionRows.value.filter((row) => row.selected),
+    ),
+  );
+
+  /** Кости, что пойдут к урону: «3к6»; с приёмами — что останется после цены */
+  const sneakAttackDiceLabel = computed(() => {
+    const preview = sneakAttackPreview.value;
+
+    return preview
+      ? addDiceToFormula(preview.formula, -sneakAttackOptionsCost.value)
+      : '';
+  });
+
+  /**
+   * Контекст броска для сборщиков окна: режим и решённая окном Скрытая атака.
+   *
+   * @returns контекст для бонусов и бонус-частей
+   */
+  function buildRollContext(): BonusPartsRollContext {
+    return {
+      ...readRollModeFlags(),
+      sneakAttack: isSneakAttackApplied.value,
+      sneakAttackOptionIds: pickedSneakAttackOptionIds.value,
+    };
+  }
+
+  /**
+   * Контекст броска в момент нажатия: Скрытая атака — только если её лимит
+   * свободен прямо сейчас. Показ окна (`isSneakAttackApplied`) мог устареть:
+   * второе окно этого клиента бросило раньше и лимит потратило.
+   *
+   * @returns контекст для бонус-частей броска
+   */
+  function buildLiveRollContext(): BonusPartsRollContext {
+    const context = buildRollContext();
+
+    return context.sneakAttack && props.sneakAttack?.isSpent()
+      ? { ...context, sneakAttack: false }
+      : context;
+  }
 
   /** Динамически вычисляемые условные бонусы (срабатывают, если условия соблюдены) */
   const currentConditionalBonuses = computed(() => {
@@ -642,19 +966,12 @@
       return { attackBonus: 0, damageBonus: 0 };
     }
 
-    return props.evaluateConditionalBonuses({
-      hasAdvantage: attackRollMode.value === 'advantage',
-      hasDisadvantage: attackRollMode.value === 'disadvantage',
-    });
+    return props.evaluateConditionalBonuses(buildRollContext());
   });
 
   /** Кубиковые бонусы не входят в числовой модификатор листа. */
   const currentBonusRollFormulas = computed(
-    () =>
-      props.evaluateBonusRollFormulas?.({
-        hasAdvantage: attackRollMode.value === 'advantage',
-        hasDisadvantage: attackRollMode.value === 'disadvantage',
-      }) ?? [],
+    () => props.evaluateBonusRollFormulas?.(readRollModeFlags()) ?? [],
   );
 
   /** Итоговая формула урона с учётом усиления на высших кругах */
@@ -728,6 +1045,12 @@
   let cancelNotified = false;
 
   /**
+   * Ключ действия этого открытия окна: удары по всем целям броска несут его, и
+   * «носитель нанёс урон» срабатывает у атакующего один раз на действие
+   */
+  let rollActionId = generateId(ROLL_ACTION_ID_PREFIX);
+
+  /**
    * Сообщает вызывающему, что окно ушло без броска. Молчит, если бросок был
    * или об отмене уже сообщили: вызывающий сворачивает по ней начатое действие,
    * и повторить это второй раз нельзя.
@@ -742,17 +1065,34 @@
     props.onCancel?.();
   }
 
+  /**
+   * Кнопка «Отказаться» у броска по чужому запросу: вызывающий отказывается
+   * от запроса, окно закрывается. Отмена при закрытии уже не нужна — о ней
+   * сообщено отказом.
+   */
+  function declineRequest(): void {
+    cancelNotified = true;
+    props.onDecline?.();
+    isOpen.value = false;
+  }
+
   watch(
     () => props.open,
     (opened, wasOpened) => {
       if (opened) {
         hasRolled.value = false;
         cancelNotified = false;
+        rollActionId = generateId(ROLL_ACTION_ID_PREFIX);
         bonusValue.value = 0;
-        rollType.value = 'public';
+        rollType.value = props.initialRollVisibility;
         attackRollMode.value = props.initialRollMode;
+        manualRollMode.value = undefined;
+        currentRollModeReasons.value = props.rollModeReasons;
+        applySneakAttack.value = props.sneakAttack?.defaultEnabled ?? true;
+        selectedSneakAttackOptionIds.value = [];
         partTypePicks.value = {};
         selectedDamageVariantIndex.value = 0;
+        selectVariantForMode(props.initialRollMode);
 
         // Сброс стейта заклинания
         if (props.spellLevel !== undefined) {
@@ -775,6 +1115,37 @@
       }
     },
     { immediate: true },
+  );
+
+  // Набор «с преимуществом» идёт за режимом броска: сменил режим — сменился
+  // набор; выбор руками держится до следующей смены
+  watch(attackRollMode, (mode) => {
+    if (props.open) {
+      selectVariantForMode(mode);
+    }
+  });
+
+  // Цель сменилась при открытом окне — режим и причины считаются по новой
+  // цели: «союзник рядом», невидимость и дистанция у неё свои. Цель — это
+  // фишка: у двух фишек одной записи (стая) соседи и дистанция разные. Режим,
+  // выбранный игроком руками, остаётся — меняются только причины
+  watch(
+    () => targetStore.targetTokenId,
+    (tokenId, previousTokenId) => {
+      if (
+        !props.open
+        || !props.resolveRollMode
+        || hasRolled.value
+        || tokenId === previousTokenId
+      ) {
+        return;
+      }
+
+      const { mode, reasons } = props.resolveRollMode();
+
+      attackRollMode.value = manualRollMode.value ?? mode;
+      currentRollModeReasons.value = reasons;
+    },
   );
 
   // Окно может уйти и без смены `open` — например, по концу сессии мира
@@ -817,6 +1188,7 @@
     attack: AttackRollSnapshot | undefined,
     landed?: boolean,
     critical = false,
+    sneakAttack = false,
   ): void {
     if (attack) {
       reportAttackRoll(
@@ -825,6 +1197,7 @@
         attackRollMode.value,
         landed,
         critical,
+        sneakAttack,
       );
     }
   }
@@ -897,10 +1270,8 @@
         : currentBonusRollFormulas.value;
 
       const bonusDiceFormulasByTarget = props.onProjectileAttack
-        ? (props.evaluateProjectileBonusRollFormulas?.({
-            hasAdvantage: attackRollMode.value === 'advantage',
-            hasDisadvantage: attackRollMode.value === 'disadvantage',
-          }) ?? new Map<string, readonly string[]>())
+        ? (props.evaluateProjectileBonusRollFormulas?.(readRollModeFlags())
+          ?? new Map<string, readonly string[]>())
         : new Map<string, readonly string[]>();
 
       // --- Списание ячейки заклинания ---
@@ -956,11 +1327,12 @@
         // Бонус-части урона от Active Effects собираются в момент броска:
         // условия (преимущество/помеха, HP цели) оцениваются по фактическому
         // режиму, выбранному в модалке.
+        // Лимит Скрытой атаки перепроверяется сейчас, а не по показу окна:
+        // второе окно того же клиента могло потратить его после открытия
+        const rollContext = buildLiveRollContext();
+
         const bonusParts =
-          rollEvaluateBonusDamageParts.value?.({
-            hasAdvantage: attackRollMode.value === 'advantage',
-            hasDisadvantage: attackRollMode.value === 'disadvantage',
-          }) ?? [];
+          rollEvaluateBonusDamageParts.value?.(rollContext) ?? [];
 
         // Тип на выбор решается до броска: выбранный в окне, у случайного —
         // выпавший; дальше часть идёт обычным типом (защиты, чат)
@@ -973,7 +1345,8 @@
         // одночастном пути дописывается к формуле урона — сохраняем паритет,
         // дописывая его к первой урон-части. Прокидывается только оружейными
         // путями (заклинания этот проп не передают — их поведение не меняется).
-        const flatDamageBonus = currentConditionalBonuses.value.damageBonus;
+        const flatDamageBonus =
+          props.evaluateConditionalBonuses?.(rollContext).damageBonus ?? 0;
 
         if (flatDamageBonus !== 0) {
           const firstDamageIndex = effectiveParts.findIndex(
@@ -1123,9 +1496,15 @@
       props.attackerId,
     );
 
+    const details = {
+      critical,
+      sourceId: props.attackerId,
+      actionId: rollActionId,
+    };
+
     return ignoredResistances.length > 0
-      ? { critical, sourceId: props.attackerId, ignoredResistances }
-      : { critical, sourceId: props.attackerId };
+      ? { ...details, ignoredResistances }
+      : details;
   }
 
   /**
@@ -1318,6 +1697,26 @@
   }
 
   /**
+   * Плашка исхода проверки со Сл: «Успех», «Провал» или «Автопровал».
+   *
+   * @param total - итог броска
+   * @returns плашка; нет — у броска нет Сл, исход не известен
+   */
+  function resolveCheckOutcomeBadge(total: number): ChatBadge | undefined {
+    if (props.autoFail) {
+      return CHECK_OUTCOME_BADGES.autoFail;
+    }
+
+    if (props.targetDc === undefined) {
+      return undefined;
+    }
+
+    return total >= props.targetDc
+      ? CHECK_OUTCOME_BADGES.success
+      : CHECK_OUTCOME_BADGES.fail;
+  }
+
+  /**
    * Обычный бросок: лечение, урон без броска атаки или проверка
    */
   function performSimpleRoll(bonusDiceFormulas: readonly string[]): number {
@@ -1435,21 +1834,30 @@
       }
     }
 
+    // Проверка и спасбросок со Сл — карточкой, как бросок атаки: шапкой что
+    // бросали, исход плашкой в строке итога. Текстовая подпись с «✓ Успех»
+    // остаётся для всплывающих сообщений и ядра без блоков
+    const checkBadge = resolveCheckOutcomeBadge(rollData.total);
+
+    if (!isDamageRoll && checkBadge) {
+      rollData.block = { title: props.rollLabel, badge: checkBadge };
+    }
+
     rollData.label = rollLabel;
 
-    if (!props.skipChatMessage) {
-      // Бросок урона лента выделяет — с целью и без, с известным типом
-      // урона и без него
-      chatStore.sendMessage(
-        formula,
-        'roll',
-        rollData,
-        undefined,
-        isDamageRoll
-          ? buildCombatChatOptions(props.attackerId)
-          : buildSpeakerChatOptions(props.attackerId),
-      );
-    }
+    // Бросок урона лента выделяет — с целью и без, с известным типом
+    // урона и без него
+    const messageId = props.skipChatMessage
+      ? undefined
+      : (chatStore.sendMessage(
+          formula,
+          'roll',
+          rollData,
+          undefined,
+          isDamageRoll
+            ? buildCombatChatOptions(props.attackerId)
+            : buildSpeakerChatOptions(props.attackerId),
+        ) ?? undefined);
 
     // Бонусные кости влияют на итог, но не изменяют натуральную оставленную d20.
     if (!rollFormula.value && props.onCheckRoll) {
@@ -1459,6 +1867,7 @@
         total: rollData.total,
         natural,
         modifier: rollData.total - natural,
+        ...(messageId ? { messageId } : {}),
       });
     }
 
@@ -1527,10 +1936,18 @@
         await diceRollerStore.waitForNextAnimation();
       }
 
+      // «1 или 2 считайте за 3»: роллер такой записи не знает — кости
+      // поднимаются после броска, итог растёт на разницу
+      const dice = raiseDiceToMinimum(
+        rollData.total,
+        rollData.dice.flatMap((group) => group.values),
+        part.minDie,
+      );
+
       rolled.push({
-        amount: rollData.total,
+        amount: dice.amount,
         formula,
-        values: rollData.dice.flatMap((group) => group.values),
+        values: dice.values,
         type: part.type,
         types: part.types,
         isHealing: part.isHealing,
@@ -1541,6 +1958,11 @@
         targetTypeGate: part.targetTypeGate,
         targetStatusGate: part.targetStatusGate,
         critical: isCrit,
+        ...(part.label ? { label: part.label } : {}),
+        ...(part.sneakAttack ? { sneakAttack: true as const } : {}),
+        ...(part.targetEffects ? { targetEffects: part.targetEffects } : {}),
+        ...(part.attackSave ? { attackSave: part.attackSave } : {}),
+        ...(part.minDie ? { minDie: part.minDie } : {}),
       });
     }
 
@@ -1619,7 +2041,7 @@
       props.onHit(attack);
     }
 
-    // На промахе урона нет
+    // На промахе урона нет — и Скрытая атака не тратится
     if (!attackOutput.attackResult.isHit) {
       finishAttackRoll(attack, false);
 
@@ -1627,6 +2049,20 @@
     }
 
     const isCrit = attackOutput.attackResult.isCriticalHit;
+
+    // Кости Скрытой атаки пойдут в урон — лимит хода тратится сейчас, в тике
+    // броска: второе окно этого клиента увидит расход до своего броска. Без
+    // цели попал ли удар, решает мастер; урон брошен — значит, потрачена
+    const sneakAttackPart = parts.find((part) => part.sneakAttack);
+
+    // Ресурс выбранных приёмов («Раздирание разума») тратится вместе с ней
+    const sneakAttackOptionIds = (sneakAttackPart?.targetEffects ?? []).map(
+      (effect) => effect.id,
+    );
+
+    const sneakAttackTurn = sneakAttackPart
+      ? props.sneakAttack?.spend(sneakAttackOptionIds)
+      : undefined;
 
     // Сначала показываем бросок атаки, затем по очереди — части урона; сервер
     // узнаёт о броске после урона. За время показа ответ сервера убирает
@@ -1636,7 +2072,16 @@
         rollPartsSequentially(
           parts,
           isCrit,
-          attack ? { ...attack, chatMessageId } : undefined,
+          attack
+            ? {
+                ...attack,
+                chatMessageId,
+                sneakAttackTurn,
+                ...(sneakAttackOptionIds.length > 0
+                  ? { sneakAttackOptionIds }
+                  : {}),
+              }
+            : undefined,
         ),
       )
       .then(() =>
@@ -1644,6 +2089,7 @@
           attack,
           resolveAttackLanded(attackOutput.attackResult),
           isCrit,
+          sneakAttackPart !== undefined,
         ),
       );
   }
@@ -1865,9 +2311,9 @@
             <UButton
               variant="soft"
               :color="attackRollMode === 'normal' ? 'primary' : 'neutral'"
-              size="sm"
+              size="md"
               block
-              @click.left.exact.prevent="attackRollMode = 'normal'"
+              @click.left.exact.prevent="chooseRollMode('normal')"
             >
               {{ DICE_ROLL_LABELS.rollModeNormal }}
             </UButton>
@@ -1875,9 +2321,9 @@
             <UButton
               variant="soft"
               :color="attackRollMode === 'advantage' ? 'success' : 'neutral'"
-              size="sm"
+              size="md"
               block
-              @click.left.exact.prevent="attackRollMode = 'advantage'"
+              @click.left.exact.prevent="chooseRollMode('advantage')"
             >
               <UIcon
                 name="tabler:arrow-big-up-filled"
@@ -1889,9 +2335,9 @@
             <UButton
               variant="soft"
               :color="attackRollMode === 'disadvantage' ? 'error' : 'neutral'"
-              size="sm"
+              size="md"
               block
-              @click.left.exact.prevent="attackRollMode = 'disadvantage'"
+              @click.left.exact.prevent="chooseRollMode('disadvantage')"
             >
               <UIcon
                 name="tabler:arrow-big-down-filled"
@@ -1927,6 +2373,19 @@
               </span>
             </li>
           </ul>
+
+          <!-- Скрытая атака: плашка состояния и приёмы Хитрого удара -->
+          <SneakAttackRollPanel
+            v-if="showSneakAttackPanel"
+            :state="sneakAttackPanelState"
+            :dice-label="sneakAttackDiceLabel"
+            :source-name="sneakAttackSourceName"
+            :double-save-label="sneakAttackDoubleSaveLabel"
+            :options="sneakAttackOptionRows"
+            :cunning-strike-limit="sneakAttackCunningStrikeLimit"
+            @update:applied="setSneakAttackApplied"
+            @toggle-option="toggleSneakAttackOption"
+          />
         </div>
 
         <!-- Разделитель -->
@@ -1948,7 +2407,7 @@
             <UButton
               variant="soft"
               :color="rollType === 'public' ? 'primary' : 'neutral'"
-              size="sm"
+              size="md"
               block
               @click.left.exact.prevent="rollType = 'public'"
             >
@@ -1962,7 +2421,7 @@
             <UButton
               variant="soft"
               :color="rollType === 'gm' ? 'primary' : 'neutral'"
-              size="sm"
+              size="md"
               block
               @click.left.exact.prevent="rollType = 'gm'"
             >
@@ -1976,7 +2435,7 @@
             <UButton
               variant="soft"
               :color="rollType === 'private' ? 'warning' : 'neutral'"
-              size="sm"
+              size="md"
               block
               @click.left.exact.prevent="rollType = 'private'"
             >
@@ -1989,20 +2448,39 @@
           </div>
         </div>
 
-        <!-- Кнопка броска -->
-        <UButton
-          color="primary"
-          size="lg"
-          block
-          :disabled="hasRolled"
-          @click.left.exact.prevent="performRoll"
-        >
-          <UIcon
-            name="tabler:dice-filled"
-            class="mr-2 h-5 w-5"
-          />
-          {{ rollButtonText }}
-        </UButton>
+        <!-- Кнопка броска; у броска по чужому запросу рядом — отказ иконкой -->
+        <div class="flex gap-2">
+          <UButton
+            color="primary"
+            size="lg"
+            block
+            class="flex-1"
+            :disabled="hasRolled"
+            @click.left.exact.prevent="performRoll"
+          >
+            <UIcon
+              name="tabler:dice-filled"
+              class="mr-2 h-5 w-5"
+            />
+            {{ rollButtonText }}
+          </UButton>
+
+          <UTooltip
+            v-if="onDecline"
+            :text="DICE_ROLL_LABELS.declineRequest"
+          >
+            <UButton
+              color="neutral"
+              variant="soft"
+              size="lg"
+              square
+              :icon="DICE_ROLL_LABELS.declineRequestIcon"
+              :aria-label="DICE_ROLL_LABELS.declineRequest"
+              :disabled="hasRolled"
+              @click.left.exact.prevent="declineRequest"
+            />
+          </UTooltip>
+        </div>
 
         <!-- Согласная цель: спасбросок не бросается вовсе -->
         <UButton

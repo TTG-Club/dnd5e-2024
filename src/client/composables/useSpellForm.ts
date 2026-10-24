@@ -16,6 +16,7 @@ import type {
   CantripScalingTier,
   ClassKey,
   ProjectileCountTier,
+  SaveDamageEffect,
   Spell,
   SpellUsesRecovery,
 } from '@vtt/shared/system/dnd.js';
@@ -115,7 +116,7 @@ export function useSpellForm(
   }
 
   const saveType = ref<SpellSaveType>('none');
-  const saveEffect = ref<'half' | 'none' | 'special'>('none');
+  const saveEffect = ref<SaveDamageEffect>('none');
   const attackAbility = ref<AbilityType | ''>('');
   const attackBonus = ref(0);
   /** Своя Сл заклинания; 0 — от заклинателя */

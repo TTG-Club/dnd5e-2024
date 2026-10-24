@@ -467,7 +467,11 @@ async function loadCreatureAction(windowOpens, creature = WOLF) {
   ports.isTargetAtFullHp = engine.isTargetAtFullHp;
   ports.resolveCreatureActionSaveDc = engine.resolveCreatureActionSaveDc;
 
-  for (const name of ['spendCreatureActionTurn', 'openCreatureActionRoll']) {
+  for (const name of [
+    'findStartBlock',
+    'spendCreatureActionTurn',
+    'openCreatureActionRoll',
+  ]) {
     ports[name] = await loadHandler(CREATURE_ACTION_PATH, name, ports);
   }
 
@@ -568,6 +572,7 @@ async function loadCreatureSpell(windowOpens, overrides = {}) {
     hasLiveCreatureSpellUsesLeft: () => true,
     runWithCastFailure: (_spell, _caster, _options, proceed) => proceed(),
     recordEntityActionSpend: () => log.push('turn'),
+    dispatchSpellCastTriggers: () => {},
     resolveSpellAreaAtLevel: () => undefined,
     getDamageTemplateColor: () => 'red',
     useSpellTemplateStore: () => ({

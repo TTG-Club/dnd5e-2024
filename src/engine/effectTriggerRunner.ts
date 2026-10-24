@@ -131,6 +131,7 @@ import {
   MAX_HP_REDUCTION_NEVER_ENDS,
   MIN_REVIVE_HP,
   PRESENCE_TRIGGER_EVENTS,
+  SELF_EFFECT_ACTIONS,
   triggerAsksPermission,
   triggerChanceHolds,
 } from './effectTriggerTypes.js';
@@ -176,6 +177,7 @@ import {
   buildEffectSavingThrowContext,
   formatSkippedFormulaNote,
   resolveEffectMagicCircumstances,
+  restartEffectDuration,
   restoreEntityHitPoints,
   rollEffectDamage,
   rollEffectHealing,
@@ -716,17 +718,15 @@ export function rollTriggerHealing(
 }
 
 /**
- * Действия срабатывания, которые источник может выполнить: снять эффект можно,
- * только если он лежит на субъекте.
+ * Действия срабатывания, которые источник может выполнить: снять эффект и
+ * продлить его срок можно, только если он лежит на субъекте.
  *
  * @param source - срабатывание с источником
  * @returns действия
  */
 function listSourceActions(source: EffectTriggerSource): EffectTriggerAction[] {
   return source.trigger.actions.filter(
-    (action) =>
-      (action.type !== 'removeSelf' && action.type !== 'endCast')
-      || source.instance,
+    (action) => !SELF_EFFECT_ACTIONS.has(action.type) || source.instance,
   );
 }
 
@@ -1309,6 +1309,36 @@ function formatNotifyNote(
 }
 
 /**
+ * Заменяет эффект в `activeEffects` носителя его новой записью — той самой,
+ * что гасит граница хода и тикает раунд, а не копией, собранной для
+ * срабатывания.
+ *
+ * @param entity - носитель (меняется)
+ * @param effectId - эффект
+ * @param update - новая запись эффекта; пусто — менять нечего
+ * @returns новая запись либо `undefined`, если эффекта нет или он не изменился
+ */
+function updateCarrierEffect(
+  entity: DnDSceneEntity,
+  effectId: string,
+  update: (current: ActiveEffect) => ActiveEffect | null | undefined,
+): ActiveEffect | undefined {
+  const effects = entity.activeEffects ?? [];
+  const current = effects.find((entry) => entry.id === effectId);
+  const updated = current ? update(current) : undefined;
+
+  if (!updated) {
+    return undefined;
+  }
+
+  entity.activeEffects = effects.map((entry) =>
+    entry.id === effectId ? updated : entry,
+  );
+
+  return updated;
+}
+
+/**
  * Переводит эффект носителя на следующую ступень.
  *
  * Ступени меняют сам эффект на сущности, поэтому эффект ищется на ней по id:
@@ -1324,22 +1354,11 @@ function advanceCarrierStage(
   effect: ActiveEffect,
   options: EntryEffectOptions,
 ): boolean {
-  const effects = entity.activeEffects ?? [];
-  const current = effects.find((entry) => entry.id === effect.id);
-
-  if (!current) {
-    return false;
-  }
-
-  const advanced = advanceEffectStage(current);
+  const advanced = updateCarrierEffect(entity, effect.id, advanceEffectStage);
 
   if (!advanced) {
     return false;
   }
-
-  entity.activeEffects = effects.map((entry) =>
-    entry.id === advanced.id ? advanced : entry,
-  );
 
   const label = formatEffectStageLabel(advanced);
 
@@ -1348,6 +1367,37 @@ function advanceCarrierStage(
   }
 
   return true;
+}
+
+/**
+ * Продлевает срок эффекта на носителе — действие «Продлить срок». Эффекта на
+ * сущности нет (действия достались другой стороне) — продлевать нечего.
+ *
+ * @param entity - носитель эффекта (меняется)
+ * @param effect - эффект, чьё срабатывание сработало
+ * @param options - чей сейчас ход
+ * @returns `true`, если срок изменился
+ */
+function refreshCarrierDuration(
+  entity: DnDSceneEntity,
+  effect: ActiveEffect,
+  options: EntryEffectOptions,
+): boolean {
+  const refreshed = updateCarrierEffect(entity, effect.id, (current) => {
+    const restarted = restartEffectDuration(current, {
+      carrierId: entity.id,
+      activeTurnActorId: options.activeTurnActorId,
+    });
+
+    // Срок уже свежий (вторая атака в том же ходу) — сущность не меняется, и
+    // сохранять её незачем
+    return restarted
+      && JSON.stringify(restarted.duration) !== JSON.stringify(current.duration)
+      ? restarted
+      : undefined;
+  });
+
+  return refreshed !== undefined;
 }
 
 /**
@@ -1894,16 +1944,18 @@ function grantEntityInspiration(entity: DnDSceneEntity): boolean {
  * @param source - срабатывание с источником
  * @param passed - пройден ли спасбросок
  * @param options - откуда пришли наложения и чей сейчас ход
- * @returns снимается ли эффект и было ли наложение
+ * @returns снимается ли эффект, было ли наложение и продлевается ли срок
+ *   (продление на самом субъекте уже сделано)
  */
 export function applyTriggerEffectActions(
   entity: DnDSceneEntity,
   source: EffectTriggerSource,
   passed: boolean,
   options: EntryEffectOptions = {},
-): { removes: boolean; applied: boolean } {
+): { removes: boolean; applied: boolean; refreshes: boolean } {
   let removes = false;
   let applied = false;
+  let refreshes = false;
 
   for (const action of listSourceActions(source)) {
     if (
@@ -1915,6 +1967,15 @@ export function applyTriggerEffectActions(
 
     if (action.type === 'removeSelf') {
       removes = true;
+
+      continue;
+    }
+
+    if (action.type === 'refreshDuration') {
+      refreshes = true;
+
+      applied =
+        refreshCarrierDuration(entity, source.effect, options) || applied;
 
       continue;
     }
@@ -2073,7 +2134,7 @@ export function applyTriggerEffectActions(
     applied = true;
   }
 
-  return { removes, applied };
+  return { removes, applied, refreshes };
 }
 
 /**
@@ -3094,12 +3155,18 @@ export function settleTriggerOutcome(
   const healed =
     restored !== null && (restored.healed > 0 || restored.tempHp > 0);
 
-  const { applied, removes } = applyTriggerEffectActions(
+  const { applied, removes, refreshes } = applyTriggerEffectActions(
     recipient,
     source,
     passed,
     options,
   );
+
+  // Срок продлевается эффекту субъекта, кому бы ни достались действия
+  const refreshed =
+    refreshes
+    && recipient !== subject
+    && refreshCarrierDuration(subject, source.effect, options);
 
   const removed =
     removes
@@ -3119,7 +3186,7 @@ export function settleTriggerOutcome(
         ? { ...healing, ...restored, rolled: healing.healed }
         : null,
     saveOutcome: save,
-    statusApplied: applied || healed || removed,
+    statusApplied: applied || healed || removed || refreshed,
   };
 }
 
@@ -3201,9 +3268,6 @@ export function runAttackRollTriggers(
   role: EffectTriggerAttackRole,
   options: AttackRollTriggerOptions = {},
 ): AttackRollTriggersResult {
-  const usageBefore = JSON.stringify(entity.system.effectUsage ?? null);
-  const removedIds = new Set<string>();
-
   const eventData = withSceneSight(
     withCombatRound(
       {
@@ -3216,9 +3280,38 @@ export function runAttackRollTriggers(
     options.sight,
   );
 
+  return runClientCarrierTriggers(
+    entity,
+    listAttackRollSources(entity, role, 'client'),
+    eventData,
+    options,
+  );
+}
+
+/**
+ * Выполняет на клиенте срабатывания поступка носителя: снятие и наложения на
+ * нём самом. Общая часть броска атаки и каста. Мутирует сущность.
+ *
+ * @param entity - носитель
+ * @param sources - срабатывания события, которые выполняет клиент
+ * @param eventData - что известно о событии
+ * @param options - бой и чей ход
+ * @param options.inCombat - носитель участвует в идущем бою
+ * @param options.activeTurnActorId - чей сейчас ход
+ * @returns что изменилось
+ */
+function runClientCarrierTriggers(
+  entity: DnDSceneEntity,
+  sources: readonly EffectTriggerSource[],
+  eventData: TriggerEventData,
+  options: Pick<AttackRollTriggerOptions, 'inCombat' | 'activeTurnActorId'>,
+): AttackRollTriggersResult {
+  const usageBefore = JSON.stringify(entity.system.effectUsage ?? null);
+  const removedIds = new Set<string>();
+
   let applied = false;
 
-  for (const source of listAttackRollSources(entity, role, 'client')) {
+  for (const source of sources) {
     if (!admitTrigger(entity, source, eventData, options.inCombat)) {
       continue;
     }
@@ -3243,4 +3336,53 @@ export function runAttackRollTriggers(
     changed: removedIds.size > 0 || applied || usageChanged,
     usageChanged,
   };
+}
+
+/** С чем прогоняются срабатывания «носитель накладывает заклинание» */
+export interface SpellCastTriggerOptions extends Pick<
+  AttackRollTriggerOptions,
+  'inCombat' | 'activeTurnActorId' | 'combatRound'
+> {
+  /** Заклинание каста: есть ли вербальный компонент */
+  spell: NonNullable<TriggerEventData['spell']>;
+}
+
+/**
+ * Срабатывания «носитель накладывает заклинание», которые выполняет клиент
+ * того, кто колдует: снятие и наложения на нём самом. Засада кончается
+ * заклинанием с вербальным компонентом, «Невидимость» 2024 — любым.
+ *
+ * Срабатывание с уроном, спасброском, вопросом или действиями другим на этом
+ * событии не выполняется: сервер о касте не узнаёт.
+ *
+ * @param entity - заклинатель
+ * @returns срабатывания события, которые выполняет клиент
+ */
+export function listSpellCastSources(
+  entity: DnDSceneEntity,
+): EffectTriggerSource[] {
+  return listCarrierEventSources(entity, (effect) =>
+    listEffectEventTriggers(effect, 'spellCast').filter(
+      isClientAttackRollTrigger,
+    ),
+  );
+}
+
+/**
+ * Прогоняет срабатывания «носитель накладывает заклинание». Мутирует сущность.
+ *
+ * @param entity - заклинатель
+ * @param options - заклинание, бой и чей ход
+ * @returns что изменилось
+ */
+export function runSpellCastTriggers(
+  entity: DnDSceneEntity,
+  options: SpellCastTriggerOptions,
+): AttackRollTriggersResult {
+  return runClientCarrierTriggers(
+    entity,
+    listSpellCastSources(entity),
+    withCombatRound({ spell: options.spell }, options.combatRound),
+    options,
+  );
 }

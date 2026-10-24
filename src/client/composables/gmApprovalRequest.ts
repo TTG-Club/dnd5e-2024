@@ -2,8 +2,8 @@
  * Просьба к ведущему со стороны клиента: «разрешить ли то, чего правила сами
  * не позволяют». Вопрос уходит каналом запросов ядра с адресатом «ведущий»
  * (`recipient: 'gm'`, VTTG 0.9.547), у ведущего
- * открывается окно вопроса
- * (`EffectQuestionPromptModal` через `promptRequestedRoll`), а ответ
+ * появляется карточка центра запросов ядра (`promptRequestedRoll` →
+ * `reply.present`, VTTG 0.9.744), а ответ
  * засчитывается, только если отвечал ведущий ({@link readGmApprovalVerdict}).
  */
 
@@ -13,14 +13,18 @@ import type {
   GmApprovalVerdict,
 } from '@vtt/shared/system/dnd.js';
 
+import type { RollVisibility } from '../ui/actor/diceRollTypes';
+
 import { getRollRequestService } from '@/core/api/rollRequestService';
 import { useWorldStore } from '@/stores/worldStore';
-import { isEntityOwner } from '@vtt/shared';
+import { getEntityOwnerIds, isEntityOwner } from '@vtt/shared';
 import {
   buildGmApprovalPayload,
   formatGmApprovalTitle,
   readGmApprovalVerdict,
 } from '@vtt/shared/system/dnd.js';
+
+import { GM_APPROVAL_REQUESTER_PARTS } from '../ui/actor/constants';
 
 /** О ком и от чьего имени просят */
 export interface GmApprovalParties {
@@ -28,6 +32,25 @@ export interface GmApprovalParties {
   aboutEntityId: string;
   /** Сущность просящего: по ней сервер проверяет, вправе ли он просить */
   fromEntityId: string;
+}
+
+/**
+ * Кто просит ведущего: «Игрок 1 (Плут)» — имя игрока и, в скобках, за кого он
+ * просит. Без имени игрока — одно имя персонажа.
+ *
+ * @param characterName - имя персонажа или существа, за которого просят
+ * @returns подпись просящего
+ */
+export function formatRequesterName(characterName: string): string {
+  const username = useWorldStore().currentUser?.username;
+
+  if (!username) {
+    return characterName;
+  }
+
+  const { characterPrefix, characterSuffix } = GM_APPROVAL_REQUESTER_PARTS;
+
+  return `${username}${characterPrefix}${characterName}${characterSuffix}`;
 }
 
 /**
@@ -42,6 +65,19 @@ export function isGameMasterUser(userId: string): boolean {
       (user) => user.id === userId && user.role === 'admin',
     ) ?? false
   );
+}
+
+/** Бросок, который видит только ведущий: бросок существа ведущего */
+export const GM_ONLY_ROLL: RollVisibility = 'gm';
+
+/**
+ * Есть ли у сущности владелец-игрок: персонаж игрока, а не существо ведущего.
+ *
+ * @param entity - сущность
+ * @returns `true`, если среди владельцев есть не ведущий
+ */
+export function hasPlayerOwner(entity: DnDSceneEntity): boolean {
+  return getEntityOwnerIds(entity).some((userId) => !isGameMasterUser(userId));
 }
 
 /**

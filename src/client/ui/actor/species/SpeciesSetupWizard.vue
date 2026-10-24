@@ -9,7 +9,7 @@
 
   import { useFeatChoiceFeats } from '../../../composables/useFeatChoiceFeats';
   import { useFeatChoiceSpells } from '../../../composables/useFeatChoiceSpells';
-  import { useSpeciesGrantedSpellsResolver } from '../../../composables/useSpeciesGrantedSpellsResolver';
+  import { useGrantedSpellsResolver } from '../../../composables/useGrantedSpellsResolver';
   import { MODAL_BUTTON_LABELS, SPECIES_WIZARD_LABELS } from '../constants';
   import { useSpeciesWizard } from './useSpeciesWizard';
   import WizardStepFeatures from './WizardStepFeatures.vue';
@@ -59,10 +59,23 @@
    */
   const needsFeats = ref(false);
 
+  /**
+   * Ключи черт, которые дары вида выдают без выбора. Заполняются после создания
+   * мастера: он строит дары из каталога, который грузится здесь.
+   */
+  const grantedFeatIds = ref<string[]>([]);
+
   const { feats: featChoiceFeats } = useFeatChoiceFeats(
     toRef(props, 'socket'),
-    needsFeats,
+    // Открытое окно — часть надобности: закрытый мастер сбрасывает ответы о
+    // компендиуме, и следующий вид спросит заново
+    computed(() => needsFeats.value && props.open),
     toRef(props, 'packId'),
+    {
+      actorId: computed(() => props.actor.id),
+      featIds: grantedFeatIds,
+      grantedBy: computed(() => props.speciesDefinition?.name ?? ''),
+    },
   );
 
   const {
@@ -91,16 +104,39 @@
     computed(() => props.subspeciesKey ?? null),
   );
 
+  watch(
+    featDataSources,
+    (sources) => {
+      grantedFeatIds.value = sources.flatMap((source) =>
+        (source.featData.grantedFeats ?? []).map(
+          (grantedRef) => grantedRef.featId,
+        ),
+      );
+    },
+    { immediate: true },
+  );
+
   // Надобность каталога знает мастер, а грузит его composable выше: связываем
   // их через флаг — иначе получилась бы ссылка на ещё не созданный мастер
   watch(needsCompendiumFeats, (value) => (needsFeats.value = value), {
     immediate: true,
   });
 
+  /**
+   * Выдача особенностей вида: своим паком заклинания без названного пака
+   * считается пак вида.
+   */
+  const speciesSpellSources = computed(() =>
+    grantedSpellSources.value.map((source) => ({
+      ...source,
+      packId: source.packId ?? props.packId,
+    })),
+  );
+
   /** Granted-заклинания особенностей вида с данными из компендиума (по пакам) */
-  const { resolvedGrantedSpells } = useSpeciesGrantedSpellsResolver(
+  const { resolvedGrantedSpells, finalizeForActor } = useGrantedSpellsResolver(
     toRef(props, 'socket'),
-    grantedSpellSources,
+    speciesSpellSources,
   );
 
   /**
@@ -140,7 +176,7 @@
     currentStepIndex.value = index;
   }
 
-  function handleApply() {
+  async function handleApply(): Promise<void> {
     if (!canProceed.value) {
       return;
     }
@@ -152,9 +188,12 @@
       return;
     }
 
+    // Заклинания из нескольких компендиумов игрок выбирает здесь же, до записи
+    const grantedSpells = await finalizeForActor(props.actor.id);
+
     const { systemUpdates, rootUpdates } = buildUpdates(
       props.previousSpeciesDefinition,
-      resolvedGrantedSpells.value,
+      grantedSpells,
       props.previousSubspeciesDefinition,
     );
 

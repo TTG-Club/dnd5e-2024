@@ -15,6 +15,7 @@ import {
   isDndSceneEntity,
 } from '@vtt/shared/system/dnd.js';
 
+import { resolveCombatRound } from './encounterTurn';
 import { collectDefenderRollFormulas } from './incomingAttack';
 import { findAlliesAdjacentToTarget } from './targetAllyAdjacent';
 import { useBonusDamageParts } from './useBonusDamageParts';
@@ -82,6 +83,7 @@ export function buildRollBonusEvaluator(
         'target' in context
           ? withAdjacentAllies(context.target, entity.id)
           : buildTargetHpContext(undefined, entity.id),
+      combatRound: resolveCombatRound(),
       self: buildCarrierContext(entity),
     };
 

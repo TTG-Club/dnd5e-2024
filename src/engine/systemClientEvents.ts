@@ -47,6 +47,11 @@ const AttackRollEventSchema = z.object({
    * кости. Поля нет — не крит (и у клиентов старше поля)
    */
   critical: z.boolean().optional(),
+  /**
+   * Кости Скрытой атаки вошли в урон попавшей атаки: срабатывания «когда
+   * наносите урон Скрытой атакой». Поля нет — не было (и у клиентов старше)
+   */
+  sneakAttack: z.boolean().optional(),
 });
 
 /** Сколько сущностей накрывает один шаблон кнопки «При действии» */
@@ -114,6 +119,8 @@ export function buildEndCastsEvent(
  * @param rollMode - режим броска
  * @param landed - попал ли бросок; не задано — к этому времени неизвестно
  * @param critical - попадание критическое; пишется только у попавшего броска
+ * @param sneakAttack - в урон вошли кости Скрытой атаки; пишется только у
+ *   попавшего броска
  * @returns событие для `system:client-event`
  */
 export function buildAttackRollEvent(
@@ -122,6 +129,7 @@ export function buildAttackRollEvent(
   rollMode: AttackRollMode,
   landed?: boolean,
   critical = false,
+  sneakAttack = false,
 ): SystemClientEvent {
   return {
     type: 'attackRoll',
@@ -130,6 +138,7 @@ export function buildAttackRollEvent(
     rollMode,
     ...(landed === undefined ? {} : { landed }),
     ...(landed === true && critical ? { critical } : {}),
+    ...(landed === true && sneakAttack ? { sneakAttack } : {}),
   };
 }
 

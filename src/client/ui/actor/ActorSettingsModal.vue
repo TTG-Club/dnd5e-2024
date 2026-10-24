@@ -39,6 +39,7 @@
     isCreatureCategory,
     isDndActor,
     isTokenVisionEnabled,
+    readSneakAttackAutoAdd,
     resolveCreatureTokenScale,
     resolveTokenDarkvision,
     TOKEN_SCALE_TO_CREATURE_SIZE,
@@ -70,6 +71,7 @@
     TOKEN_VISION_ANGLE_PRESETS,
     TOKEN_VISION_ANGLE_STEP,
   } from './constants';
+  import TokenHpDisplayField from './TokenHpDisplayField.vue';
   import { readTokenVision } from './tokenVision';
 
   interface Props {
@@ -113,6 +115,8 @@
 
   const isPublic = ref(false);
   const autoSaves = ref(false);
+  /** Скрытая атака добавляется в окне атаки сама — настройка листа */
+  const sneakAttackAutoAdd = ref(true);
   const selectedCreatureType = ref<CreatureType>(DEFAULT_ACTOR_CREATURE_TYPE);
   const isSaving = ref(false);
   const isDeleteConfirmOpen = ref(false);
@@ -131,7 +135,8 @@
     tint: string;
     disposition: Disposition;
     showName: boolean;
-    hpDisplayMode: HpDisplayMode;
+    /** Вид ХП над токеном; не задан — берётся вид по умолчанию для мира */
+    hpDisplayMode: HpDisplayMode | undefined;
     /** Переключатель «Вращение»: стрелка и поворот при круговом обзоре */
     facingEnabled: boolean;
   }
@@ -147,7 +152,7 @@
     tint: TOKEN_TINT_DEFAULT,
     disposition: 'hostile',
     showName: false,
-    hpDisplayMode: 'bar',
+    hpDisplayMode: undefined,
     facingEnabled: false,
   });
 
@@ -438,7 +443,8 @@
     const publicChanged = isPublic.value !== (actor.value.isPublic || false);
 
     const autoSavesChanged =
-      autoSaves.value !== (actor.value.autoSaves ?? false);
+      autoSaves.value !== (actor.value.autoSaves ?? false)
+      || sneakAttackAutoAdd.value !== readSneakAttackAutoAdd(actor.value);
 
     const tokenChanged =
       tokenSettings.value.imageUrl !== (actor.value.token?.imageUrl || '')
@@ -454,8 +460,7 @@
       || tokenSettings.value.disposition
         !== (actor.value.token?.disposition || 'hostile')
       || tokenSettings.value.showName !== (actor.value.token?.showName ?? false)
-      || tokenSettings.value.hpDisplayMode
-        !== (actor.value.token?.hpDisplayMode ?? 'bar')
+      || tokenSettings.value.hpDisplayMode !== actor.value.token?.hpDisplayMode
       || tokenSettings.value.facingEnabled
         !== (actor.value.token?.facingEnabled ?? false);
 
@@ -554,6 +559,7 @@
       resetOwnership();
       isPublic.value = actor.value.isPublic || false;
       autoSaves.value = actor.value.autoSaves ?? false;
+      sneakAttackAutoAdd.value = readSneakAttackAutoAdd(actor.value);
       selectedCreatureType.value = effectiveCreatureType.value;
 
       tokenSettings.value = {
@@ -567,7 +573,7 @@
         tint: actor.value.token?.tint || TOKEN_TINT_DEFAULT,
         disposition: actor.value.token?.disposition || 'hostile',
         showName: actor.value.token?.showName ?? false,
-        hpDisplayMode: actor.value.token?.hpDisplayMode ?? 'bar',
+        hpDisplayMode: actor.value.token?.hpDisplayMode,
         facingEnabled: actor.value.token?.facingEnabled ?? false,
       };
 
@@ -638,6 +644,8 @@
 
       const updatedSystem = {
         ...actor.value.system,
+        // «Добавлять сама» — по умолчанию: поле хранится только у отказа
+        sneakAttackAutoAdd: sneakAttackAutoAdd.value ? undefined : false,
         size:
           TOKEN_SCALE_TO_CREATURE_SIZE[tokenSettings.value.scale]
           ?? actor.value.system.size,
@@ -710,30 +718,11 @@
     }
   });
 
-  /** Классы для кнопки режима отображения ХП */
-  const HP_MODE_ACTIVE_CLASS =
-    'border-primary/50 bg-primary/10 text-highlighted';
-
-  const HP_MODE_INACTIVE_CLASS =
-    'border-default/50 bg-elevated/20 text-toned hover:bg-elevated/40';
-
   /** Классы для кнопки размера токена */
   const TOKEN_SIZE_ACTIVE_CLASS = 'border-primary bg-primary/20 text-primary';
 
   const TOKEN_SIZE_INACTIVE_CLASS =
     'border-default/50 bg-elevated/30 text-muted hover:border-accented hover:text-toned';
-
-  const hpBarModeClass = computed(() =>
-    tokenSettings.value.hpDisplayMode === 'bar'
-      ? HP_MODE_ACTIVE_CLASS
-      : HP_MODE_INACTIVE_CLASS,
-  );
-
-  const hpTextModeClass = computed(() =>
-    tokenSettings.value.hpDisplayMode === 'text'
-      ? HP_MODE_ACTIVE_CLASS
-      : HP_MODE_INACTIVE_CLASS,
-  );
 
   function getTokenSizeClass(sizeValue: number): string {
     return tokenSettings.value.scale === sizeValue
@@ -837,6 +826,28 @@
                     :disabled="!(isAdmin || isOwner)"
                   />
                 </div>
+
+                <!-- Скрытая атака: включён ли переключатель в окне атаки.
+                  Плитка третья в сетке из двух колонок — тянется на всю ширину,
+                  чтобы справа не оставалась пустая клетка -->
+                <div
+                  class="col-span-2 flex items-center justify-between rounded border border-default/50 bg-elevated/30 p-3"
+                >
+                  <div class="space-y-0.5">
+                    <label class="text-sm font-medium text-toned">
+                      {{ TOKEN_SETTINGS_LABELS.sneakAttackAutoAdd }}
+                    </label>
+
+                    <p class="text-xs text-dimmed">
+                      {{ TOKEN_SETTINGS_LABELS.sneakAttackAutoAddHint }}
+                    </p>
+                  </div>
+
+                  <USwitch
+                    v-model="sneakAttackAutoAdd"
+                    :disabled="!(isAdmin || isOwner)"
+                  />
+                </div>
               </div>
 
               <!-- Направление взгляда: стрелка, поворот и автоповорот.
@@ -883,62 +894,10 @@
                 </div>
 
                 <!-- Отображение ХП -->
-                <div
-                  class="rounded border border-default/50 bg-elevated/30 p-3"
-                >
-                  <div class="mb-2 flex items-center gap-2">
-                    <UIcon
-                      name="tabler:heart"
-                      class="size-4 text-muted"
-                    />
-
-                    <label class="flex-1 text-sm font-medium text-toned">
-                      {{ TOKEN_SETTINGS_LABELS.hpDisplay }}
-                    </label>
-                  </div>
-
-                  <div class="grid grid-cols-2 gap-2">
-                    <button
-                      class="flex items-center gap-2 rounded border p-2 text-left text-sm transition-colors"
-                      :class="hpBarModeClass"
-                      :disabled="!(isAdmin || isOwner)"
-                      @click.left.exact.prevent="
-                        tokenSettings.hpDisplayMode = 'bar'
-                      "
-                    >
-                      <UIcon
-                        name="tabler:chart-bar"
-                        class="size-4 shrink-0"
-                      />
-
-                      <div>
-                        <div class="font-medium">
-                          {{ TOKEN_SETTINGS_LABELS.hpBar }}
-                        </div>
-                      </div>
-                    </button>
-
-                    <button
-                      class="flex items-center gap-2 rounded border p-2 text-left text-sm transition-colors"
-                      :class="hpTextModeClass"
-                      :disabled="!(isAdmin || isOwner)"
-                      @click.left.exact.prevent="
-                        tokenSettings.hpDisplayMode = 'text'
-                      "
-                    >
-                      <UIcon
-                        name="tabler:text-size"
-                        class="size-4 shrink-0"
-                      />
-
-                      <div>
-                        <div class="font-medium">
-                          {{ TOKEN_SETTINGS_LABELS.hpState }}
-                        </div>
-                      </div>
-                    </button>
-                  </div>
-                </div>
+                <TokenHpDisplayField
+                  v-model="tokenSettings.hpDisplayMode"
+                  :disabled="!(isAdmin || isOwner)"
+                />
 
                 <!-- Тип существа: по нему срабатывают гейты урона и эффектов -->
                 <div

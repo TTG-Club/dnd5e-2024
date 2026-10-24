@@ -18,7 +18,10 @@ import type { DamageTypeChoice, HealKind } from './formulaTokens.js';
 import type { ResolvedDamagePartInput, TargetHpGate } from './spellUtils.js';
 
 import { FORMULA_VARIABLE_LABELS, isCreatureCategory } from './consts.js';
-import { resolveDiceCountExpressions } from './diceCountExpressions.js';
+import {
+  renderReadableDiceExpressions,
+  resolveDiceCountExpressions,
+} from './diceCountExpressions.js';
 import {
   formatDiceFormula,
   formulaHasDice,
@@ -110,8 +113,11 @@ function formatPreviewFormula(formula: string): string {
     ? null
     : renderReadableFormula(formula, labelVariable);
 
+  // Кость с выражением (`(1 + steps(@classLevel, 3))к6`) — рядом правил,
+  // а не кодом со служебным `steps`
   return (
     readable
+    ?? renderReadableDiceExpressions(formula, labelVariable)
     ?? formatDiceFormula(formula).replace(VARIABLE_TOKEN_REGEX, labelVariable)
   );
 }

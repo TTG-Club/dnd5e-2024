@@ -51,30 +51,50 @@ import {
   ATTACK_ABILITY_CONDITION_PREFIX,
   ATTACKS_AGAINST_KEY,
   CARRIER_ARMOR_CONDITION_PREFIX,
+  CARRIER_TOOL_CONDITION_PREFIX,
+  COMBAT_ROUND_AT_LEAST_CONDITION_PREFIX,
+  COMBAT_ROUND_CONDITION_PREFIX,
   CONCENTRATION_SAVE_KEY,
+  conditionHolds,
   DEATH_SAVE_KEY,
   DEFAULT_CRIT_THRESHOLD,
+  hasConditionAlternatives,
   INCOMING_ATTACKER_IS_SOURCE_CONDITION,
   INCOMING_ATTACKER_NOT_SOURCE_CONDITION,
+  INCOMING_CONDITION_PREFIX,
   isCarrierEffect,
   isEffectDormant,
   isOffSheetChangeKey,
   isSenseType,
+  isSneakAttackKey,
+  isUseActivatedEffect,
   isWeaponOverrideKey,
+  JUMP_COST_KEY,
+  JUMP_HIGH_KEY,
+  JUMP_LONG_KEY,
   parseWeaponBaseTypeCondition,
+  ROLL_ADVANTAGE_CONDITION,
+  ROLL_DISADVANTAGE_CONDITION,
+  ROLL_NO_DISADVANTAGE_CONDITION,
+  SNEAK_ATTACK_APPLIED_CONDITION,
+  SNEAK_ATTACK_DAMAGE_KEY,
+  splitConditionGroups,
   splitConditionParts,
   TARGET_ALLY_ADJACENT_CONDITION,
   TARGET_ALLY_WITH_CONDITION_PREFIX,
   TARGET_ALLY_WITHOUT_CONDITION_PREFIX,
   TARGET_ANY_ALLY_ADJACENT_CONDITION,
   TARGET_IS_SOURCE_CONDITION,
+  TARGET_NOT_ACTED_CONDITION,
   TARGET_NOT_SOURCE_CONDITION,
   WEAPON_DAMAGE_DICE_KEY,
   WEAPON_PROPERTY_CONDITION_PREFIX,
+  WEAPON_RANGE_CONDITION_PREFIX,
 } from './activeEffectTypes.js';
 import { isArmorProficient } from './armorProficiency.js';
 import {
   armorConditionMatches,
+  armorDexterityBonus,
   getCarrierArmorState,
   isArmorConditionKind,
 } from './armorState.js';
@@ -90,6 +110,7 @@ import { INCAPACITATED_CONDITION_KEY } from './conditionKeys.js';
 import {
   ABILITY_KEYS,
   BASE_UNARMORED_AC,
+  HIGH_JUMP_BASE_FEET,
   isAbilityType,
   isMovementType,
   isSkillType,
@@ -193,6 +214,9 @@ const DERIVED_TARGET_KEYS: ReadonlySet<string> = new Set([
   DEATH_SAVE_KEY,
   'armorClass',
   'initiative',
+  JUMP_COST_KEY,
+  JUMP_HIGH_KEY,
+  JUMP_LONG_KEY,
   'proficiencyBonus',
   'spellSaveDC',
 ]);
@@ -389,6 +413,8 @@ export function prepareBaseData(
     initiative: 0,
     proficiencyBonus: 0,
     movement,
+    // Считается в prepareDerivedData от итоговой Силы
+    jump: { long: 0, high: 0 },
     senses,
     hitPointsMax: resolveHitPointsMax(system.hitPoints),
     critThreshold: DEFAULT_CRIT_THRESHOLD,
@@ -858,6 +884,12 @@ function buildWeaponOverrideEntry(
     return undefined;
   }
 
+  // «Или» замене кости не подходит: оружие листа сверяется с видами одним
+  // списком, а не перебором веток
+  if (change.condition && hasConditionAlternatives(change.condition)) {
+    return undefined;
+  }
+
   let baseTypes: string[] | undefined;
 
   for (const part of splitConditionParts(change.condition ?? '')) {
@@ -959,6 +991,25 @@ export interface RollContext {
    */
   weaponProperties?: readonly string[];
   /**
+   * Дальность САМОГО оружия броска — для условия `weapon.rangeType`
+   * («Скрытая атака» дальнобойным оружием). Не вид атаки: у брошенного
+   * кинжала атака дальнобойная, а оружие рукопашное. Не задано — бросок не
+   * оружием, условие не выполняется.
+   */
+  weaponRangeType?: 'melee' | 'ranged';
+  /**
+   * В этой атаке идёт Скрытая атака — для зависимых строк (условие
+   * `attack.sneakAttack === true`). Ставит тот, кто её решил
+   * (`resolveSneakAttack`): условия выполнены, переключатель включён, лимит
+   * хода свободен.
+   */
+  sneakAttack?: boolean;
+  /**
+   * Раунд идущего боя — для условий `combat.round` («Ликвидация» в первом
+   * раунде). Не задан — боя нет, условия не выполняются.
+   */
+  combatRound?: number;
+  /**
    * Состояние HP цели — для условий `target.hp.*` (напр. «Убийца»/«Окровавлен»),
    * и её тип — для условий `target.creatureType`. Отсутствует вне
    * таргет-контекста; такие условия тогда не срабатывают.
@@ -973,6 +1024,11 @@ export interface RollContext {
     markedBy?: readonly string[];
     /** Сущность цели — защитные эффекты цели в броске атаки */
     entityId?: string;
+    /**
+     * Ходила ли цель в этом бою — для `target.hasActed`. Не задано — боя
+     * нет, условие не выполняется
+     */
+    hasActed?: boolean;
     /**
      * Союзники бросающего в 5 фт от цели и их состояния — для условий
      * «союзник рядом с целью». Считает клиент по фишкам сцены
@@ -1041,6 +1097,11 @@ export interface CarrierContext {
   speciesNames?: readonly string[];
   /** Надетый доспех и щит — для `self.armor === "..."` */
   armor?: CarrierArmorState;
+  /**
+   * Инструменты в снаряжении (виды `baseToolType`) — для `self.tool === "…"`:
+   * «Отравить» Хитрого удара требует набор отравителя при себе
+   */
+  toolKeys?: readonly string[];
 }
 
 /**
@@ -1055,6 +1116,9 @@ export function buildCarrierContext(carrier: DnDSceneEntity): CarrierContext {
     extraCreatureTypes: resolveEntityExtraCreatureTypes(carrier),
     speciesNames: listEntitySpeciesNames(carrier),
     armor: getCarrierArmorState(carrier),
+    toolKeys: (carrier.equipment ?? []).flatMap((equipmentItem) =>
+      equipmentItem.baseToolType ? [equipmentItem.baseToolType] : [],
+    ),
   };
 }
 
@@ -1186,6 +1250,7 @@ function isCarrierConditionPart(part: string): boolean {
     parseCreatureTypeCondition(part, 'self.creatureType') !== undefined
     || part.startsWith(CARRIER_ARMOR_CONDITION_PREFIX)
     || parseCarrierSpeciesCondition(part) !== undefined
+    || parseQuotedCondition(part, CARRIER_TOOL_CONDITION_PREFIX) !== undefined
   );
 }
 
@@ -1205,6 +1270,12 @@ function isCarrierConditionPart(part: string): boolean {
  * @returns `true`, если условие о носителе
  */
 function isCarrierCondition(condition: string): boolean {
+  // «Или» по листу не считается: ветки пришлось бы класть в постоянные числа
+  // по отдельности. Такое условие целиком уходит в бросок
+  if (hasConditionAlternatives(condition)) {
+    return false;
+  }
+
   const parts = splitConditionParts(condition);
 
   return parts.length > 0 && parts.every(isCarrierConditionPart);
@@ -1221,6 +1292,12 @@ function carrierConditionPartMatches(
   part: string,
   carrier: CarrierContext | undefined,
 ): boolean {
+  const wantedTool = parseQuotedCondition(part, CARRIER_TOOL_CONDITION_PREFIX);
+
+  if (wantedTool !== undefined) {
+    return carrier?.toolKeys?.includes(wantedTool) ?? false;
+  }
+
   const wantedArmor = parseArmorCondition(part);
 
   if (wantedArmor !== undefined) {
@@ -1260,11 +1337,8 @@ function carrierConditionMatches(
   condition: string,
   carrier: CarrierContext | undefined,
 ): boolean {
-  const parts = splitConditionParts(condition);
-
-  return (
-    parts.length > 0
-    && parts.every((part) => carrierConditionPartMatches(part, carrier))
+  return conditionHolds(condition, (part) =>
+    carrierConditionPartMatches(part, carrier),
   );
 }
 
@@ -1309,21 +1383,19 @@ function skipChangeOnSheet(
  * per-target гейт ({@link collectBonusDamageFormulas}); отложить умеет только
  * одиночное условие, составное с частью о цели там просто не сработает.
  *
- * Части, соединённые `&&`, обязаны выполниться все.
+ * Части, соединённые `&&`, обязаны выполниться все; группы, соединённые
+ * `||`, — хоть одна.
  *
  * @param condition - строка условия
  * @param rollContext - контекст текущего броска
  * @returns true если условие выполняется
  */
-function evaluateCondition(
+export function evaluateCondition(
   condition: string,
   rollContext: RollContext,
 ): boolean {
-  const parts = splitConditionParts(condition);
-
-  return (
-    parts.length > 0
-    && parts.every((part) => evaluateConditionPart(part, rollContext))
+  return conditionHolds(condition, (part) =>
+    evaluateConditionPart(part, rollContext),
   );
 }
 
@@ -1348,6 +1420,44 @@ function parseQuotedCondition(
     .replace(/^["']|["']$/g, '');
 
   return value || undefined;
+}
+
+/** Целое число условия раунда */
+const COMBAT_ROUND_NUMBER_PATTERN = /^\d+$/;
+
+/**
+ * Проверка раунда боя по условию `combat.round === N` / `combat.round >= N`.
+ *
+ * @param part - часть условия
+ * @returns проверка номера раунда либо `undefined`, если часть не о раунде
+ */
+function matchCombatRoundCondition(
+  part: string,
+): ((round: number) => boolean) | undefined {
+  for (const [prefix, holds] of [
+    [
+      COMBAT_ROUND_CONDITION_PREFIX,
+      (round: number, wanted: number) => round === wanted,
+    ],
+    [
+      COMBAT_ROUND_AT_LEAST_CONDITION_PREFIX,
+      (round: number, wanted: number) => round >= wanted,
+    ],
+  ] as const) {
+    if (!part.startsWith(prefix)) {
+      continue;
+    }
+
+    const value = part.slice(prefix.length).trim();
+
+    if (!COMBAT_ROUND_NUMBER_PATTERN.test(value)) {
+      return undefined;
+    }
+
+    return (round) => holds(round, Number(value));
+  }
+
+  return undefined;
 }
 
 /**
@@ -1400,12 +1510,42 @@ export function evaluateConditionPart(
   trimmed: string,
   rollContext: RollContext,
 ): boolean {
-  if (trimmed === 'roll.hasAdvantage === true') {
+  if (trimmed === ROLL_ADVANTAGE_CONDITION) {
     return rollContext.hasAdvantage;
   }
 
-  if (trimmed === 'roll.hasDisadvantage === true') {
+  if (trimmed === ROLL_DISADVANTAGE_CONDITION) {
     return rollContext.hasDisadvantage;
+  }
+
+  if (trimmed === ROLL_NO_DISADVANTAGE_CONDITION) {
+    return !rollContext.hasDisadvantage;
+  }
+
+  if (trimmed === SNEAK_ATTACK_APPLIED_CONDITION) {
+    return rollContext.sneakAttack === true;
+  }
+
+  if (trimmed === TARGET_NOT_ACTED_CONDITION) {
+    return rollContext.target?.hasActed === false;
+  }
+
+  const combatRound = matchCombatRoundCondition(trimmed);
+
+  if (combatRound) {
+    return (
+      rollContext.combatRound !== undefined
+      && combatRound(rollContext.combatRound)
+    );
+  }
+
+  const weaponRange = parseQuotedCondition(
+    trimmed,
+    WEAPON_RANGE_CONDITION_PREFIX,
+  );
+
+  if (weaponRange) {
+    return rollContext.weaponRangeType === weaponRange;
   }
 
   const weaponProperty = parseQuotedCondition(
@@ -1538,13 +1678,8 @@ function evaluateDefensiveCondition(
   attackContext: DndIncomingAttackContext,
   effectSourceId?: string,
 ): boolean {
-  const parts = splitConditionParts(condition);
-
-  return (
-    parts.length > 0
-    && parts.every((part) =>
-      evaluateDefensiveConditionPart(part, attackContext, effectSourceId),
-    )
+  return conditionHolds(condition, (part) =>
+    evaluateDefensiveConditionPart(part, attackContext, effectSourceId),
   );
 }
 
@@ -2087,8 +2222,43 @@ function isRollBonusKey(key: string): boolean {
 export function isRollTimeDiceKey(key: string): boolean {
   return (
     key === ATTACKS_AGAINST_KEY
+    || key === SNEAK_ATTACK_DAMAGE_KEY
     || key.startsWith('damage.')
     || isRollBonusKey(key)
+  );
+}
+
+/**
+ * Не действует ли строка нигде из-за «или» в условии. По листу условие с «или»
+ * не считается ({@link isCarrierCondition}), а в броске читаются только ключи
+ * бросков: урон, атака, спасбросок, проверка, порог крита, Скрытая атака и КД
+ * против входящей атаки. «КД +1 в лёгком ИЛИ среднем доспехе» не сработала бы
+ * ни на листе, ни в броске — форма эффекта предупреждает автора.
+ *
+ * @param change - строка эффекта
+ * @returns `true`, если строка с «или» у ключа листа ничего не меняет
+ */
+export function isIgnoredAlternativesCondition(
+  change: Pick<EffectChange, 'key' | 'condition'>,
+): boolean {
+  if (!change.condition || !hasConditionAlternatives(change.condition)) {
+    return false;
+  }
+
+  if (
+    isRollTimeDiceKey(change.key)
+    || isSneakAttackKey(change.key)
+    || change.key === CRIT_THRESHOLD_KEY
+  ) {
+    return false;
+  }
+
+  // КД с условием входящей атаки считает защита — там «или» работает
+  return !(
+    change.key === 'armorClass'
+    && splitConditionGroups(change.condition)
+      .flat()
+      .some((part) => part.startsWith(INCOMING_CONDITION_PREFIX))
   );
 }
 
@@ -2125,9 +2295,10 @@ export function readAbilityDamageScope(
     return undefined;
   }
 
+  // Только одиночное условие: и «и», и «или» оставляют строку условием броска
   const parts = splitConditionParts(change.condition);
 
-  if (parts.length !== 1) {
+  if (parts.length !== 1 || hasConditionAlternatives(change.condition)) {
     return undefined;
   }
 
@@ -2420,6 +2591,9 @@ export function hasBonusDamageFormulas(
  * Особый случай — условие `target.hp.*` БЕЗ HP цели в контексте (AoE / снаряды:
  * единой цели нет): формула не гасится, а возвращается с отложенным гейтом
  * `conditionGate` — оркестратор оценит HP каждой цели в момент применения.
+ * Откладывается только одиночное условие: с «или» ({@link evaluateCondition})
+ * ветку цели в гейт не разложить, и без единой цели такая строка оценивается
+ * сразу — её часть о хитах цели не выполняется.
  * Токены `@dmg.<type>`/`@target.*` остаются в формуле — их разбирает
  * `resolveBonusDamageParts` (spellUtils).
  *
@@ -2490,6 +2664,56 @@ export function collectBonusDamageFormulas(
   }
 
   return formulas;
+}
+
+/** Строка эффекта, выполненная в этом броске, вместе со своим эффектом */
+export interface RollChangeMatch {
+  /** Строка */
+  change: EffectChange;
+  /** Эффект строки — его имя и наложивший */
+  effect: ActiveEffect;
+}
+
+/**
+ * Строки с этим ключом, которые действуют в броске: эффект не спит, его
+ * условие броска выполнено, условие строки — тоже (без условия — всегда).
+ * Для ключей, которые читает сам бросок, а не лист (`sneakAttack.*`).
+ *
+ * Кнопки «Применить» спят, но приёмы Хитрого удара — строки как раз на
+ * них: такие ключи читаются с `withUseButtons`, и кнопка тогда считается,
+ * даже если выключена (у кнопок компендиума `disabled` смысла не имеет —
+ * они спят и так).
+ *
+ * @param effects - эффекты бросающего (с аурами)
+ * @param key - ключ строки
+ * @param rollContext - контекст броска
+ * @param withUseButtons - читать и эффекты-кнопки «Применить»
+ * @returns подходящие строки по порядку эффектов
+ */
+export function collectRollTimeChanges(
+  effects: readonly ActiveEffect[],
+  key: EffectTargetKey,
+  rollContext: RollContext,
+  withUseButtons = false,
+): RollChangeMatch[] {
+  return effects.flatMap((effect) => {
+    const asleep = withUseButtons
+      ? !isUseActivatedEffect(effect) && isEffectDormant(effect)
+      : isEffectDormant(effect);
+
+    if (asleep || !rollConditionHolds(effect, rollContext)) {
+      return [];
+    }
+
+    const scoped = scopeRollContext(rollContext, effect);
+
+    return effect.changes.flatMap((change) =>
+      change.key === key
+      && (!change.condition || evaluateCondition(change.condition, scoped))
+        ? [{ change, effect }]
+        : [],
+    );
+  });
 }
 
 /**
@@ -2653,6 +2877,39 @@ function applyDerivedChanges(
   }
 
   return value;
+}
+
+/**
+ * Своя цена прыжка в футах хода ({@link JUMP_COST_KEY}).
+ *
+ * По правилам цены у прыжка нет — фут за фут, поэтому без строк поля нет
+ * вовсе. Отсчёт идёт от бесконечности: «заменить на 10» и «понизить до 10»
+ * дают 10, а одно «повысить до» цену не задаёт — бесконечность остаётся, и
+ * поле не появляется.
+ *
+ * @param stats - статы листа; правится только набор `overriddenKeys`
+ * @param derivedChanges - изменения производных ключей по ключу
+ * @param formulaContext - контекст для вычисления формул
+ * @returns `{ cost }` либо пустой объект, если своей цены нет
+ */
+function resolveJumpCost(
+  stats: ResolvedActorStats,
+  derivedChanges: DerivedChangeMap,
+  formulaContext: FormulaContext,
+): { cost?: number } {
+  if (!derivedChanges.has(JUMP_COST_KEY)) {
+    return {};
+  }
+
+  const cost = applyDerivedChanges(
+    stats,
+    JUMP_COST_KEY,
+    Number.POSITIVE_INFINITY,
+    derivedChanges,
+    formulaContext,
+  );
+
+  return Number.isFinite(cost) ? { cost: Math.max(0, cost) } : {};
 }
 
 /**
@@ -3146,10 +3403,12 @@ function sourceImmunityHolds(
 
   if (
     rollCondition === undefined
-    || !splitConditionParts(rollCondition).some(
-      (part) =>
-        parseCreatureTypeCondition(part, 'source.creatureType') !== undefined,
-    )
+    || !splitConditionGroups(rollCondition)
+      .flat()
+      .some(
+        (part) =>
+          parseCreatureTypeCondition(part, 'source.creatureType') !== undefined,
+      )
   ) {
     return true;
   }
@@ -3475,6 +3734,32 @@ export function prepareDerivedData(
     derivedFormulaContext,
   );
 
+  // Прыжок с разбегом (D&D 2024, «Прыжок в длину» / «Прыжок в высоту»):
+  // в длину — значение Силы, в высоту — 3 + модификатор Силы
+  derivedStats.jump = {
+    long: Math.max(
+      0,
+      applyDerivedChanges(
+        derivedStats,
+        JUMP_LONG_KEY,
+        derivedStats.abilities.strength,
+        derivedChanges,
+        derivedFormulaContext,
+      ),
+    ),
+    high: Math.max(
+      0,
+      applyDerivedChanges(
+        derivedStats,
+        JUMP_HIGH_KEY,
+        HIGH_JUMP_BASE_FEET + derivedStats.abilityMods.strength,
+        derivedChanges,
+        derivedFormulaContext,
+      ),
+    ),
+    ...resolveJumpCost(derivedStats, derivedChanges, derivedFormulaContext),
+  };
+
   // 7. Класс доспеха (AC)
   const dexMod = derivedStats.abilityMods.dexterity;
 
@@ -3583,13 +3868,7 @@ export function prepareDerivedData(
             ? (equippedArmor.magicBonus ?? 0)
             : 0;
 
-          const maxDex = equippedArmor.maxDexBonus;
-
-          // maxDexBonus: null = без ограничений, 0 = DEX не добавляется, N = cap
-          const effectiveDex =
-            maxDex === null || maxDex === undefined
-              ? dexMod
-              : Math.min(dexMod, maxDex);
+          const effectiveDex = armorDexterityBonus(dexMod, equippedArmor);
 
           calculatedAC = armorBase + effectiveDex + armorMagicBonus;
         } else {
@@ -3828,6 +4107,7 @@ function cloneResolvedStats(stats: ResolvedActorStats): ResolvedActorStats {
     initiative: stats.initiative,
     proficiencyBonus: stats.proficiencyBonus,
     movement: { ...stats.movement },
+    jump: { ...stats.jump },
     senses: { ...stats.senses },
     hitPointsMax: stats.hitPointsMax,
     critThreshold: stats.critThreshold,

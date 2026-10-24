@@ -1,9 +1,13 @@
 import type { AttackRollSnapshot } from '../../composables/attackRollSnapshot';
 import type { DamageTypeChoiceRequest } from '../../composables/damageTypeChoice';
+import type { BonusPartsRollContext } from '../../composables/useBonusDamageParts';
 import type {
   RolledSpellDamagePart,
   SpellDamagePartInput,
 } from '../../composables/useSpellResolution';
+
+/** Кому виден бросок: всем, только ведущему или только себе */
+export type RollVisibility = 'public' | 'gm' | 'private';
 
 /**
  * Результат чистой d20-проверки из окна броска — в разбивке.
@@ -25,6 +29,11 @@ export interface CheckRollResult {
    * Числа выше тогда условные — по ним исход не считают
    */
   willing?: true;
+  /**
+   * Сообщение чата с этим броском: исход действия дописывается в его
+   * карточку, как урон в карточку атаки. Нет — броска в чате нет
+   */
+  messageId?: string;
 }
 
 /**
@@ -35,6 +44,12 @@ export interface CheckRollResult {
 export interface RollDamageVariant {
   /** Подпись в поле «Урон» */
   label: string;
+  /**
+   * Набор «если у атаки преимущество» (`@roll.advantage`): окно выбирает его
+   * само, пока режим броска — преимущество, и основной урон — пока нет.
+   * Выбор руками держится до следующей смены режима
+   */
+  whenAdvantage?: true;
   /** Формула для показа и одночастного пути */
   formula: string;
   /** Основной тип урона набора */
@@ -42,10 +57,9 @@ export interface RollDamageVariant {
   /** Части урона набора */
   damageParts: SpellDamagePartInput[];
   /** Бонус-части эффектов в момент броска */
-  evaluateBonusDamageParts?: (context: {
-    hasAdvantage: boolean;
-    hasDisadvantage: boolean;
-  }) => SpellDamagePartInput[];
+  evaluateBonusDamageParts?: (
+    context: BonusPartsRollContext,
+  ) => SpellDamagePartInput[];
   /** Тип урона на выбор в наборе */
   damageTypeChoice?: DamageTypeChoiceRequest;
   /**

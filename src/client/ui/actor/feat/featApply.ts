@@ -14,7 +14,6 @@ import type {
   ActorCounterState,
   ActorProficiencies,
   AppliedFeatMeta,
-  ClassSpellListRequest,
   DnDActor,
   FeatData,
   GrantedSpellSource,
@@ -22,8 +21,9 @@ import type {
   Spell,
 } from '@vtt/shared/system/dnd.js';
 
+import type { SpellGrantRequest } from '../../../composables/grantedSpellPacks';
+
 import { generateEntityId } from '@/core/entityUtils';
-import { useItemsStore } from '@/stores/itemsStore';
 import {
   appendGrantedSpells,
   applyFeatChoiceSelections,
@@ -34,7 +34,6 @@ import {
   collectActorFeatChoiceAnswers,
   collectFeatGrantedClassSpellRequests,
   collectFeatGrantedSpellSources,
-  expandClassSpellRequests,
   getTotalLevel,
   isFeatOwnedEffect,
   normalizeSpellName,
@@ -45,13 +44,9 @@ import {
   removeGrantedSpellsByFeatureNames,
   resolveChosenAbilities,
   resolveChosenDamageDefenses,
-  WORLD_PACK_ID,
 } from '@vtt/shared/system/dnd.js';
 
-import {
-  extractWorldSpells,
-  loadSpellPacks,
-} from '../../../composables/spellCompendium';
+import { resolveSpellGrantsForActor } from '../../../composables/grantedSpellPacks';
 
 /**
  * Особенность-черта, несущая дары для применения/отката. Базовый `Feature`
@@ -110,6 +105,7 @@ export interface FeatApplyResult {
  * @param feat.name - имя черты (источник при выдаче заклинаний)
  * @param feat.featData - блоб даров черты с выдаваемыми заклинаниями
  * @param feat.choices - ответы игрока: из них берутся выбранные заклинания
+ * @param feat.packId - пак черты: в нём выдаваемое ищется первым
  * @param actor - лист персонажа: его уровень решает, что уже открыто. Без него
  *   уровни доступа не проверяются, а расширенный список не раскрывается вовсе
  */
@@ -119,14 +115,17 @@ export function resolveFeatGrantedSpells(
     name: string;
     featData?: FeatData | null;
     choices?: Record<string, string[]>;
+    packId?: string;
   },
   actor?: DnDActor | null,
 ): Promise<ResolvedGrantedSpell[]> {
-  return resolveGrantedSpellSources(
-    socket,
-    collectFeatGrantedSpellSources(feat, actor),
-    collectFeatGrantedClassSpellRequests(feat, actor),
-  );
+  return resolveGrantedSpellSources(socket, actor, {
+    sources: withFeatPack(
+      collectFeatGrantedSpellSources(feat, actor),
+      feat.packId,
+    ),
+    classRequests: collectFeatGrantedClassSpellRequests(feat, actor),
+  });
 }
 
 /**
@@ -150,69 +149,66 @@ export function resolveActorFeatSpells(
   const withFeatData = features.filter((feature) => feature.featData);
 
   const sources = withFeatData.flatMap((feature) =>
-    collectFeatGrantedSpellSources(feature, actor),
+    withFeatPack(
+      collectFeatGrantedSpellSources(feature, actor),
+      feature.packId,
+    ),
   );
 
   const classRequests = withFeatData.flatMap((feature) =>
     collectFeatGrantedClassSpellRequests(feature, actor),
   );
 
-  return resolveGrantedSpellSources(socket, sources, classRequests);
+  return resolveGrantedSpellSources(socket, actor, {
+    sources,
+    classRequests,
+    isLevelUnlock: true,
+  });
 }
 
 /**
  * Сопоставляет связи «заклинание → черта-источник» с записями компендиума и
- * мира. Несопоставленное пропускается: связь могла указывать на пак, которого у
- * этого мастера нет, и ронять из-за неё выдачу целиком неправильно.
+ * мира по правилу «свой пак → единственный другой → выбор игрока → нет».
+ * Своим паком заклинания без названного пака считается пак черты.
  *
- * Компендиум грузится ПО ПАКАМ: у выдачи «весь список класса» автор может назвать
- * конкретный пак, а плоский каталог о паках уже не помнит.
+ * Отдаёт прежнюю форму выдачи черты: имя, подготовка, характеристика. Остальные
+ * поля связи (чем выдано, ключ умения) черта не использует, и лист кладёт её
+ * заклинания как заклинания черты.
  *
  * @param socket - WebSocket-клиент (для загрузки компендиума)
- * @param sources - связи «заклинание → черта-источник»
- * @param classRequests - запросы «выдать весь список класса»
+ * @param actor - персонаж, которому выдаются заклинания
+ * @param request - что выдаётся
  */
 async function resolveGrantedSpellSources(
   socket: TypedWebSocketClient | null | undefined,
-  sources: GrantedSpellSource[],
-  classRequests: ClassSpellListRequest[] = [],
+  actor: DnDActor | null | undefined,
+  request: SpellGrantRequest,
 ): Promise<ResolvedGrantedSpell[]> {
-  if ((sources.length === 0 && classRequests.length === 0) || !socket) {
-    return [];
-  }
+  const resolved = await resolveSpellGrantsForActor(socket, actor, request);
 
-  const { packs } = await loadSpellPacks(socket);
+  return resolved.map((granted) => ({
+    spell: granted.spell,
+    featureName: granted.featureName,
+    alwaysPrepared: granted.alwaysPrepared,
+    castingAbility: granted.castingAbility,
+  }));
+}
 
-  // Свои заклинания мира ищутся наравне с компендиумными: черта может выдавать
-  // заклинание, заведённое в панели «Предметы». Своим паком — чтобы список класса,
-  // ограниченный компендиумом, их не подхватил
-  const worldPack = {
-    packId: WORLD_PACK_ID,
-    spells: extractWorldSpells(useItemsStore().itemsByType('spell')),
-  };
-
-  const allPacks = [...packs, worldPack];
-  const spells = allPacks.flatMap((pack) => pack.spells);
-
-  const resolved: ResolvedGrantedSpell[] = [];
-
-  for (const source of [
-    ...sources,
-    ...expandClassSpellRequests(classRequests, allPacks),
-  ]) {
-    const spell = spells.find((entry) => entry.id === source.spellId);
-
-    if (spell) {
-      resolved.push({
-        spell,
-        featureName: source.featureName,
-        alwaysPrepared: source.alwaysPrepared,
-        castingAbility: source.castingAbility,
-      });
-    }
-  }
-
-  return resolved;
+/**
+ * Связи заклинаний черты с её паком: заклинание без названного пака ищется
+ * сперва там, откуда взята черта.
+ *
+ * @param sources - связи «заклинание → черта»
+ * @param featPackId - пак черты
+ */
+function withFeatPack(
+  sources: GrantedSpellSource[],
+  featPackId: string | undefined,
+): GrantedSpellSource[] {
+  return sources.map((source) => ({
+    ...source,
+    packId: source.packId ?? featPackId,
+  }));
 }
 
 /**
@@ -243,6 +239,7 @@ export function applyFeatToActor(
     id: featureId,
     acquisitionLevel,
     ...(droppedFeat.choices ? { choices: droppedFeat.choices } : {}),
+    ...(droppedFeat.packId ? { packId: droppedFeat.packId } : {}),
     name: droppedFeat.name,
     nameEn: droppedFeat.nameEn,
     description: droppedFeat.description,
@@ -426,6 +423,7 @@ export function reapplyFeatToActor(
       // Сделанные выборы переносим: правка черты — не повторное её получение, и
       // переспрашивать игрока незачем
       choices: updatedFeat.choices ?? oldFeature.choices,
+      packId: updatedFeat.packId ?? oldFeature.packId,
     },
     resolvedSpells,
   );

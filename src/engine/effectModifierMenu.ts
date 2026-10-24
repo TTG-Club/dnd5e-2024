@@ -25,14 +25,29 @@ import {
   ABILITY_CHECK_KEY,
   ATTACK_ABILITY_CONDITION_PREFIX,
   CARRIER_ARMOR_CONDITION_PREFIX,
+  CARRIER_TOOL_CONDITION_PREFIX,
   CARRIER_TYPE_CONDITION_PREFIX,
+  COMBAT_ROUND_CONDITION_PREFIX,
   EFFECT_CONDITION_SECTIONS,
   EFFECT_CONDITION_SUGGESTIONS,
   EFFECT_TARGET_SUGGESTIONS,
   isEffectTargetKey,
+  JUMP_COST_KEY,
+  POISONERS_KIT_TOOL,
   RAGE_DAMAGE_BONUS_FORMULA,
   SHILLELAGH_DAMAGE_TYPE,
   SHILLELAGH_WEAPON_CONDITION,
+  SNEAK_ATTACK_APPLIED_CONDITION,
+  SNEAK_ATTACK_CONDITION,
+  SNEAK_ATTACK_CREATURE_CONDITION,
+  SNEAK_ATTACK_CUNNING_STRIKE_COUNT_KEY,
+  SNEAK_ATTACK_CUNNING_STRIKE_KEY,
+  SNEAK_ATTACK_DAMAGE_KEY,
+  SNEAK_ATTACK_DICE_FORMULA,
+  SNEAK_ATTACK_DICE_KEY,
+  SNEAK_ATTACK_MIN_DIE_KEY,
+  SNEAK_ATTACK_RIDER_KEY,
+  SNEAK_ATTACK_SAVE_DOUBLE_KEY,
   SPELL_DAMAGE_TYPE_KEY,
   TARGET_TYPE_CONDITION_PREFIX,
   THROWN_WEAPON_CONDITION,
@@ -190,7 +205,8 @@ function groupOfKey(key: string): EffectModifierGroup {
     return 'weapon';
   }
 
-  if (key.startsWith('movement.')) {
+  // Прыжок ищут рядом со скоростями: он тоже тратит ход
+  if (key.startsWith('movement.') || key.startsWith('jump.')) {
     return 'movement';
   }
 
@@ -229,6 +245,12 @@ function defaultModeOfKey(key: string): EffectChangeMode {
 
   if (key.startsWith('movement.') && key !== 'movement.walk') {
     return 'upgrade';
+  }
+
+  // Цена прыжка — само значение («прыжок стоит 10 фт хода»), с нуля его не
+  // прибавить: своей цены по правилам нет
+  if (key === JUMP_COST_KEY) {
+    return 'override';
   }
 
   // Кость, характеристику и тип урона оружия не прибавить — только заменить;
@@ -371,6 +393,74 @@ const READY_PRESETS: readonly EffectModifierPreset[] = [
     label: 'Урон: +2к6 только по нежити',
     mode: 'add',
     value: '2к6@target.type.undead',
+  },
+  // Скрытая атака 2024: 1к6 на 1-м уровне плута и ещё 1к6 каждые два уровня
+  {
+    key: SNEAK_ATTACK_DAMAGE_KEY,
+    label: 'Скрытая атака: 1к6 → 10к6 по уровню плута',
+    mode: 'add',
+    value: SNEAK_ATTACK_DICE_FORMULA,
+    condition: SNEAK_ATTACK_CONDITION,
+  },
+  {
+    key: SNEAK_ATTACK_DAMAGE_KEY,
+    label: 'Скрытая атака существа: кости, без условия про оружие',
+    mode: 'add',
+    value: '2к6',
+    condition: SNEAK_ATTACK_CREATURE_CONDITION,
+  },
+  {
+    key: SNEAK_ATTACK_DICE_KEY,
+    label: 'Скрытая атака: +1к6 к её костям',
+    mode: 'add',
+    value: '1',
+  },
+  {
+    key: 'damage.weapon',
+    label: 'Урон предмета: +1к6, если идёт Скрытая атака',
+    mode: 'add',
+    value: '1к6',
+    condition: SNEAK_ATTACK_APPLIED_CONDITION,
+  },
+  // Хитрый удар: строка на кнопке приёма — цена в костях Скрытой атаки
+  {
+    key: SNEAK_ATTACK_CUNNING_STRIKE_KEY,
+    label: 'Хитрый удар: приём ценой 1к6',
+    mode: 'add',
+    value: '1',
+  },
+  {
+    key: SNEAK_ATTACK_CUNNING_STRIKE_KEY,
+    label: 'Хитрый удар: «Отравить» — с набором отравителя',
+    mode: 'add',
+    value: '1',
+    condition: `${CARRIER_TOOL_CONDITION_PREFIX}"${POISONERS_KIT_TOOL}"`,
+  },
+  {
+    key: SNEAK_ATTACK_CUNNING_STRIKE_COUNT_KEY,
+    label: 'Улучшенный хитрый удар: +1 приём за удар',
+    mode: 'add',
+    value: '1',
+  },
+  {
+    key: SNEAK_ATTACK_RIDER_KEY,
+    label: 'Скрытая атака: эффект по выбору при её уроне',
+    mode: 'add',
+    value: '0',
+  },
+  {
+    key: SNEAK_ATTACK_MIN_DIE_KEY,
+    label: 'Скрытая атака: 1 и 2 на костях считаются за 3',
+    mode: 'add',
+    value: '3',
+  },
+  {
+    key: SNEAK_ATTACK_SAVE_DOUBLE_KEY,
+    label:
+      'Смертельный удар: спасбросок Телосложения в первом раунде, провал — урон ×2',
+    mode: 'add',
+    value: 'constitution',
+    condition: `${COMBAT_ROUND_CONDITION_PREFIX}1`,
   },
   // «Дубинка»: кость растёт по уровню заклинателя — к8, к10, к12, 2к6
   {

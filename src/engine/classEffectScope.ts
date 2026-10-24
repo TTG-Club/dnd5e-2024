@@ -78,7 +78,7 @@ export function isClassEffect(effect: ActiveEffect, classKey: string): boolean {
  * @param effectId - id эффекта на акторе
  * @returns ключ класса либо `undefined`, если эффект поставлен не классом
  */
-function readClassEffectClassKey(effectId: string): string | undefined {
+export function readClassEffectClassKey(effectId: string): string | undefined {
   if (!effectId.startsWith(CLASS_EFFECT_PREFIX)) {
     return undefined;
   }

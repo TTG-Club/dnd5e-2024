@@ -17,9 +17,10 @@ import type { ActiveEffect } from './activeEffectTypes.js';
 import type { Spell } from './dndEntities.js';
 import type { RestType } from './restEngine.js';
 
-import { generateId } from '@vtt/shared';
+import { generateId, SECONDS_PER_HOUR } from '@vtt/shared';
 
 import { ACTIVE_EFFECT_ID_PREFIX } from './activeEffectTypes.js';
+import { DND_SECONDS_PER_ROUND } from './consts.js';
 import { withInitializedDuration } from './turnEffects.js';
 
 /** Сл спасброска концентрации (2024): половина урона, от 10 до 30 */
@@ -152,7 +153,7 @@ export function listConcentrationCastIds(
  * Сколько раундов длится короткий отдых — час. Остаток срока метки хранится
  * в раундах (`withInitializedDuration`: минута — 10, час — 600)
  */
-const SHORT_REST_ROUNDS = 600;
+const SHORT_REST_ROUNDS = SECONDS_PER_HOUR / DND_SECONDS_PER_ROUND;
 
 /**
  * Касты, которые заканчивает отдых. Вне боя срок метки не отсчитывается —

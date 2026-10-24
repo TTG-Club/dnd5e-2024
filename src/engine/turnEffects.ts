@@ -43,6 +43,12 @@ import type { SceneSight } from './sceneSight.js';
 import type { TriggerEventData } from './triggerConditions.js';
 
 import {
+  SECONDS_PER_DAY,
+  SECONDS_PER_HOUR,
+  SECONDS_PER_MINUTE,
+} from '@vtt/shared';
+
+import {
   isToggleActivatedEffect,
   isUseActivatedEffect,
 } from './activeEffectTypes.js';
@@ -52,8 +58,9 @@ import {
   listSavingThrowBonusKeys,
   resolveSavingThrowModifier,
   resolveSavingThrowRollMode,
+  rollD20WithMode,
 } from './attackUtils.js';
-import { ABILITY_LABELS } from './consts.js';
+import { ABILITY_LABELS, DND_SECONDS_PER_ROUND } from './consts.js';
 import { resolveDamageTypeLabel } from './damageConstants.js';
 import { damageReachesTarget } from './damageTargetGate.js';
 import { settleDamageTypeChoices } from './damageTypeChoice.js';
@@ -102,9 +109,139 @@ const ROUND_LIMIT_PERIODS = ['round'] as const;
  */
 const ROUNDS_PER_DURATION_UNIT: Partial<Record<EffectDurationType, number>> = {
   rounds: 1,
-  minutes: 10,
-  hours: 600,
+  minutes: SECONDS_PER_MINUTE / DND_SECONDS_PER_ROUND,
+  hours: SECONDS_PER_HOUR / DND_SECONDS_PER_ROUND,
 };
+
+/**
+ * Сколько игровых секунд в единице временного срока — для сроков по игровым
+ * часам мира. Единицы времени берутся у ядра (`@vtt/shared`, VTTG 0.9.742+).
+ */
+const SECONDS_PER_DURATION_UNIT: Partial<Record<EffectDurationType, number>> = {
+  rounds: DND_SECONDS_PER_ROUND,
+  minutes: SECONDS_PER_MINUTE,
+  hours: SECONDS_PER_HOUR,
+  days: SECONDS_PER_DAY,
+};
+
+/**
+ * Сколько игровых секунд осталось эффекту — для момента окончания по часам.
+ * Остаток в раундах (`remaining`), если он уже идёт, точнее исходного срока:
+ * эффект мог отсчитываться раундами до перехода на часы.
+ *
+ * @param duration - длительность эффекта
+ * @returns секунды либо `undefined`, если срок не временной
+ */
+function remainingDurationSeconds(
+  duration: EffectDuration,
+): number | undefined {
+  const secondsPerUnit = SECONDS_PER_DURATION_UNIT[duration.type];
+
+  if (secondsPerUnit === undefined) {
+    return undefined;
+  }
+
+  if (typeof duration.remaining === 'number' && duration.type !== 'days') {
+    return duration.remaining * DND_SECONDS_PER_ROUND;
+  }
+
+  return typeof duration.value === 'number'
+    ? duration.value * secondsPerUnit
+    : undefined;
+}
+
+/**
+ * Нужна ли эффекту правка по игровым часам: срок ещё не начат или уже вышел.
+ *
+ * @param effect - эффект сущности
+ * @param worldTime - текущее игровое время, секунды
+ * @returns `true`, если эффекту нужно поставить момент окончания или снять его
+ */
+function needsWorldTimeUpdate(
+  effect: ActiveEffect,
+  worldTime: number,
+): boolean {
+  const { expiresAt } = effect.duration;
+
+  if (typeof expiresAt === 'number') {
+    return worldTime >= expiresAt;
+  }
+
+  return remainingDurationSeconds(effect.duration) !== undefined;
+}
+
+/**
+ * Есть ли у сущности эффект, которому игровые часы что-то меняют: срок ещё не
+ * начат или уже вышел. Быстрая проверка до любой работы.
+ *
+ * @param entity - сущность
+ * @param worldTime - текущее игровое время, секунды
+ * @returns `true`, если сверка что-то изменит
+ */
+export function hasEffectsToSettleByWorldTime(
+  entity: DnDSceneEntity,
+  worldTime: number,
+): boolean {
+  return (
+    entity.activeEffects?.some((effect) =>
+      needsWorldTimeUpdate(effect, worldTime),
+    ) ?? false
+  );
+}
+
+/**
+ * Ведёт сроки эффектов по игровым часам мира: эффекту с временным сроком без
+ * момента окончания ставит «сейчас + срок», эффект с наступившим моментом
+ * снимает. Зовётся часто (раз в секунду, пока часы идут), поэтому без работы
+ * выходит сразу и ничего не создаёт.
+ *
+ * Длительность пересоздаётся, а не правится на месте — по той же причине, что
+ * в {@link decrementActorEffectDurations}: копии эффектов делят объект
+ * `duration` с оригиналом.
+ *
+ * @param entity - сущность, чьи эффекты сверяются
+ * @param worldTime - текущее игровое время, секунды
+ * @returns `true`, если сущность изменилась
+ */
+export function settleEffectsByWorldTime(
+  entity: DnDSceneEntity,
+  worldTime: number,
+): boolean {
+  const effects = entity.activeEffects;
+
+  if (!effects || !hasEffectsToSettleByWorldTime(entity, worldTime)) {
+    return false;
+  }
+
+  entity.activeEffects = effects.reduce<
+    NonNullable<DnDSceneEntity['activeEffects']>
+  >((kept, effect) => {
+    const { duration } = effect;
+
+    if (typeof duration.expiresAt === 'number') {
+      if (worldTime < duration.expiresAt) {
+        kept.push(effect);
+      }
+
+      return kept;
+    }
+
+    const seconds = remainingDurationSeconds(duration);
+
+    kept.push(
+      seconds === undefined
+        ? effect
+        : {
+            ...effect,
+            duration: { ...duration, expiresAt: worldTime + seconds },
+          },
+    );
+
+    return kept;
+  }, []);
+
+  return true;
+}
 
 /**
  * Отсчитывается ли длительность раундами боя: у неё есть и число, и перевод в
@@ -158,6 +295,28 @@ export function decrementActorEffectDurations(entity: DnDSceneEntity): boolean {
     }
 
     const remaining = duration.remaining - 1;
+
+    // Срок по игровым часам снимает `settleEffectsByWorldTime`: раунд лишь
+    // уменьшает остаток для показа и не снимает эффект — иначе срок шёл бы
+    // дважды. Остаток, упёршийся в 1, не меняется — и сущность не пишется
+    if (typeof duration.expiresAt === 'number') {
+      const shownRemaining = Math.max(remaining, 1);
+
+      if (shownRemaining === duration.remaining) {
+        kept.push(effect);
+
+        return kept;
+      }
+
+      hasChanges = true;
+
+      kept.push({
+        ...effect,
+        duration: { ...duration, remaining: shownRemaining },
+      });
+
+      return kept;
+    }
 
     hasChanges = true;
 
@@ -285,6 +444,49 @@ export function stampAppliedEffect(
     { ...effect, sourceActorId: context.sourceId ?? effect.sourceActorId },
     context,
   );
+}
+
+/**
+ * Эффект с отсчётом срока заново — действие срабатывания «Продлить срок»
+ * («Ярость» продлевается атакой). Срок хода штампуется той же функцией, что
+ * при наложении: атака на своём ходу снова даёт «до конца следующего хода».
+ * Раунды, минуты и часы получают остаток, равный полному сроку.
+ *
+ * Выключенный переключатель не трогается: продление его не включает. Эффект
+ * без идущего срока (постоянный, до отдыха) возвращается как был.
+ *
+ * @param effect - эффект на носителе
+ * @param context - носитель и текущий ход
+ * @returns эффект с новым сроком либо `undefined`, если продлевать нечего
+ */
+export function restartEffectDuration(
+  effect: ActiveEffect,
+  context: TurnDurationContext,
+): ActiveEffect | undefined {
+  if (effect.disabled) {
+    return undefined;
+  }
+
+  const { duration } = effect;
+
+  if (duration.type === 'turn') {
+    // Наложивший остаётся прежним: продление — не новое наложение
+    return stampTurnDuration(effect, {
+      ...context,
+      sourceId: effect.sourceActorId,
+    });
+  }
+
+  const perUnit = roundsPerUnit(duration);
+
+  if (perUnit === undefined || typeof duration.value !== 'number') {
+    return undefined;
+  }
+
+  return {
+    ...effect,
+    duration: { ...duration, remaining: duration.value * perUnit },
+  };
 }
 
 /**
@@ -745,9 +947,6 @@ export function buildEffectSavingThrowContext(
   };
 }
 
-/** Грани кости спасброска */
-const SAVING_THROW_DIE_SIDES = 20;
-
 /**
  * Катает спасбросок сущности против сложности с учётом флагов её состояний.
  *
@@ -806,21 +1005,7 @@ export function rollEffectSavingThrow(
     mode: circumstances?.mode,
   });
 
-  const hasAdvantage = rollMode === 'advantage';
-  const hasDisadvantage = rollMode === 'disadvantage';
-
-  const firstRoll = Math.floor(Math.random() * SAVING_THROW_DIE_SIDES) + 1;
-
-  let roll = firstRoll;
-
-  // Преимущество и помеха гасят друг друга — остаётся обычный бросок
-  if (hasAdvantage !== hasDisadvantage) {
-    const secondRoll = Math.floor(Math.random() * SAVING_THROW_DIE_SIDES) + 1;
-
-    roll = hasAdvantage
-      ? Math.max(firstRoll, secondRoll)
-      : Math.min(firstRoll, secondRoll);
-  }
+  const roll = rollD20WithMode(rollMode);
 
   const bonusDiceFormulas = listSavingThrowBonusKeys(
     ability,
@@ -830,8 +1015,8 @@ export function rollEffectSavingThrow(
       context.effects,
       bonusKey,
       {
-        hasAdvantage,
-        hasDisadvantage,
+        hasAdvantage: rollMode === 'advantage',
+        hasDisadvantage: rollMode === 'disadvantage',
         self: context.self,
         ...(circumstances?.sourceCreatureType
           ? { source: { creatureType: circumstances.sourceCreatureType } }

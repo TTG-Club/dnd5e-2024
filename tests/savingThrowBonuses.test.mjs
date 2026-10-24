@@ -16,10 +16,12 @@ const hostFixture = `
 import { reactive } from 'vue';
 export const fixture = reactive({
   rolls: [], formulas: [], messages: [], prompts: [], requests: [], entities: [],
-  outcome: { status: 'noRecipient' }, ambient: [],
+  outcome: { status: 'noRecipient' }, ambient: [], modalCalls: [],
+  currentUser: null,
 });
 export const worldStore = {
   connectionState: { loggedAsUserId: 'player' },
+  get currentUser() { return fixture.currentUser; },
   get currentWorld() {
     return { actors: fixture.entities, creatures: [], users: [{ id: 'player', role: 'player' }] };
   },
@@ -36,7 +38,11 @@ export const chatStore = {
 };
 export const modalManager = { openModal(component, props) {
   fixture.prompts.push({ component, props }); return 'save-modal';
-}, closeModal() {} };
+}, closeModal(modalId) { fixture.modalCalls.push(['close', modalId]); },
+bringToFront(modalId) { fixture.modalCalls.push(['front', modalId]); },
+setModalMinimized(modalId, minimized) {
+  fixture.modalCalls.push(['minimized', modalId, minimized]);
+} };
 export const requestService = { async request(options) {
   fixture.requests.push(options); return fixture.outcome;
 }, async requestMany(options) {
@@ -49,6 +55,8 @@ const bundle = await build({
     contents: `
       export * from './src/client/composables/useSpellSavingThrows.ts';
       export { promptRequestedRoll } from './src/client/composables/requestedRollPrompt.ts';
+      export { formatRequesterName } from './src/client/composables/gmApprovalRequest.ts';
+      export { DND_GROUP_RESTS } from './src/client/composables/restWorldTime.ts';
       export { decrementActorEffectDurations } from './src/engine/turnEffects.ts';
       export { processTurnEffects, resolveEntryEffect } from './src/engine/effectTriggerRunner.ts';
       export { DEFAULT_ACTOR, DEFAULT_CREATURE } from './src/engine/consts.ts';
@@ -136,6 +144,8 @@ const bundle = await build({
               'import { modalManager } from "test:host"; export const useModalManager = () => modalManager;',
             '@/stores/initiativeStore':
               'export const useInitiativeStore = () => ({ encounter: null });',
+            '@/system-runtime/sceneSight':
+              'export const getSightBetween = () => null;',
             '@/stores/targetStore':
               'export const useTargetStore = () => ({ getTargetActor: () => null });',
             '@/stores/spellTemplateStore':
@@ -184,11 +194,13 @@ beforeEach(() => {
     'requests',
     'entities',
     'ambient',
+    'modalCalls',
   ]) {
     runtime.fixture[key].length = 0;
   }
 
   runtime.fixture.outcome = { status: 'noRecipient' };
+  runtime.fixture.currentUser = null;
 });
 
 /** Создаёт эффект с полями реального контракта системы. */
@@ -716,4 +728,471 @@ it('отказ оставляет провал, а успешный бросок
 
   assert.equal(passed.passed, true);
   assert.equal(runtime.fixture.prompts.length, promptsBefore);
+});
+
+/**
+ * Ответ на чужой запрос с записью всего, что система отдала ядру.
+ *
+ * @returns {object} ответ и журнал: ответы, отказы, карточки, снятие
+ */
+function createReply() {
+  const log = { answers: [], declines: 0, cards: [], cancelHandlers: [] };
+
+  return {
+    log,
+    reply: {
+      answer: (result) => log.answers.push(result),
+      decline: () => {
+        log.declines += 1;
+      },
+      onCancelled: (handler) => log.cancelHandlers.push(handler),
+      present: (card) => log.cards.push(card),
+    },
+  };
+}
+
+it('согласие ведущего — карточка центра запросов «Разрешить / Запретить», а не плашка', () => {
+  const { log, reply } = createReply();
+
+  assert.equal(
+    runtime.promptRequestedRoll(
+      {
+        entityId: 'any',
+        requestId: 'gm-approval',
+        takeover: false,
+        payload: {
+          kind: 'effectPrompt',
+          question: 'Разрешить лечение дальше касания?',
+          options: [
+            { id: 'yes', label: 'Разрешить' },
+            { id: 'no', label: 'Запретить' },
+          ],
+          effectSummary: 'Лечение 2к8',
+        },
+      },
+      reply,
+    ),
+    true,
+  );
+
+  assert.equal(runtime.fixture.prompts.length, 0);
+  assert.equal(log.cards.length, 1);
+
+  const [card] = log.cards;
+
+  assert.equal(card.text, 'Разрешить лечение дальше касания?');
+  assert.match(card.details, /Лечение 2к8/);
+
+  assert.deepEqual(card.actions, [
+    { id: 'yes', label: 'Разрешить', color: 'primary' },
+    { id: 'no', label: 'Запретить' },
+  ]);
+
+  card.onAction('yes', []);
+  card.onAction('no', []);
+
+  // Ответ — ровно один, первый
+  assert.deepEqual(log.answers, [{ optionId: 'yes' }]);
+  assert.equal(log.declines, 0);
+});
+
+it('выбор цели по запросу — карточка с выбором: min/max и отмеченные цели в ответе', () => {
+  const { log, reply } = createReply();
+
+  runtime.promptRequestedRoll(
+    {
+      entityId: 'any',
+      requestId: 'target-choice',
+      takeover: true,
+      payload: {
+        kind: 'targetChoice',
+        candidates: [
+          { id: 'ally-1', name: 'Арагорн', hp: { current: 7, max: 12 } },
+          { id: 'ally-2', name: 'Гимли' },
+          { id: 'ally-3', name: 'Леголас' },
+        ],
+        count: 2,
+      },
+    },
+    reply,
+  );
+
+  assert.equal(runtime.fixture.prompts.length, 0);
+
+  const [card] = log.cards;
+
+  assert.deepEqual(card.pick, {
+    options: [
+      { id: 'ally-1', label: 'Арагорн', hint: 'Хиты 7/12' },
+      { id: 'ally-2', label: 'Гимли' },
+      { id: 'ally-3', label: 'Леголас' },
+    ],
+    min: 1,
+    max: 2,
+  });
+
+  assert.deepEqual(
+    card.actions.map((action) => [action.id, action.requiresPick]),
+    [['confirm', true]],
+  );
+
+  card.onAction('confirm', ['ally-1', 'ally-3']);
+
+  assert.deepEqual(log.answers, [{ chosenIds: ['ally-1', 'ally-3'] }]);
+});
+
+it('добровольный выбор цели: можно ничего не выбрать, «Отказаться» — пустой ответ', () => {
+  const { log, reply } = createReply();
+
+  runtime.promptRequestedRoll(
+    {
+      entityId: 'any',
+      requestId: 'target-choice-optional',
+      takeover: false,
+      payload: {
+        kind: 'targetChoice',
+        candidates: [{ id: 'ally-1', name: 'Арагорн' }],
+        count: 1,
+        optional: true,
+      },
+    },
+    reply,
+  );
+
+  const [card] = log.cards;
+
+  assert.equal(card.pick.min, 0);
+  card.onAction('decline', ['ally-1']);
+  assert.deepEqual(log.answers, [{ chosenIds: [] }]);
+});
+
+it('снятый ядром запрос не отвечает поздним щелчком по карточке', () => {
+  const { log, reply } = createReply();
+
+  runtime.promptRequestedRoll(
+    {
+      entityId: 'any',
+      requestId: 'withdrawn-question',
+      takeover: false,
+      payload: {
+        kind: 'effectPrompt',
+        question: 'Потратить реакцию?',
+        options: [
+          { id: 'yes', label: 'Да' },
+          { id: 'no', label: 'Нет' },
+        ],
+      },
+    },
+    reply,
+  );
+
+  for (const handler of log.cancelHandlers) {
+    handler();
+  }
+
+  log.cards[0].onAction('yes', []);
+
+  assert.deepEqual(log.answers, []);
+  assert.equal(log.declines, 0);
+});
+
+it('«провал в успех» у ведущего — карточка, согласие тратит ресурс', () => {
+  const creature = createEntity('creature', { activeEffects: [] });
+
+  creature.system.traits = [
+    {
+      name: 'Легендарное сопротивление',
+      description: [],
+      saveSuccessPerDay: 3,
+    },
+  ];
+
+  const { log, reply } = createReply();
+
+  assert.equal(
+    runtime.promptRequestedRoll(
+      {
+        entityId: creature.id,
+        requestId: 'save-override',
+        requesterUserId: 'player',
+        takeover: false,
+        payload: { kind: 'saveOverride', ability: 'wisdom' },
+      },
+      reply,
+    ),
+    true,
+  );
+
+  assert.equal(runtime.fixture.prompts.length, 0);
+
+  const [card] = log.cards;
+
+  assert.match(card.text, /осталось 3/);
+
+  assert.deepEqual(
+    card.actions.map((action) => [action.label, action.color]),
+    [
+      ['Преуспеть', 'primary'],
+      ['Оставить провал', undefined],
+    ],
+  );
+
+  card.onAction('accept', []);
+
+  assert.deepEqual(log.answers, [{ optionId: 'accept' }]);
+
+  const [spendMessage, answerMessage] = runtime.fixture.messages.slice(-2);
+
+  assert.match(
+    spendMessage[0],
+    /Легендарное сопротивление — провал спасброска становится успехом \(осталось 2\)/,
+  );
+
+  // Ответ ведущего — строкой в чат участникам запроса
+  assert.match(answerMessage[0], / — Преуспеть$/);
+  assert.deepEqual(answerMessage[4]?.audienceUserIds, ['player']);
+});
+
+it('«провал в успех» без ресурса — отказ сразу, без карточки', () => {
+  const creature = createEntity('creature', { activeEffects: [] });
+  const { log, reply } = createReply();
+
+  runtime.promptRequestedRoll(
+    {
+      entityId: creature.id,
+      requestId: 'save-override-empty',
+      takeover: false,
+      payload: { kind: 'saveOverride', ability: 'wisdom' },
+    },
+    reply,
+  );
+
+  assert.deepEqual(log.answers, [{ optionId: 'decline' }]);
+  assert.equal(log.cards.length, 0);
+});
+
+it('повторный вызов слота по открытому окну спасброска поднимает его, второго окна нет', () => {
+  const entity = createEntity('actor', { autoSaves: false });
+
+  const request = {
+    entityId: entity.id,
+    requestId: 'open-save-window',
+    takeover: false,
+    payload: {
+      kind: runtime.SAVING_THROW_REQUEST_KIND,
+      ability: 'constitution',
+      dc: 16,
+      againstMagic: false,
+    },
+  };
+
+  const first = createReply();
+  const second = createReply();
+
+  assert.equal(runtime.promptRequestedRoll(request, first.reply), true);
+  assert.equal(runtime.fixture.prompts.length, 1);
+
+  runtime.promptRequestedRoll(request, second.reply);
+
+  assert.equal(runtime.fixture.prompts.length, 1);
+  assert.equal(second.log.cards.length, 0);
+
+  assert.deepEqual(runtime.fixture.modalCalls, [
+    ['minimized', 'save-modal', false],
+    ['front', 'save-modal'],
+  ]);
+
+  // Снятие запроса закрывает то самое окно
+  for (const handler of second.log.cancelHandlers) {
+    handler();
+  }
+
+  assert.deepEqual(runtime.fixture.modalCalls.at(-1), ['close', 'save-modal']);
+});
+
+/**
+ * Вопрос «Разрешить / Запретить» по чужому запросу.
+ *
+ * @param {object} overrides - поля запроса поверх обычных
+ * @returns {object} запрос от ядра
+ */
+function createQuestionRequest(overrides = {}) {
+  return {
+    entityId: 'any',
+    requestId: 'question-chat',
+    requesterUserId: 'player-2',
+    title: 'Разрешение: продолжительный отдых',
+    takeover: false,
+    payload: {
+      kind: 'effectPrompt',
+      question: 'Игрок 2 (Плут) просит продолжительный отдых.',
+      options: [
+        { id: 'yes', label: 'Разрешить' },
+        { id: 'no', label: 'Запретить', hint: 'Отдых не начнётся' },
+      ],
+    },
+    ...overrides,
+  };
+}
+
+it('ответ на вопрос по запросу — строкой в чат «<заголовок> — <вариант>» просившему', () => {
+  const { log, reply } = createReply();
+
+  runtime.promptRequestedRoll(createQuestionRequest(), reply);
+
+  // До ответа в чат ничего не пишется
+  assert.equal(runtime.fixture.messages.length, 0);
+
+  log.cards[0].onAction('no', []);
+
+  assert.equal(runtime.fixture.messages.length, 1);
+
+  const [text, , , , options] = runtime.fixture.messages[0];
+
+  assert.equal(text, 'Разрешение: продолжительный отдых — Запретить');
+  assert.deepEqual(options.audienceUserIds, ['player-2']);
+  assert.equal(options.speakerEntityId, null);
+});
+
+it('запрос от сервера — ответ в чате видят только ответивший и ведущий', () => {
+  const { log, reply } = createReply();
+
+  runtime.promptRequestedRoll(
+    createQuestionRequest({ requesterKind: 'server' }),
+    reply,
+  );
+
+  log.cards[0].onAction('yes', []);
+
+  const [text, , , , options] = runtime.fixture.messages[0];
+
+  assert.equal(text, 'Разрешение: продолжительный отдых — Разрешить');
+  assert.deepEqual(options.audienceUserIds, []);
+});
+
+it('пояснение варианта ответа доходит до кнопки карточки (`hint`)', () => {
+  const { log, reply } = createReply();
+
+  runtime.promptRequestedRoll(createQuestionRequest(), reply);
+
+  assert.deepEqual(log.cards[0].actions, [
+    { id: 'yes', label: 'Разрешить', color: 'primary' },
+    { id: 'no', label: 'Запретить', hint: 'Отдых не начнётся' },
+  ]);
+});
+
+/**
+ * Выбор целей по чужому запросу.
+ *
+ * @param {boolean} optional - можно ли отказаться
+ * @returns {object} запрос от ядра
+ */
+function createTargetChoiceRequest(optional) {
+  return {
+    entityId: 'any',
+    requestId: `target-chat-${optional}`,
+    requesterUserId: 'player-2',
+    title: 'Лечащее слово',
+    takeover: false,
+    payload: {
+      kind: 'targetChoice',
+      candidates: [
+        { id: 'ally-1', name: 'Арагорн' },
+        { id: 'ally-2', name: 'Гимли' },
+      ],
+      count: 2,
+      optional,
+    },
+  };
+}
+
+it('выбор целей по запросу — имена через запятую в чате', () => {
+  const { log, reply } = createReply();
+
+  runtime.promptRequestedRoll(createTargetChoiceRequest(false), reply);
+  log.cards[0].onAction('confirm', ['ally-1', 'ally-2']);
+
+  const [text, , , , options] = runtime.fixture.messages[0];
+
+  assert.equal(text, 'Лечащее слово — Арагорн, Гимли');
+  assert.deepEqual(options.audienceUserIds, ['player-2']);
+});
+
+it('отказ от добровольного выбора целей — «без цели» в чате', () => {
+  const { log, reply } = createReply();
+
+  runtime.promptRequestedRoll(createTargetChoiceRequest(true), reply);
+  log.cards[0].onAction('decline', ['ally-1']);
+
+  assert.deepEqual(log.answers, [{ chosenIds: [] }]);
+  assert.equal(runtime.fixture.messages[0][0], 'Лечащее слово — без цели');
+});
+
+it('окно броска по запросу: крестик прячет окно без отказа, слот открывает новое', () => {
+  const entity = createEntity('actor', { autoSaves: false });
+
+  const request = {
+    entityId: entity.id,
+    requestId: 'hidden-save-window',
+    takeover: false,
+    payload: {
+      kind: runtime.SAVING_THROW_REQUEST_KIND,
+      ability: 'constitution',
+      dc: 16,
+      againstMagic: false,
+    },
+  };
+
+  const first = createReply();
+  const second = createReply();
+
+  runtime.promptRequestedRoll(request, first.reply);
+  assert.equal(runtime.fixture.prompts.length, 1);
+
+  // Крестик: окно прячется, запрос ждёт
+  runtime.fixture.prompts[0].props.onCancel();
+
+  assert.equal(first.log.declines, 0);
+  assert.deepEqual(first.log.answers, []);
+
+  // Карточка центра запросов вызывает слот заново — открывается НОВОЕ окно
+  runtime.promptRequestedRoll(request, second.reply);
+
+  assert.equal(runtime.fixture.prompts.length, 2);
+
+  assert.equal(
+    runtime.fixture.modalCalls.some(([call]) => call === 'front'),
+    false,
+  );
+
+  // Отказ — кнопкой окна, ровно один раз
+  const { onDecline } = runtime.fixture.prompts[1].props;
+
+  onDecline();
+  onDecline();
+
+  assert.equal(second.log.declines, 1);
+  assert.equal(first.log.declines, 0);
+});
+
+it('подпись просящего: имя игрока и, в скобках, персонаж', () => {
+  assert.equal(runtime.formatRequesterName('Плут'), 'Плут');
+
+  runtime.fixture.currentUser = { username: 'Игрок 1' };
+
+  assert.equal(runtime.formatRequesterName('Плут'), 'Игрок 1 (Плут)');
+});
+
+it('отдых группы: короткие подписи для меню часов, полные — прежние', () => {
+  assert.deepEqual(
+    runtime.DND_GROUP_RESTS.map((rest) => [
+      rest.id,
+      rest.label,
+      rest.shortLabel,
+    ]),
+    [
+      ['short', 'Короткий отдых', 'Короткий'],
+      ['long', 'Продолжительный отдых', 'Продолжительный'],
+    ],
+  );
 });

@@ -125,8 +125,16 @@ export interface SavingThrowModalOptions {
   takeover?: boolean;
   /** Бросок сделан */
   onResult: (result: SavingThrowResult) => void;
-  /** Окно закрыли, не бросив */
+  /**
+   * Окно закрыли, не бросив. У броска по чужому запросу (есть `onDecline`)
+   * это не отказ: окно лишь спрятали, запрос ждёт дальше
+   */
   onCancel: () => void;
+  /**
+   * Отказ от чужого запроса — кнопка-иконка рядом с кнопкой броска. Только у
+   * броска по запросу
+   */
+  onDecline?: () => void;
 }
 
 /**
@@ -435,6 +443,7 @@ export function useSpellSavingThrows() {
           );
         },
         onCancel: options.onCancel,
+        ...(options.onDecline ? { onDecline: options.onDecline } : {}),
       },
       options.modalKey === undefined ? {} : { modalKey: options.modalKey },
     );

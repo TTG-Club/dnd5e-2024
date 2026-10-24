@@ -19,6 +19,7 @@ import type {
 
 import type { CreatureDamageAlternative } from './creatureDamageAlternatives.js';
 import type { EffectTriggerUsageLedger } from './effectTriggerUsage.js';
+import type { SaveDamageEffect } from './spellTypes.js';
 import type { StartingEquipmentItem } from './startingEquipment.js';
 import type {
   CreatureSize,
@@ -99,10 +100,17 @@ export interface CreatureAction {
   /** Описание (массив параграфов — совместимость с API TTG Club) */
   description: string[];
   /**
-   * Условие перезарядки. Расходом применений движок не управляет — это
-   * подсказка статблока мастеру, ровно как в книге.
+   * Условие перезарядки. Применённое действие считается потраченным
+   * (`actionLimit.ts`): `d3`…`d6` возвращает бросок к6 в начале хода
+   * существа, `slr`/`lr` — отдых; любой отдых возвращает и бросковую.
    */
   recharge?: CreatureRecharge;
+  /**
+   * «Раз в N ходов» (2–20): применённое действие снова доступно через N ходов
+   * существа, без броска. В книгах 2024 такого нет — это для своих существ.
+   * С {@link recharge} не сочетается: заданы оба — действует перезарядка.
+   */
+  cooldownTurns?: number;
   /**
    * Сколько раз в день существо может превратить проваленный спасбросок в
    * успех — «Легендарное сопротивление (3/день)». Счётчик ведёт движок
@@ -148,7 +156,7 @@ export interface CreatureAction {
   /** Сложность спасброска (плоская — у существ DC фиксирован, не выводится) */
   saveDC?: number;
   /** Что происходит с уроном при успешном спасброске цели */
-  saveEffect?: 'half' | 'none' | 'special';
+  saveEffect?: SaveDamageEffect;
   /**
    * Область воздействия (конус/сфера/линия дыхательного оружия). Если задана —
    * при активации размещается шаблон у токена существа, спасброски кидают все
@@ -509,6 +517,18 @@ export interface CreatureSystem {
 
   /** Счётчики лимита «не чаще N раз» у срабатываний эффектов */
   effectUsage?: EffectTriggerUsageLedger;
+
+  /**
+   * Скрытая атака добавляется в окне атаки сама (переключатель включён при
+   * открытии). `false` — игрок включает её руками. Поля нет — добавляется сама
+   */
+  sneakAttackAutoAdd?: boolean;
+
+  /**
+   * Бросок перезарядки в начале хода кидается сам, без окна. Поля нет или
+   * `false` — мастеру или хозяину приходит запрос, и бросает он сам.
+   */
+  autoRecharge?: boolean;
 
   /**
    * Заклинания, разложенные блоками и группами, — так же, как в редакторе

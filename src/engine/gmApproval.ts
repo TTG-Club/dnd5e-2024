@@ -19,10 +19,7 @@ import type {
   EffectPromptRequestPayload,
 } from './triggerPrompt.js';
 
-import {
-  isRollRequestAnswered,
-  withRequestSource,
-} from './savingThrowRequest.js';
+import { isRollRequestAnswered } from './savingThrowRequest.js';
 import {
   EFFECT_PROMPT_CONFIRM,
   EFFECT_PROMPT_REQUEST_KIND,
@@ -35,14 +32,21 @@ export const GM_APPROVAL_OPTIONS: readonly EffectPromptOption[] = [
   { id: EFFECT_PROMPT_CONFIRM.no, label: 'Запретить' },
 ];
 
-/** Подпись запроса для плашек ядра: «Зелье лечения — Разрешение ведущего» */
+/** Подпись запроса, когда не сказано, на что просят разрешения */
 export const GM_APPROVAL_REQUEST_TITLE = 'Разрешение ведущего';
+
+/**
+ * Начало короткой подписи «на что просят»: «Разрешение: продолжительный
+ * отдых», «Разрешение: Зелье лечения». Подпись — заголовок карточки центра
+ * запросов, поэтому коротко и без имён: кто просит — в тексте вопроса.
+ */
+export const GM_APPROVAL_REQUEST_TITLE_PREFIX = 'Разрешение: ';
 
 /** О чём просят ведущего */
 export interface GmApprovalRequest {
   /** Сам вопрос: «Эльф хочет применить «Зелье лечения» к Гоблину…» */
   question: string;
-  /** Чья просьба — уходит в заголовок окна */
+  /** На что просят разрешения (отдых, предмет) — уходит в заголовок */
   sourceName?: string;
   /** Что случится по разрешению — короткой строкой */
   details?: string;
@@ -59,13 +63,16 @@ export type GmApprovalVerdict =
   'approved' | 'denied' | 'noGameMaster' | 'unanswered';
 
 /**
- * Подпись просьбы для плашек ядра: индикатора ожидания и списка ведущего.
+ * Подпись просьбы — заголовок карточек центра запросов ядра (у ведущего и
+ * «Ждём ведущего» у просящего): коротко, на что просят разрешения.
  *
- * @param sourceName - чья просьба, если известно
+ * @param sourceName - на что просят разрешения, если известно
  * @returns подпись запроса
  */
 export function formatGmApprovalTitle(sourceName?: string): string {
-  return withRequestSource(GM_APPROVAL_REQUEST_TITLE, sourceName);
+  return sourceName
+    ? `${GM_APPROVAL_REQUEST_TITLE_PREFIX}${sourceName}`
+    : GM_APPROVAL_REQUEST_TITLE;
 }
 
 /**

@@ -39,19 +39,21 @@ import {
   EFFECT_FLAG_LABELS,
   EFFECT_TARGET_SUGGESTIONS,
   isUseActivatedEffect,
-  splitConditionParts,
+  splitConditionGroups,
 } from './activeEffectTypes.js';
 import { getConditionEntry } from './conditionTemplates.js';
 import {
   ABILITY_LABELS,
   labelFormulaVariable,
   labelFormulaVariables,
+  ROUND_PLURAL_FORMS,
 } from './consts.js';
 import {
   describeCreatureTypeCondition,
   parseAnyCreatureTypeCondition,
 } from './creatureTypeCondition.js';
 import { getShortDamageTypeLabel } from './damageConstants.js';
+import { renderReadableDiceExpressions } from './diceCountExpressions.js';
 import { describeCastRule } from './effectCastRule.js';
 import {
   describeEscapeChecks,
@@ -66,6 +68,7 @@ import {
   EFFECT_PRICE_LABELS,
 } from './effectPayTypes.js';
 import { isDiceFormulaValue } from './effectPipeline.js';
+import { describeEffectTimeLeft } from './effectTimeLeft.js';
 import { renderReadableFormula } from './formulaParser.js';
 import {
   detectFormulaDamageType,
@@ -86,6 +89,9 @@ import { describeChangeOptionValue } from './weaponOverrides.js';
 const TARGET_LABELS = new Map(
   EFFECT_TARGET_SUGGESTIONS.map((entry) => [entry.value, entry.label]),
 );
+
+/** Между группами условия, соединёнными «или» */
+export const CONDITION_OR_JOINER = ' или ';
 
 /** Подпись кода-условия (`roll.isCritical === true` → «… Крит»). */
 const CONDITION_LABELS = new Map(
@@ -208,13 +214,15 @@ export function describeRecurringDamageSave(save: EffectSave): string {
 
 /**
  * Формула словами. Чистая арифметика разбирается парсером — функции
- * `floor`/`min` читаются словами, а не кодом; формула с токенами урона
- * описывается как часть урона; кости с переменными — заменой токенов.
+ * `floor`/`min`/`steps` читаются словами, а не кодом; формула с токенами урона
+ * описывается как часть урона; кости с выражением в числе или грани —
+ * рядом правил («1к6, +1к6 на 3 и 5 уровнях в классе»); прочее — заменой
+ * токенов.
  *
  * @param value - формула
  * @returns читаемая запись
  */
-function prettifyFormula(value: string): string {
+export function prettifyFormula(value: string): string {
   const readable = renderReadableFormula(value, labelFormulaVariable);
 
   if (readable !== null) {
@@ -229,7 +237,10 @@ function prettifyFormula(value: string): string {
     return describeEffectDamageParts([{ formula: value }]);
   }
 
-  return labelFormulaVariables(value);
+  return (
+    renderReadableDiceExpressions(value, labelFormulaVariable)
+    ?? labelFormulaVariables(value)
+  );
 }
 
 /**
@@ -244,7 +255,10 @@ function prettifyFormula(value: string): string {
  * @returns подпись значения со знаком, множителем или словом режима
  */
 export function describeChangeValue(change: EffectChange): string {
-  const unit = change.key.startsWith('movement.') ? ' фт' : '';
+  const unit =
+    change.key.startsWith('movement.') || change.key.startsWith('jump.')
+      ? ' фт'
+      : '';
 
   // Характеристика и тип урона оружия — слова из списка, а не формула
   const optionLabel = describeChangeOptionValue(change.key, change.value);
@@ -342,7 +356,30 @@ function describeSpellSchoolKey(key: string): string {
  * @returns человекочитаемая подпись
  */
 export function describeEffectChangeCondition(condition: string): string {
-  return splitConditionParts(condition)
+  // Условие целиком из словаря (Скрытая атака по правилам) — его подписью:
+  // четыре ветки «или» по частям читались бы хуже
+  const groups = splitConditionGroups(condition);
+
+  const wholeLabel =
+    groups.length > 1 ? CONDITION_LABELS.get(condition.trim()) : undefined;
+
+  if (wholeLabel) {
+    return wholeLabel;
+  }
+
+  return groups
+    .map((group) => describeConditionGroup(group))
+    .join(CONDITION_OR_JOINER);
+}
+
+/**
+ * Подпись одной группы «и»: части через «и».
+ *
+ * @param group - части группы
+ * @returns подпись группы
+ */
+function describeConditionGroup(group: readonly string[]): string {
+  return group
     .map((part) => {
       // Школа и типы урона источника спасброска — свои значения автора:
       // раньше словаря, иначе образец из подсказок отдал бы свою подпись
@@ -482,7 +519,7 @@ export function describeEffectDuration(
       }
 
       const forms: Record<typeof duration.type, [string, string, string]> = {
-        rounds: ['раунд', 'раунда', 'раундов'],
+        rounds: ROUND_PLURAL_FORMS,
         minutes: ['минуту', 'минуты', 'минут'],
         hours: ['час', 'часа', 'часов'],
         days: ['день', 'дня', 'дней'],
@@ -848,11 +885,21 @@ export function describeEffectEscape(escape: EffectEscape): string {
 function durationLines(
   duration: EffectDuration,
   turnCurrent: boolean,
+  worldTime: number | null,
 ): string[] {
   const lines = [
     describeEffectDuration(duration, turnCurrent)
       ?? EFFECT_DURATION_LABELS[duration.type],
   ];
+
+  // Срок по игровым часам: остаток — временем, он идёт и вне боя
+  const timeLeft = describeEffectTimeLeft(duration, worldTime);
+
+  if (timeLeft) {
+    lines.push(`осталось ${timeLeft}`);
+
+    return lines;
+  }
 
   // Остаток минут и часов тоже в раундах: в бою они тикают раундами
   if (
@@ -862,11 +909,7 @@ function durationLines(
     && duration.remaining !== undefined
   ) {
     lines.push(
-      `осталось ${duration.remaining} ${pluralize(duration.remaining, [
-        'раунд',
-        'раунда',
-        'раундов',
-      ])}`,
+      `осталось ${duration.remaining} ${pluralize(duration.remaining, ROUND_PLURAL_FORMS)}`,
     );
   }
 
@@ -1010,10 +1053,13 @@ function applicationLines(effect: ActiveEffect): string[] {
  * механику одной строкой (описание эффекта, тултип), эта — списком по темам.
  *
  * @param effect - активный эффект
+ * @param worldTime - текущее игровое время (секунды): с ним остаток срока по
+ *   часам показывается временем; `null` — часов нет, остаток в раундах
  * @returns разделы разбора в порядке показа
  */
 export function buildActiveEffectDetails(
   effect: ActiveEffect,
+  worldTime: number | null = null,
 ): ActiveEffectDetailSection[] {
   const exhaustionSuffix =
     effect.exhaustionLevel && effect.exhaustionLevel > 0
@@ -1091,7 +1137,11 @@ export function buildActiveEffectDetails(
     {
       key: 'duration',
       lines: [
-        ...durationLines(effect.duration, effect.turnCurrent === true),
+        ...durationLines(
+          effect.duration,
+          effect.turnCurrent === true,
+          worldTime,
+        ),
         ...(effect.stackable ? [EFFECT_STACKABLE_DETAIL_LABEL] : []),
       ],
     },

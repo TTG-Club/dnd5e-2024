@@ -5,13 +5,15 @@
     ClassSpellListRequest,
     DnDActor,
     GrantedSpellSource,
+    RefCandidate,
   } from '@vtt/shared/system/dnd.js';
 
+  import type { CatalogPack } from '../../../composables/useCompendiumCatalog';
   import type { AppliedFeatFeature } from '../feat/featApply';
 
-  import { computed, ref, toRef, watch } from 'vue';
+  import { computed, ref, shallowRef, toRef, watch } from 'vue';
 
-  import { loadCompendiumKind } from '@/core/compendiumDataClient';
+  import { loadCompendiumKindByPack } from '@/core/compendiumDataClient';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import {
     addStartingCoins,
@@ -22,7 +24,12 @@
     getTotalLevel,
   } from '@vtt/shared/system/dnd.js';
 
+  import { flattenPreferringBy } from '../../../composables/useCompendiumCatalog';
   import { useGrantedSpellsResolver } from '../../../composables/useGrantedSpellsResolver';
+  import {
+    describeCandidate,
+    resolveRefForActor,
+  } from '../../../composables/usePackChoicePrompt';
   import { useSourceLabels } from '../../../composables/useSourceLabel';
   import { resolveStartingEquipment } from '../../../composables/useStartingEquipment';
   import {
@@ -59,9 +66,17 @@
 
   const { getSourceLabel } = useSourceLabels();
 
-  // Для фитов из SRD
-  const featsData = ref<Feature[]>([]);
+  /** Черты компендиума по пакам: черта предыстории ищется сперва в её паке */
+  const featPacks = ref<CatalogPack<Feature>[]>([]);
   const isLoadingFeats = ref(false);
+
+  /**
+   * Черты одним списком для выбора черты-происхождения: при повторе id берётся
+   * копия из пака предыстории. Какую копию выдать, решает {@link chosenFeat}.
+   */
+  const featsData = computed(() =>
+    flattenPreferringBy(featPacks.value, props.packId, (feat) => feat.id),
+  );
 
   // Композабл мастера. `definition` — нормализованное определение (компендиум
   // отдаёт блоки даров частично); шаги получают именно его, а не сырой проп.
@@ -146,11 +161,20 @@
 
     isLoadingFeats.value = true;
 
-    // CompendiumEntry[] расширяем до unknown[], т.к. Feature не подтип
-    // CompendiumEntry и guard иначе не сузит при filter.
-    const entries: unknown[] = await loadCompendiumKind(props.socket, 'feat');
+    const packs = await loadCompendiumKindByPack(props.socket, 'feat');
 
-    featsData.value = entries.filter(isFeature);
+    featPacks.value = packs.map((pack) => {
+      // CompendiumEntry[] расширяем до unknown[], т.к. Feature не подтип
+      // CompendiumEntry и guard иначе не сузит при filter.
+      const entries: unknown[] = pack.entries;
+
+      return {
+        packId: pack.packId,
+        packName: pack.packName,
+        entries: entries.filter(isFeature),
+      };
+    });
+
     isLoadingFeats.value = false;
   }
 
@@ -173,13 +197,57 @@
   );
 
   /**
+   * Копия выбранной черты из конкретного пака: своя у пака предыстории, иначе
+   * единственная в мире, иначе — какую выбрал игрок.
+   */
+  const chosenFeat = shallowRef<RefCandidate<Feature> | undefined>();
+
+  /** Номер поиска черты: ответ на устаревший выбор черты не применяется */
+  let featSearchToken = 0;
+
+  /**
+   * Ищет копию выбранной черты по правилу «свой пак → единственный другой →
+   * выбор игрока». Окно выбора всплывает сразу: от черты зависят шаги мастера.
+   *
+   * @param featId - id выбранной черты
+   */
+  async function resolveSelectedFeat(featId: string): Promise<void> {
+    featSearchToken += 1;
+
+    const token = featSearchToken;
+
+    chosenFeat.value = undefined;
+
+    if (!featId || featPacks.value.length === 0 || !definition.value) {
+      return;
+    }
+
+    const found = await resolveRefForActor(props.actor.id, {
+      packs: featPacks.value,
+      key: featId,
+      keyOf: (feat) => feat.id,
+      ownPackId: props.packId,
+      grantedBy: definition.value.name,
+      toOption: describeCandidate,
+    });
+
+    if (token === featSearchToken) {
+      chosenFeat.value = found;
+    }
+  }
+
+  watch([selectedFeatId, featPacks], ([featId]) => {
+    void resolveSelectedFeat(featId);
+  });
+
+  /**
    * Выбранная черта целиком — из неё берутся дары и выборы. Список объявлен
    * типом черты: базовый `Feature` о `featData` не знает.
    */
-  const selectedFeat = computed(() => {
-    const feats: AppliedFeatFeature[] = featsData.value;
+  const selectedFeat = computed((): AppliedFeatFeature | undefined => {
+    const feat: AppliedFeatFeature | undefined = chosenFeat.value?.entry;
 
-    return feats.find((feat) => feat.id === selectedFeatId.value);
+    return feat;
   });
 
   /** Название выбранной черты — заголовок шага её выборов */
@@ -220,15 +288,21 @@
       sources.push(
         // Лист передаётся ради уровней доступа: заклинание черты, доступное
         // только с третьего уровня, на первом выдаваться не должно
-        ...collectFeatGrantedSpellSources(
-          {
-            name: selectedFeat.value.name,
-            featData: selectedFeat.value.featData,
-            choices: selectedFeatChoices.value,
-          },
-          props.actor,
-        ),
-        ...collectGrantedSpellSources([selectedFeat.value]),
+        ...[
+          ...collectFeatGrantedSpellSources(
+            {
+              name: selectedFeat.value.name,
+              featData: selectedFeat.value.featData,
+              choices: selectedFeatChoices.value,
+            },
+            props.actor,
+          ),
+          ...collectGrantedSpellSources([selectedFeat.value]),
+          // Своим паком заклинаний черты считается пак, из которого взята черта
+        ].map((source) => ({
+          ...source,
+          packId: source.packId ?? chosenFeat.value?.packId,
+        })),
       );
     }
 
@@ -243,6 +317,7 @@
       for (const source of ownSources) {
         sources.push({
           ...source,
+          packId: source.packId ?? props.packId,
           featureName: backgroundSpellSource(def.name),
         });
       }
@@ -290,17 +365,22 @@
   });
 
   /** Granted-заклинания выбранной черты с данными из компендиума */
-  const { resolvedGrantedSpells } = useGrantedSpellsResolver(
+  const { finalizeForActor } = useGrantedSpellsResolver(
     toRef(props, 'socket'),
     grantedSpellSources,
     grantedClassSpellRequests,
   );
 
   async function handleApply() {
-    const { systemUpdates, rootUpdates } = buildUpdates(
-      featsData.value,
-      resolvedGrantedSpells.value,
-    );
+    // Заклинания из нескольких компендиумов игрок выбирает здесь же, до записи
+    const grantedSpells = await finalizeForActor(props.actor.id);
+
+    // Выбранная копия черты — первой: сборщик ищет черту по id в этом списке
+    const feats: Feature[] = selectedFeat.value
+      ? [selectedFeat.value, ...featsData.value]
+      : featsData.value;
+
+    const { systemUpdates, rootUpdates } = buildUpdates(feats, grantedSpells);
 
     // Стартовое снаряжение — отдельным шагом после сборки даров: позиции надо
     // сопоставить с компендиумом, а это асинхронно и к остальным дарам
@@ -312,6 +392,10 @@
       props.backgroundDefinition
         ? { kind: 'background', key: props.backgroundDefinition.key }
         : undefined,
+      {
+        actorId: props.actor.id,
+        grantedByName: props.backgroundDefinition?.name ?? '',
+      },
     );
 
     if (granted.length > 0) {

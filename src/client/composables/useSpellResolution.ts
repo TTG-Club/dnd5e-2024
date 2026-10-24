@@ -113,6 +113,7 @@ import {
   isSaveAbility,
   partPassesTargetGate,
   resolveAttackerIgnoredResistances,
+  withSpellActionId,
 } from './spellResolutionShared';
 import { useSpellDamageWithParts } from './useSpellDamageWithParts';
 import { useSpellSavingThrows } from './useSpellSavingThrows';
@@ -573,6 +574,7 @@ export function useSpellResolution() {
         hit: {
           critical: options.critical ?? false,
           sourceId: context.casterId,
+          ...(context.actionId ? { actionId: context.actionId } : {}),
         },
         attack: context.attack,
       },
@@ -1418,7 +1420,8 @@ export function useSpellResolution() {
    * `spellNeedsTargetResolution`), построение `context` и жизненный цикл
    * шаблона.
    *
-   * @param context - контекст разрешения (заклинание, урон, цели, сокет)
+   * @param rawContext - контекст разрешения (заклинание, урон, цели, сокет);
+   *   без ключа применения разбор заводит свой
    * @param options - параметры каста (снаряды, формула, сцена, кэш шаблона)
    * @param options.hasProjectiles - многоснарядное заклинание (напр. Волшебная стрела)
    * @param options.resolvedDamageFormula - формула урона с подставленными @-переменными
@@ -1431,7 +1434,7 @@ export function useSpellResolution() {
    *   на каждый снаряд, урон только за попавшие (Мистический заряд)
    */
   function resolveSpellDamage(
-    context: SpellResolutionContext,
+    rawContext: SpellResolutionContext,
     options: {
       /** Многоснарядное заклинание (напр. Волшебная стрела) */
       hasProjectiles: boolean;
@@ -1452,6 +1455,8 @@ export function useSpellResolution() {
       projectileAttack?: ProjectileAttackContext;
     },
   ): void {
+    // Один ключ на все цели этого каста: «нанёс урон» срабатывает один раз
+    const context = withSpellActionId(rawContext);
     const { spell } = context;
 
     const { hasProjectiles, resolvedDamageFormula, scene, cachedTemplate } =

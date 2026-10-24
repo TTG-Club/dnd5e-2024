@@ -200,9 +200,11 @@ export const EFFECT_TRIGGER_EVENT_LABELS: Partial<
   healed: 'Когда носителя лечат',
   hpZero: 'Когда хиты носителя падают до 0',
   downedOther: 'Когда носитель сваливает цель',
+  damageDealt: 'Когда носитель наносит урон',
   allyHurt: 'Когда на глазах носителя ранят союзника',
   conditionLost: 'Когда с носителя снимается состояние',
   castEnd: 'Когда заклинание заканчивается',
+  spellCast: 'Когда носитель накладывает заклинание',
   moved: 'Когда носитель проходит путь',
   rest: 'После отдыха',
 };
@@ -342,6 +344,7 @@ export const EFFECT_TRIGGER_ACTION_LABELS: Record<
   notify: 'Сообщить человеку',
   nextStage: 'Следующая ступень',
   removeSelf: 'Снять эффект',
+  refreshDuration: 'Продлить срок',
 };
 
 /** Иконки видов действий */
@@ -369,6 +372,7 @@ export const EFFECT_TRIGGER_ACTION_ICONS: Record<
   notify: 'tabler:message-2',
   nextStage: 'tabler:stairs-up',
   removeSelf: 'tabler:circle-x',
+  refreshDuration: 'tabler:clock-plus',
 };
 
 /** Исход спасброска, при котором выполняется действие */
@@ -485,6 +489,7 @@ export const EFFECT_TRIGGER_CONDITION_KIND_LABELS: Record<
   attackAbility: 'Атака считается характеристикой',
   attackLanded: 'Атака попала',
   attackMissed: 'Атака промахнулась',
+  attackSneakAttack: 'Атака нанесла урон Скрытой атакой',
   combatRoundIs: 'Идёт раунд боя',
   combatRoundAtLeast: 'Раунд боя не раньше',
   movementOwn: 'Носитель шёл сам',
@@ -497,6 +502,7 @@ export const EFFECT_TRIGGER_CONDITION_KIND_LABELS: Record<
   selfInLight: 'Носитель на свету',
   otherInDarkness: 'Другая сторона в темноте',
   otherInLight: 'Другая сторона на свету',
+  spellVerbal: 'Заклинание с вербальным компонентом',
 };
 
 /**

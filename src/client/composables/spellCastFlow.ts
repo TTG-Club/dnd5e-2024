@@ -61,6 +61,7 @@ import {
   isDndSceneEntity,
   isSpellAreaPlacedAtRange,
   isTargetAtFullHp,
+  isVerbalSpellCast,
   limitCastLevels,
   MAX_SPELL_SLOT_LEVEL,
   pickCantripTierParts,
@@ -131,6 +132,7 @@ import {
   useBonusDamageParts,
   withFlatDamageBonusPart,
 } from './useBonusDamageParts';
+import { dispatchSpellCastTriggers } from './useEffectTriggerEvents';
 import {
   collectEffectsWithAuras,
   listAmbientEffects,
@@ -648,6 +650,10 @@ function commitSpellCastStart(spell: Spell, port: SpellCasterPort): boolean {
   if (spell.uses && spell.uses.recovery !== 'atWill') {
     port.spendUse(spell);
   }
+
+  // Каст состоялся: засада кончается заклинанием с вербальным компонентом,
+  // «Невидимость» — любым
+  dispatchSpellCastTriggers(caster.id, isVerbalSpellCast(spell));
 
   return true;
 }

@@ -36,9 +36,11 @@ export const EFFECT_TRIGGER_EVENTS = [
   'healed',
   'hpZero',
   'downedOther',
+  'damageDealt',
   'allyHurt',
   'conditionLost',
   'castEnd',
+  'spellCast',
   'moved',
   'rest',
   'activate',
@@ -83,9 +85,28 @@ export const DAMAGE_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
 /**
  * События, где носитель — действующая сторона, а другая сторона события —
  * тот, кого он задел. Сюда же смотрят условия о другой стороне.
+ *
+ * «Носитель нанёс урон» (`damageDealt`) идёт на сервере по каждому удару с
+ * известным источником (`DamageHit.sourceId`): другая сторона — раненый, урон
+ * события — удар по нему. Им кончается «Невидимость» 2024 («цель наносит
+ * урон»). Урон без источника (срабатывания сервера, правка хитов рукой)
+ * событие не будит — некого назвать нанёсшим.
  */
 export const OWN_DEED_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
   'downedOther',
+  'damageDealt',
+];
+
+/**
+ * Событие «носитель накладывает заклинание»: идёт на клиенте того, кто
+ * колдует, в момент, когда каст состоялся (трата хода и ячейки), — раньше
+ * спасбросков и урона. Несёт признак вербального компонента (`spell.verbal`):
+ * им кончается засада («заклинание с вербальным компонентом»), а
+ * «Невидимость» 2024 — любым заклинанием. Выполняются только действия самому
+ * носителю (снятие, наложения на себя), как у броска атаки на клиенте.
+ */
+export const SPELL_CAST_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
+  'spellCast',
 ];
 
 /**
@@ -119,6 +140,7 @@ export const DAMAGE_DATA_TRIGGER_EVENTS: readonly EffectTriggerEvent[] = [
   ...DAMAGE_TRIGGER_EVENTS,
   'applied',
   'allyHurt',
+  'damageDealt',
 ];
 
 /**
@@ -801,6 +823,26 @@ export interface EffectTriggerRemoveSelfAction {
   on?: EffectTriggerActionGate;
 }
 
+/**
+ * Продлить срок самого эффекта: отсчёт начинается заново, как при
+ * включении/наложении («Ярость» продлевается атакой по врагу). Выключенный
+ * переключатель и эффект без идущего срока не трогаются; получатель — всегда
+ * сам эффект.
+ */
+export interface EffectTriggerRefreshDurationAction {
+  type: 'refreshDuration';
+  on?: EffectTriggerActionGate;
+}
+
+/**
+ * Действия над самим эффектом, а не над получателем: снять его, закончить его
+ * каст, продлить его срок. Они достаются эффекту субъекта, кому бы ни ушли
+ * остальные действия, и только эффекту, лежащему на субъекте, — у предмета и
+ * черты существа нет ни своего каста, ни своего срока.
+ */
+export const SELF_EFFECT_ACTIONS: ReadonlySet<EffectTriggerAction['type']> =
+  new Set(['removeSelf', 'endCast', 'refreshDuration']);
+
 /** Кому адресовано сообщение срабатывания */
 export const EFFECT_NOTIFY_TARGETS = ['subject', 'source'] as const;
 
@@ -1108,7 +1150,8 @@ export type EffectTriggerAction =
   | EffectTriggerGrantInspirationAction
   | EffectTriggerMoveAction
   | EffectTriggerMoveAreaAction
-  | EffectTriggerRemoveSelfAction;
+  | EffectTriggerRemoveSelfAction
+  | EffectTriggerRefreshDurationAction;
 
 /** Срабатывание эффекта */
 export interface EffectTrigger {
