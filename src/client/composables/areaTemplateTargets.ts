@@ -70,6 +70,7 @@ export function placeAreaTemplate(
           template,
           tokens: scene.tokens ?? [],
           gridSize: resolveGridCellSize(scene.gridSettings),
+          scene,
           entities: useWorldEntities().getCurrentWorldEntities(),
         },
         (targets) => {

@@ -7,6 +7,7 @@ import type {
   ConditionDefinition,
   CustomArea,
   DiceRollData,
+  EffectAura,
   Feature,
   GridSettings,
   HealthCondition,
@@ -14,11 +15,13 @@ import type {
   MovementModes,
   MovementRange,
   SceneEntity,
+  ScenePoint3d,
   ServerRollRequester,
   SystemClientEventContext,
   SystemCombatStateResult,
   SystemDeferredTrigger,
   SystemDeferredTriggerResult,
+  SystemDistanceSubject,
   SystemRelatedTriggerResult,
   SystemRollResult,
   SystemTokenMovement,
@@ -50,7 +53,10 @@ import type {
 import type { EffectTriggerArea } from './effectTriggerTypes.js';
 import type { DndEntityLight } from './entityLight.js';
 import type { DndEntityVision } from './entityVision.js';
-import type { AreaEffectsSyncResult } from './positionalEffects.js';
+import type {
+  AreaEffectsSyncResult,
+  AuraTriggerScene,
+} from './positionalEffects.js';
 import type { SceneSight } from './sceneSight.js';
 import type { SystemClientEvent } from './systemClientEvents.js';
 import type {
@@ -193,6 +199,7 @@ import {
   runPresenceTriggerSources,
   syncActorAreaEffects,
 } from './positionalEffects.js';
+import { getVerticalRangeGap, resolveDndEntityHeight } from './sceneLevels.js';
 import {
   reconcileScenePresence,
   releaseOffSceneEffects,
@@ -202,7 +209,11 @@ import { SPELL_SCHOOL_LABELS } from './spellTypes.js';
 import { damagePartIsHealing } from './spellUtils.js';
 import { parseSystemClientEvent } from './systemClientEvents.js';
 import { SYSTEM_ID } from './systemId.js';
-import { isPointInTemplate as isPointInTemplateGeometry } from './templateGeometry.js';
+import {
+  DEFAULT_TEMPLATE_UNITS_PER_CELL,
+  isPointInTemplate as isPointInTemplateGeometry,
+  isPointInTemplateVolume,
+} from './templateGeometry.js';
 import {
   entityIgnoresTerrainCost as entityIgnoresTerrainCostImpl,
   resolveAreaTerrainCost,
@@ -2237,7 +2248,7 @@ export class Dnd5eVttSystem implements VttSystem {
    */
   // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   applyAuraTriggerEffects(
-    scene: { tokens?: Token[]; gridSettings?: GridSettings },
+    scene: AuraTriggerScene,
     movedToken: Token,
     movedEntity: SceneEntity,
     previousToken: Token | undefined,
@@ -2578,6 +2589,57 @@ export class Dnd5eVttSystem implements VttSystem {
     return isDndSceneEntity(entity)
       ? resolveEntityLightImpl(entity)
       : undefined;
+  }
+
+  /**
+   * Рост фишки по правилам D&D (VTTG 0.9.780): сторона пространства по
+   * размеру, лёжа — вдвое ниже. По нему ядро считает 3D-расстояние, глаз и
+   * упор в потолок; на клиенте и сервере ответ один — те же данные сущности.
+   * Футы: хук не знает сетки сцены, а система меряет в футах.
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  resolveEntityHeight(entity: SceneEntity): number | undefined {
+    return isDndSceneEntity(entity)
+      ? resolveDndEntityHeight(entity)
+      : undefined;
+  }
+
+  /**
+   * Объём шаблона по правилам D&D (VTTG 0.9.780): круг — сфера, цилиндр — своей
+   * высоты, куб — вверх на сторону, конус — объёмный, линия — брус. Хук не
+   * знает сетки сцены: клетка считается 5 футов, как в D&D.
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  isPointInTemplate3d(
+    point: ScenePoint3d,
+    gridSize: number,
+    template: MeasurementTemplate,
+    origin: ScenePoint3d,
+  ): boolean {
+    return isPointInTemplateVolume(
+      point,
+      origin,
+      template,
+      gridSize,
+      DEFAULT_TEMPLATE_UNITS_PER_CELL,
+    );
+  }
+
+  /**
+   * Достаёт ли аура по вертикали (VTTG 0.9.780): аура тянется на радиус во все
+   * стороны от существа, и зазор между отрезками фишек по высоте не больше
+   * радиуса. План и перекрытия ядро проверило до вызова.
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  auraReachesVertically(
+    aura: EffectAura,
+    source: SystemDistanceSubject,
+    target: SystemDistanceSubject,
+  ): boolean {
+    return (
+      getVerticalRangeGap(source.verticalRange, target.verticalRange)
+      <= aura.radius
+    );
   }
 
   /**

@@ -25,6 +25,7 @@ import type { ActiveEffect } from './activeEffectTypes.js';
 import type { DnDSceneEntity, Spell } from './dndEntities.js';
 import type { AreaChoiceMode, EffectAreaChoice } from './effectTriggerTypes.js';
 import type { FormulaContext } from './formulaParser.js';
+import type { LevelSceneInput } from './sceneLevels.js';
 
 import { withTokenDisposition } from '@vtt/shared';
 
@@ -41,6 +42,7 @@ import {
 } from './effectTriggerTypes.js';
 import { isDndSceneEntity } from './entityGuards.js';
 import { evaluateFormula } from './formulaParser.js';
+import { buildLevelModel, resolveDndEntityHeight } from './sceneLevels.js';
 import { findTokensInTemplate } from './templateGeometry.js';
 
 /** Сущность в области и её фишка с действующим отношением */
@@ -70,10 +72,14 @@ export function isAreaTarget(entity: DnDSceneEntity): boolean {
  * Кого накрыл шаблон: сущности мира с данными системы, без мёртвых и без
  * повторов (у сущности бывает несколько фишек).
  *
+ * Со сценой шаблон — объём: этажи, высота полёта и рост существ по
+ * правилам (`isPointInTemplateVolume`).
+ *
  * @param template - размещённый шаблон
  * @param tokens - фишки сцены
  * @param gridSize - размер клетки, пикс.
  * @param entities - сущности мира
+ * @param scene - сетка, этажи и области сцены; нет — шаблон плоский
  * @returns накрытые сущности в порядке фишек
  */
 export function listAreaCandidates(
@@ -81,10 +87,29 @@ export function listAreaCandidates(
   tokens: readonly Token[],
   gridSize: number,
   entities: readonly SceneEntity[],
+  scene?: LevelSceneInput,
 ): AreaCandidate[] {
   const found = new Map<string, AreaCandidate>();
 
-  for (const token of findTokensInTemplate(template, [...tokens], gridSize)) {
+  const levels = scene
+    ? {
+        model: buildLevelModel(scene),
+        resolveHeight: (token: Token) => {
+          const entity = entities.find((entry) => entry.id === token.actorId);
+
+          return entity && isDndSceneEntity(entity)
+            ? resolveDndEntityHeight(entity)
+            : undefined;
+        },
+      }
+    : undefined;
+
+  for (const token of findTokensInTemplate(
+    template,
+    [...tokens],
+    gridSize,
+    levels,
+  )) {
     const entity = entities.find((entry) => entry.id === token.actorId);
 
     if (
@@ -111,7 +136,12 @@ export function listAreaCandidates(
  * дальности нужны только правилу «область от применившего».
  */
 export type AreaSource = Pick<Spell, 'id' | 'name' | 'level' | 'activeEffects'>
-  & Partial<Pick<Spell, 'range' | 'rangeUnit' | 'deliveryType' | 'rollSource'>>;
+  & Partial<
+    Pick<
+      Spell,
+      'range' | 'rangeUnit' | 'deliveryType' | 'rollSource' | 'areaOfEffect'
+    >
+  >;
 
 /**
  * Что правило «область от применившего» читает у источника: вид источника и

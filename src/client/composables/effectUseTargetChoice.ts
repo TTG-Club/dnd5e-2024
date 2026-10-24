@@ -28,7 +28,10 @@ import {
   EFFECT_USE_TARGET_MODAL_KEY_PREFIX,
 } from '../ui/effect/constants';
 import { formatRequesterName, requestGmApproval } from './gmApprovalRequest';
-import { checkSpellRangeOnScene } from './useSceneRangeCheck';
+import {
+  checkSpellRangeOnScene,
+  formatSceneDistance,
+} from './useSceneRangeCheck';
 import { useWorldEntities } from './useWorldEntities';
 
 /**
@@ -110,12 +113,16 @@ function formatUseGmQuestion(
 
   const unit = `${parts.unitSeparator}${rangeCheck.unitLabel}`;
 
+  const distance = Number.isFinite(rangeCheck.distance)
+    ? `${rangeCheck.distance}${unit}`
+    : formatSceneDistance(rangeCheck.distance, rangeCheck.unitLabel);
+
   const reach =
     rangeCheck.maxRange === null
       ? ''
       : `${parts.reachPrefix}${rangeCheck.maxRange}${unit}`;
 
-  return `${request}${parts.distancePrefix}${rangeCheck.distance}${unit}${reach}${parts.end}`;
+  return `${request}${parts.distancePrefix}${distance}${reach}${parts.end}`;
 }
 
 /**

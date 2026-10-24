@@ -12,6 +12,7 @@ import type {
   DamageDefenseOutcome,
   DamageTypeChoice,
   HpChangeDetail,
+  LevelSceneInput,
   ProjectileOutcome,
   SaveDamageDefense,
   SneakAttackDoubleSave,
@@ -298,6 +299,8 @@ export interface AoeContext {
   tokens: readonly Token[];
   /** Размер клетки в пикселях */
   gridSize: number;
+  /** Сцена шаблона: этажи и высота делают шаблон объёмом */
+  scene?: LevelSceneInput;
 }
 
 /** Результат информации о спасброске актора */

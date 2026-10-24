@@ -15,7 +15,10 @@
   import { useProjectileStore } from '@/stores/projectileStore';
   import { useWorldStore } from '@/stores/worldStore';
 
-  import { checkSpellRangeOnScene } from '../../composables/useSceneRangeCheck';
+  import {
+    checkSpellRangeOnScene,
+    formatSceneDistance,
+  } from '../../composables/useSceneRangeCheck';
   import { useWorldEntities } from '../../composables/useWorldEntities';
   import {
     HUD_PROMPT_PANEL_CLASS,
@@ -110,7 +113,7 @@
       tokenId,
       name: entity.name,
       inReach: rangeCheck.allowed,
-      distance: `${rangeCheck.distance} ${rangeCheck.unitLabel}`,
+      distance: formatSceneDistance(rangeCheck.distance, rangeCheck.unitLabel),
     };
   });
 

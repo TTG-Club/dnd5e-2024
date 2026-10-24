@@ -60,6 +60,12 @@ export const HIDDEN_CONDITION_ICON = 'tabler:spy';
  */
 export const SURPRISED_CONDITION_KEY = 'surprised';
 
+/**
+ * «Лежащий ничком» (Prone): им кончаются падение и «Опрокидывание», лёжа
+ * существо ниже ростом.
+ */
+export const PRONE_CONDITION_KEY = 'prone';
+
 /** Полный список ключей состояний — единственный источник правды. */
 export const CONDITION_KEYS = [
   'blinded',
@@ -75,7 +81,7 @@ export const CONDITION_KEYS = [
   'paralyzed',
   'petrified',
   'poisoned',
-  'prone',
+  PRONE_CONDITION_KEY,
   'restrained',
   'stunned',
   SURPRISED_CONDITION_KEY,

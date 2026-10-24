@@ -17,8 +17,27 @@ import { loadHandler } from './helpers/sourceHandler.mjs';
 
 const engine = await loadEngineBundle(`
   export { checkSpellRange } from './src/engine/attackUtils.ts';
+  export {
+    buildLevelModel,
+    measureLevelDistance,
+    toReachDistance,
+  } from './src/engine/sceneLevels.ts';
   export { getTokenEdgeDistance } from '@vtt/shared';
 `);
+
+/**
+ * Мера сцены, как у клиента (`sceneLevelMeasure.ts`), без мира: рост и
+ * масштаб — по умолчанию.
+ *
+ * @param {object} scene - сцена
+ * @returns {Function} мера двух фишек
+ */
+function createSceneLevelMeasure(scene) {
+  const model = engine.buildLevelModel(scene);
+
+  return (tokenA, tokenB) =>
+    engine.measureLevelDistance(model, { token: tokenA }, { token: tokenB });
+}
 
 const RANGE_CHECK_PATH = 'src/client/composables/useSceneRangeCheck.ts';
 
@@ -67,8 +86,8 @@ async function loadRangeCheck(tokens) {
       currentScene: { tokens, gridSettings: GRID },
       currentWorld: null,
     }),
-    resolveTokenScale: () => 1,
-    getTokenEdgeDistance: engine.getTokenEdgeDistance,
+    createSceneLevelMeasure,
+    toReachDistance: engine.toReachDistance,
     DISTANCE_UNIT_SHORT: { ft: 'фт' },
     checkSpellRange: engine.checkSpellRange,
     Math,

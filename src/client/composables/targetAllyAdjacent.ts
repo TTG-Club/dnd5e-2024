@@ -61,6 +61,8 @@ export function findAlliesAdjacentToTarget(
   return listAdjacentAllies({
     tokens,
     gridSettings: scene.gridSettings,
+    floors: scene.floors,
+    customAreas: scene.customAreas,
     attackerId,
     targetToken,
     getEntity: useWorldEntities().findCurrentDndEntity,

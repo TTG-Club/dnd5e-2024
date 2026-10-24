@@ -1063,6 +1063,7 @@ export function useSpellResolution() {
           template: aoeContext.template,
           tokens: aoeContext.tokens,
           gridSize: aoeContext.gridSize,
+          scene: aoeContext.scene,
           entities: actors,
         },
         (areaTargets) => {
@@ -1638,6 +1639,7 @@ export function useSpellResolution() {
         template: cachedTemplate,
         tokens,
         gridSize,
+        scene,
       });
     } else {
       // Single-target: берём цель из targetStore

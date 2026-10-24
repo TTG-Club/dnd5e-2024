@@ -379,6 +379,7 @@ export function useSpellDamageWithParts() {
           template: cachedTemplate,
           tokens: scene.tokens ?? [],
           gridSize: resolveGridCellSize(scene.gridSettings),
+          scene,
           entities: actors,
         })),
       );
