@@ -628,6 +628,11 @@ describe('полка действий', () => {
       resolveJumpDistances: engine.resolveJumpDistances,
       resolveTurnSpeed: engine.resolveTurnSpeed,
       JUMP_MOVEMENT_MODE_ID: engine.JUMP_MOVEMENT_MODE_ID,
+      FLY_MOVEMENT_MODE_ID: engine.FLY_MOVEMENT_MODE_ID,
+      LEVITATE_MOVEMENT_MODE_ID: engine.LEVITATE_MOVEMENT_MODE_ID,
+      buildVerticalMovementModes: engine.buildVerticalMovementModes,
+      resolveMovementModesState: engine.resolveMovementModesState,
+      useWorldStore: () => ({ currentScene: { tokens: [] } }),
     };
 
     for (const name of [
@@ -638,6 +643,18 @@ describe('полка действий', () => {
     ]) {
       ports[name] = await loadHandler(
         'src/client/composables/jumpAction.ts',
+        name,
+        ports,
+      );
+    }
+
+    for (const name of [
+      'FLIGHT_BUTTON_SPECS',
+      'findEntityToken',
+      'buildFlightShelfButtons',
+    ]) {
+      ports[name] = await loadHandler(
+        'src/client/composables/flightAction.ts',
         name,
         ports,
       );

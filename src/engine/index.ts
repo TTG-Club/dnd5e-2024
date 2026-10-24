@@ -105,6 +105,7 @@ export * from './entityDraftMerge.js';
 export * from './entityGuards.js';
 export * from './entityLight.js';
 export * from './entityVision.js';
+export * from './falling.js';
 export * from './featChoices.js';
 export * from './featDataApply.js';
 export * from './featGrants.js';

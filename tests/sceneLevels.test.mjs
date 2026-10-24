@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 
 import { describe, it } from 'vitest';
 
-import { loadEngineBundle } from './helpers/engineBundle.mjs';
 import {
   CELL_SIZE,
   createCreature,
@@ -10,11 +9,6 @@ import {
   createToken,
   engine,
 } from './scenarios/_fixtures.mjs';
-
-/** Класс системы: хуки ядра для этажей */
-const { Dnd5eVttSystem } = await loadEngineBundle(
-  `export { Dnd5eVttSystem } from './src/engine/dnd5eSystem.ts';`,
-);
 
 /** Сетка D&D: клетка 100 пикселей, 5 футов */
 const GRID = {
@@ -327,7 +321,7 @@ describe('ауры по вертикали', () => {
   });
 
   it('хук ядра auraReachesVertically: зазор против радиуса', () => {
-    const system = new Dnd5eVttSystem();
+    const system = new engine.Dnd5eVttSystem();
     const subject = (bottom, top) => ({ verticalRange: { bottom, top } });
 
     assert.equal(
@@ -543,7 +537,7 @@ describe('шаблоны в объёме', () => {
   });
 
   it('хук isPointInTemplate3d на высоте начала совпадает с плоским', () => {
-    const system = new Dnd5eVttSystem();
+    const system = new engine.Dnd5eVttSystem();
     const origin = { x: 250, y: 200, z: 0 };
 
     for (const point of [

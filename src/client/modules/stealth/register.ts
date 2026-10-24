@@ -3,6 +3,7 @@
  *
  * Регистрирует полку действий системы слева от панели быстрого доступа:
  * «Атака» (пока недоступна), «Прыжок» (режим прыжка у ядра, `jumpAction.ts`),
+ * «Полёт» и «Левитация», если эти виды у героя есть (`flightAction.ts`),
  * «Спрятаться» и «Поиск». «Спрятаться» в засаде горит, и нажатие на неё
  * выводит из засады. «Поиск» ищет за выделенную фишку — так ищет и игрок, и
  * ведущий за врага. Кнопок под сообщением о засаде нет: всё делается с полки.
@@ -20,6 +21,7 @@ import type { ActionShelfButton } from '../../composables/actionShelf';
 import { findHiddenEffect } from '@vtt/shared/system/dnd.js';
 
 import { registerActionShelf } from '../../composables/actionShelf';
+import { buildFlightShelfButtons } from '../../composables/flightAction';
 import {
   leaveHide,
   startHide,
@@ -122,6 +124,7 @@ export function register(api: ClientSystemAPI): void {
       return [
         ATTACK_SHELF_BUTTON,
         buildJumpShelfButton(api, entity),
+        ...buildFlightShelfButtons(api, entity, context.tokenId),
         {
           ...HIDE_SHELF_BUTTON_BASE,
           tooltip: hidden

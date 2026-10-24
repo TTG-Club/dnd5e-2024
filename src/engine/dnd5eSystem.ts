@@ -26,6 +26,8 @@ import type {
   SystemRollResult,
   SystemTokenMovement,
   SystemTriggerContext,
+  SystemUnsupportedContext,
+  SystemUnsupportedDecision,
   Token,
   VttSystem,
 } from '@vtt/shared';
@@ -180,6 +182,7 @@ import { isLegacyTrigger, listEffectEventTriggers } from './effectTriggers.js';
 import { isDndSceneEntity } from './entityGuards.js';
 import { resolveEntityLight as resolveEntityLightImpl } from './entityLight.js';
 import { resolveEntityVision as resolveEntityVisionImpl } from './entityVision.js';
+import { applyFallToEntity, resolveDndUnsupported } from './falling.js';
 import { buildFeatGrantsSummary } from './featGrantsSummary.js';
 import { validateFormula } from './formulaParser.js';
 import {
@@ -192,6 +195,7 @@ import { transferItem } from './itemTransfer.js';
 import {
   buildMovementModes,
   resolveJumpDistances,
+  resolveMovementModesState,
   resolveTurnSpeed,
 } from './movementModes.js';
 import {
@@ -2306,6 +2310,10 @@ export class Dnd5eVttSystem implements VttSystem {
    * Срабатывания «прошёл N футов» за одно перемещение фишки: длину пути уже
    * измерило ядро. Урон, который носитель получил на ходу, будит его события
    * урона так же, как урон зоны.
+   *
+   * Этажи (VTTG 0.9.780): подъём и спуск своим ходом (полёт, лазание) — тоже
+   * футы пути; падение — нет, оно бьёт 1к6 за 10 футов и кладёт ничком
+   * (`falling.ts`).
    */
   // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   applyMovementEffects(
@@ -2319,13 +2327,22 @@ export class Dnd5eVttSystem implements VttSystem {
 
     const hpBefore = resolveEntityCurrentHp(entity);
     const options = buildTriggerEventOptions(entity, context);
+    const verticalFeet = movement.verticalDistance ?? 0;
+
+    const fall =
+      movement.fell && verticalFeet > 0
+        ? applyFallToEntity(entity, verticalFeet, rollDamageFormulaImpl)
+        : undefined;
+
+    // Свой путь — по плану и по высоте; падение своим ходом не считается
+    const pathFeet = movement.distance + (movement.fell ? 0 : verticalFeet);
 
     // «За ход одно из трёх»: своё перемещение в свой ход — трата хода, после
     // него действие и бонусное действие недоступны. Толчок и телепорт
     // правилами — не оно
     const moveSpend =
       !movement.forced
-      && movement.distance > 0
+      && pathFeet > 0
       && options.inCombat
       && options.activeTurnActorId === entity.id
         ? recordActionSpend(entity, 'move', {
@@ -2340,7 +2357,7 @@ export class Dnd5eVttSystem implements VttSystem {
     const events = settleMovementEvents(
       entity,
       {
-        distance: movement.distance,
+        distance: pathFeet,
         forced: movement.forced,
         offset: {
           dx: movement.to.x - movement.from.x,
@@ -2358,7 +2375,11 @@ export class Dnd5eVttSystem implements VttSystem {
       context,
     );
 
-    const own = moveSpend ? { ...settled, changed: true } : settled;
+    const moved = moveSpend ? { ...settled, changed: true } : settled;
+
+    const own = fall
+      ? mergeTriggerResults({ changed: true, chatSummary: fall.summary }, moved)
+      : moved;
 
     // Действия, отданные другим («урон тому, кто рядом»), уходят в мир
     // другими сторонами — снимок пишет только перемещённая сущность
@@ -2371,6 +2392,22 @@ export class Dnd5eVttSystem implements VttSystem {
     return related && related.length > 0
       ? { ...own, related: [...(own.related ?? []), ...related] }
       : own;
+  }
+
+  /**
+   * Фишка без опоры (VTTG 0.9.780): по правилам D&D она падает. Летуна,
+   * лазающего и левитирующего держит включённый вид (`aloft`) — их ядро не
+   * спрашивает; сбитый с ног или без Скорости летун вида не держит и падает.
+   * Урон и «ничком» — в {@link applyMovementEffects} по `fell`.
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  resolveUnsupported(
+    entity: SceneEntity,
+    context: SystemUnsupportedContext,
+  ): SystemUnsupportedDecision {
+    return isDndSceneEntity(entity)
+      ? resolveDndUnsupported(entity, context)
+      : 'fall';
   }
 
   /**
@@ -2536,7 +2573,11 @@ export class Dnd5eVttSystem implements VttSystem {
 
     const speed = resolveTurnSpeed(entity, stats);
 
-    return buildMovementModes(speed, resolveJumpDistances(stats, speed));
+    return buildMovementModes(
+      speed,
+      resolveJumpDistances(stats, speed),
+      resolveMovementModesState(entity, stats),
+    );
   }
 
   /**

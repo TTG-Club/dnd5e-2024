@@ -26,6 +26,7 @@ import type {
   SystemSceneSurroundings,
   SystemTokenMoveOptions,
   Token,
+  VerticalRange,
 } from '@vtt/shared';
 
 import type { EffectTriggerMoveAction } from './effectTriggerTypes.js';
@@ -146,6 +147,21 @@ export interface ForcedMoveScene {
   gridSettings: GridSettings;
   /** Действующие флаги того, кого двигают */
   targetFlags?: ReadonlySet<string>;
+  /**
+   * Абсолютные отрезки обеих фишек (VTTG 0.9.780): с ними толчок идёт в 3D —
+   * летуна над головой отбрасывает вверх, к тому, кто внизу, притягивает вниз.
+   * Нет — по плану, как раньше.
+   */
+  vertical?: { target: VerticalRange; origin: VerticalRange };
+}
+
+/** Куда встанет фишка после принудительного перемещения */
+export interface ForcedMovePosition extends ScenePosition {
+  /**
+   * Новая высота над полом, единицы сцены: толчок сдвинул фишку по вертикали.
+   * Нет поля — высота прежняя. Без опоры фишку уронит ядро.
+   */
+  aboveFloor?: number;
 }
 
 /** Флаг «не может телепортироваться» */
@@ -198,12 +214,49 @@ function resolveBringStep(
 }
 
 /**
+ * Вертикальная часть толчка: доля шага по плану и сдвиг по высоте. Разница
+ * высот — по ступням: соседи одного роста и разного размера на одном полу
+ * друг друга не поднимают.
+ *
+ * @param scene - кого двигают и от чего считают
+ * @param planFeet - расстояние между центрами по плану, футы
+ * @param stepFeet - шаг перемещения, футы
+ * @param toward - к опоре, а не от неё
+ * @returns доля шага по плану и сдвиг высоты (единицы сцены)
+ */
+function splitVerticalShift(
+  scene: ForcedMoveScene,
+  planFeet: number,
+  stepFeet: number,
+  toward: boolean,
+): { planShare: number; rise: number } {
+  const deltaZ = scene.vertical
+    ? scene.vertical.target.bottom - scene.vertical.origin.bottom
+    : 0;
+
+  if (deltaZ === 0) {
+    return { planShare: 1, rise: 0 };
+  }
+
+  const length = Math.hypot(planFeet, deltaZ);
+  const shift = toward ? -Math.min(stepFeet, length) : stepFeet;
+
+  return {
+    planShare: length > 0 ? planFeet / length : 0,
+    rise: (deltaZ / length) * shift,
+  };
+}
+
+/**
  * Куда встанет фишка после принудительного перемещения.
  *
  * Направление — по прямой между центрами фишек: от опорной к цели у толчка и
  * переноса, к опорной у притягивания. Перенос ложится на сцену как толчок — на
  * названное расстояние от опорной; отличает его запрет «не может
  * телепортироваться».
+ *
+ * С высотой (VTTG 0.9.780) прямая — в 3D: часть шага уходит в высоту, и на
+ * столько же меньше идёт по плану. Ниже пола фишку не загнать.
  *
  * Фишки стоят в одной точке — направления нет, и перемещение не состоится:
  * толкать «в никуда» система не станет.
@@ -215,7 +268,7 @@ function resolveBringStep(
 export function resolveForcedMovePosition(
   action: EffectTriggerMoveAction,
   scene: ForcedMoveScene,
-): ScenePosition | null {
+): ForcedMovePosition | null {
   const { target, origin, gridSettings } = scene;
   const perFoot = resolveGridPixelsPerUnit(gridSettings);
   const isBring = action.kind === 'bring';
@@ -235,22 +288,51 @@ export function resolveForcedMovePosition(
 
   const targetAnchor = resolveTokenAnchor(target, gridSettings);
   const originAnchor = resolveTokenAnchor(origin, gridSettings);
+  const measure = resolveGridLengthMeasure(gridSettings);
+  const toward = isBring || action.kind === 'pull';
+
+  const planFeet =
+    measure(targetAnchor.x - originAnchor.x, targetAnchor.y - originAnchor.y)
+    / perFoot;
+
+  const stepFeet = isBring
+    ? resolveBringStep(scene, targetAnchor, originAnchor) / perFoot
+    : action.distance;
+
+  const { planShare, rise } = splitVerticalShift(
+    scene,
+    planFeet,
+    stepFeet,
+    toward,
+  );
+
+  const aboveFloor =
+    rise === 0 ? undefined : Math.max(0, (target.aboveFloor ?? 0) + rise);
+
+  const verticalPart = aboveFloor === undefined ? {} : { aboveFloor };
+
+  if (planShare === 0 || planFeet === 0) {
+    // Строго над или под опорой: толчок только по вертикали
+    return aboveFloor === undefined
+      ? null
+      : { x: target.x, y: target.y, aboveFloor };
+  }
 
   const offset = isBring
     ? shiftAlongLine(
         targetAnchor,
         originAnchor,
-        resolveBringStep(scene, targetAnchor, originAnchor),
+        resolveBringStep(scene, targetAnchor, originAnchor) * planShare,
         true,
       )
     : shiftAlongLine(
         targetAnchor,
         originAnchor,
-        action.distance * perFoot,
+        action.distance * perFoot * planShare,
         // «На выбор» без выбора (спросить было некого) толкает от опоры
         action.kind === 'pull',
         // Футы толчка — в счёте сетки: клетка наискось стоит как прямая
-        resolveGridLengthMeasure(gridSettings),
+        measure,
       );
 
   if (!offset) {
@@ -265,7 +347,7 @@ export function resolveForcedMovePosition(
     target.scale,
   );
 
-  return { x: snapped.x, y: snapped.y };
+  return { x: snapped.x, y: snapped.y, ...verticalPart };
 }
 
 /**
@@ -287,6 +369,26 @@ export function resolveForcedMoveOrigin(
   }
 
   return sourceId ? findSceneToken(surroundings, sourceId) : null;
+}
+
+/**
+ * Абсолютный отрезок фишки сцены, если ядро его дало (VTTG 0.9.780).
+ *
+ * @param surroundings - сцена вокруг субъекта
+ * @param token - фишка
+ * @returns отрезок либо `undefined`
+ */
+export function findSceneTokenRange(
+  surroundings: SystemSceneSurroundings,
+  token: Token,
+): VerticalRange | undefined {
+  if (surroundings.token.id === token.id) {
+    return surroundings.verticalRange;
+  }
+
+  return surroundings.neighbors.find(
+    (neighbor) => neighbor.token.id === token.id,
+  )?.verticalRange;
 }
 
 /**
