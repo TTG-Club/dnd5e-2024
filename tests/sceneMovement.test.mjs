@@ -103,7 +103,11 @@ describe('полёт и левитация — виды перемещения',
     assert.equal(modes.get('swim').bands[0].upTo, 15);
     assert.equal(modes.get('climb').bands[0].upTo, 30);
     assert.equal(modes.get('swim').vertical.allowed, true);
-    assert.equal(modes.get('climb').aloft, true, 'лазающий держится за стену');
+    assert.equal(
+      modes.get('climb').aloft,
+      undefined,
+      'в воздухе лазание не держит — за стену держит «Подъём» ядра',
+    );
   });
 
   it('копание и плавание опускают ниже пола, полёт и лазание — нет', () => {
