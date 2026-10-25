@@ -106,6 +106,15 @@ describe('полёт и левитация — виды перемещения',
     assert.equal(modes.get('climb').aloft, true, 'лазающий держится за стену');
   });
 
+  it('копание и плавание опускают ниже пола, полёт и лазание — нет', () => {
+    const modes = modesOf({ movement: speeds({ burrow: 10, fly: 30 }) });
+
+    assert.equal(modes.get('burrow').vertical.belowFloor, true);
+    assert.equal(modes.get('swim').vertical.belowFloor, true);
+    assert.equal(modes.get('fly').vertical.belowFloor, undefined);
+    assert.equal(modes.get('climb').vertical.belowFloor, undefined);
+  });
+
   it('копание — только со Скоростью копания', () => {
     assert.equal(modesOf({}).has('burrow'), false);
 

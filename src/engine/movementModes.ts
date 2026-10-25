@@ -417,7 +417,8 @@ export function buildVerticalMovementModes(
       ),
       beyondLabel: MOVEMENT_MODE_LABELS.slowBeyond,
       persistent: true,
-      vertical: { allowed: true },
+      // Ныряет ниже поверхности (VTTG 0.9.780: без поля ядро не пустит под пол)
+      vertical: { allowed: true, belowFloor: true },
     },
     {
       id: CLIMB_MOVEMENT_MODE_ID,
@@ -442,7 +443,8 @@ export function buildVerticalMovementModes(
       bands: buildSpeedBands(turn(movement.burrow)),
       beyondLabel: MOVEMENT_MODE_LABELS.slowBeyond,
       persistent: true,
-      vertical: { allowed: true },
+      // Копает вглубь, ниже пола своего этажа
+      vertical: { allowed: true, belowFloor: true },
     });
   }
 
