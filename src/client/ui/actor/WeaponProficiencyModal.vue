@@ -1,4 +1,6 @@
 <script setup lang="ts">
+  import type { ProficiencyBaseType } from './utils/proficiencySelection';
+
   import { computed, ref, watch } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
@@ -10,6 +12,13 @@
 
   import { useSystemDataStore } from '../../stores/systemDataStore';
   import { MODAL_BUTTON_LABELS, PROFICIENCY_MODAL_LABELS } from './constants';
+  import {
+    filterKnownProficiencyKeys,
+    isProficiencyCategorySelected,
+    isProficiencyItemSelected,
+    toggleProficiencyCategory,
+    toggleProficiencyItem,
+  } from './utils/proficiencySelection';
 
   interface Props {
     open: boolean;
@@ -56,17 +65,21 @@
     () => props.open,
     (opened) => {
       if (opened) {
-        // Отсеиваем устаревшие ключи (русские названия из старого формата)
-        const validKeys = new Set(
-          systemDataStore.weaponBaseTypes.map((bt) => bt.key),
+        // Устаревшие русские названия отсеиваем, а категории из даров сохраняем
+        const validBaseTypeKeys = new Set(
+          systemDataStore.weaponBaseTypes.map((baseType) => baseType.key),
         );
 
         localWeapons.value = new Set(
-          props.selectedWeapons.filter((key) => validKeys.has(key)),
+          filterKnownProficiencyKeys(
+            props.selectedWeapons,
+            systemDataStore.weaponBaseTypes,
+            systemDataStore.weaponCategories.map((category) => category.key),
+          ),
         );
 
         localMasteries.value = new Set(
-          props.selectedMasteries.filter((key) => validKeys.has(key)),
+          props.selectedMasteries.filter((key) => validBaseTypeKeys.has(key)),
         );
 
         localMasteryProperties.value = new Set(
@@ -80,97 +93,116 @@
 
   /** Простое оружие */
   const simpleWeapons = computed(() =>
-    systemDataStore.weaponBaseTypes.filter((bt) => bt.category === 'simple'),
+    systemDataStore.weaponBaseTypes.filter(
+      (baseType) => baseType.category === 'simple',
+    ),
   );
 
   /** Воинское оружие */
   const martialWeapons = computed(() =>
-    systemDataStore.weaponBaseTypes.filter((bt) => bt.category === 'martial'),
+    systemDataStore.weaponBaseTypes.filter(
+      (baseType) => baseType.category === 'martial',
+    ),
   );
 
   /**
-   * Переключает владение конкретным оружием
-   * @param key - ключ оружия
+   * Проверяет владение оружием с учётом владения всей его категорией.
+   *
+   * @param weapon - базовый тип оружия
    */
-  function toggleWeapon(key: string): void {
-    const set = new Set(localWeapons.value);
+  function isWeaponSelected(weapon: ProficiencyBaseType): boolean {
+    return isProficiencyItemSelected(localWeapons.value, weapon);
+  }
 
-    if (set.has(key)) {
-      set.delete(key);
+  /**
+   * Переключает владение конкретным оружием.
+   *
+   * @param weapon - базовый тип оружия
+   */
+  function toggleWeapon(weapon: ProficiencyBaseType): void {
+    const wasSelected = isWeaponSelected(weapon);
 
+    const categoryItems =
+      weapon.category === 'simple' ? simpleWeapons.value : martialWeapons.value;
+
+    localWeapons.value = toggleProficiencyItem(
+      localWeapons.value,
+      weapon,
+      categoryItems,
+    );
+
+    if (wasSelected) {
       // Снимаем мастерство при снятии владения
       const masteries = new Set(localMasteries.value);
 
-      masteries.delete(key);
+      masteries.delete(weapon.key);
       localMasteries.value = masteries;
-    } else {
-      set.add(key);
     }
-
-    localWeapons.value = set;
   }
 
   /**
-   * Переключает мастерство конкретным оружием (только если владеет)
-   * @param key - ключ оружия
+   * Переключает мастерство конкретным оружием (только если владеет).
+   *
+   * @param weapon - базовый тип оружия
    */
-  function toggleMastery(key: string): void {
-    if (!localWeapons.value.has(key)) {
+  function toggleMastery(weapon: ProficiencyBaseType): void {
+    if (!isWeaponSelected(weapon)) {
       return;
     }
 
-    const set = new Set(localMasteries.value);
+    const masteries = new Set(localMasteries.value);
 
-    if (set.has(key)) {
-      set.delete(key);
+    if (masteries.has(weapon.key)) {
+      masteries.delete(weapon.key);
     } else {
-      set.add(key);
+      masteries.add(weapon.key);
     }
 
-    localMasteries.value = set;
+    localMasteries.value = masteries;
   }
 
   /**
-   * Переключает «{{ PROFICIENCY_MODAL_LABELS.weaponsAllSimple }}» / «{{ PROFICIENCY_MODAL_LABELS.weaponsAllMartial }}»
-   * @param category - 'simple' | 'martial'
+   * Переключает «Все простые» / «Все воинские».
+   *
+   * @param category - категория оружия
    */
   function toggleAllCategory(category: 'simple' | 'martial'): void {
     const weapons =
       category === 'simple' ? simpleWeapons.value : martialWeapons.value;
 
-    const allKeys = weapons.map((weapon) => weapon.key);
-    const set = new Set(localWeapons.value);
-    const allSelected = allKeys.every((key) => set.has(key));
+    const wasSelected = isProficiencyCategorySelected(
+      localWeapons.value,
+      category,
+      weapons,
+    );
 
-    if (allSelected) {
-      // Убрать все
+    localWeapons.value = toggleProficiencyCategory(
+      localWeapons.value,
+      category,
+      weapons,
+    );
+
+    if (wasSelected) {
       const masteries = new Set(localMasteries.value);
 
-      for (const key of allKeys) {
-        set.delete(key);
-        masteries.delete(key);
+      for (const weapon of weapons) {
+        masteries.delete(weapon.key);
       }
 
-      localWeapons.value = set;
       localMasteries.value = masteries;
-    } else {
-      // Добавить все
-      for (const key of allKeys) {
-        set.add(key);
-      }
-
-      localWeapons.value = set;
     }
   }
 
   /**
-   * Проверяет, выбраны ли все оружия категории
+   * Проверяет, выбраны ли все оружия категории явно либо её ключом.
+   *
+   * @param category - категория оружия
    */
   function isAllCategorySelected(category: 'simple' | 'martial'): boolean {
     const weapons =
       category === 'simple' ? simpleWeapons.value : martialWeapons.value;
 
-    return weapons.every((weapon) => localWeapons.value.has(weapon.key));
+    return isProficiencyCategorySelected(localWeapons.value, category, weapons);
   }
 
   /**
@@ -278,14 +310,14 @@
               </span>
 
               <UCheckbox
-                :model-value="localWeapons.has(weapon.key)"
-                @update:model-value="toggleWeapon(weapon.key)"
+                :model-value="isWeaponSelected(weapon)"
+                @update:model-value="toggleWeapon(weapon)"
               />
 
               <UCheckbox
                 :model-value="localMasteries.has(weapon.key)"
-                :disabled="!localWeapons.has(weapon.key)"
-                @update:model-value="toggleMastery(weapon.key)"
+                :disabled="!isWeaponSelected(weapon)"
+                @update:model-value="toggleMastery(weapon)"
               />
             </div>
           </div>
@@ -348,14 +380,14 @@
               </span>
 
               <UCheckbox
-                :model-value="localWeapons.has(weapon.key)"
-                @update:model-value="toggleWeapon(weapon.key)"
+                :model-value="isWeaponSelected(weapon)"
+                @update:model-value="toggleWeapon(weapon)"
               />
 
               <UCheckbox
                 :model-value="localMasteries.has(weapon.key)"
-                :disabled="!localWeapons.has(weapon.key)"
-                @update:model-value="toggleMastery(weapon.key)"
+                :disabled="!isWeaponSelected(weapon)"
+                @update:model-value="toggleMastery(weapon)"
               />
             </div>
           </div>
