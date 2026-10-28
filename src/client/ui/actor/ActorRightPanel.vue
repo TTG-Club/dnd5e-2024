@@ -25,6 +25,7 @@
     getCustomBonusValue,
     resolveAbilityCheckModifier,
     resolveAbilityCheckRollMode,
+    resolveHitPointsAfterBaseConstitutionChange,
   } from '@vtt/shared/system/dnd.js';
 
   import { buildRollBonusEvaluator } from '../../composables/rollBonusEvaluator';
@@ -278,6 +279,16 @@
           ...props.actor.system.abilities,
           [ability]: clampedValue,
         },
+        // Базовое Телосложение уже входит в запас листа, поэтому его изменение
+        // должно сдвинуть и хиты — иначе пайплайн добавит лишь долю эффектов
+        ...(ability === 'constitution'
+          ? {
+              hitPoints: resolveHitPointsAfterBaseConstitutionChange(
+                props.actor,
+                clampedValue,
+              ),
+            }
+          : {}),
       },
     });
   }
