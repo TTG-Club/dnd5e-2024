@@ -103,6 +103,7 @@ describe('полёт и левитация — виды перемещения',
     assert.equal(modes.get('swim').bands[0].upTo, 15);
     assert.equal(modes.get('climb').bands[0].upTo, 30);
     assert.equal(modes.get('swim').vertical.allowed, true);
+
     assert.equal(
       modes.get('climb').aloft,
       undefined,

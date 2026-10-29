@@ -11,24 +11,13 @@
 
   import { computed, ref } from 'vue';
 
-  import { HUD_PROMPT_TITLE_ATTR } from '@/shared_ui/consts';
+  import { HudPromptChoices, HudPromptPanel } from '@/shared_ui/components';
   import {
     joinVariantChoice,
     splitVariantChoice,
   } from '@vtt/shared/system/dnd.js';
 
-  import {
-    HUD_PROMPT_PANEL_CLASS,
-    HUD_PROMPTS_TELEPORT_TARGET,
-  } from '../actor/constants';
-  import {
-    EFFECT_VARIANT_PROMPT_LABELS,
-    EFFECT_VARIANT_SWITCH_MAX,
-  } from './constants';
-
-  defineOptions({
-    inheritAttrs: false,
-  });
+  import { EFFECT_VARIANT_PROMPT_LABELS } from './constants';
 
   const props = defineProps<{
     open: boolean;
@@ -55,16 +44,6 @@
   );
 
   /**
-   * Выбранные варианты группы, где можно взять несколько.
-   *
-   * @param group - ключ группы
-   * @returns подписи выбранных вариантов
-   */
-  function selectedOf(group: string): string[] {
-    return splitVariantChoice(choices.value[group]);
-  }
-
-  /**
    * Меняет выбор в группе с несколькими вариантами. Пустой выбор не пишется:
    * хотя бы один вариант взять надо.
    *
@@ -88,19 +67,17 @@
   /** Подпись группы нужна, только когда групп несколько */
   const showGroupLabels = computed(() => props.groups.length > 1);
 
-  /**
-   * Строки групп: подпись, варианты и чем выбирать. Немного коротких
-   * вариантов — переключателем, всё видно сразу; длинный список — выпадающим.
-   */
+  /** Строки групп с текущим выбором в форме общего компонента плашки */
   const groupRows = computed(() =>
     props.groups.map((group) => ({
       group: group.group,
       label: showGroupLabels.value ? group.group : undefined,
       items: group.labels.map((label) => ({ label, value: label })),
       multi: group.pick === 'multi',
-      asSwitch:
-        group.pick !== 'multi'
-        && group.labels.length <= EFFECT_VARIANT_SWITCH_MAX,
+      modelValue:
+        group.pick === 'multi'
+          ? splitVariantChoice(choices.value[group.group])
+          : choices.value[group.group],
     })),
   );
 
@@ -110,13 +87,29 @@
    * @param group - ключ группы
    * @param label - выбранный вариант
    */
-  function selectVariant(group: string, label: string | number): void {
+  function selectVariant(group: string, label: string): void {
     const labels = props.groups.find((entry) => entry.group === group)?.labels;
     const variant = labels?.find((option) => option === label);
 
     if (variant !== undefined) {
       choices.value = { ...choices.value, [group]: variant };
     }
+  }
+
+  /**
+   * Принимает выбор общего компонента: один вариант или список для `multi`.
+   *
+   * @param group - ключ группы
+   * @param value - выбранный вариант или список вариантов
+   */
+  function handleChoiceUpdate(group: string, value: string | string[]): void {
+    if (Array.isArray(value)) {
+      selectVariants(group, value);
+
+      return;
+    }
+
+    selectVariant(group, value);
   }
 
   /** Отдаёт выбор и закрывает плашку */
@@ -134,85 +127,37 @@
 </script>
 
 <template>
-  <Teleport :to="HUD_PROMPTS_TELEPORT_TARGET">
-    <Transition name="slide-up">
-      <div
-        v-if="open"
-        :class="HUD_PROMPT_PANEL_CLASS"
-        :[HUD_PROMPT_TITLE_ATTR]="title"
-      >
-        <div class="flex items-center gap-2 border-b border-muted/50 pb-2">
-          <UIcon
-            name="tabler:arrows-split"
-            class="h-5 w-5 shrink-0 text-toned"
-          />
+  <HudPromptPanel
+    :open="open"
+    icon="tabler:arrows-split"
+    :title="title"
+  >
+    <HudPromptChoices
+      v-for="row in groupRows"
+      :key="row.group"
+      :model-value="row.modelValue"
+      :items="row.items"
+      :multi="row.multi"
+      :legend="row.label"
+      @update:model-value="handleChoiceUpdate(row.group, $event)"
+    />
 
-          <span class="min-w-0 text-sm font-medium break-words">
-            {{ title }}
-          </span>
-        </div>
+    <template #footer>
+      <UButton
+        :label="EFFECT_VARIANT_PROMPT_LABELS.confirm"
+        color="primary"
+        variant="solid"
+        size="md"
+        @click.left.exact.prevent="handleConfirm"
+      />
 
-        <UFormField
-          v-for="row in groupRows"
-          :key="row.group"
-          :label="row.label"
-          size="md"
-        >
-          <UTabs
-            v-if="row.asSwitch"
-            :model-value="choices[row.group]"
-            :items="row.items"
-            :content="false"
-            size="md"
-            color="primary"
-            class="w-full"
-            @update:model-value="selectVariant(row.group, $event)"
-          />
-
-          <USelect
-            v-else-if="row.multi"
-            :model-value="selectedOf(row.group)"
-            :items="row.items"
-            value-key="value"
-            multiple
-            size="md"
-            class="w-full"
-            :portal="false"
-            @update:model-value="selectVariants(row.group, $event)"
-          />
-
-          <USelect
-            v-else
-            :model-value="choices[row.group]"
-            :items="row.items"
-            value-key="value"
-            size="md"
-            class="w-full"
-            :portal="false"
-            @update:model-value="selectVariant(row.group, $event)"
-          />
-        </UFormField>
-
-        <div class="flex items-center justify-center gap-2">
-          <UButton
-            :label="EFFECT_VARIANT_PROMPT_LABELS.confirm"
-            color="primary"
-            variant="solid"
-            size="md"
-            @click.left.exact.prevent="handleConfirm"
-          />
-
-          <UButton
-            :label="EFFECT_VARIANT_PROMPT_LABELS.cancel"
-            color="neutral"
-            variant="soft"
-            size="md"
-            @click.left.exact.prevent="handleCancel"
-          />
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
+      <UButton
+        :label="EFFECT_VARIANT_PROMPT_LABELS.cancel"
+        color="neutral"
+        variant="soft"
+        size="md"
+        @click.left.exact.prevent="handleCancel"
+      />
+    </template>
+  </HudPromptPanel>
 </template>
-
-<style scoped src="../hudPromptTransition.css"></style>
