@@ -42,7 +42,7 @@ import {
 } from './effectTriggerTypes.js';
 import { isDndSceneEntity } from './entityGuards.js';
 import { evaluateFormula } from './formulaParser.js';
-import { buildLevelModel, resolveDndEntityHeight } from './sceneLevels.js';
+import { buildLevelSight, resolveDndEntityHeight } from './sceneLevels.js';
 import { findTokensInTemplate } from './templateGeometry.js';
 
 /** Сущность в области и её фишка с действующим отношением */
@@ -91,9 +91,14 @@ export function listAreaCandidates(
 ): AreaCandidate[] {
   const found = new Map<string, AreaCandidate>();
 
-  const levels = scene
+  // Модель вертикали берётся из подготовленного луча: строить её второй раз
+  // по той же сцене незачем
+  const preparedSight = scene ? buildLevelSight(scene) : undefined;
+
+  const levels = preparedSight
     ? {
-        model: buildLevelModel(scene),
+        model: preparedSight.model,
+        preparedSight,
         resolveHeight: (token: Token) => {
           const entity = entities.find((entry) => entry.id === token.actorId);
 

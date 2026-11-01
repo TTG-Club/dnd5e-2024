@@ -17,8 +17,10 @@
 import type {
   CustomArea,
   GridSettings,
+  PreparedSight3d,
   Scene,
   SceneFloor,
+  SceneStructure,
   SceneVerticalModel,
   Token,
   VerticalRange,
@@ -35,6 +37,7 @@ import {
   isOpenThroughFloors,
   measureEdgeDistance3d,
   normalizeFloorId,
+  prepareSight3d,
   resolveGridCellSize,
 } from '@vtt/shared';
 
@@ -76,14 +79,42 @@ export function resolveDndEntityHeight(entity: DnDSceneEntity): number {
     : height;
 }
 
-/** Сцена в объёме, нужном вертикали: сетка, этажи и области (проёмы, площадки) */
+/** Сцена в объёме, нужном вертикали: сетка, этажи, постройки и области */
 export interface LevelSceneInput {
   /** Сетка сцены */
   gridSettings: GridSettings;
   /** Этажи; нет — одноэтажная сцена (или старое ядро) */
   floors?: readonly SceneFloor[];
+  /** Постройки этажей: контуры пола, проёмы и лестницы */
+  structures?: readonly SceneStructure[];
+  /** Стены и окна, влияющие на 3D-луч */
+  drawings?: Scene['drawings'];
   /** Пользовательские области: проёмы в полу, площадки, лестницы */
   customAreas?: readonly CustomArea[];
+}
+
+/**
+ * Сцена с необходимой для вертикали и 3D-луча частью данных.
+ *
+ * @param scene - сетка, этажи, постройки, стены и области сцены
+ * @returns сцена для общей модели ядра
+ */
+export function buildLevelScene(scene: LevelSceneInput): Scene {
+  return {
+    id: '',
+    name: '',
+    width: 0,
+    height: 0,
+    backgroundImage: '',
+    gridSettings: scene.gridSettings,
+    tokens: [],
+    drawings: scene.drawings ? [...scene.drawings] : [],
+    visibility: 'hidden',
+    forceView: false,
+    floors: scene.floors ? [...scene.floors] : undefined,
+    structures: scene.structures ? [...scene.structures] : undefined,
+    customAreas: scene.customAreas ? [...scene.customAreas] : undefined,
+  };
 }
 
 /**
@@ -92,26 +123,23 @@ export interface LevelSceneInput {
  * поэтому сцена собирается из этих частей; остальные её поля вертикаль не
  * читает. Модель — снимок: строить на каждый расчёт, а в цикле — один раз.
  *
- * @param scene - сетка, этажи и области сцены
+ * @param scene - сетка, этажи, постройки и области сцены
  * @returns модель вертикали
  */
 export function buildLevelModel(scene: LevelSceneInput): SceneVerticalModel {
-  const verticalScene: Scene = {
-    id: '',
-    name: '',
-    width: 0,
-    height: 0,
-    backgroundImage: '',
-    gridSettings: scene.gridSettings,
-    tokens: [],
-    drawings: [],
-    visibility: 'hidden',
-    forceView: false,
-    floors: scene.floors ? [...scene.floors] : undefined,
-    customAreas: scene.customAreas ? [...scene.customAreas] : undefined,
-  };
+  return buildSceneVerticalModel(buildLevelScene(scene));
+}
 
-  return buildSceneVerticalModel(verticalScene);
+/**
+ * Готовит 3D-луч между точками: этажи, контуры пола и стены.
+ *
+ * @param scene - сетка, этажи, постройки, стены и области сцены
+ * @returns подготовленная сцена для 3D-луча
+ */
+export function buildLevelSight(scene: LevelSceneInput): PreparedSight3d {
+  const verticalScene = buildLevelScene(scene);
+
+  return prepareSight3d(verticalScene, buildSceneVerticalModel(verticalScene));
 }
 
 /** Фишка как участник 3D-меры */

@@ -10,6 +10,7 @@ import type {
   DiagonalRule,
   DistanceUnit,
   MeasurementTemplate,
+  PreparedSight3d,
   ScenePoint3d,
   SceneVerticalModel,
   SpellAreaOfEffect,
@@ -22,6 +23,7 @@ import {
   getPointVerticalRange,
   getTokenPlanCenter,
   getTokenVerticalRange,
+  hasLineOfSight3d,
   isOpenThroughFloors,
   isPointInCircle,
   normalizeFloorId,
@@ -454,6 +456,8 @@ export function withTemplateAreaHeight(
 export interface TemplateLevelContext {
   /** Модель вертикали сцены */
   model: SceneVerticalModel;
+  /** Подготовленный 3D-луч со стенами; без него проверяются только перекрытия */
+  preparedSight?: PreparedSight3d;
   /** Рост фишки по правилам; нет ответа — по умолчанию ядра */
   resolveHeight?: (token: Token) => number | undefined;
 }
@@ -545,9 +549,13 @@ function isTokenInTemplateVolume(
   return listProbeHeights(range, origin.z).some((z) => {
     const point = { ...center, z };
 
+    const open = levels.preparedSight
+      ? hasLineOfSight3d(levels.preparedSight, origin, point)
+      : sameFloor || isOpenThroughFloors(model, origin, point, 'movement');
+
     return (
       isPointInTemplateVolume(point, origin, template, gridSize, model.cellStep)
-      && (sameFloor || isOpenThroughFloors(model, origin, point, 'movement'))
+      && open
     );
   });
 }

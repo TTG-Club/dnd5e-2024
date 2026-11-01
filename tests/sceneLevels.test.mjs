@@ -70,12 +70,11 @@ const twoFloors = { floors: [BASE_FLOOR, UPPER_FLOOR] };
 /** Проём в полу второго этажа над клетками (3..5, 0..2) */
 const hatch = {
   id: 'hatch',
+  kind: 'opening',
   name: 'Люк',
   points: cellsPolygon(3, 0, 5, 2),
   floorId: 'upper',
-  floorOpening: {
-    passes: { movement: true, sight: true, light: true, sound: true },
-  },
+  passes: { movement: true, sight: true, light: true, sound: true },
 };
 
 describe('3D-расстояние и досягаемость', () => {
@@ -130,7 +129,7 @@ describe('3D-расстояние и досягаемость', () => {
 
   it('сквозь открытый люк — достаёт на 3D-расстояние', () => {
     const measured = engine.measureLevelDistance(
-      modelOf({ ...twoFloors, customAreas: [hatch] }),
+      modelOf({ ...twoFloors, structures: [hatch] }),
       { token: createToken('goblin', 3, 0) },
       { token: createToken('archer', 4, 0, { floorId: 'upper' }) },
     );
@@ -142,11 +141,13 @@ describe('3D-расстояние и досягаемость', () => {
   it('закрытый люк — снова перекрытие', () => {
     const closed = {
       ...hatch,
-      floorOpening: { ...hatch.floorOpening, state: 'closed' },
+      kind: 'hatch',
+      state: 'closed',
+      access: 'none',
     };
 
     const measured = engine.measureLevelDistance(
-      modelOf({ ...twoFloors, customAreas: [closed] }),
+      modelOf({ ...twoFloors, structures: [closed] }),
       { token: createToken('goblin', 3, 0) },
       { token: createToken('archer', 3, 0, { floorId: 'upper' }) },
     );
@@ -157,9 +158,14 @@ describe('3D-расстояние и досягаемость', () => {
   it('лучник с края балкона достаёт до двора, из глубины — нет', () => {
     // Пол второго этажа — только балкон над клетками 4..8
     const balcony = {
-      floors: [
-        BASE_FLOOR,
-        { ...UPPER_FLOOR, surface: { polygons: [cellsPolygon(4, 0, 8, 4)] } },
+      ...twoFloors,
+      structures: [
+        {
+          id: 'balcony-contour',
+          kind: 'floor-contour',
+          floorId: 'upper',
+          points: cellsPolygon(4, 0, 8, 4),
+        },
       ],
     };
 
@@ -357,9 +363,14 @@ describe('шаблоны в объёме', () => {
 
   /** Сцена с балконом над клетками 4..8 на 10 футах */
   const balconyScene = {
-    floors: [
-      BASE_FLOOR,
-      { ...UPPER_FLOOR, surface: { polygons: [cellsPolygon(4, 0, 8, 4)] } },
+    ...twoFloors,
+    structures: [
+      {
+        id: 'balcony-contour',
+        kind: 'floor-contour',
+        floorId: 'upper',
+        points: cellsPolygon(4, 0, 8, 4),
+      },
     ],
   };
 
@@ -379,6 +390,50 @@ describe('шаблоны в объёме', () => {
       found.map((token) => token.id),
       ['token_archer'],
     );
+  });
+
+  it('сфера с балкона задевает двор за краем балкона', () => {
+    const below = createToken('goblin', 2, 1);
+
+    const found = engine.findTokensInTemplate(
+      { ...fireball, floorId: 'upper' },
+      [below],
+      CELL_SIZE,
+      { model: modelOf(balconyScene) },
+    );
+
+    assert.deepEqual(
+      found.map((token) => token.id),
+      ['token_goblin'],
+    );
+  });
+
+  it('сплошная стена на одном этаже блокирует сферу', () => {
+    const behindWall = createToken('goblin', 4, 1);
+
+    const sceneWithWall = {
+      ...twoFloors,
+      gridSettings: GRID,
+      drawings: [
+        {
+          id: 'solid-wall',
+          type: 'wall',
+          points: [300, 0, 300, 400],
+          vision: 'normal',
+          light: 'normal',
+        },
+      ],
+    };
+
+    const candidates = engine.listAreaCandidates(
+      fireball,
+      [behindWall],
+      CELL_SIZE,
+      [createCreature({ id: 'goblin' })],
+      sceneWithWall,
+    );
+
+    assert.deepEqual(candidates, []);
   });
 
   it('сфера не жжёт сквозь пол комнату над точкой начала', () => {
