@@ -1724,7 +1724,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.347';
+  readonly version = '0.8.348';
 
   /** Раунд D&D 5e — 6 игровых секунд: столько двигает часы мира новый раунд */
   readonly secondsPerRound = DND_SECONDS_PER_ROUND;
@@ -2404,8 +2404,8 @@ export class Dnd5eVttSystem implements VttSystem {
   /**
    * Фишка без опоры (VTTG 0.9.780): по правилам D&D она падает. Летуна и
    * левитирующего держит включённый вид (`aloft`), лазающего — область ядра
-   * «Подъём»; их ядро не
-   * спрашивает; сбитый с ног или без Скорости летун вида не держит и падает.
+   * «Подъём»; их ядро не спрашивает; сбитый с ног или без Скорости летун вида
+   * не держит и падает.
    * Урон и «ничком» — в {@link applyMovementEffects} по `fell`.
    */
   // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы

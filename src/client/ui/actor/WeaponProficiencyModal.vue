@@ -122,13 +122,12 @@
   function toggleWeapon(weapon: ProficiencyBaseType): void {
     const wasSelected = isWeaponSelected(weapon);
 
-    const categoryItems =
-      weapon.category === 'simple' ? simpleWeapons.value : martialWeapons.value;
-
     localWeapons.value = toggleProficiencyItem(
       localWeapons.value,
       weapon,
-      categoryItems,
+      systemDataStore.weaponBaseTypes.filter(
+        (baseType) => baseType.category === weapon.category,
+      ),
     );
 
     if (wasSelected) {

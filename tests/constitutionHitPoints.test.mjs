@@ -176,6 +176,17 @@ describe('ручное изменение базового Телосложен�
     );
   });
 
+  it('на 0 хитов рост Телосложения поднимает максимум, но не будит', () => {
+    const hero = wizardAtFifthLevel();
+
+    hero.system.hitPoints = { current: 0, max: 30, temp: 0 };
+
+    assert.deepEqual(
+      engine.resolveHitPointsAfterBaseConstitutionChange(hero, 14),
+      { current: 0, max: 35, temp: 0 },
+    );
+  });
+
   it('не меняет хиты, если модификатор остался прежним', () => {
     const hero = wizardAtFifthLevel();
 

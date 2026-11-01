@@ -67,13 +67,14 @@ export function resolveHitPointsAfterBaseConstitutionChange(
   }
 
   const max = Math.max(1, actor.system.hitPoints.max + hitPointsDelta);
+  const { current } = actor.system.hitPoints;
 
   return {
     ...actor.system.hitPoints,
-    current: Math.min(
-      max,
-      Math.max(0, actor.system.hitPoints.current + hitPointsDelta),
-    ),
+    // На 0 хитов персонаж без сознания: правка листа не лечит, поднимает его
+    // только лечение или спасброски от смерти
+    current:
+      current === 0 ? 0 : Math.min(max, Math.max(0, current + hitPointsDelta)),
     max,
   };
 }
