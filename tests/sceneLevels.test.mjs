@@ -184,6 +184,100 @@ describe('3D-расстояние и досягаемость', () => {
     assert.equal(deep.blocked, true);
   });
 
+  it('лучник в шаге от края балкона достаёт до дальнего двора', () => {
+    // Балкон над клетками 4..8 на 10 футах; лучник в клетке 5 — в 5 футах
+    // от края. Линия «ступни — макушка» ныряла в пол, с высоты глаз двор виден
+    const model = modelOf({
+      ...twoFloors,
+      structures: [
+        {
+          id: 'balcony-contour',
+          kind: 'floor-contour',
+          floorId: 'upper',
+          points: cellsPolygon(4, 0, 8, 4),
+        },
+      ],
+    });
+
+    const measured = engine.measureLevelDistance(
+      model,
+      { token: createToken('goblin', -9, 1) },
+      { token: createToken('archer', 5, 1, { floorId: 'upper' }) },
+    );
+
+    assert.equal(measured.blocked, false);
+  });
+});
+
+describe('стены на пути удара и заклинания по цели', () => {
+  /**
+   * Сцена с одной стеной поперёк по x = 300.
+   *
+   * @param {object} wall - поля стены сверх положения
+   * @returns {object} сцена для 3D-луча
+   */
+  function sceneWithWall(wall = {}) {
+    return {
+      gridSettings: GRID,
+      floors: [BASE_FLOOR],
+      drawings: [
+        {
+          id: 'wall',
+          type: 'wall',
+          points: [300, -400, 300, 800],
+          vision: 'normal',
+          light: 'normal',
+          ...wall,
+        },
+      ],
+    };
+  }
+
+  /**
+   * Мера между лучником в клетке 0 и гоблином в клетке 5 одного ряда.
+   *
+   * @param {object} scene - сцена
+   * @param {object} goblinOptions - поля фишки гоблина
+   * @returns {object} мера
+   */
+  function measureAcross(scene, goblinOptions = {}) {
+    const preparedSight = engine.buildLevelSight(scene);
+
+    return engine.measureLevelDistance(
+      preparedSight.model,
+      { token: createToken('archer', 0, 0) },
+      { token: createToken('goblin', 5, 0, goblinOptions) },
+      preparedSight,
+    );
+  }
+
+  it('сплошная стена закрывает цель на своём этаже', () => {
+    assert.equal(measureAcross(sceneWithWall()).blocked, true);
+  });
+
+  it('без сцены для луча стены не проверяются', () => {
+    const measured = engine.measureLevelDistance(
+      engine.buildLevelModel(sceneWithWall()),
+      { token: createToken('archer', 0, 0) },
+      { token: createToken('goblin', 5, 0) },
+    );
+
+    assert.equal(measured.blocked, false);
+  });
+
+  it('низкая стена ниже глаз не закрывает', () => {
+    assert.equal(measureAcross(sceneWithWall({ height: 3 })).blocked, false);
+  });
+
+  it('летун над стеной своей высоты — достаётся', () => {
+    const scene = sceneWithWall({ height: 10 });
+
+    assert.equal(measureAcross(scene).blocked, true);
+    assert.equal(measureAcross(scene, { aboveFloor: 15 }).blocked, false);
+  });
+});
+
+describe('рост существа', () => {
   it('рост по размеру и лёжа ниже', () => {
     const ogre = createCreature({ system: { ...createCreature().system } });
 

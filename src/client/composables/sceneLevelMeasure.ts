@@ -2,9 +2,10 @@
  * 3D-мера текущей сцены для проверок дальности и досягаемости на клиенте.
  *
  * Правило — в движке (`sceneLevels.ts`): этажи, высота полёта, рост по
- * размеру, перекрытие без проёма. Здесь только подстановка сцены, масштаба
- * фишки и сущности мира. Модель вертикали строится один раз на меру: в цикле
- * по фишкам сцены её не пересобирать.
+ * размеру, перекрытие без проёма и стены на высоте своего отрезка (удар и
+ * заклинание по цели идут тем же 3D-лучом, что и взгляд). Здесь только
+ * подстановка сцены, масштаба фишки и сущности мира. Модель вертикали и луч
+ * строятся один раз на меру: в цикле по фишкам сцены их не пересобирать.
  */
 
 import type { Scene, Token } from '@vtt/shared';
@@ -13,7 +14,7 @@ import type { LevelDistance } from '@vtt/shared/system/dnd.js';
 import { resolveTokenScale } from '@/core/entityUtils';
 import { useWorldStore } from '@/stores/worldStore';
 import {
-  buildLevelModel,
+  buildLevelSight,
   measureLevelDistance,
   toLevelSubject,
 } from '@vtt/shared/system/dnd.js';
@@ -24,7 +25,8 @@ import { useWorldEntities } from './useWorldEntities';
 export type SceneLevelMeasure = (tokenA: Token, tokenB: Token) => LevelDistance;
 
 /**
- * Мера расстояния между фишками сцены в 3D с признаком перекрытия.
+ * Мера расстояния между фишками сцены в 3D с признаком преграды: перекрытия
+ * или стены.
  *
  * @param scene - сцена фишек
  * @returns мера
@@ -32,7 +34,7 @@ export type SceneLevelMeasure = (tokenA: Token, tokenB: Token) => LevelDistance;
 export function createSceneLevelMeasure(scene: Scene): SceneLevelMeasure {
   const { currentWorld } = useWorldStore();
   const { findCurrentDndEntity } = useWorldEntities();
-  const model = buildLevelModel(scene);
+  const preparedSight = buildLevelSight(scene);
 
   /**
    * Фишка как участник меры: масштаб и рост её сущности.
@@ -48,5 +50,10 @@ export function createSceneLevelMeasure(scene: Scene): SceneLevelMeasure {
     );
 
   return (tokenA, tokenB) =>
-    measureLevelDistance(model, toSubject(tokenA), toSubject(tokenB));
+    measureLevelDistance(
+      preparedSight.model,
+      toSubject(tokenA),
+      toSubject(tokenB),
+      preparedSight,
+    );
 }

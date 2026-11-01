@@ -18,7 +18,7 @@ import { createSceneLevelMeasure } from './sceneLevelMeasure';
 export interface SceneTokenDistance {
   /**
    * Округлённое расстояние между краями токенов в 3D (в единицах сцены);
-   * сквозь перекрытие без проёма — бесконечность
+   * сквозь стену или перекрытие без проёма — бесконечность
    */
   distance: number;
   /** Единица измерения сцены */
@@ -56,8 +56,9 @@ export interface SpellRangeCheckResult {
  * цель» с дальностью допускает получателем самого применившего.
  *
  * Мера — в 3D, с этажами и высотой полёта (`sceneLevels.ts` движка): летун в
- * 10 футах над головой — 10 футов, а цель за перекрытием без проёма не
- * достаётся вовсе — ни ударом, ни заклинанием.
+ * 10 футах над головой — 10 футов, а цель за перекрытием без проёма или за
+ * стеной (на высоте её отрезка) не достаётся вовсе — ни ударом, ни
+ * заклинанием.
  *
  * @param attackerActorId - ID актора-атакующего (ищутся его токены)
  * @param targetTokenId - ID токена-цели
@@ -205,7 +206,7 @@ export function isSpellTargetBlockedByRange(
 }
 
 /**
- * Расстояние до цели для сообщений: число с единицей, а цель за перекрытием —
+ * Расстояние до цели для сообщений: число с единицей, а цель за преградой —
  * словами (бесконечность в тексте ничего не скажет).
  *
  * @param distance - расстояние
@@ -218,7 +219,7 @@ export function formatSceneDistance(
 ): string {
   return Number.isFinite(distance)
     ? `${distance} ${unitLabel}`
-    : OUT_OF_RANGE_LABELS.behindFloor;
+    : OUT_OF_RANGE_LABELS.behindBarrier;
 }
 
 /**

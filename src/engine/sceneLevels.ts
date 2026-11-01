@@ -16,10 +16,12 @@
 
 import type {
   CustomArea,
+  FloorPlanPoint,
   GridSettings,
   PreparedSight3d,
   Scene,
   SceneFloor,
+  ScenePoint3d,
   SceneStructure,
   SceneVerticalModel,
   Token,
@@ -34,6 +36,7 @@ import {
   getTokenPlanCenter,
   getTokenVerticalRange,
   getVerticalLayerGap,
+  hasLineOfSight3d,
   isOpenThroughFloors,
   measureEdgeDistance3d,
   normalizeFloorId,
@@ -205,6 +208,14 @@ interface AxisSpan {
   max: number;
 }
 
+/** Отпечаток фишки по плану: отрезки по X и Y, пиксели */
+interface PlanFootprint {
+  /** По X */
+  x: AxisSpan;
+  /** По Y */
+  y: AxisSpan;
+}
+
 /**
  * Ближайшие точки двух отрезков на одной оси: пересекаются — обе в середине
  * общей части; нет — на обращённых друг к другу концах, отступив внутрь на
@@ -250,7 +261,7 @@ function closestOnAxis(
 function resolveFootprint(
   model: SceneVerticalModel,
   subject: LevelTokenSubject,
-): { x: AxisSpan; y: AxisSpan } {
+): PlanFootprint {
   const center = getTokenPlanCenter(
     model,
     subject.token,
@@ -269,21 +280,27 @@ function resolveFootprint(
 }
 
 /**
- * Проходит ли тело (удар, бросок, снаряд) от одной фишки к другой сквозь
- * перекрытия этажей: на своём этаже — всегда, между этажами — только через
- * открытый проём для движения или мимо края пола (балкон над двором).
- * Стеклянный пол и закрытый люк не пропускают.
+ * Проходит ли тело (удар, бросок, снаряд) от одной фишки к другой: сквозь
+ * перекрытия этажей — только через открытый проём для движения или мимо края
+ * пола (балкон над двором); стеклянный пол и закрытый люк не пропускают. Со
+ * сценой для 3D-луча (`preparedSight`) мешают и стены — на высоте своего
+ * отрезка: над низкой стеной бросок проходит, сквозь сплошную — нет, как и
+ * взгляд ядра.
  *
- * Отрезок проверки соединяет ближайшие точки фишек (их отпечатков и роста):
- * лучник с края балкона дотягивается до двора, а из середины комнаты наверху
- * сквозь её пол — нет.
+ * Укрытие по PHB 2024 полное, только если преграда заслоняет цель целиком:
+ * хватит одной открытой линии между точками тел. Линии идут от ближайших
+ * точек отпечатков по плану (со стенами — ещё и от центров), по высоте —
+ * между ступнями, серединой и макушкой. Одна линия «ступни — макушка» сразу
+ * ныряла в пол: лучник в шаге от края балкона не доставал до двора, хотя с
+ * высоты глаз двор виден. Из середины комнаты сквозь её пол — по-прежнему нет.
  *
  * @param model - модель вертикали
  * @param subjectA - первая фишка
  * @param rangeA - её отрезок
  * @param subjectB - вторая фишка
  * @param rangeB - её отрезок
- * @returns true, если перекрытие не мешает
+ * @param preparedSight - сцена для 3D-луча со стенами; нет — только перекрытия
+ * @returns true, если путь открыт
  */
 export function isLevelPathOpen(
   model: SceneVerticalModel,
@@ -291,11 +308,14 @@ export function isLevelPathOpen(
   rangeA: VerticalRange,
   subjectB: LevelTokenSubject,
   rangeB: VerticalRange,
+  preparedSight?: PreparedSight3d,
 ): boolean {
-  if (
+  const sameFloor =
     normalizeFloorId(subjectA.token.floorId)
-    === normalizeFloorId(subjectB.token.floorId)
-  ) {
+    === normalizeFloorId(subjectB.token.floorId);
+
+  // Без стен на одном этаже перекрытию мешать нечем
+  if (sameFloor && !preparedSight) {
     return true;
   }
 
@@ -310,12 +330,88 @@ export function isLevelPathOpen(
     BODY_EDGE_INSET,
   );
 
-  return isOpenThroughFloors(
-    model,
-    { x: xA, y: yA, z: zA },
-    { x: xB, y: yB, z: zB },
-    'movement',
+  const pointsA = listBodyPlanPoints(
+    { x: xA, y: yA },
+    footprintA,
+    preparedSight,
   );
+
+  const pointsB = listBodyPlanPoints(
+    { x: xB, y: yB },
+    footprintB,
+    preparedSight,
+  );
+
+  const heightsA = listBodyProbeHeights(rangeA, zA);
+  const heightsB = listBodyProbeHeights(rangeB, zB);
+
+  const isLineOpen = (from: ScenePoint3d, to: ScenePoint3d): boolean =>
+    // Перекрытие — по проходу тела (стеклянный пол виден, но не пропускает),
+    // стены — лучом взгляда ядра на высоте луча
+    (sameFloor || isOpenThroughFloors(model, from, to, 'movement'))
+    && (!preparedSight || hasLineOfSight3d(preparedSight, from, to));
+
+  return pointsA.some((planA) =>
+    pointsB.some((planB) =>
+      heightsA.some((heightA) =>
+        heightsB.some((heightB) =>
+          isLineOpen({ ...planA, z: heightA }, { ...planB, z: heightB }),
+        ),
+      ),
+    ),
+  );
+}
+
+/**
+ * Пробные точки тела по плану: ближайшая к другой фишке, а со стенами — и
+ * центр отпечатка (из-за угла стены ближайшая точка бывает закрыта, а центр —
+ * нет, и наоборот).
+ *
+ * @param closest - ближайшая к другой фишке точка
+ * @param footprint - отпечаток фишки
+ * @param preparedSight - сцена для 3D-луча; нет — стены не проверяются
+ * @returns точки, ближайшая — первой
+ */
+function listBodyPlanPoints(
+  closest: FloorPlanPoint,
+  footprint: PlanFootprint,
+  preparedSight: PreparedSight3d | undefined,
+): FloorPlanPoint[] {
+  if (!preparedSight) {
+    return [closest];
+  }
+
+  const center = {
+    x: (footprint.x.min + footprint.x.max) / 2,
+    y: (footprint.y.min + footprint.y.max) / 2,
+  };
+
+  return center.x === closest.x && center.y === closest.y
+    ? [closest]
+    : [closest, center];
+}
+
+/**
+ * Пробные высоты тела для линии сквозь перекрытия: ближайшая к другой фишке
+ * (с неё проверка и начинается — обычно её и хватает), ступни, середина и
+ * макушка. Ступни и макушка отступают внутрь отрезка, чтобы плоскость пола,
+ * которой тело лишь касается, не считалась перекрытием.
+ *
+ * @param range - отрезок фишки
+ * @param closest - высота, ближайшая к другой фишке
+ * @returns высоты без повторов, ближайшая — первой
+ */
+function listBodyProbeHeights(range: VerticalRange, closest: number): number[] {
+  const inset = Math.min(BODY_EDGE_INSET, (range.top - range.bottom) / 2);
+
+  return [
+    ...new Set([
+      closest,
+      range.bottom + inset,
+      (range.bottom + range.top) / 2,
+      range.top - inset,
+    ]),
+  ];
 }
 
 /** 3D-расстояние между фишками и то, мешает ли перекрытие */
@@ -326,7 +422,10 @@ export interface LevelDistance {
   horizontalDistance: number;
   /** Разница слоёв по вертикали, единицы сцены */
   verticalDistance: number;
-  /** Между фишками перекрытие без проёма: ни удар, ни заклинание не проходят */
+  /**
+   * Между фишками перекрытие без проёма (а с 3D-лучом — и стена): ни удар, ни
+   * заклинание не проходят
+   */
   blocked: boolean;
 }
 
@@ -337,12 +436,15 @@ export interface LevelDistance {
  * @param model - модель вертикали
  * @param subjectA - первая фишка
  * @param subjectB - вторая фишка
+ * @param preparedSight - сцена для 3D-луча: со стенами (удар и заклинание по
+ *   цели); нет — только перекрытия (ауры, «союзник рядом»)
  * @returns расстояние и его части
  */
 export function measureLevelDistance(
   model: SceneVerticalModel,
   subjectA: LevelTokenSubject,
   subjectB: LevelTokenSubject,
+  preparedSight?: PreparedSight3d,
 ): LevelDistance {
   const rangeA = resolveLevelTokenRange(model, subjectA);
   const rangeB = resolveLevelTokenRange(model, subjectB);
@@ -365,7 +467,14 @@ export function measureLevelDistance(
 
   return {
     ...measured,
-    blocked: !isLevelPathOpen(model, subjectA, rangeA, subjectB, rangeB),
+    blocked: !isLevelPathOpen(
+      model,
+      subjectA,
+      rangeA,
+      subjectB,
+      rangeB,
+      preparedSight,
+    ),
   };
 }
 
