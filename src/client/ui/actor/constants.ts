@@ -6292,17 +6292,6 @@ export const DEATH_SAVE_STATUS_CLASS = {
   alive: 'text-muted',
 } as const;
 
-/** Слой плашек запросов хоста: сюда телепортируются плашки системы */
-export const HUD_PROMPTS_TELEPORT_TARGET = '#hud-prompts-container';
-
-/**
- * Оформление плашки запроса над сценой — одно на все плашки системы (вопрос,
- * выбор варианта, цели, оплата, круг, снаряды): вид у них общий, и расходиться
- * он не должен. Появление — общая анимация `hudPromptTransition.css`.
- */
-export const HUD_PROMPT_PANEL_CLASS =
-  'pointer-events-auto flex w-95 max-w-full flex-col gap-3 rounded-xl border border-default/50 bg-default/90 px-4 py-3 text-highlighted shadow-xl ring-accented backdrop-blur-sm';
-
 /** Итог спасброска согласной цели: провал с натуральной единицей */
 export const WILLING_SAVE_TOTAL = 1;
 

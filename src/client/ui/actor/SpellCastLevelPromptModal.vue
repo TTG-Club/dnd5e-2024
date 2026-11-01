@@ -8,18 +8,12 @@
 
   import { computed, ref } from 'vue';
 
-  import { HUD_PROMPT_TITLE_ATTR } from '@/shared_ui/consts';
+  import { HudPromptPanel } from '@/shared_ui/components';
 
   import {
     ACTOR_SPELLS_TAB_LABELS,
-    HUD_PROMPT_PANEL_CLASS,
-    HUD_PROMPTS_TELEPORT_TARGET,
     SPELL_CAST_LEVEL_PROMPT_LABELS,
   } from './constants';
-
-  defineOptions({
-    inheritAttrs: false,
-  });
 
   const props = defineProps<{
     open: boolean;
@@ -66,63 +60,46 @@
 </script>
 
 <template>
-  <Teleport :to="HUD_PROMPTS_TELEPORT_TARGET">
-    <Transition name="slide-up">
-      <div
-        v-if="open"
-        :class="HUD_PROMPT_PANEL_CLASS"
-        :[HUD_PROMPT_TITLE_ATTR]="promptTitle"
-      >
-        <div class="flex items-center gap-2 border-b border-muted/50 pb-2">
-          <UIcon
-            name="tabler:wand"
-            class="h-5 w-5 shrink-0 text-toned"
-          />
+  <HudPromptPanel
+    :open="open"
+    icon="tabler:wand"
+    :title="promptTitle"
+  >
+    <p class="text-sm break-words text-toned">
+      {{ question }}
+    </p>
 
-          <span class="min-w-0 text-sm font-medium break-words">
-            {{ promptTitle }}
-          </span>
-        </div>
+    <div class="flex items-center justify-between gap-4">
+      <USelect
+        v-model.number="selectedLevel"
+        :items="levelItems"
+        value-key="value"
+        label-key="label"
+        class="min-w-32"
+        size="sm"
+        color="neutral"
+        variant="outline"
+      />
 
-        <p class="text-sm break-words text-toned">
-          {{ question }}
-        </p>
+      <div class="flex items-center gap-2">
+        <UButton
+          icon="tabler:check"
+          color="primary"
+          variant="solid"
+          size="sm"
+          :title="SPELL_CAST_LEVEL_PROMPT_LABELS.confirm"
+          @click.left.exact.prevent="handleConfirm"
+        />
 
-        <div class="flex items-center justify-between gap-4">
-          <USelect
-            v-model.number="selectedLevel"
-            :items="levelItems"
-            value-key="value"
-            label-key="label"
-            class="min-w-32"
-            size="sm"
-            color="neutral"
-            variant="outline"
-          />
-
-          <div class="flex items-center gap-2">
-            <UButton
-              icon="tabler:check"
-              color="primary"
-              variant="solid"
-              size="sm"
-              :title="SPELL_CAST_LEVEL_PROMPT_LABELS.confirm"
-              @click.left.exact.prevent="handleConfirm"
-            />
-
-            <UButton
-              icon="tabler:x"
-              color="neutral"
-              variant="ghost"
-              size="sm"
-              :title="SPELL_CAST_LEVEL_PROMPT_LABELS.cancel"
-              @click.left.exact.prevent="closePrompt"
-            />
-          </div>
-        </div>
+        <UButton
+          icon="tabler:x"
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          :title="SPELL_CAST_LEVEL_PROMPT_LABELS.cancel"
+          @click.left.exact.prevent="closePrompt"
+        />
       </div>
-    </Transition>
-  </Teleport>
+    </div>
+  </HudPromptPanel>
 </template>
-
-<style scoped src="../hudPromptTransition.css"></style>

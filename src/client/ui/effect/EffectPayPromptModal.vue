@@ -8,21 +8,12 @@
 
   import { computed, ref } from 'vue';
 
-  import { HUD_PROMPT_TITLE_ATTR } from '@/shared_ui/consts';
+  import { HudPromptChoices, HudPromptPanel } from '@/shared_ui/components';
 
-  import {
-    HUD_PROMPT_PANEL_CLASS,
-    HUD_PROMPTS_TELEPORT_TARGET,
-  } from '../actor/constants';
-  import { EFFECT_VARIANT_SWITCH_MAX } from './constants';
   import {
     EFFECT_PAY_PROMPT_ICON,
     EFFECT_PAY_PROMPT_LABELS,
   } from './payLabels';
-
-  defineOptions({
-    inheritAttrs: false,
-  });
 
   const props = defineProps<{
     open: boolean;
@@ -52,8 +43,8 @@
   );
 
   /**
-   * Строки платежей: варианты и чем выбирать. Немного вариантов —
-   * переключателем, длинный список — выпадающим.
+   * Строки платежей с текущим выбором. Раскладку — рядом или столбиком —
+   * выбирает общий компонент плашки по подписям вариантов.
    */
   const rows = computed(() =>
     props.prices.map((entry, index) => ({
@@ -62,17 +53,22 @@
         label: option.label,
         value: option.id,
       })),
-      asSwitch: entry.options.length <= EFFECT_VARIANT_SWITCH_MAX,
+      modelValue: picks.value[index] ?? '',
     })),
   );
 
   /**
-   * Меняет выбор платежа.
+   * Меняет выбор платежа. У платежа вариант всегда один, поэтому список
+   * от общего компонента сюда прийти не может и пропускается.
    *
    * @param index - номер платежа
    * @param optionId - ключ выбранного варианта
    */
-  function selectOption(index: number, optionId: string | number): void {
+  function selectOption(index: number, optionId: string | string[]): void {
+    if (Array.isArray(optionId)) {
+      return;
+    }
+
     const option = props.prices[index]?.options.find(
       (entry) => entry.id === optionId,
     );
@@ -99,71 +95,35 @@
 </script>
 
 <template>
-  <Teleport :to="HUD_PROMPTS_TELEPORT_TARGET">
-    <Transition name="slide-up">
-      <div
-        v-if="open"
-        :class="HUD_PROMPT_PANEL_CLASS"
-        :[HUD_PROMPT_TITLE_ATTR]="title"
-      >
-        <div class="flex items-center gap-2 border-b border-muted/50 pb-2">
-          <UIcon
-            :name="EFFECT_PAY_PROMPT_ICON"
-            class="h-5 w-5 shrink-0 text-toned"
-          />
+  <HudPromptPanel
+    :open="open"
+    :icon="EFFECT_PAY_PROMPT_ICON"
+    :title="title"
+  >
+    <HudPromptChoices
+      v-for="row in rows"
+      :key="row.index"
+      :model-value="row.modelValue"
+      :items="row.items"
+      @update:model-value="selectOption(row.index, $event)"
+    />
 
-          <span class="min-w-0 text-sm font-medium break-words">
-            {{ title }}
-          </span>
-        </div>
+    <template #footer>
+      <UButton
+        :label="EFFECT_PAY_PROMPT_LABELS.confirm"
+        color="primary"
+        variant="solid"
+        size="md"
+        @click.left.exact.prevent="handleConfirm"
+      />
 
-        <template
-          v-for="row in rows"
-          :key="row.index"
-        >
-          <UTabs
-            v-if="row.asSwitch"
-            :model-value="picks[row.index]"
-            :items="row.items"
-            :content="false"
-            size="md"
-            color="primary"
-            class="w-full"
-            @update:model-value="selectOption(row.index, $event)"
-          />
-
-          <USelect
-            v-else
-            :model-value="picks[row.index]"
-            :items="row.items"
-            value-key="value"
-            size="md"
-            class="w-full"
-            :portal="false"
-            @update:model-value="selectOption(row.index, $event)"
-          />
-        </template>
-
-        <div class="flex items-center justify-center gap-2">
-          <UButton
-            :label="EFFECT_PAY_PROMPT_LABELS.confirm"
-            color="primary"
-            variant="solid"
-            size="md"
-            @click.left.exact.prevent="handleConfirm"
-          />
-
-          <UButton
-            :label="EFFECT_PAY_PROMPT_LABELS.cancel"
-            color="neutral"
-            variant="soft"
-            size="md"
-            @click.left.exact.prevent="handleCancel"
-          />
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
+      <UButton
+        :label="EFFECT_PAY_PROMPT_LABELS.cancel"
+        color="neutral"
+        variant="soft"
+        size="md"
+        @click.left.exact.prevent="handleCancel"
+      />
+    </template>
+  </HudPromptPanel>
 </template>
-
-<style scoped src="../hudPromptTransition.css"></style>
