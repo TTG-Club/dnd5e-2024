@@ -62,6 +62,7 @@ export function findAlliesAdjacentToTarget(
     tokens,
     gridSettings: scene.gridSettings,
     floors: scene.floors,
+    structures: scene.structures,
     customAreas: scene.customAreas,
     attackerId,
     targetToken,

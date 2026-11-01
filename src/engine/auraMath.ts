@@ -14,6 +14,7 @@ import type {
   CustomArea,
   GridSettings,
   SceneFloor,
+  SceneStructure,
   SceneVerticalModel,
   SystemSceneNeighbor,
   SystemSceneSurroundings,
@@ -558,6 +559,8 @@ function buildSurroundingsAuraLevels(
     }
   }
 
+  // Построек этажей (люки, балконы) ядро в окружении не отдаёт — README,
+  // § «Чего не хватает для полноценного SDK», п. 7
   return {
     model: buildLevelModel({
       gridSettings: surroundings.gridSettings,
@@ -611,6 +614,8 @@ export interface AllyAdjacencyScene {
   gridSettings: GridSettings;
   /** Этажи сцены; нет — одноэтажная */
   floors?: readonly SceneFloor[];
+  /** Постройки этажей: контуры пола, проёмы и лестницы */
+  structures?: readonly SceneStructure[];
   /** Области сцены: проёмы в полу, площадки */
   customAreas?: readonly CustomArea[];
   /** Атакующая сущность */

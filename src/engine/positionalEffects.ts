@@ -14,6 +14,7 @@ import type {
   CustomArea,
   GridSettings,
   SceneFloor,
+  SceneStructure,
   ServerRollRequester,
   SystemSceneSurroundings,
   Token,
@@ -765,6 +766,8 @@ export interface AuraTriggerScene {
   gridSettings?: GridSettings;
   /** Этажи сцены (VTTG 0.9.780); нет — одноэтажная */
   floors?: SceneFloor[];
+  /** Постройки этажей: контуры пола, проёмы и лестницы */
+  structures?: SceneStructure[];
   /** Области сцены: проёмы в полу, площадки */
   customAreas?: CustomArea[];
 }
@@ -1000,6 +1003,7 @@ export function applyAuraTriggerEffects(
     model: buildLevelModel({
       gridSettings,
       floors: scene.floors,
+      structures: scene.structures,
       customAreas: scene.customAreas,
     }),
     resolveHeight: (token) => {
