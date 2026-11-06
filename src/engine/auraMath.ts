@@ -27,7 +27,12 @@ import type { DnDSceneEntity } from './dndEntities.js';
 import type { AdjacentAllyState } from './effectPipeline.js';
 import type { EffectTriggerArea } from './effectTriggerTypes.js';
 
-import { isCreatureEntity, withTokenDisposition } from '@vtt/shared';
+import {
+  isCreatureEntity,
+  resolveGridCellSize,
+  resolveGridUnitsPerCell,
+  withTokenDisposition,
+} from '@vtt/shared';
 
 import {
   isCarrierEffect,
@@ -431,8 +436,12 @@ export function isAuraReachingTarget(
     return false;
   }
 
-  const cellSize = gridSettings.cellSize ?? DEFAULT_CELL_SIZE_PX;
-  const distancePerCell = gridSettings.scale ?? DEFAULT_FEET_PER_CELL;
+  // Масштаб — через хост: у сетки «fixed» поле `cellSize` не действует, а
+  // сцена без сетки держит в этих полях масштаб карты
+  const cellSize = resolveGridCellSize(gridSettings) || DEFAULT_CELL_SIZE_PX;
+
+  const distancePerCell =
+    resolveGridUnitsPerCell(gridSettings) || DEFAULT_FEET_PER_CELL;
 
   const targetTokenSizePx = (targetToken.scale ?? 1) * cellSize;
   const targetCenterX = targetToken.x + targetTokenSizePx / 2;

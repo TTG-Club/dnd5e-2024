@@ -1724,7 +1724,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.352';
+  readonly version = '0.8.354';
 
   /** Раунд D&D 5e — 6 игровых секунд: столько двигает часы мира новый раунд */
   readonly secondsPerRound = DND_SECONDS_PER_ROUND;
@@ -2655,8 +2655,9 @@ export class Dnd5eVttSystem implements VttSystem {
 
   /**
    * Объём шаблона по правилам D&D (VTTG 0.9.780): круг — сфера, цилиндр — своей
-   * высоты, куб — вверх на сторону, конус — объёмный, линия — брус. Хук не
-   * знает сетки сцены: клетка считается 5 футов, как в D&D.
+   * высоты, куб — вверх на сторону, конус — объёмный, линия — брус. Масштаб
+   * клетки передаёт хост (контракт 1.10.0); старый хост его не знает — тогда
+   * клетка считается 5 футов, как в D&D.
    */
   // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   isPointInTemplate3d(
@@ -2664,13 +2665,14 @@ export class Dnd5eVttSystem implements VttSystem {
     gridSize: number,
     template: MeasurementTemplate,
     origin: ScenePoint3d,
+    unitsPerCell?: number,
   ): boolean {
     return isPointInTemplateVolume(
       point,
       origin,
       template,
       gridSize,
-      DEFAULT_TEMPLATE_UNITS_PER_CELL,
+      unitsPerCell ?? DEFAULT_TEMPLATE_UNITS_PER_CELL,
     );
   }
 

@@ -76,8 +76,8 @@ export type SceneLengthMeasure = (deltaX: number, deltaY: number) => number;
 /**
  * Счёт расстояния сетки сцены. На квадратной сетке диагональ стоит столько,
  * сколько назначило правило сцены: по умолчанию клетка наискось — те же 5
- * футов, что и прямая. На гексах все соседи равноудалены, и счёт — обычная
- * длина.
+ * футов, что и прямая. На гексах все соседи равноудалены, а без сетки клеток
+ * нет — счёт там обычная длина.
  *
  * @param gridSettings - сетка сцены
  * @returns длина отрезка в счёте сетки
@@ -85,7 +85,10 @@ export type SceneLengthMeasure = (deltaX: number, deltaY: number) => number;
 export function resolveGridLengthMeasure(
   gridSettings: GridSettings,
 ): SceneLengthMeasure {
-  if (isHexGrid(gridSettings)) {
+  // Без сетки (`shape: 'none'`) клеток нет, и толчок меряется по прямой.
+  // Сравнение строкой, а не `isGridless` хоста: так система работает и на
+  // хосте, где этой функции ещё нет.
+  if (isHexGrid(gridSettings) || gridSettings.shape === 'none') {
     return Math.hypot;
   }
 
@@ -339,7 +342,8 @@ export function resolveForcedMovePosition(
     return null;
   }
 
-  // Фишка встаёт в клетку, а не в точку на прямой между центрами
+  // Фишка встаёт в клетку, а не в точку на прямой между центрами (без сетки
+  // привязка хоста ничего не меняет — фишка встаёт ровно в точку)
   const snapped = snapTokenTopLeft(
     gridSettings,
     target.x + offset.dx,

@@ -105,6 +105,9 @@ export function measureTokenDistanceOnScene(
 
   const units = scene.gridSettings.units ?? 'ft';
 
+  // На сетке расстояние и так кратно клетке. Без сетки оно непрерывное, и
+  // округление до целой единицы — допуск в полфута: фишка, поставленная «почти
+  // вплотную» (5,4 фт), досягаема так же, как стоящая вплотную.
   return {
     distance: isSelfTarget ? 0 : Math.round(Math.min(...distances)),
     units,
