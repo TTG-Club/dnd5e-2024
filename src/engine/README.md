@@ -60,8 +60,10 @@ import { calculateWeaponAttackModifier, dnd5eSystemInstance } from '@vtt/shared/
 предмет или часть стопки) и `giveItemToEntity` (новый id, снят «надет»,
 `storageId` мешка сохраняется), — и `transferItem` собран из тех же двух шагов.
 Что считается мешком и сколько в него влезает — `itemContainer.ts`
-(`isContainerItem`, `canStoreItem`). Формы хранилищ из плана ядра объявлены
-локально в `storageContract.ts`, пока хост их не опубликовал.
+(`isContainerItem`, `canStoreItem`), а формы хранилищ (`ItemStorage`,
+`ItemStorageFitInput`, `ItemStorageVerdict`) берутся из `@vtt/shared`. Можно ли
+класть мешок в мешок, решает ядро (`canStorageHoldStorages`) до вызова
+`canStoreItem` — система эту проверку не повторяет.
 
 ### `dndEntities.ts` — D&D-сущности верхнего уровня
 

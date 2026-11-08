@@ -8,13 +8,13 @@
  * @module system/dnd/itemContainer
  */
 
-import type { BaseGameItem } from '@vtt/shared';
+import type {
+  BaseGameItem,
+  ItemStorageFitInput,
+  ItemStorageVerdict,
+} from '@vtt/shared';
 
 import type { ItemContainer } from './dndEntities.js';
-import type {
-  CanStoreItemInput,
-  CanStoreItemResult,
-} from './storageContract.js';
 
 import { z } from 'zod';
 
@@ -91,15 +91,16 @@ function formatPounds(pounds: number): string {
  * Влезет ли предмет в хранилище по весу.
  *
  * Считается вес всего, что уже лежит в хранилище, плюс вес кладущейся стопки
- * против вместимости мешка. Вложенный мешок считается весом самого мешка:
- * его содержимое лежит в другом хранилище, которое системе пока не видно (см.
- * README, пробелы SDK). Нет мешка или вместимости — влезает всё: сундук и
- * куча на земле не ограничены.
+ * против вместимости мешка. Пускать ли мешок в мешок, решает ядро
+ * (`canStorageHoldStorages`) до этого вызова, здесь это не повторяется. Если
+ * пустило, вложенный мешок считается весом самого мешка: его содержимое лежит
+ * в другом хранилище, а читать хранилища хост пока не даёт. Нет мешка или
+ * вместимости — влезает всё: сундук и куча на земле не ограничены.
  *
  * @param input - хранилище, предмет-мешок и кладущийся предмет
  * @returns `{ ok: true }` или отказ с причиной для игрока
  */
-export function canStoreItem(input: CanStoreItemInput): CanStoreItemResult {
+export function canStoreItem(input: ItemStorageFitInput): ItemStorageVerdict {
   const capacity = input.container
     ? readItemContainer(input.container)?.capacityWeight
     : undefined;

@@ -262,12 +262,6 @@ export interface DnDGameItem extends BaseGameItem {
    * складывать другие предметы. Нет поля — обычный предмет. См. {@link ItemContainer}.
    */
   container?: ItemContainer;
-  /**
-   * Хранилище ядра, в котором лежит содержимое этого мешка. Ставит и читает
-   * ядро; система поле не трактует, только сохраняет при переносе. Переедет
-   * в нейтральный `BaseGameItem`, когда хост его опубликует.
-   */
-  storageId?: string;
   // --- Feature-specific (только для type === 'feat') ---
   /** Можно ли выбрать черту повторно */
   repeatable?: boolean;

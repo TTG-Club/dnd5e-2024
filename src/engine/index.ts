@@ -169,7 +169,6 @@ export * from './spellTypes.js';
 export * from './spellUtils.js';
 export * from './spellZones.js';
 export * from './startingEquipment.js';
-export * from './storageContract.js';
 export * from './systemClientEvents.js';
 export * from './systemId.js';
 export * from './takenFeats.js';

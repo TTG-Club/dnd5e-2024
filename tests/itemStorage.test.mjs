@@ -84,14 +84,15 @@ describe('взять предмет из инвентаря', () => {
     assert.deepEqual(entity, snapshot);
   });
 
-  it('просят больше, чем есть, — уходит вся стопка', () => {
+  it('просят ровно стопку — уходит весь предмет, больше — отказ', () => {
     const entity = makeEntity('hero', [makeItem({})]);
 
-    const result = engine.takeItemFromEntity(entity, 'eq_1', 99);
+    const result = engine.takeItemFromEntity(entity, 'eq_1', 20);
 
     assert.equal(result.item.id, 'eq_1');
     assert.equal(result.item.quantity, 20);
     assert.equal(result.entity.equipment.length, 0);
+    assert.equal(engine.takeItemFromEntity(entity, 'eq_1', 21), null);
   });
 
   it('нет инвентаря, предмета или количество не целое — null', () => {

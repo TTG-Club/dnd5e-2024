@@ -11,6 +11,8 @@ import type {
   Feature,
   GridSettings,
   HealthCondition,
+  ItemStorageFitInput,
+  ItemStorageVerdict,
   MeasurementTemplate,
   MovementModes,
   MovementRange,
@@ -55,16 +57,12 @@ import type {
 import type { EffectTriggerArea } from './effectTriggerTypes.js';
 import type { DndEntityLight } from './entityLight.js';
 import type { DndEntityVision } from './entityVision.js';
+import type { InventoryItemChange } from './itemTransfer.js';
 import type {
   AreaEffectsSyncResult,
   AuraTriggerScene,
 } from './positionalEffects.js';
 import type { SceneSight } from './sceneSight.js';
-import type {
-  CanStoreItemInput,
-  CanStoreItemResult,
-  EntityItemChange,
-} from './storageContract.js';
 import type { SystemClientEvent } from './systemClientEvents.js';
 import type {
   EntryEffectOptions,
@@ -1738,7 +1736,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.355';
+  readonly version = '0.8.356';
 
   /** Раунд D&D 5e — 6 игровых секунд: столько двигает часы мира новый раунд */
   readonly secondsPerRound = DND_SECONDS_PER_ROUND;
@@ -2935,7 +2933,7 @@ export class Dnd5eVttSystem implements VttSystem {
     entity: SceneEntity,
     itemId: string,
     quantity?: number,
-  ): EntityItemChange | null {
+  ): InventoryItemChange | null {
     return takeItemFromEntityImpl(entity, itemId, quantity);
   }
 
@@ -2952,7 +2950,7 @@ export class Dnd5eVttSystem implements VttSystem {
   giveItemToEntity(
     entity: SceneEntity,
     item: BaseGameItem,
-  ): EntityItemChange | null {
+  ): InventoryItemChange | null {
     return giveItemToEntityImpl(entity, item);
   }
 
@@ -2974,7 +2972,7 @@ export class Dnd5eVttSystem implements VttSystem {
    * @returns `{ ok: true }` или отказ с причиной по-русски
    */
   // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
-  canStoreItem(input: CanStoreItemInput): CanStoreItemResult {
+  canStoreItem(input: ItemStorageFitInput): ItemStorageVerdict {
     return canStoreItemImpl(input);
   }
 

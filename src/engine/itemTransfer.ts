@@ -61,8 +61,9 @@ export function listEntityItems(entity: SceneEntity): readonly DnDGameItem[] {
 /**
  * Забирает предмет из инвентаря сущности целиком или частью стопки.
  *
- * Без `quantity` (или если просят не меньше, чем есть) уходит весь предмет со
- * своим id. Часть стопки уходит копией с новым id, а в инвентаре остаётся
+ * Без `quantity` (или если просят ровно стопку) уходит весь предмет со своим
+ * id; просят больше, чем есть, — отказ, а не «сколько есть» (так требует
+ * контракт: ядро не должно молча перенести меньше, чем просил игрок). Часть стопки уходит копией с новым id, а в инвентаре остаётся
  * остаток: иначе в мире на время переноса оказались бы два предмета с одним
  * id. Взятый предмет снимается со снаряжения — вне инвентаря он не надет.
  *
@@ -70,7 +71,8 @@ export function listEntityItems(entity: SceneEntity): readonly DnDGameItem[] {
  * @param itemId - id предмета в её инвентаре
  * @param quantity - сколько взять из стопки; нет — весь предмет
  * @returns сущность без взятого и взятый предмет либо `null`, если брать
- *   неоткуда, предмета нет или количество не целое положительное
+ *   неоткуда, предмета нет, количество не целое положительное или больше
+ *   стопки
  */
 export function takeItemFromEntity(
   entity: SceneEntity,
@@ -89,12 +91,14 @@ export function takeItemFromEntity(
 
   if (
     quantity !== undefined
-    && (!Number.isInteger(quantity) || quantity <= 0)
+    && (!Number.isInteger(quantity)
+      || quantity <= 0
+      || quantity > takenItem.quantity)
   ) {
     return null;
   }
 
-  const isWholeItem = quantity === undefined || quantity >= takenItem.quantity;
+  const isWholeItem = quantity === undefined || quantity === takenItem.quantity;
 
   if (isWholeItem) {
     // Промежуточная переменная, а не литерал в `return`: инвентарь не входит в
