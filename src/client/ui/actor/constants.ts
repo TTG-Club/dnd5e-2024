@@ -6320,3 +6320,18 @@ export const WINDOW_TAB_CONTENT_CLASS =
  * несут один ключ (`DamageHit.actionId`)
  */
 export const ROLL_ACTION_ID_PREFIX = 'roll-action';
+
+/**
+ * Мешки в «Снаряжении»: кнопка «Открыть» и плитка заполненности. Сами окна
+ * хранилищ — ядра, здесь только подписи строки листа.
+ */
+export const EQUIPMENT_CONTAINER_LABELS = {
+  open: 'Открыть',
+  openRefusedTitle: 'Мешок не открыт',
+  fill: 'Внутри',
+  fillHint: 'Вес вещей в мешке и его вместимость, фунты',
+  receivedFromStorage: 'Предмет взят',
+} as const;
+
+/** Значок кнопки «Открыть» у мешка */
+export const EQUIPMENT_CONTAINER_OPEN_ICON = 'tabler:backpack';

@@ -16,6 +16,8 @@
   import {
     EQUIPMENT_BADGE_HINTS,
     EQUIPMENT_BADGE_LABELS,
+    EQUIPMENT_CONTAINER_LABELS,
+    EQUIPMENT_CONTAINER_OPEN_ICON,
     EQUIPMENT_EQUIP_ACTION_LABELS,
     SHEET_ROW_ARIA_LABELS,
   } from './constants';
@@ -38,6 +40,8 @@
     isEditMode?: boolean;
     /** Чем заряжено стрелковое оружие; нет — значка нет */
     ammunition?: EquipmentAmmunitionBadge;
+    /** Предмет — мешок, и его можно открыть: показать кнопку «Открыть» */
+    canOpenContainer?: boolean;
   }
 
   const props = withDefaults(defineProps<Props>(), {
@@ -47,6 +51,7 @@
     isEquipBlocked: false,
     isEditMode: false,
     ammunition: undefined,
+    canOpenContainer: false,
   });
 
   const emit = defineEmits<{
@@ -60,6 +65,8 @@
     'update:quantity': [quantity: number];
     /** Начало перетаскивания строки (хотбар и передача предмета) */
     'dragstart': [event: DragEvent];
+    /** Открыть окно мешка */
+    'open-container': [];
   }>();
 
   /** Значок предмета для не-оружия: у оружия его рисует `WeaponIcon` */
@@ -170,6 +177,10 @@
     }
 
     emit('update:quantity', Number(event.target.value));
+  }
+
+  function handleOpenContainer(): void {
+    emit('open-container');
   }
 
   function handleDragStart(event: DragEvent): void {
@@ -358,6 +369,21 @@
         <!-- Количество и меню держатся вместе и прижимаются вправо. Слой z-10
           поднимает их над подложкой названия, накрывающей всю строку -->
         <div class="relative z-10 ml-auto flex shrink-0 items-center gap-1">
+          <UTooltip
+            v-if="canOpenContainer"
+            :text="EQUIPMENT_CONTAINER_LABELS.open"
+          >
+            <UButton
+              :icon="EQUIPMENT_CONTAINER_OPEN_ICON"
+              color="neutral"
+              variant="ghost"
+              size="xs"
+              square
+              :aria-label="`${EQUIPMENT_CONTAINER_LABELS.open}: ${item.name}`"
+              @click.left.exact.prevent.stop="handleOpenContainer"
+            />
+          </UTooltip>
+
           <UButton
             icon="tabler:minus"
             color="neutral"

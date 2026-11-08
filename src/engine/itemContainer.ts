@@ -10,6 +10,7 @@
 
 import type {
   BaseGameItem,
+  ItemStorage,
   ItemStorageFitInput,
   ItemStorageVerdict,
 } from '@vtt/shared';
@@ -119,6 +120,112 @@ function getStackWeight(item: BaseGameItem): number {
   return Number.isFinite(total) && total > 0 ? total : 0;
 }
 
+/** Поиск хранилища по id: стор хранилищ хоста на клиенте */
+export type ItemStorageLookup = (storageId: string) => ItemStorage | undefined;
+
+/**
+ * Вес предметов, лежащих прямо в хранилище (без содержимого вложенных
+ * мешков): столько занято его вместимости.
+ *
+ * @param items - предметы хранилища
+ * @returns сумма «вес × количество»
+ */
+export function getStorageItemsWeight(items: readonly BaseGameItem[]): number {
+  return items.reduce((sum, item) => sum + getStackWeight(item), 0);
+}
+
+/**
+ * Вес содержимого мешков, которые несёт сущность, — то, что добавляется к
+ * весу самого инвентаря.
+ *
+ * Обход свой, а не «всё вглубь» из стора хоста: содержимое мешка с
+ * «Содержимое не весит» (Сумка хранения) не весит ни на каком уровне
+ * вложенности, а сам такой мешок весит как обычный предмет. Каждое хранилище
+ * считается один раз: у копии персонажа мешки могут ссылаться на то же
+ * хранилище, что и у оригинала. Верхний мешок засчитывается, только если его
+ * хранилище и правда у этой сущности — иначе копия несла бы чужой груз.
+ *
+ * @param items - инвентарь сущности
+ * @param carrierId - id сущности, которая несёт мешки
+ * @param lookup - поиск хранилища по id
+ * @returns вес содержимого в фунтах
+ */
+export function getCarriedContainersWeight(
+  items: readonly BaseGameItem[],
+  carrierId: string,
+  lookup: ItemStorageLookup,
+): number {
+  const visited = new Set<string>();
+
+  /**
+   * Вес содержимого мешков из списка, вглубь.
+   *
+   * @param bagItems - предметы, среди которых ищутся мешки
+   * @param isTopLevel - список — инвентарь сущности, а не хранилище
+   * @returns вес содержимого
+   */
+  function sumContents(
+    bagItems: readonly BaseGameItem[],
+    isTopLevel: boolean,
+  ): number {
+    let total = 0;
+
+    for (const item of bagItems) {
+      const storageId = item.storageId;
+
+      if (
+        storageId === undefined
+        || visited.has(storageId)
+        || readItemContainer(item)?.weightless
+      ) {
+        continue;
+      }
+
+      const storage = lookup(storageId);
+
+      if (!storage) {
+        continue;
+      }
+
+      const isCarriedHere =
+        storage.location.kind === 'entity'
+        && storage.location.entityId === carrierId;
+
+      if (isTopLevel && !isCarriedHere) {
+        continue;
+      }
+
+      visited.add(storageId);
+
+      total +=
+        getStorageItemsWeight(storage.items)
+        + sumContents(storage.items, false);
+    }
+
+    return total;
+  }
+
+  return sumContents(items, true);
+}
+
+/**
+ * Подпись заполненности мешка: «12 / 30» или «12» без вместимости.
+ *
+ * @param item - предмет-мешок
+ * @param storage - его хранилище; нет — мешок ещё не открывали, он пуст
+ * @returns подпись в фунтах без единицы измерения
+ */
+export function formatContainerFill(
+  item: BaseGameItem,
+  storage: ItemStorage | undefined,
+): string {
+  const used = formatPounds(storage ? getStorageItemsWeight(storage.items) : 0);
+
+  const capacity = readItemContainer(item)?.capacityWeight;
+
+  return capacity === undefined ? used : `${used} / ${formatPounds(capacity)}`;
+}
+
 /**
  * Округляет фунты для подписи (вес бывает дробным: 0,5 фнт.).
  *
@@ -136,7 +243,8 @@ function formatPounds(pounds: number): string {
  * против вместимости мешка. Пускать ли мешок в мешок, решает ядро
  * (`canStorageHoldStorages`) до этого вызова, здесь это не повторяется. Если
  * пустило, вложенный мешок считается весом самого мешка: его содержимое лежит
- * в другом хранилище, а читать хранилища хост пока не даёт. Нет мешка или
+ * в другом хранилище, а читать хранилища на сервере хост системам пока не
+ * даёт. Нет мешка или
  * вместимости — влезает всё: сундук и куча на земле не ограничены.
  *
  * @param input - хранилище, предмет-мешок и кладущийся предмет
@@ -151,12 +259,8 @@ export function canStoreItem(input: ItemStorageFitInput): ItemStorageVerdict {
     return { ok: true };
   }
 
-  const storedWeight = input.storage.items.reduce(
-    (sum, stored) => sum + getStackWeight(stored),
-    0,
-  );
-
-  const totalWeight = storedWeight + getStackWeight(input.item);
+  const totalWeight =
+    getStorageItemsWeight(input.storage.items) + getStackWeight(input.item);
 
   if (totalWeight <= capacity + WEIGHT_EPSILON) {
     return { ok: true };

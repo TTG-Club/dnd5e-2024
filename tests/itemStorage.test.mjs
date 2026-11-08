@@ -320,6 +320,114 @@ describe('id хранилища у контейнера', () => {
   });
 });
 
+describe('вес содержимого мешков', () => {
+  /**
+   * Хранилище для поиска по id.
+   *
+   * @param {string} id - id хранилища
+   * @param {unknown} location - где лежит
+   * @param {unknown[]} items - содержимое
+   */
+  function storageOf(id, location, items) {
+    return { id, name: id, location, items, access: 'owners' };
+  }
+
+  const carried = { kind: 'entity', entityId: 'hero' };
+
+  it('содержимое считается вглубь, «не весит» — ни на каком уровне', () => {
+    const storages = new Map([
+      [
+        'st_pack',
+        storageOf('st_pack', carried, [
+          makeItem({ id: 'eq_rope', weight: 10, quantity: 1 }),
+          makeItem({
+            id: 'eq_holding',
+            weight: 15,
+            quantity: 1,
+            storageId: 'st_holding',
+            container: { weightless: true },
+          }),
+          makeItem({
+            id: 'eq_pouch',
+            weight: 1,
+            quantity: 1,
+            storageId: 'st_pouch',
+            container: {},
+          }),
+        ]),
+      ],
+      [
+        'st_holding',
+        storageOf('st_holding', { kind: 'storage', storageId: 'st_pack' }, [
+          makeItem({ weight: 200, quantity: 1 }),
+        ]),
+      ],
+      [
+        'st_pouch',
+        storageOf('st_pouch', { kind: 'storage', storageId: 'st_pack' }, [
+          makeItem({ weight: 0.5, quantity: 4 }),
+        ]),
+      ],
+    ]);
+
+    const equipment = [
+      makeItem({
+        id: 'eq_pack',
+        weight: 5,
+        storageId: 'st_pack',
+        container: {},
+      }),
+    ];
+
+    // верёвка 10 + Сумка хранения 15 (сама) + кошель 1 + монеты 2
+    assert.equal(
+      engine.getCarriedContainersWeight(equipment, 'hero', (id) =>
+        storages.get(id),
+      ),
+      28,
+    );
+  });
+
+  it('мешок чужого хранилища (копия персонажа) не добавляет веса', () => {
+    const storages = new Map([
+      [
+        'st_pack',
+        storageOf('st_pack', { kind: 'entity', entityId: 'original' }, [
+          makeItem({ weight: 10, quantity: 1 }),
+        ]),
+      ],
+    ]);
+
+    assert.equal(
+      engine.getCarriedContainersWeight(
+        [makeItem({ storageId: 'st_pack', container: {} })],
+        'copy',
+        (id) => storages.get(id),
+      ),
+      0,
+    );
+  });
+
+  it('подпись заполненности: занято / вместимость', () => {
+    const bag = makeItem({ container: { capacityWeight: 30 } });
+
+    assert.equal(engine.formatContainerFill(bag, undefined), '0 / 30');
+
+    assert.equal(
+      engine.formatContainerFill(
+        bag,
+        storageOf('st', carried, [makeItem({ weight: 1.5, quantity: 3 })]),
+      ),
+      '4,5 / 30',
+    );
+
+    assert.equal(
+      engine.formatContainerFill(makeItem({ container: {} }), undefined),
+      '0',
+    );
+  });
+});
+
 describe('схема предмета', () => {
   it('принимает контейнер и отвергает испорченный', () => {
     assert.doesNotThrow(() =>

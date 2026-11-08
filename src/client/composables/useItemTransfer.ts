@@ -14,9 +14,15 @@
  * данных и пишет обе стороны, либо обе, либо ни одной; листы узнают итог из
  * обычной рассылки сущностей. Поэтому отдать предмет можно и сущности, которой
  * игрок не управляет, а потерять или размножить его нельзя.
+ *
+ * Предмет из окна хранилища (мешок, сундук, куча) лист тоже принимает: тогда
+ * перенос просится у ядра запросом хранилищ (`storage:move-item`), а правила
+ * взятия и выдачи — те же методы движка (`takeItemFromEntity` /
+ * `giveItemToEntity`).
  */
 
 import type { ItemTransferOutcome } from '@/core/entityUtils';
+import type { ItemStorageOutcome } from '@/core/itemStorageRequest';
 import type { SceneEntity, TypedWebSocketClient } from '@vtt/shared';
 import type { DnDGameItem } from '@vtt/shared/system/dnd.js';
 
@@ -24,7 +30,10 @@ import {
   ITEM_TRANSFER_FAILURE_MESSAGES,
   requestItemTransfer,
 } from '@/core/entityUtils';
+import { readDraggedGameItem } from '@/core/itemStorageDrag';
+import { buildItemStorageFailureToast } from '@/core/itemStorageRequest';
 import { useHotbarStore } from '@/stores/hotbarStore';
+import { useItemStorageStore } from '@/stores/itemStorageStore';
 import { useWorldStore } from '@/stores/worldStore';
 import { isEntityOwner, isRecord } from '@vtt/shared';
 
@@ -97,16 +106,58 @@ function readTransferPayload(event: DragEvent): ItemTransferPayload | null {
  * @returns `true`, если нагрузка — передача предмета
  */
 export function isItemTransferDrop(event: DragEvent): boolean {
-  return readTransferPayload(event) !== null;
+  return readTransferPayload(event) !== null || readStorageDrop(event) !== null;
 }
 
-/** Чем кончилась передача предмета на лист */
-export interface ItemTransferResult {
-  /** Ответ сервера: передан либо причина, по которой предмет остался на месте */
-  outcome: ItemTransferOutcome;
+/** Предмет, брошенный на лист из окна хранилища */
+interface StorageItemDrop {
+  /** Хранилище, откуда предмет берут */
+  storageId: string;
+  /** id предмета в хранилище */
+  itemId: string;
   /** Название предмета для сообщения игроку */
   itemName: string;
 }
+
+/**
+ * Разбирает перенос из окна хранилища. Перенос из листа сюда не попадает —
+ * у него свой путь (`entity:transfer-item`).
+ *
+ * @param event - событие drop
+ * @returns предмет хранилища либо `null`
+ */
+function readStorageDrop(event: DragEvent): StorageItemDrop | null {
+  const dragged = readDraggedGameItem(event.dataTransfer);
+
+  if (dragged?.from.kind !== 'storage') {
+    return null;
+  }
+
+  return {
+    storageId: dragged.from.storageId,
+    itemId: dragged.item.id,
+    itemName: dragged.item.name,
+  };
+}
+
+/** Чем кончилась передача предмета на лист */
+export type ItemTransferResult =
+  | {
+      /** Предмет пришёл с другого листа */
+      kind: 'entity';
+      /** Ответ сервера: передан либо причина отказа */
+      outcome: ItemTransferOutcome;
+      /** Название предмета для сообщения игроку */
+      itemName: string;
+    }
+  | {
+      /** Предмет пришёл из окна хранилища */
+      kind: 'storage';
+      /** Ответ сервера хранилищ */
+      outcome: ItemStorageOutcome;
+      /** Название предмета для сообщения игроку */
+      itemName: string;
+    };
 
 /** Сообщение игроку об итоге передачи */
 export interface ItemTransferNotice {
@@ -135,6 +186,19 @@ export function describeItemTransfer(
     };
   }
 
+  if (result.kind === 'storage') {
+    const toast = buildItemStorageFailureToast(
+      result.outcome,
+      ITEM_TRANSFER_REFUSED_TITLE,
+    );
+
+    return {
+      title: toast.title,
+      description: toast.description,
+      color: 'error',
+    };
+  }
+
   return {
     title: ITEM_TRANSFER_REFUSED_TITLE,
     description: ITEM_TRANSFER_FAILURE_MESSAGES[result.outcome.reason],
@@ -151,6 +215,7 @@ export function useItemTransfer() {
   const { findCurrentWorldEntity } = useWorldEntities();
   const worldStore = useWorldStore();
   const hotbarStore = useHotbarStore();
+  const itemStorageStore = useItemStorageStore();
 
   /**
    * Вправе ли текущий игрок ВЫНУТЬ предмет из этой сущности: ГМ либо владелец.
@@ -190,15 +255,27 @@ export function useItemTransfer() {
     const source = findCurrentWorldEntity(payload.sourceActorId);
 
     if (!socket) {
-      return { outcome: { ok: false, reason: 'noResponse' }, itemName };
+      return {
+        kind: 'entity',
+        outcome: { ok: false, reason: 'noResponse' },
+        itemName,
+      };
     }
 
     if (!source) {
-      return { outcome: { ok: false, reason: 'notFound' }, itemName };
+      return {
+        kind: 'entity',
+        outcome: { ok: false, reason: 'notFound' },
+        itemName,
+      };
     }
 
     if (!canTakeFrom(source)) {
-      return { outcome: { ok: false, reason: 'sourceForbidden' }, itemName };
+      return {
+        kind: 'entity',
+        outcome: { ok: false, reason: 'sourceForbidden' },
+        itemName,
+      };
     }
 
     const outcome = await requestItemTransfer(socket, {
@@ -214,7 +291,28 @@ export function useItemTransfer() {
       hotbarStore.removeByRef(payload.item.id);
     }
 
-    return { outcome, itemName };
+    return { kind: 'entity', outcome, itemName };
+  }
+
+  /**
+   * Просит ядро переложить предмет из хранилища в инвентарь листа. Права и
+   * вместимость проверяет сервер; лист узнаёт итог из обычной рассылки.
+   *
+   * @param drop - предмет хранилища
+   * @param target - сущность-получатель
+   * @returns итог переноса
+   */
+  async function requestStorageTake(
+    drop: StorageItemDrop,
+    target: SceneEntity,
+  ): Promise<ItemTransferResult> {
+    const outcome = await itemStorageStore.moveItem({
+      from: { kind: 'storage', storageId: drop.storageId },
+      to: { kind: 'entity', entityId: target.id },
+      itemId: drop.itemId,
+    });
+
+    return { kind: 'storage', outcome, itemName: drop.itemName };
   }
 
   /**
@@ -238,6 +336,15 @@ export function useItemTransfer() {
     target: SceneEntity,
     socket: TypedWebSocketClient | null | undefined,
   ): Promise<ItemTransferResult> | null {
+    const storageDrop = readStorageDrop(event);
+
+    if (storageDrop) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      return requestStorageTake(storageDrop, target);
+    }
+
     const payload = readTransferPayload(event);
 
     if (!payload) {
