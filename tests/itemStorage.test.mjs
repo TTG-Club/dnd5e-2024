@@ -274,6 +274,52 @@ describe('контейнеры', () => {
   });
 });
 
+describe('id хранилища у контейнера', () => {
+  it('нормализация выдаёт storageId из id предмета, чужой не трогает', () => {
+    const equipment = [
+      makeItem({ id: 'eq_bag', container: { capacityWeight: 30 } }),
+      makeItem({ id: 'eq_box', container: {}, storageId: 'st_old' }),
+      makeItem({ id: 'eq_rope' }),
+    ];
+
+    engine.assignContainerStorageIds(equipment);
+
+    assert.equal(equipment[0].storageId, 'storage_eq_bag');
+    assert.equal(equipment[1].storageId, 'st_old');
+    assert.equal(equipment[2].storageId, undefined);
+  });
+
+  it('нормализация актёра выдаёт storageId надетому рюкзаку', () => {
+    const actor = {
+      id: 'hero',
+      name: 'Герой',
+      system: { abilities: {} },
+      equipment: [makeItem({ id: 'eq_pack', equipped: true, container: {} })],
+    };
+
+    engine.normalizeActor(actor);
+
+    assert.equal(actor.equipment[0].storageId, 'storage_eq_pack');
+    assert.equal(actor.equipment[0].equipped, true);
+  });
+
+  it('часть стопки мешков уходит без storageId, у остатка он остаётся', () => {
+    const entity = makeEntity('hero', [
+      makeItem({ quantity: 3, container: {}, storageId: 'st_1' }),
+    ]);
+
+    const result = engine.takeItemFromEntity(entity, 'eq_1', 1);
+
+    assert.equal(result.item.storageId, undefined);
+    assert.equal(result.entity.equipment[0].storageId, 'st_1');
+
+    assert.equal(
+      engine.takeItemFromEntity(entity, 'eq_1').item.storageId,
+      'st_1',
+    );
+  });
+});
+
 describe('схема предмета', () => {
   it('принимает контейнер и отвергает испорченный', () => {
     assert.doesNotThrow(() =>

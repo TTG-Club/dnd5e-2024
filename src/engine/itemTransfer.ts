@@ -125,13 +125,27 @@ export function takeItemFromEntity(
 
   return {
     entity: updatedEntity,
+    // Отделённой части `storageId` не достаётся: содержимое мешка одно и
+    // осталось у исходной стопки. Своё хранилище часть получит при открытии
     item: {
-      ...takenItem,
+      ...withoutStorageId(takenItem),
       id: generateId(INVENTORY_ITEM_ID_PREFIX),
       quantity,
       equipped: false,
     },
   };
+}
+
+/**
+ * Копия предмета без `storageId`.
+ *
+ * @param item - предмет
+ * @returns предмет без ссылки на хранилище
+ */
+function withoutStorageId(item: DnDGameItem): DnDGameItem {
+  const { storageId: _storageId, ...rest } = item;
+
+  return rest;
 }
 
 /**

@@ -18,6 +18,8 @@ import type { ItemContainer } from './dndEntities.js';
 
 import { z } from 'zod';
 
+import { generateId, isRecord } from '@vtt/shared';
+
 /**
  * Допуск сравнения весов: дробные фунты складываются с хвостом плавающей точки
  * (0,1 × 3 = 0,30000000000000004), и ровно полный мешок иначе считался бы
@@ -61,6 +63,46 @@ export function readItemContainer(
  */
 export function isContainerItem(item: BaseGameItem): boolean {
   return readItemContainer(item) !== undefined;
+}
+
+/** Префикс id хранилища мешка */
+const STORAGE_ID_PREFIX = 'storage';
+
+/**
+ * Выдаёт `storageId` каждому контейнеру в инвентаре, у которого его ещё нет.
+ *
+ * Зачем: ядро открывает мешок без `storageId` через «взять + положить», а
+ * «положить» снимает «надет» — надетый рюкзак слетел бы при первом открытии.
+ * С готовым `storageId` ядро просто заводит хранилище и лист не трогает.
+ *
+ * id выводится из id предмета, а не случаен: нормализация идёт и на сервере
+ * перед записью, и на клиенте над копией, и случайный id расходился бы между
+ * ними. У предмета без id (черновик формы) — случайный.
+ *
+ * Мутирует список на месте — так устроена нормализация сущности (контракт
+ * `VttSystem.normalizeActor` / `normalizeCreature`).
+ *
+ * @param equipment - инвентарь сущности в сырой форме (не массив — ничего не делает)
+ */
+export function assignContainerStorageIds(equipment: unknown): void {
+  if (!Array.isArray(equipment)) {
+    return;
+  }
+
+  for (const entry of equipment) {
+    if (
+      !isRecord(entry)
+      || typeof entry.storageId === 'string'
+      || !ItemContainerSchema.safeParse(entry.container).success
+    ) {
+      continue;
+    }
+
+    entry.storageId =
+      typeof entry.id === 'string' && entry.id.length > 0
+        ? `${STORAGE_ID_PREFIX}_${entry.id}`
+        : generateId(STORAGE_ID_PREFIX);
+  }
 }
 
 /**
