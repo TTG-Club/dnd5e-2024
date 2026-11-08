@@ -554,8 +554,9 @@
    * @param formId - ID модалки для закрытия
    */
   function saveEquipmentEdit(updatedItem: DnDGameItem, formId: string): void {
-    // Надет ли предмет и чем заряжено оружие — состояние листа, а не записи:
-    // форма его не знает, и правка его не сбрасывает
+    // Надет ли предмет, чем заряжено оружие и где лежит содержимое мешка —
+    // состояние листа, а не записи: форма его не знает, и правка его не
+    // сбрасывает
     const equipment = inventory.value.map((item) =>
       item.id === updatedItem.id
         ? {
@@ -564,6 +565,7 @@
             ...(item.loadedAmmunitionId
               ? { loadedAmmunitionId: item.loadedAmmunitionId }
               : {}),
+            ...(item.storageId ? { storageId: item.storageId } : {}),
           }
         : item,
     );

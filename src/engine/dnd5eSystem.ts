@@ -60,6 +60,11 @@ import type {
   AuraTriggerScene,
 } from './positionalEffects.js';
 import type { SceneSight } from './sceneSight.js';
+import type {
+  CanStoreItemInput,
+  CanStoreItemResult,
+  EntityItemChange,
+} from './storageContract.js';
 import type { SystemClientEvent } from './systemClientEvents.js';
 import type {
   EntryEffectOptions,
@@ -190,8 +195,17 @@ import {
   resolveEntityMaxHp,
   resolveEntityTempHp,
 } from './hitPoints.js';
+import {
+  canStoreItem as canStoreItemImpl,
+  isContainerItem as isContainerItemImpl,
+} from './itemContainer.js';
 import { validateGameItem } from './itemSchemas.js';
-import { transferItem } from './itemTransfer.js';
+import {
+  giveItemToEntity as giveItemToEntityImpl,
+  listEntityItems as listEntityItemsImpl,
+  takeItemFromEntity as takeItemFromEntityImpl,
+  transferItem,
+} from './itemTransfer.js';
 import {
   buildMovementModes,
   resolveJumpDistances,
@@ -1724,7 +1738,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.354';
+  readonly version = '0.8.355';
 
   /** Раунд D&D 5e — 6 игровых секунд: столько двигает часы мира новый раунд */
   readonly secondsPerRound = DND_SECONDS_PER_ROUND;
@@ -2893,6 +2907,75 @@ export class Dnd5eVttSystem implements VttSystem {
     item: BaseGameItem,
   ): { source: SceneEntity; target: SceneEntity } | null {
     return transferItem(source, target, item);
+  }
+
+  /**
+   * Предметы в инвентаре сущности (только чтение) — для окна хранилища и
+   * переноса ядра.
+   *
+   * @param entity - сущность сцены
+   * @returns снаряжение сущности; без инвентаря — пустой список
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  listEntityItems(entity: SceneEntity): readonly BaseGameItem[] {
+    return listEntityItemsImpl(entity);
+  }
+
+  /**
+   * Забирает предмет из инвентаря целиком или частью стопки — первая половина
+   * атомарного переноса ядра «сущность → хранилище».
+   *
+   * @param entity - сущность, у которой берут
+   * @param itemId - id предмета
+   * @param quantity - часть стопки; нет — весь предмет
+   * @returns сущность без предмета и сам предмет либо `null`
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  takeItemFromEntity(
+    entity: SceneEntity,
+    itemId: string,
+    quantity?: number,
+  ): EntityItemChange | null {
+    return takeItemFromEntityImpl(entity, itemId, quantity);
+  }
+
+  /**
+   * Кладёт предмет в инвентарь — вторая половина атомарного переноса ядра
+   * «хранилище → сущность». Предмет получает новый id и снимается со
+   * снаряжения.
+   *
+   * @param entity - сущность, которой дают предмет
+   * @param item - предмет
+   * @returns сущность с предметом и предмет в том виде, в каком он лёг, либо `null`
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  giveItemToEntity(
+    entity: SceneEntity,
+    item: BaseGameItem,
+  ): EntityItemChange | null {
+    return giveItemToEntityImpl(entity, item);
+  }
+
+  /**
+   * Может ли предмет стать мешком: у него есть поле контейнера.
+   *
+   * @param item - предмет
+   * @returns `true`, если предмет — контейнер
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  isContainerItem(item: BaseGameItem): boolean {
+    return isContainerItemImpl(item);
+  }
+
+  /**
+   * Влезет ли предмет в хранилище по весу (вместимость мешка).
+   *
+   * @param input - хранилище, предмет-мешок и кладущийся предмет
+   * @returns `{ ok: true }` или отказ с причиной по-русски
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  canStoreItem(input: CanStoreItemInput): CanStoreItemResult {
+    return canStoreItemImpl(input);
   }
 
   /**

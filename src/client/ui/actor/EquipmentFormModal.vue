@@ -25,6 +25,7 @@
   import FormSection from './FormSection.vue';
   import ItemActiveWhenCarriedField from './ItemActiveWhenCarriedField.vue';
   import ItemConsumableField from './ItemConsumableField.vue';
+  import ItemContainerFields from './ItemContainerFields.vue';
   import ItemCostWeightFields from './ItemCostWeightFields.vue';
   import ItemUsesFields from './ItemUsesFields.vue';
   import SourceField from './SourceField.vue';
@@ -106,6 +107,9 @@
     activeEffects,
     itemUses,
     consumable,
+    isContainer,
+    containerCapacity,
+    containerWeightless,
   } = useEquipmentForm(
     () => props.item,
     () => props.open,
@@ -493,6 +497,18 @@
               icon="tabler:flask"
             >
               <ItemConsumableField v-model="consumable" />
+            </FormSection>
+
+            <!-- Блок «Контейнер»: рюкзак, мешок, сундук -->
+            <FormSection
+              :title="EQUIPMENT_FORM_LABELS.containerTitle"
+              icon="tabler:backpack"
+            >
+              <ItemContainerFields
+                v-model:is-container="isContainer"
+                v-model:capacity="containerCapacity"
+                v-model:weightless="containerWeightless"
+              />
             </FormSection>
           </div>
         </template>

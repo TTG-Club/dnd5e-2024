@@ -2097,6 +2097,15 @@ export const SPECIES_FORM_DEFAULT_NAMES = {
  * `ITEM_FORM_LABELS`.
  */
 export const EQUIPMENT_FORM_LABELS = {
+  containerTitle: 'Контейнер',
+  isContainer: 'Это контейнер',
+  isContainerDescription:
+    'В предмет можно складывать другие вещи: рюкзак, мешок, сундук, кошель.',
+  containerCapacity: 'Вместимость (фунты)',
+  containerCapacityPlaceholder: 'Без ограничения',
+  containerWeightless: 'Содержимое не весит',
+  containerWeightlessDescription:
+    'Вес вещей внутри не идёт в нагрузку — как у Сумки хранения.',
   consumptionTitle: 'Расход',
   consumable: 'Расходуемый',
   consumableDescription:

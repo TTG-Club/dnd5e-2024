@@ -55,6 +55,14 @@ import { calculateWeaponAttackModifier, dnd5eSystemInstance } from '@vtt/shared/
 `Dnd5eVttSystem.transferItemBetweenEntities` — тонкая обёртка над
 `transferItem`, чтобы у ядра и у листа был один расчёт, а не две копии.
 
+Хранилища предметов (мешки, сундуки, кучи на земле) — сущность ядра, а не
+системы. Система отдаёт ядру два шага переноса — `takeItemFromEntity` (весь
+предмет или часть стопки) и `giveItemToEntity` (новый id, снят «надет»,
+`storageId` мешка сохраняется), — и `transferItem` собран из тех же двух шагов.
+Что считается мешком и сколько в него влезает — `itemContainer.ts`
+(`isContainerItem`, `canStoreItem`). Формы хранилищ из плана ядра объявлены
+локально в `storageContract.ts`, пока хост их не опубликовал.
+
 ### `dndEntities.ts` — D&D-сущности верхнего уровня
 
 Определения `DnDActor`/`DnDCreature`/`DnDGameItem`/`Spell` **переехали сюда из
