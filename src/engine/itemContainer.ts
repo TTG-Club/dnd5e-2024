@@ -21,6 +21,8 @@ import { z } from 'zod';
 
 import { generateId, isRecord } from '@vtt/shared';
 
+import { formatWeight } from './carryingCapacity.js';
+
 /**
  * Допуск сравнения весов: дробные фунты складываются с хвостом плавающей точки
  * (0,1 × 3 = 0,30000000000000004), и ровно полный мешок иначе считался бы
@@ -219,21 +221,11 @@ export function formatContainerFill(
   item: BaseGameItem,
   storage: ItemStorage | undefined,
 ): string {
-  const used = formatPounds(storage ? getStorageItemsWeight(storage.items) : 0);
+  const used = formatWeight(storage ? getStorageItemsWeight(storage.items) : 0);
 
   const capacity = readItemContainer(item)?.capacityWeight;
 
-  return capacity === undefined ? used : `${used} / ${formatPounds(capacity)}`;
-}
-
-/**
- * Округляет фунты для подписи (вес бывает дробным: 0,5 фнт.).
- *
- * @param pounds - вес в фунтах
- * @returns число без хвоста плавающей точки
- */
-function formatPounds(pounds: number): string {
-  return String(Math.round(pounds * 100) / 100).replace('.', ',');
+  return capacity === undefined ? used : `${used} / ${formatWeight(capacity)}`;
 }
 
 /**
@@ -268,6 +260,6 @@ export function canStoreItem(input: ItemStorageFitInput): ItemStorageVerdict {
 
   return {
     ok: false,
-    reason: `«${input.item.name}» не влезет в «${input.storage.name}»: будет ${formatPounds(totalWeight)} фнт. при вместимости ${formatPounds(capacity)} фнт.`,
+    reason: `«${input.item.name}» не влезет в «${input.storage.name}»: будет ${formatWeight(totalWeight)} фнт. при вместимости ${formatWeight(capacity)} фнт.`,
   };
 }

@@ -35,7 +35,10 @@ export function isContainerRow(item: BaseGameItem): boolean {
  *
  * @returns подпись заполненности и открытие мешка
  */
-export function useContainerItems() {
+export function useContainerItems(): {
+  getContainerFillLabel: (item: BaseGameItem) => string;
+  openContainer: (entityId: string, itemId: string) => Promise<void>;
+} {
   const itemStorageStore = useItemStorageStore();
   const toastStore = useSystemToastStore();
 

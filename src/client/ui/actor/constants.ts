@@ -6314,7 +6314,6 @@ export const EQUIPMENT_CONTAINER_LABELS = {
   openRefusedTitle: 'Мешок не открыт',
   fill: 'Внутри',
   fillHint: 'Вес вещей в мешке и его вместимость, фунты',
-  receivedFromStorage: 'Предмет взят',
 } as const;
 
 /** Значок кнопки «Открыть» у мешка */

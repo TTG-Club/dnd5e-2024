@@ -418,7 +418,7 @@ describe('вес содержимого мешков', () => {
         bag,
         storageOf('st', carried, [makeItem({ weight: 1.5, quantity: 3 })]),
       ),
-      '4,5 / 30',
+      '4.5 / 30',
     );
 
     assert.equal(
