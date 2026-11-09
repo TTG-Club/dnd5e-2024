@@ -1,5 +1,7 @@
 import { computed } from 'vue';
 
+import { DEFAULT_WEAPON_ICON } from '@vtt/shared/system/dnd.js';
+
 import { useSystemDataStore } from '../stores/systemDataStore';
 import clubSvg from '../ui/actor/icons/club.svg?raw';
 import maceSvg from '../ui/actor/icons/mace.svg?raw';
@@ -19,8 +21,8 @@ const CUSTOM_SVG_MAP: Record<string, string> = {
   'ttg:stick': stickSvg,
 };
 
-/** Иконка по умолчанию для оружия без baseType */
-export const DEFAULT_WEAPON_ICON = 'tabler:sword';
+/** Иконка по умолчанию для оружия без baseType — общая с движком */
+export { DEFAULT_WEAPON_ICON };
 
 /**
  * Тип результата getWeaponIcon.

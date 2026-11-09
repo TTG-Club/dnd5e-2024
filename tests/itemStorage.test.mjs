@@ -441,3 +441,39 @@ describe('схема предмета', () => {
     );
   });
 });
+
+describe('значок предмета на карте', () => {
+  it('оружие — по базовому типу, свой рисунок листа заменяется мечом', () => {
+    assert.equal(
+      engine.getSceneItemIcon(makeItem({ type: 'weapon', baseType: 'dagger' })),
+      'tabler:slice',
+    );
+
+    assert.equal(
+      engine.getSceneItemIcon(makeItem({ type: 'weapon', baseType: 'club' })),
+      'tabler:sword',
+    );
+
+    assert.equal(
+      engine.getSceneItemIcon(makeItem({ type: 'weapon' })),
+      'tabler:sword',
+    );
+  });
+
+  it('прочее — как в инвентаре, чужой предмет — без значка', () => {
+    assert.equal(
+      engine.getSceneItemIcon(makeItem({ type: 'tool' })),
+      'tabler:tools',
+    );
+
+    assert.equal(
+      engine.getSceneItemIcon(makeItem({ equipmentCategory: 'potion' })),
+      engine.getEquipmentCategoryIcon('potion'),
+    );
+
+    assert.equal(
+      engine.getSceneItemIcon(makeItem({ type: 'pf2-feat' })),
+      undefined,
+    );
+  });
+});

@@ -123,6 +123,7 @@ export * from './hiding.js';
 export * from './hitDiceUtils.js';
 export * from './hitPoints.js';
 export * from './itemContainer.js';
+export * from './itemIcon.js';
 export * from './itemNormalize.js';
 export * from './itemSchemas.js';
 export * from './itemTransfer.js';

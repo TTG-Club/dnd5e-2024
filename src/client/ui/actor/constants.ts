@@ -41,9 +41,11 @@ import {
   DEATH_SAVE_DOUBLE_FAILURE_ROLL,
   DEATH_SAVE_REVIVE_ROLL,
   DEATH_SAVE_REVIVED_HP,
+  DEFAULT_ITEM_TYPE_ICON,
   FEET_UNIT_LABEL,
   HIT_DICE_FORMULA_LETTER,
   HIT_DIE_OPTIONS,
+  ITEM_TYPE_ICONS,
   SAVING_THROW_REQUEST_TITLE_PARTS,
   SNEAK_ATTACK_LABEL,
 } from '@vtt/shared/system/dnd.js';
@@ -1510,29 +1512,11 @@ export const SHEET_ROW_MENU_LABELS: Record<
 };
 
 /**
- * Значки записей по типу предмета. Оружия и снаряжения здесь нет: у оружия
- * значок рисует `WeaponIcon` по базовому типу, а у снаряжения его выбирает
- * категория (`getEquipmentCategoryIcon` из движка).
+ * Значки записей по типу предмета и заглушка неизвестного типа — из движка
+ * (`itemIcon.ts`): по ним же ядро рисует значок предмета на карте.
  */
-export const EQUIPMENT_TYPE_ICONS: Record<string, string> = {
-  'trinket': 'tabler:diamond',
-  'rod': 'tabler:wand',
-  'ring': 'tabler:circle-dotted',
-  'clothing': 'tabler:hanger',
-  'wand': 'tabler:wand',
-  'wondrous': 'tabler:sparkles',
-  'vehicle-equipment': 'tabler:horse',
-  'tool': 'tabler:tools',
-  'spell': 'tabler:sparkles',
-};
-
-/**
- * Значок записи неизвестного типа — когда типа нет в списке выше. У снаряжения
- * заглушка своя, из движка (`getEquipmentCategoryIcon`): там она отвечает за
- * категорию, а не за тип записи, и одно имя на две разные заглушки заставляло
- * бы гадать, какая из них сработала.
- */
-export const DEFAULT_ITEM_TYPE_ICON = 'tabler:box';
+export const EQUIPMENT_TYPE_ICONS = ITEM_TYPE_ICONS;
+export { DEFAULT_ITEM_TYPE_ICON };
 
 /** Подпись типа дальности оружия — вторая часть подписи под названием */
 export const WEAPON_RANGE_TYPE_LABELS: Record<WeaponRangeType, string> = {

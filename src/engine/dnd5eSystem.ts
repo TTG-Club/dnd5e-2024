@@ -197,6 +197,7 @@ import {
   canStoreItem as canStoreItemImpl,
   isContainerItem as isContainerItemImpl,
 } from './itemContainer.js';
+import { getSceneItemIcon } from './itemIcon.js';
 import { validateGameItem } from './itemSchemas.js';
 import {
   giveItemToEntity as giveItemToEntityImpl,
@@ -1736,7 +1737,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.358';
+  readonly version = '0.8.359';
 
   /** Раунд D&D 5e — 6 игровых секунд: столько двигает часы мира новый раунд */
   readonly secondsPerRound = DND_SECONDS_PER_ROUND;
@@ -2971,6 +2972,19 @@ export class Dnd5eVttSystem implements VttSystem {
    * @param input - хранилище, предмет-мешок и кладущийся предмет
    * @returns `{ ok: true }` или отказ с причиной по-русски
    */
+  /**
+   * Значок предмета для его значка на карте — тот же, что в инвентаре листа.
+   * Ядро берёт метод с экземпляра без привязки (`system.getItemIcon`), поэтому
+   * `this` здесь не используется.
+   *
+   * @param item - предмет
+   * @returns имя иконки `tabler:*` либо `undefined`
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  getItemIcon(item: BaseGameItem): string | undefined {
+    return getSceneItemIcon(item);
+  }
+
   // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   canStoreItem(input: ItemStorageFitInput): ItemStorageVerdict {
     return canStoreItemImpl(input);
