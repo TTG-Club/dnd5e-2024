@@ -48,6 +48,7 @@ import {
   buildAttackChatBlock,
   buildAttackFormula,
   buildAttackLabel,
+  buildChatTargetFields,
   buildDamageChatRowLabel,
   collectActiveEffects,
   damagePartIsHealing,
@@ -70,7 +71,7 @@ import {
   isSpellRoll,
   limitEntityHealing,
   mergeAppliedEffects,
-  pickRowTargetName,
+  pickRowTarget,
   recordDamageHit,
   resolveActorStats,
   resolveAttackRoll,
@@ -78,6 +79,7 @@ import {
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
   resolveEntityTempHp,
+  resolvePublicEntityName,
   resolveTargetDamageDefenses,
   scaleSaveDamage,
   settleDamageTypeChoices,
@@ -99,6 +101,7 @@ import {
   resolveSelectedAttackTarget,
   withAttackHeldEffects,
 } from './attackRollSnapshot';
+import { resolvePublicTargetName, toChatTarget } from './chatTargetNames';
 import {
   buildCombatChatOptions,
   buildSpeakerChatOptions,
@@ -711,7 +714,8 @@ export function useSpellResolution() {
     for (const result of results) {
       const hpChange = formatTargetHpChange(spellIsHealing(spell), result);
 
-      let line = `→ ${result.actorName}: ${hpChange}`;
+      // Запасной текст получают все — скрытое имя цели в него не идёт
+      let line = `→ ${resolvePublicTargetName(result.actorId, result.actorName)}: ${hpChange}`;
 
       line += formatDamageDefenseSuffix(result.defenseOutcome);
 
@@ -766,7 +770,11 @@ export function useSpellResolution() {
 
     const rows = results.flatMap((result): ChatBlockRow[] => {
       const effects = result.appliedEffects?.join(', ');
-      const rowTarget = pickRowTargetName(result.actorName, results.length);
+
+      const rowTarget = pickRowTarget(
+        toChatTarget(result.actorId, result.actorName),
+        results.length,
+      );
 
       // Заклинание без урона и лечения: итог цели — только наложенное на неё
       if (!hasResultKind) {
@@ -775,7 +783,7 @@ export function useSpellResolution() {
               {
                 icon: SPELL_SUMMARY_LABELS.effectsIcon,
                 name: SPELL_SUMMARY_LABELS.effects,
-                ...(rowTarget ? { target: rowTarget } : {}),
+                ...buildChatTargetFields(rowTarget),
                 note: effects,
               },
             ]
@@ -812,7 +820,9 @@ export function useSpellResolution() {
       {
         ...buildActionChatHeader({
           name: spell.name,
-          targetNames: results.map((result) => result.actorName),
+          targets: results.map((result) =>
+            toChatTarget(result.actorId, result.actorName),
+          ),
           icon: SPELL_CHAT_ICON,
         }),
         ...(note ? { note } : {}),
@@ -1260,13 +1270,15 @@ export function useSpellResolution() {
             totalProjectiles > 1
               ? `${spell.name} (снаряд ${projectileNumber}/${totalProjectiles})`
               : spell.name,
-          targetName: targetEntity.name,
+          // Подпись получают все — скрытое имя цели в неё не идёт
+          targetName: resolvePublicEntityName(targetEntity),
           result: attackResult,
         });
 
         attackRoll.block = buildAttackChatBlock({
           name: spell.name,
           targetName: targetEntity.name,
+          targetEntityId: targetEntity.id,
           result: attackResult,
           attackKind: 'spell',
           ...(totalProjectiles > 1

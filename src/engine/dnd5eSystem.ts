@@ -102,6 +102,7 @@ import {
 } from './auraMath.js';
 import { syncAutoAppliedConditions } from './autoConditions.js';
 import { normalizeActor, normalizeCreature } from './calculations.js';
+import { resolvePublicEntityName } from './chatTargets.js';
 import { resolveClassLabel } from './classLabels.js';
 import { CLASS_KEY_OPTIONS } from './classTypes.js';
 import { recordCombatBaseline } from './combatEffectChanges.js';
@@ -397,7 +398,7 @@ function formatEntryDeferredSummary(
 ): (entity: DnDSceneEntity, outcome: DeferredEffectOutcome) => string | null {
   return (entity, outcome) =>
     formatDeferredEffectsSummary(
-      entity.name,
+      resolvePublicEntityName(entity),
       label,
       outcome,
       formatEntrySaveStatus,
@@ -466,7 +467,7 @@ function toSystemDeferredTriggers(
               changed: outcome.changed,
               chatSummary: formatSummary(entity, outcome),
               ...effectRollsField(
-                entity.name,
+                resolvePublicEntityName(entity),
                 outcome.damageOutcomes,
                 outcome.healingOutcomes,
               ),
@@ -580,19 +581,19 @@ function toDamageEventsTriggerResult(
       changed: outcome.changed,
       chatSummary: appendEffectsSummaryNotes(
         formatEffectsSummary(
-          outcome.entity.name,
+          resolvePublicEntityName(outcome.entity),
           label,
           outcome.damageOutcomes,
           outcome.saveOutcomes,
           formatEntrySaveStatus,
           outcome.healingOutcomes,
         ),
-        outcome.entity.name,
+        resolvePublicEntityName(outcome.entity),
         label,
         outcome.notes,
       ),
       ...effectRollsField(
-        outcome.entity.name,
+        resolvePublicEntityName(outcome.entity),
         outcome.damageOutcomes,
         outcome.healingOutcomes,
       ),
@@ -603,19 +604,19 @@ function toDamageEventsTriggerResult(
     changed: events.changed,
     chatSummary: appendEffectsSummaryNotes(
       formatEffectsSummary(
-        entity.name,
+        resolvePublicEntityName(entity),
         label,
         events.damageOutcomes,
         events.saveOutcomes,
         formatEntrySaveStatus,
         events.healingOutcomes,
       ),
-      entity.name,
+      resolvePublicEntityName(entity),
       label,
       events.notes,
     ),
     ...effectRollsField(
-      entity.name,
+      resolvePublicEntityName(entity),
       events.damageOutcomes,
       events.healingOutcomes,
     ),
@@ -656,7 +657,11 @@ function withDamageEvents(
   const withDeathSave = deathSave
     ? mergeTriggerResults(base, {
         changed: true,
-        chatSummary: formatDeathSaveSummary(entity.name, deathSave, 'damage'),
+        chatSummary: formatDeathSaveSummary(
+          resolvePublicEntityName(entity),
+          deathSave,
+          'damage',
+        ),
       })
     : base;
 
@@ -943,19 +948,19 @@ function toEntityTriggerResult(
       changed: outcome.changed,
       chatSummary: appendEffectsSummaryNotes(
         formatEffectsSummary(
-          entity.name,
+          resolvePublicEntityName(entity),
           label,
           outcome.damageOutcomes,
           outcome.saveOutcomes,
           formatEntrySaveStatus,
           outcome.healingOutcomes,
         ),
-        entity.name,
+        resolvePublicEntityName(entity),
         label,
         outcome.notes,
       ),
       ...effectRollsField(
-        entity.name,
+        resolvePublicEntityName(entity),
         outcome.damageOutcomes,
         outcome.healingOutcomes,
       ),
@@ -1297,7 +1302,7 @@ function settleTurnEffects(
   };
 
   const chatSummary = formatTurnEffectsMessage(
-    entity.name,
+    resolvePublicEntityName(entity),
     timing,
     result,
     turnOf,
@@ -1306,7 +1311,7 @@ function settleTurnEffects(
   const hits = toDamageHits(result.damageOutcomes);
 
   const rolls = effectRollsField(
-    entity.name,
+    resolvePublicEntityName(entity),
     result.damageOutcomes,
     result.healingOutcomes,
   );
@@ -1439,7 +1444,7 @@ function settleTurnEffects(
       deferred,
       (outcomeEntity, outcome) =>
         formatDeferredEffectsSummary(
-          outcomeEntity.name,
+          resolvePublicEntityName(outcomeEntity),
           resolveTurnSummaryLabel(timing, turnOf),
           outcome,
           formatRecurringSaveStatus,
@@ -1737,7 +1742,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.360';
+  readonly version = '0.8.361';
 
   /** Раунд D&D 5e — 6 игровых секунд: столько двигает часы мира новый раунд */
   readonly secondsPerRound = DND_SECONDS_PER_ROUND;

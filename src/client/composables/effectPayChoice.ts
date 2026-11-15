@@ -34,6 +34,7 @@ import {
   payNeedsChoice,
   payUsesCastLevel,
   planEffectPay,
+  resolvePublicEntityName,
   settleEffectPay,
   sheetResourcesDiffer,
   usesPaidHitDiceRoll,
@@ -121,7 +122,7 @@ function commitPaySettlement(
 
   if (settlement.notes.length > 0) {
     useChatStore().sendMessage(
-      `${request.payer.name}${EFFECT_PAY_PROMPT_LABELS.chatMiddle}${request.sourceName}${EFFECT_PAY_PROMPT_LABELS.chatSuffix}${settlement.notes.join(EFFECT_PAY_PROMPT_LABELS.chatJoiner)}`,
+      `${resolvePublicEntityName(request.payer)}${EFFECT_PAY_PROMPT_LABELS.chatMiddle}${request.sourceName}${EFFECT_PAY_PROMPT_LABELS.chatSuffix}${settlement.notes.join(EFFECT_PAY_PROMPT_LABELS.chatJoiner)}`,
       'text',
     );
   }

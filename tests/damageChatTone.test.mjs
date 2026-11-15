@@ -33,12 +33,22 @@ function buildSpeakerChatOptions(speakerEntityId) {
   return speakerEntityId ? { speakerEntityId } : {};
 }
 
+/** Поля цели строки или шапки: имя и id сущности */
+function buildChatTargetFields(target) {
+  return target
+    ? {
+        target: target.name,
+        ...(target.entityId ? { targetEntityId: target.entityId } : {}),
+      }
+    : {};
+}
+
 /** Начало строки части: значок и название по виду части, цель — если названа */
-function buildDamageChatRowLabel(kind, targetName) {
+function buildDamageChatRowLabel(kind, rowTarget) {
   return {
     icon: kind.isHealing ? 'heal-icon' : 'damage-icon',
     name: 'kind',
-    ...(targetName ? { target: targetName } : {}),
+    ...buildChatTargetFields(rowTarget),
   };
 }
 
@@ -48,10 +58,10 @@ function buildUnappliedDamageValue(amount, detail) {
 }
 
 /** Шапка отдельной карточки: чем действовали и единственная цель */
-function buildActionChatHeader({ name, targetNames = [] }) {
+function buildActionChatHeader({ name, targets = [] }) {
   return {
     title: name,
-    ...(targetNames.length === 1 ? { target: targetNames[0] } : {}),
+    ...(targets.length === 1 ? buildChatTargetFields(targets[0]) : {}),
   };
 }
 
@@ -62,9 +72,9 @@ function headChatBlocks(header, blocks) {
   return first ? [{ ...first, ...header }, ...rest] : [{ ...header }];
 }
 
-/** Имя цели в строке — только когда целей несколько */
-function pickRowTargetName(targetName, targetCount) {
-  return targetCount > 1 ? targetName : undefined;
+/** Цель в строке — только когда целей несколько */
+function pickRowTarget(target, targetCount) {
+  return targetCount > 1 ? target : undefined;
 }
 
 /** Блок броска урона окном: строка с видом урона и брошенным числом без цели */
@@ -119,7 +129,10 @@ async function resolveWithoutTargets(parts, options = {}) {
       headChatBlocks,
       attachHpChangeDetails: (blocks) => blocks,
       isEntityHpShownToPlayers: () => true,
-      pickRowTargetName,
+      pickRowTarget,
+      buildChatTargetFields,
+      toChatTarget: (entityId, name) => ({ name, entityId }),
+      resolvePublicTargetName: (_entityId, name) => name,
       SPELL_NO_TARGETS_LABELS,
       SPELL_SUMMARY_LABELS: {},
       DAMAGE_DEDUCTION_LABELS: { header: 'Вычет' },

@@ -162,18 +162,21 @@ describe('buildDamageChatRow', () => {
 });
 
 describe('имя цели: в шапке или в строках', () => {
+  const bard = { name: 'Бард', entityId: 'bard' };
+  const goblin = { name: 'Гоблин', entityId: 'goblin' };
+
   it('единственную цель называет шапка, строки — нет', () => {
-    assert.equal(engine.pickHeaderTargetName(['Бард']), 'Бард');
-    assert.equal(engine.pickRowTargetName('Бард', 1), undefined);
+    assert.equal(engine.pickHeaderTarget([bard]), bard);
+    assert.equal(engine.pickRowTarget(bard, 1), undefined);
   });
 
   it('несколько целей называют строки, шапка — нет', () => {
-    assert.equal(engine.pickHeaderTargetName(['Бард', 'Гоблин']), undefined);
-    assert.equal(engine.pickRowTargetName('Бард', 2), 'Бард');
+    assert.equal(engine.pickHeaderTarget([bard, goblin]), undefined);
+    assert.equal(engine.pickRowTarget(bard, 2), bard);
   });
 
   it('без цели имени нет нигде', () => {
-    assert.equal(engine.pickHeaderTargetName([]), undefined);
+    assert.equal(engine.pickHeaderTarget([]), undefined);
 
     assert.deepEqual(engine.buildActionChatHeader({ name: 'Раздирание' }), {
       title: 'Раздирание',
@@ -184,13 +187,14 @@ describe('имя цели: в шапке или в строках', () => {
     assert.deepEqual(
       engine.buildActionChatHeader({
         name: 'Огненный снаряд',
-        targetNames: ['Гоблин'],
+        targets: [goblin],
         icon: engine.SPELL_CHAT_ICON,
       }),
       {
         icon: engine.SPELL_CHAT_ICON,
         title: 'Огненный снаряд',
         target: 'Гоблин',
+        targetEntityId: 'goblin',
       },
     );
 
@@ -429,5 +433,74 @@ describe('buildAttackLabel', () => {
 
     assert.match(labels[0], /Попадание!$/);
     assert.match(labels[1], /Промах!$/);
+  });
+});
+
+describe('имя цели, скрытое от игроков', () => {
+  const hag = {
+    id: 'hag',
+    name: 'Зелёная карга',
+    entityType: 'creature',
+    token: { showName: false },
+  };
+
+  it('скрыто у существа без «Показывать имя», открыто у персонажа', () => {
+    assert.equal(engine.isEntityNameHidden(hag), true);
+
+    assert.equal(
+      engine.resolvePublicEntityName(hag),
+      engine.HIDDEN_ENTITY_NAME,
+    );
+
+    const shown = { ...hag, token: { showName: true } };
+    const actor = { ...hag, entityType: 'actor' };
+
+    assert.equal(engine.resolvePublicEntityName(shown), hag.name);
+    assert.equal(engine.resolvePublicEntityName(actor), hag.name);
+  });
+
+  it('блок атаки несёт имя цели вместе с её id — прячет имя ядро', () => {
+    const block = engine.buildAttackChatBlock({
+      name: 'Алебарда +1',
+      targetName: hag.name,
+      targetEntityId: hag.id,
+      result: HIT,
+    });
+
+    assert.equal(block.target, hag.name);
+    assert.equal(block.targetEntityId, hag.id);
+  });
+
+  it('подписи бросков называют цель общим именем, блок — настоящим', () => {
+    const attack = engine.performTwoStageAttack(
+      {
+        attackFormula: '1к20+5',
+        attackModifier: 5,
+        targetAc: 10,
+        weaponName: 'Алебарда +1',
+        targetName: hag.name,
+        targetPublicName: engine.resolvePublicEntityName(hag),
+        targetActorId: hag.id,
+        damageFormula: '1к10+3',
+        damageType: 'slashing',
+      },
+      (formula) => ({
+        formula,
+        total: formula.startsWith('1к20') ? 21 : 9,
+        dice: [{ sides: 20, values: [16], dropped: [] }],
+        details: '',
+      }),
+      () => ({ actorName: hag.name, hpBefore: 40, hpAfter: 31 }),
+    );
+
+    assert.equal(attack.attackRoll.block.target, hag.name);
+    assert.equal(attack.attackRoll.block.targetEntityId, hag.id);
+    assert.equal(attack.attackRoll.label.includes(hag.name), false);
+    assert.equal(attack.damageRoll.label.includes(hag.name), false);
+
+    assert.equal(
+      attack.damageRoll.label.includes(engine.HIDDEN_ENTITY_NAME),
+      true,
+    );
   });
 });

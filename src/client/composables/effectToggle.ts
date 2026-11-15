@@ -30,6 +30,7 @@ import {
   needsActivationPayment,
   payActivation,
   refundActivation,
+  resolvePublicEntityName,
   stampEffectPaid,
   usesPaidHitDiceRoll,
   withSheetResources,
@@ -277,7 +278,7 @@ function switchOnEntityEffect(entityId: string, effectId: string): void {
     // Включение состоялось — трата хода в счёт («Замедление»)
     recordEntityActionSpend(entityId, effect.activation?.cost);
 
-    sendSelfTriggerReport(entity.name, report);
+    sendSelfTriggerReport(resolvePublicEntityName(entity), report);
   };
 
   if (!pay) {

@@ -37,6 +37,7 @@ import {
   parseSavingThrowResult,
   resolveActorStats,
   resolveAutoSaves,
+  resolvePublicEntityName,
   resolveSaveSourceAdjustments,
   resolveSavingThrowModifier,
   resolveSavingThrowRollMode,
@@ -413,9 +414,11 @@ export function useSpellSavingThrows() {
         title: options.takeover
           ? `${SAVING_THROW_ROLL_LABELS.takeoverPrefix}${title}`
           : title,
+        // Подпись уходит в чат, который читают все: скрытое имя существа в
+        // неё не попадает. Окно видит только бросающий — в нём имя настоящее
         rollLabel: formatSavingThrowRollLabel(
           target.ability,
-          target.entity.name,
+          resolvePublicEntityName(target.entity),
         ),
         rollButtonText: SAVING_THROW_ROLL_LABELS.button,
         actorName: target.entity.name,
@@ -478,7 +481,7 @@ export function useSpellSavingThrows() {
       target.dc,
     );
 
-    rollData.label = `${formatSavingThrowRollLabel(target.ability, target.entity.name)}${
+    rollData.label = `${formatSavingThrowRollLabel(target.ability, resolvePublicEntityName(target.entity))}${
       result.passed
         ? SAVING_THROW_ROLL_LABELS.successSuffix
         : SAVING_THROW_ROLL_LABELS.failureSuffix

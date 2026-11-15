@@ -23,6 +23,7 @@ import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import {
   askRestTriggers,
   listRestEndedCastIds,
+  resolvePublicEntityName,
   REST_TRIGGER_SUMMARY_LABEL,
 } from '@vtt/shared/system/dnd.js';
 
@@ -95,5 +96,9 @@ export async function runRestWithTriggers(
 
   apply({ triggerAnswers, triggerReport, sight: resolveClientSceneSight() });
 
-  sendSelfTriggerReport(entity.name, triggerReport, REST_TRIGGER_SUMMARY_LABEL);
+  sendSelfTriggerReport(
+    resolvePublicEntityName(entity),
+    triggerReport,
+    REST_TRIGGER_SUMMARY_LABEL,
+  );
 }

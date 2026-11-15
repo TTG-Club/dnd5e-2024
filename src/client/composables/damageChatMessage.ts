@@ -131,7 +131,10 @@ function withStandaloneHeader(
       ...rollData.block,
       ...buildActionChatHeader({
         name: record.label,
-        targetNames: record.targets.map((target) => target.name),
+        targets: record.targets.map((target) => ({
+          name: target.name,
+          entityId: target.entityId,
+        })),
       }),
     },
   };

@@ -24,6 +24,7 @@ import {
   formatCastFailureMessage,
   listCastFailureChecks,
   resolveLostCastSlotLevel,
+  resolvePublicEntityName,
   rollCastFailChance,
   SOURCE_SAVE_DC,
 } from '@vtt/shared/system/dnd.js';
@@ -81,7 +82,7 @@ function settleCastFailure(
 
   useChatStore().sendMessage(
     formatCastFailureMessage(
-      caster.name,
+      resolvePublicEntityName(caster),
       spell.name,
       outcome,
       loseUse !== undefined || slotLevel !== undefined,

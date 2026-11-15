@@ -38,6 +38,7 @@ import {
   pickFoundHides,
   resolveActionCostBlock,
   resolveHideSearchDc,
+  resolvePublicEntityName,
   SEARCH_SKILL,
 } from '@vtt/shared/system/dnd.js';
 
@@ -398,7 +399,8 @@ function settleSearch(
   const found = pickFoundHides(roll.total, live).flatMap((hide) => {
     const revealed = removeHide(hide);
 
-    return revealed ? [revealed.name] : [];
+    // Найти существо — не значит узнать, как его зовут
+    return revealed ? [resolvePublicEntityName(revealed)] : [];
   });
 
   const outcome =

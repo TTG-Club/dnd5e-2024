@@ -24,6 +24,7 @@ import {
   getNaturalD20Roll,
   parseNaturalD20Roll,
   parseSavingThrowResult,
+  resolvePublicEntityName,
   withRequestSource,
 } from '@vtt/shared/system/dnd.js';
 
@@ -76,7 +77,8 @@ function buildCheckResult(
 }
 
 /**
- * Подпись броска в чате: «Проверка навыка Скрытность — Гримли».
+ * Подпись броска в чате: «Проверка навыка Скрытность — Гримли». Чат читают
+ * все, поэтому скрытое от игроков имя существа заменяется заглушкой.
  *
  * @param entity - кто бросает
  * @param payload - что проверяют
@@ -86,7 +88,7 @@ function formatCheckRollLabel(
   entity: DnDSceneEntity,
   payload: AbilityCheckRequestPayload,
 ): string {
-  return `${formatAbilityCheckName(payload)}${SAVING_THROW_ROLL_LABELS.nameSeparator}${entity.name}`;
+  return `${formatAbilityCheckName(payload)}${SAVING_THROW_ROLL_LABELS.nameSeparator}${resolvePublicEntityName(entity)}`;
 }
 
 /**

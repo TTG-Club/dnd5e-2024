@@ -6,7 +6,7 @@ import { loadEngineBundle } from './helpers/engineBundle.mjs';
 import { loadHandler } from './helpers/sourceHandler.mjs';
 
 const engine = await loadEngineBundle(
-  "export * from './src/engine/attackUtils.ts'; export * from './src/engine/attackChatBlocks.ts'; export * from './src/engine/effectPipeline.ts'; export * from './src/engine/consts.ts'; export * from './src/engine/formulaParser.ts'; export * from './src/engine/resolvedFormulaContext.ts'; export * from './src/engine/spellCastPlan.ts'; export * from './src/engine/hitPoints.ts'; export { isSaveAbility } from './src/engine/spellUtils.ts'; export { creatureActionHasSave, resolveCreatureActionAttackBonus } from './src/engine/creatureUtils.ts';",
+  "export * from './src/engine/attackUtils.ts'; export * from './src/engine/attackChatBlocks.ts'; export * from './src/engine/chatTargets.ts'; export * from './src/engine/effectPipeline.ts'; export * from './src/engine/consts.ts'; export * from './src/engine/formulaParser.ts'; export * from './src/engine/resolvedFormulaContext.ts'; export * from './src/engine/spellCastPlan.ts'; export * from './src/engine/hitPoints.ts'; export { isSaveAbility } from './src/engine/spellUtils.ts'; export { creatureActionHasSave, resolveCreatureActionAttackBonus } from './src/engine/creatureUtils.ts';",
 );
 
 const macroPath = 'src/client/macros/dnd5eMacros.ts';

@@ -54,6 +54,7 @@ import {
   collectTriggerAurasForTarget,
   isTriggerAura,
 } from './auraMath.js';
+import { resolvePublicEntityName } from './chatTargets.js';
 import {
   requestEntryEffect,
   requestPresenceTriggerSave,
@@ -843,9 +844,13 @@ export function applyAuraTriggerEffects(
 
   const outcomes = new Map<string, AuraTriggerOutcome>();
 
-  /** Имена сущностей по токенам — подпись источника ауры в запросе броска */
+  /**
+   * Имена сущностей по токенам — подпись источника ауры в запросе броска.
+   * Запрос читает владелец цели, поэтому имя общее: скрытое от игроков не
+   * называется
+   */
   const sourceNames = new Map<string, string>([
-    [movedToken.id, movedEntity.name],
+    [movedToken.id, resolvePublicEntityName(movedEntity)],
   ]);
 
   const getAccumulator = (targetEntity: DnDSceneEntity): AuraTriggerOutcome => {
@@ -986,7 +991,7 @@ export function applyAuraTriggerEffects(
       auraEffects: collectAllAuraEffects(entity),
     });
 
-    sourceNames.set(token.id, entity.name);
+    sourceNames.set(token.id, resolvePublicEntityName(entity));
   }
 
   // Вертикаль: этажи сцены (ядро отдаёт сцену целиком) и рост по правилам —

@@ -425,6 +425,9 @@ describe('фиксация: разовое срабатывание при вх�
 
     const wolf = createCreature();
 
+    // Сводку читают все: имя существа в ней — только при «Показывать имя»
+    wolf.token = { ...wolf.token, showName: true };
+
     const zone = createZone(
       'zone_poison',
       [

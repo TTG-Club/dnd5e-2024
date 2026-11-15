@@ -44,6 +44,7 @@ import {
   listEscapeSkillChoices,
   mergeAppliedEffects,
   resolveEscapeRollMode,
+  resolvePublicEntityName,
   toReachDistance,
 } from '@vtt/shared/system/dnd.js';
 
@@ -302,7 +303,7 @@ function settleEscape(
   }
 
   useChatStore().sendMessage(
-    `${effect.name}${EFFECT_ESCAPE_PROMPT_LABELS.failDamageMiddle}${hurt.name}${EFFECT_ESCAPE_PROMPT_LABELS.failDamageSuffix}${dealt}`,
+    `${effect.name}${EFFECT_ESCAPE_PROMPT_LABELS.failDamageMiddle}${resolvePublicEntityName(hurt)}${EFFECT_ESCAPE_PROMPT_LABELS.failDamageSuffix}${dealt}`,
     'text',
     undefined,
     undefined,

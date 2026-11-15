@@ -148,6 +148,7 @@ async function loadHide({
     listHideCosts: engine.listHideCosts,
     mergeAppliedEffects: engine.mergeAppliedEffects,
     pickFoundHides: engine.pickFoundHides,
+    resolvePublicEntityName: engine.resolvePublicEntityName,
     resolveHideSearchDc: engine.resolveHideSearchDc,
     resolveActionCostBlock: () => null,
     listAmbientEffects: () => [],

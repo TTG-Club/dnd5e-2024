@@ -22,6 +22,7 @@ import type { SystemTriggerContext } from '@vtt/shared';
 import type { ActiveEffect, EffectFlagKey } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 
+import { resolvePublicEntityName } from './chatTargets.js';
 import { resolveActorStats } from './effectPipeline.js';
 
 /** Флаг «убран со сцены»: пока действует, фишки носителя на сцене нет */
@@ -79,7 +80,9 @@ export function reconcileScenePresence(
     .map((token) => returnTokenToScene(token.id))
     .some((place) => place?.overlapped === true);
 
-  return overlapped ? `${entity.name}: ${RETURN_OVERLAPPED_NOTE}` : null;
+  return overlapped
+    ? `${resolvePublicEntityName(entity)}: ${RETURN_OVERLAPPED_NOTE}`
+    : null;
 }
 
 /**
@@ -114,5 +117,5 @@ export function releaseOffSceneEffects(entity: DnDSceneEntity): string | null {
 
   const names = released.map((effect) => effect.name).join(', ');
 
-  return `${entity.name}: ${RELEASED_BY_MASTER_NOTE}${names}`;
+  return `${resolvePublicEntityName(entity)}: ${RELEASED_BY_MASTER_NOTE}${names}`;
 }

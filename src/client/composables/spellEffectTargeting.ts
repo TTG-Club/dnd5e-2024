@@ -19,6 +19,7 @@ import {
   isSpellReady,
   pickEffectVariants,
   readEffectVariantChoices,
+  resolvePublicEntityName,
   spellHasDamage,
   targetEffectsNeedResolution,
 } from '@vtt/shared/system/dnd.js';
@@ -136,7 +137,8 @@ function applyTargetEffectsToEntities(
       activeEffects: applyEffectsToEntity(current, targetEffects, 'spell'),
     }));
 
-    names.push(entity.name);
+    // Строку о наложенном читают все: скрытое имя существа в неё не идёт
+    names.push(resolvePublicEntityName(entity));
   }
 
   postSpellEffectsMessage(spell.name, names, effects);
@@ -662,7 +664,11 @@ export function applySpellTargetEffects(
   );
 
   if (targetName) {
-    postSpellEffectsMessage(spell.name, [targetName], targetEffects);
+    postSpellEffectsMessage(
+      spell.name,
+      [resolvePublicEntityName(target)],
+      targetEffects,
+    );
   }
 }
 

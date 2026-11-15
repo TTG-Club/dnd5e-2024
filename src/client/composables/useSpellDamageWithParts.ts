@@ -30,6 +30,7 @@ import {
   applyMultiTypeDamageDefenses,
   attachHpChangeDetails,
   buildActionChatHeader,
+  buildChatTargetFields,
   buildDamageChatRowLabel,
   buildUnappliedDamageValue,
   captureHitConsequences,
@@ -47,7 +48,7 @@ import {
   joinChatDetail,
   limitEntityHealing,
   mergeAppliedEffects,
-  pickRowTargetName,
+  pickRowTarget,
   recordDamageHit,
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
@@ -65,6 +66,7 @@ import {
 } from '../ui/actor/constants';
 import { chooseAreaTargets } from './areaTargetChoice';
 import { resolveSelectedAttackTarget } from './attackRollSnapshot';
+import { resolvePublicTargetName, toChatTarget } from './chatTargetNames';
 import {
   buildAttackDamageChatOptions,
   buildCombatChatOptions,
@@ -1000,16 +1002,21 @@ export function useSpellDamageWithParts() {
     }
 
     /**
-     * Имя цели для строки сводки: строки называют цель, только когда целей
-     * несколько, — единственную называет шапка карточки.
+     * Цель для строки сводки: строки называют цель, только когда целей
+     * несколько, — единственную называет шапка карточки. Имя уходит вместе с
+     * id цели: скрытое от игроков имя существа прячет ядро.
      *
+     * @param entityId - id цели строки
      * @param targetName - имя цели строки
-     * @returns поле `target` строки или пусто
+     * @returns поля цели строки или пусто
      */
-    function rowTarget(targetName: string): Pick<ChatBlockRow, 'target'> {
-      const target = pickRowTargetName(targetName, results.length);
-
-      return target ? { target } : {};
+    function rowTarget(
+      entityId: string,
+      targetName: string,
+    ): Pick<ChatBlockRow, 'target' | 'targetEntityId'> {
+      return buildChatTargetFields(
+        pickRowTarget(toChatTarget(entityId, targetName), results.length),
+      );
     }
 
     /**
@@ -1097,7 +1104,7 @@ export function useSpellDamageWithParts() {
 
           for (const contribution of contributions) {
             messageLines.push(
-              `→ ${contribution.entityName}: ${formatDiceFormula(part.formula)} ${rolledValues}${contribution.applied}`,
+              `→ ${resolvePublicTargetName(contribution.entityId, contribution.entityName)}: ${formatDiceFormula(part.formula)} ${rolledValues}${contribution.applied}`,
             );
           }
 
@@ -1109,7 +1116,7 @@ export function useSpellDamageWithParts() {
             rows: contributions.map((contribution) => ({
               icon: DAMAGE_DEDUCTION_LABELS.icon,
               name: DAMAGE_DEDUCTION_LABELS.header,
-              ...rowTarget(contribution.entityName),
+              ...rowTarget(contribution.entityId, contribution.entityName),
               value: `${contribution.applied}`,
               detail: `${formatDiceFormula(part.formula)} ${rolledValues}${part.amount}`,
             })),
@@ -1184,7 +1191,7 @@ export function useSpellDamageWithParts() {
       for (const contribution of visibleContributions) {
         const defenseSuffix = formatDamageDefenseSuffix(contribution.outcome);
 
-        let line = `→ ${contribution.entityName}: ${formatDiceFormula(part.formula)} ${diceBreakdown}${sign}${contribution.applied}${hpSuffix}${defenseSuffix}`;
+        let line = `→ ${resolvePublicTargetName(contribution.entityId, contribution.entityName)}: ${formatDiceFormula(part.formula)} ${diceBreakdown}${sign}${contribution.applied}${hpSuffix}${defenseSuffix}`;
 
         const effects = effectsByEntity.get(contribution.entityId);
 
@@ -1203,7 +1210,7 @@ export function useSpellDamageWithParts() {
         blockRows.push({
           ...buildDamageChatRowLabel(rowKind),
           name: header,
-          ...rowTarget(contribution.entityName),
+          ...rowTarget(contribution.entityId, contribution.entityName),
           ...formatHpChangeValue(contribution.applied, part),
           // Наложенное ударом — тоже итог: видно сразу, а не в подробностях
           ...(effects && showsEffects && effects.length > 0
@@ -1228,12 +1235,15 @@ export function useSpellDamageWithParts() {
 
       if (effects && !usedEffectEntities.has(result.actorId)) {
         usedEffectEntities.add(result.actorId);
-        messageLines.push(`→ ${result.actorName}: [${effects.join(', ')}]`);
+
+        messageLines.push(
+          `→ ${resolvePublicTargetName(result.actorId, result.actorName)}: [${effects.join(', ')}]`,
+        );
 
         effectRows.push({
           icon: SPELL_SUMMARY_LABELS.effectsIcon,
           name: SPELL_SUMMARY_LABELS.effects,
-          ...rowTarget(result.actorName),
+          ...rowTarget(result.actorId, result.actorName),
           ...(effects.length > 0 ? { note: effects.join(', ') } : {}),
         });
       }
@@ -1264,7 +1274,7 @@ export function useSpellDamageWithParts() {
         dealsDamage = true;
 
         messageLines.push(
-          `→ ${result.actorName}: ${formatDiceFormula(damageLine.formula)} ${breakdown}-${damageLine.applied} HP${formatDamageDefenseSuffix(damageLine.outcome)}`,
+          `→ ${resolvePublicTargetName(result.actorId, result.actorName)}: ${formatDiceFormula(damageLine.formula)} ${breakdown}-${damageLine.applied} HP${formatDamageDefenseSuffix(damageLine.outcome)}`,
         );
 
         markHpRow(result.actorId, 0);
@@ -1274,7 +1284,7 @@ export function useSpellDamageWithParts() {
             {
               icon: SPELL_SUMMARY_LABELS.effectsIcon,
               name: `${damageLine.typeLabel}${SPELL_SUMMARY_LABELS.effectDamageSuffix}`,
-              ...rowTarget(result.actorName),
+              ...rowTarget(result.actorId, result.actorName),
               ...formatHpChangeValue(damageLine.applied),
               detail: joinChatDetail([
                 `${formatDiceFormula(damageLine.formula)} ${breakdown}${damageLine.applied}`,
@@ -1327,7 +1337,9 @@ export function useSpellDamageWithParts() {
       : headChatBlocks(
           buildActionChatHeader({
             name: spell.name,
-            targetNames: results.map((result) => result.actorName),
+            targets: results.map((result) =>
+              toChatTarget(result.actorId, result.actorName),
+            ),
           }),
           detailedBlocks,
         );

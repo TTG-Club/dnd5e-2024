@@ -7,6 +7,7 @@ import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import {
   dnd5eSystemInstance,
   resolveInitiativeRollMode,
+  resolvePublicEntityName,
 } from '@vtt/shared/system/dnd.js';
 
 import { INITIATIVE_ROLL_LABELS } from '../ui/actor/constants';
@@ -46,14 +47,8 @@ export function promptInitiativeRoll(
 
   // Окно видит только бросающий, а чат читают все: имя существа, скрытое от
   // игроков, в сообщение о броске не попадает — иначе бросок выдал бы то, что
-  // ядро прячет в трекере. Правило то же, что у ядра: существо без явно
-  // включённого «Показывать имя».
-  const isNameHidden =
-    entity.entityType === 'creature' && entity.token?.showName !== true;
-
-  const announcedName = isNameHidden
-    ? INITIATIVE_ROLL_LABELS.hiddenName
-    : entity.name;
+  // ядро прячет в трекере.
+  const announcedName = resolvePublicEntityName(entity);
 
   const rollLabel = `${INITIATIVE_ROLL_LABELS.rollLabel}${INITIATIVE_ROLL_LABELS.nameSeparator}${announcedName}`;
 

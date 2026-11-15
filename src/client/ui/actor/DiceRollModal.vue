@@ -74,6 +74,10 @@
   } from '@vtt/shared/system/dnd.js';
 
   import {
+    resolvePublicTargetName,
+    toChatTarget,
+  } from '../../composables/chatTargetNames';
+  import {
     buildCombatChatOptions,
     buildSpeakerChatOptions,
     sendDamageToChat,
@@ -1467,15 +1471,25 @@
    */
   function resolveAttackRollTarget(targetAc: number | null): {
     name: string | undefined;
+    publicName: string | undefined;
     actorId: string | null;
     flags: ReadonlySet<string> | undefined;
   } {
     if (targetAc === null) {
-      return { name: undefined, actorId: null, flags: undefined };
+      return {
+        name: undefined,
+        publicName: undefined,
+        actorId: null,
+        flags: undefined,
+      };
     }
 
+    const name = targetStore.targetName ?? DICE_ROLL_LABELS.targetFallback;
+
     return {
-      name: targetStore.targetName ?? DICE_ROLL_LABELS.targetFallback,
+      name,
+      // Подписи бросков получают все: скрытое имя цели в них не называется
+      publicName: resolvePublicTargetName(targetStore.targetActorId, name),
       actorId: targetStore.targetActorId,
       flags: targetStore.getTargetFlags(),
     };
@@ -1565,6 +1579,7 @@
         targetAc,
         weaponName: props.rollLabel,
         targetName: target.name,
+        targetPublicName: target.publicName,
         damageFormula: finalDamageFormula,
         targetActorId: target.actorId,
         targetFlags: target.flags,
@@ -1795,7 +1810,7 @@
 
         const totalDamage = result.hpBefore - result.hpAfter + tempAbsorbed;
 
-        rollLabel += `${DICE_ROLL_LABELS.damageSuffixPrefix}${result.actorName} -${totalDamage} HP`;
+        rollLabel += `${DICE_ROLL_LABELS.damageSuffixPrefix}${resolvePublicTargetName(targetStore.targetActorId, result.actorName)} -${totalDamage} HP`;
 
         if (tempAbsorbed > 0) {
           rollLabel += `${DICE_ROLL_LABELS.tempAbsorbedPrefix}${tempAbsorbed}${DICE_ROLL_LABELS.tempAbsorbedSuffix}`;
@@ -1819,7 +1834,9 @@
         ),
         ...buildActionChatHeader({
           name: props.rollLabel,
-          targetNames: appliedResult ? [appliedResult.actorName] : [],
+          targets: appliedResult
+            ? [toChatTarget(targetStore.targetActorId, appliedResult.actorName)]
+            : [],
         }),
       };
     }
@@ -2018,6 +2035,7 @@
         targetAc,
         weaponName: props.rollLabel,
         targetName: target.name,
+        targetPublicName: target.publicName,
         targetActorId: target.actorId,
         targetFlags: target.flags,
         critThreshold: props.critThreshold,

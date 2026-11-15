@@ -306,7 +306,10 @@ export function resolveAttackLanded(result: AttackResult): boolean | undefined {
 interface AttackLabelParams {
   /** Название оружия или контекст броска */
   weaponName: string;
-  /** Имя цели; нет — цель не выбрана */
+  /**
+   * Имя цели; нет — цель не выбрана. Подпись получают все, поэтому имя здесь
+   * уже общее: у цели со скрытым именем — заглушка (`resolvePublicEntityName`)
+   */
   targetName?: string;
   /** Результат определения попадания */
   result: AttackResult;
@@ -354,12 +357,16 @@ export function buildAttackLabel(params: AttackLabelParams): string {
  * @param weaponName - название оружия
  * @param applyResult - результат применения урона к цели (может отсутствовать)
  * @param damageType - тип урона
+ * @param targetPublicName - имя цели для общего текста: подпись получают все,
+ *   и у цели со скрытым именем сюда передаётся заглушка
+ *   (`resolvePublicEntityName`); не задано — имя из `applyResult`
  * @returns текст лейбла
  */
 export function buildDamageLabel(
   weaponName: string,
   applyResult?: DamageApplyResult | null,
   damageType?: string,
+  targetPublicName?: string,
 ): string {
   const typeLabel = damageType ? getShortDamageTypeLabel(damageType) : '';
 
@@ -373,7 +380,7 @@ export function buildDamageLabel(
     const totalDamage =
       applyResult.hpBefore - applyResult.hpAfter + tempAbsorbed;
 
-    label += `\u00A0→\u00A0${applyResult.actorName}:\u00A0-${totalDamage}\u00A0HP`;
+    label += `\u00A0→\u00A0${targetPublicName ?? applyResult.actorName}:\u00A0-${totalDamage}\u00A0HP`;
 
     if (tempAbsorbed > 0) {
       label += `\u00A0(врем.\u00A0-${tempAbsorbed})`;
@@ -548,6 +555,13 @@ export interface PerformAttackParams {
   weaponName: string;
   /** Имя цели; нет — цель не выбрана */
   targetName?: string;
+  /**
+   * Имя цели для текста, который получают все (подписи бросков): у цели со
+   * скрытым именем — заглушка (`resolvePublicEntityName`). Не задано —
+   * `targetName`. В блок карточки идёт настоящее имя вместе с
+   * `targetActorId`: кому его показать, решает ядро
+   */
+  targetPublicName?: string;
   /** Атака с помехой */
   isDisadvantage?: boolean;
   /** Формула урона (если есть) */
@@ -605,7 +619,7 @@ export function performTwoStageAttack(
 
   attackRoll.label = buildAttackLabel({
     weaponName: params.weaponName,
-    targetName: params.targetName,
+    targetName: params.targetPublicName ?? params.targetName,
     result: attackResult,
     isDisadvantage: params.isDisadvantage,
   });
@@ -613,6 +627,7 @@ export function performTwoStageAttack(
   attackRoll.block = buildAttackChatBlock({
     name: params.weaponName,
     targetName: params.targetName,
+    targetEntityId: params.targetActorId,
     result: attackResult,
     attackKind: params.attackKind,
     isDisadvantage: params.isDisadvantage,
@@ -642,6 +657,7 @@ export function performTwoStageAttack(
       params.weaponName,
       applyResult,
       params.damageType,
+      params.targetPublicName,
     );
 
     damageRoll.block = buildDamageChatBlock(

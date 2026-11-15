@@ -33,6 +33,7 @@ import {
   RECHARGE_ROLL_FORMULA,
   restoreActionLimit,
 } from './actionLimit.js';
+import { resolvePublicEntityName } from './chatTargets.js';
 import { rollDamageFormula } from './diceFormula.js';
 import { readTriggerUsage, writeTriggerUsage } from './effectTriggerUsage.js';
 import { isDndCreature } from './entityGuards.js';
@@ -109,7 +110,7 @@ function applyRechargeRoll(
   return {
     changed: restored !== null,
     chatSummary: byServer
-      ? `${formatRechargeOutcome(entity.name, spent.name, spent.recharge, total)}${SERVER_ROLL_NOTE}`
+      ? `${formatRechargeOutcome(resolvePublicEntityName(entity), spent.name, spent.recharge, total)}${SERVER_ROLL_NOTE}`
       : null,
   };
 }
