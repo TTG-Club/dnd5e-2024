@@ -330,7 +330,8 @@ export function formatSaveCancelledMessage(actionName: string): string {
  * Подпись броска спасброска для чата: «Спасбросок Ловкости — Арт».
  *
  * @param ability - характеристика спасброска
- * @param entityName - имя цели
+ * @param entityName - имя цели для общего текста (`resolvePublicEntityName`):
+ *   подпись читают все
  * @returns подпись броска
  */
 export function formatSavingThrowRollLabel(
@@ -551,7 +552,8 @@ export function stampEffectOnApply(
  * листа и с хотбара выглядели в чате одинаково.
  *
  * @param spellName - название заклинания
- * @param targetNames - имена получивших эффекты
+ * @param targetNames - имена получивших эффекты для общего текста
+ *   (`resolvePublicEntityName`): строку читают все
  * @param effects - наложенные эффекты
  * @returns готовая строка сообщения
  */
@@ -571,7 +573,8 @@ export function formatSpellEffectsMessage(
  * строки нет.
  *
  * @param spellName - название заклинания или источника
- * @param targetNames - имена получивших эффекты
+ * @param targetNames - имена получивших эффекты для общего текста
+ *   (`resolvePublicEntityName`): строку читают все
  * @param effects - наложенные эффекты
  */
 export function postSpellEffectsMessage(

@@ -94,7 +94,6 @@ import {
   REVERT_CHAT_DAMAGE_PERMISSION,
   revertRecordedDamage,
   revertRecordedDeathSaves,
-  serializeAttackDamageRecord,
   supportsDamageModes,
   toRollerFormula,
   withCritDiceRolls,
@@ -107,7 +106,11 @@ import {
   ATTACK_DAMAGE_ACTION_LABELS,
   DAMAGE_DEDUCTION_LABELS,
 } from '../ui/actor/constants';
-import { resolvePublicTargetName } from './chatTargetNames';
+import {
+  resolvePublicTargetName,
+  serializeChatDamageRecord,
+  toRecordChatTarget,
+} from './chatTargetNames';
 import { buildAttackDamageChatOptions } from './damageChatMessage';
 import { resolveTurnStamp } from './encounterTurn';
 import { changeEntityCombatState } from './entityCombatWrite';
@@ -457,7 +460,7 @@ export function revertAttackDamage(context: ChatFollowUpActionContext): void {
     // Окраска не трогается: карточка броска атаки выделена и без урона
     kind: ATTACK_DAMAGE_REVERTED_FOLLOW_UP_KIND,
     // Последствия удара отменены и повтору не нужны: он считает их заново
-    payload: serializeAttackDamageRecord({
+    payload: serializeChatDamageRecord({
       ...record,
       targets: record.targets.map(toBareTarget),
     }),
@@ -500,7 +503,12 @@ function buildRollFollowUp(
   const [part] = record.parts;
 
   const applyResult = {
-    actorName: reapplied.target.name,
+    // Имя идёт только в подпись броска, а её получают все: скрытое имя цели
+    // в неё не попадает (блок такой карточки цель не называет вовсе)
+    actorName: resolvePublicTargetName(
+      reapplied.target.entityId,
+      reapplied.target.name,
+    ),
     hpBefore: reapplied.applied.hpBefore,
     hpAfter: reapplied.applied.hpAfter,
     tempAbsorbed: reapplied.applied.tempLost,
@@ -513,15 +521,7 @@ function buildRollFollowUp(
     content: part?.formula ?? roll.formula,
     rollData: {
       ...roll,
-      label: buildDamageLabel(
-        record.label,
-        applyResult,
-        part?.types[0],
-        resolvePublicTargetName(
-          reapplied.target.entityId,
-          reapplied.target.name,
-        ),
-      ),
+      label: buildDamageLabel(record.label, applyResult, part?.types[0]),
       block: buildDamageChatBlock(applyResult, part?.types[0]),
     },
   };
@@ -564,7 +564,10 @@ function buildSummaryFollowUp(
     targetName: string,
   ): Pick<ChatBlockRow, 'target' | 'targetEntityId'> {
     return buildChatTargetFields(
-      pickRowTarget({ name: targetName, entityId }, reapplied.length),
+      pickRowTarget(
+        toRecordChatTarget({ name: targetName, entityId }),
+        reapplied.length,
+      ),
     );
   }
 
@@ -823,10 +826,7 @@ function buildModeRow(
     {
       ...buildDamageChatRowLabel(
         { types },
-        pickRowTarget(
-          { name: view.target.name, entityId: view.target.entityId },
-          record.targets.length,
-        ),
+        pickRowTarget(toRecordChatTarget(view.target), record.targets.length),
       ),
       ...(badge ? { badge } : {}),
       ...formatHpChangeValue(view.damage),

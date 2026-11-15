@@ -444,9 +444,7 @@ describe('имя цели, скрытое от игроков', () => {
     token: { showName: false },
   };
 
-  it('скрыто у существа без «Показывать имя», открыто у персонажа', () => {
-    assert.equal(engine.isEntityNameHidden(hag), true);
-
+  it('общее имя: заглушка у существа без «Показывать имя»', () => {
     assert.equal(
       engine.resolvePublicEntityName(hag),
       engine.HIDDEN_ENTITY_NAME,

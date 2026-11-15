@@ -1,8 +1,15 @@
-import type { ChatTarget } from '@vtt/shared/system/dnd.js';
+import type {
+  AttackDamageRecord,
+  AttackDamageTarget,
+  ChatTarget,
+} from '@vtt/shared/system/dnd.js';
 
 import { findEntityInWorld } from '@/core/entityUtils';
 import { useWorldStore } from '@/stores/worldStore';
-import { resolvePublicEntityName } from '@vtt/shared/system/dnd.js';
+import {
+  resolvePublicEntityName,
+  serializeAttackDamageRecord,
+} from '@vtt/shared/system/dnd.js';
 
 /**
  * Имя сущности для текста чата, который получают все (`label`, `content`,
@@ -37,4 +44,41 @@ export function toChatTarget(
   name: string,
 ): ChatTarget {
   return entityId ? { name, entityId } : { name };
+}
+
+/**
+ * Цель записи об уроне для блока карточки. В записи имя общее (см.
+ * {@link serializeChatDamageRecord}), а блоку нужно настоящее — оно берётся
+ * из мира; сущности уже нет — остаётся имя из записи.
+ *
+ * @param target - цель записи об уроне
+ * @returns цель для сборщиков блоков
+ */
+export function toRecordChatTarget(
+  target: Pick<AttackDamageTarget, 'entityId' | 'name'>,
+): ChatTarget {
+  const entity = findEntityInWorld(
+    useWorldStore().currentWorld,
+    target.entityId,
+  );
+
+  return { name: entity?.name ?? target.name, entityId: target.entityId };
+}
+
+/**
+ * Запись об уроне для дополнения чата (`payload`). Дополнение получают все,
+ * кто видит сообщение, и ядро в данные системы не заглядывает — поэтому имена
+ * целей в записи общие: скрытое от игроков имя существа в неё не попадает.
+ *
+ * @param record - запись об уроне
+ * @returns строка для `payload` дополнения
+ */
+export function serializeChatDamageRecord(record: AttackDamageRecord): string {
+  return serializeAttackDamageRecord({
+    ...record,
+    targets: record.targets.map((target) => ({
+      ...target,
+      name: resolvePublicTargetName(target.entityId, target.name),
+    })),
+  });
 }

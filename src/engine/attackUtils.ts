@@ -355,18 +355,17 @@ export function buildAttackLabel(params: AttackLabelParams): string {
  * Формирует лейбл для броска урона с результатом применения.
  *
  * @param weaponName - название оружия
- * @param applyResult - результат применения урона к цели (может отсутствовать)
+ * @param applyResult - результат применения урона к цели (может
+ *   отсутствовать). Подпись получают все, поэтому `actorName` в нём — имя
+ *   цели для общего текста: у цели со скрытым именем — заглушка
+ *   (`resolvePublicEntityName`)
  * @param damageType - тип урона
- * @param targetPublicName - имя цели для общего текста: подпись получают все,
- *   и у цели со скрытым именем сюда передаётся заглушка
- *   (`resolvePublicEntityName`); не задано — имя из `applyResult`
  * @returns текст лейбла
  */
 export function buildDamageLabel(
   weaponName: string,
   applyResult?: DamageApplyResult | null,
   damageType?: string,
-  targetPublicName?: string,
 ): string {
   const typeLabel = damageType ? getShortDamageTypeLabel(damageType) : '';
 
@@ -380,7 +379,7 @@ export function buildDamageLabel(
     const totalDamage =
       applyResult.hpBefore - applyResult.hpAfter + tempAbsorbed;
 
-    label += `\u00A0→\u00A0${targetPublicName ?? applyResult.actorName}:\u00A0-${totalDamage}\u00A0HP`;
+    label += `\u00A0→\u00A0${applyResult.actorName}:\u00A0-${totalDamage}\u00A0HP`;
 
     if (tempAbsorbed > 0) {
       label += `\u00A0(врем.\u00A0-${tempAbsorbed})`;
@@ -655,9 +654,11 @@ export function performTwoStageAttack(
 
     damageRoll.label = buildDamageLabel(
       params.weaponName,
-      applyResult,
+      // Подпись получают все: цель в ней названа общим именем
+      applyResult && params.targetPublicName
+        ? { ...applyResult, actorName: params.targetPublicName }
+        : applyResult,
       params.damageType,
-      params.targetPublicName,
     );
 
     damageRoll.block = buildDamageChatBlock(

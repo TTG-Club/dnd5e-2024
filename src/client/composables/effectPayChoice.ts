@@ -347,7 +347,8 @@ export function runWithSpellCastPay<Source extends PayableSource>(
  * Пишет в чат сводку срабатываний, выполненных на самой сущности (кнопка «При
  * действии», включение переключателя, отдых); без строк сводки ничего не шлёт.
  *
- * @param entityName - имя сущности
+ * @param entityName - имя сущности для общего текста
+ *   (`resolvePublicEntityName`): сводку читают все
  * @param report - что собрали срабатывания
  * @param whenLabel - подпись момента; нет — «действие»
  */
