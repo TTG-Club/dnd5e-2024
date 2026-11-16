@@ -3,7 +3,7 @@
 
   import { computed, onBeforeUnmount, ref, watch } from 'vue';
 
-  import { HUD_PROMPT_TITLE_ATTR } from '@/shared_ui/consts';
+  import { HudPromptPanel } from '@/shared_ui/components';
   import { useProjectileStore } from '@/stores/projectileStore';
   import { useWorldStore } from '@/stores/worldStore';
   import {
@@ -13,17 +13,11 @@
 
   import {
     ACTOR_SPELLS_TAB_LABELS,
-    HUD_PROMPT_PANEL_CLASS,
-    HUD_PROMPTS_TELEPORT_TARGET,
     PROJECTILE_PROMPT_LABELS,
     SPELL_EFFECT_TARGET_LABELS,
     SPELL_EFFECT_TARGET_MODE,
     SPELL_LEVEL_SUFFIX,
   } from './constants';
-
-  defineOptions({
-    inheritAttrs: false,
-  });
 
   const props = defineProps<{
     open: boolean;
@@ -204,79 +198,60 @@
 </script>
 
 <template>
-  <Teleport :to="HUD_PROMPTS_TELEPORT_TARGET">
-    <!-- Имитируем внешний вид и анимации из ActionPromptList -->
-    <Transition name="slide-up">
-      <div
-        v-if="open && ownsTargeting"
-        :class="HUD_PROMPT_PANEL_CLASS"
-        :[HUD_PROMPT_TITLE_ATTR]="promptTitle"
-      >
-        <div class="flex items-center gap-2 border-b border-muted/50 pb-2">
-          <UIcon
-            name="tabler:wand"
-            class="h-5 w-5 shrink-0 text-toned"
-          />
+  <HudPromptPanel
+    :open="open && ownsTargeting"
+    icon="tabler:wand"
+    :title="promptTitle"
+  >
+    <p class="text-xs text-dimmed">
+      {{ PROJECTILE_PROMPT_LABELS.targetingHint }}
+    </p>
 
-          <span class="min-w-0 text-sm font-medium break-words">
-            {{ promptTitle }}
-          </span>
-        </div>
+    <p
+      v-if="distributionHint"
+      class="text-xs text-dimmed"
+    >
+      {{ distributionHint }}
+    </p>
 
-        <p class="text-xs text-dimmed">
-          {{ PROJECTILE_PROMPT_LABELS.targetingHint }}
-        </p>
+    <div class="flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <USelect
+          v-if="props.spell.level > 0"
+          v-model.number="selectedSpellLevel"
+          :items="spellLevelItems"
+          value-key="value"
+          label-key="label"
+          class="w-32"
+          size="sm"
+          color="neutral"
+          variant="outline"
+        />
 
-        <p
-          v-if="distributionHint"
-          class="text-xs text-dimmed"
-        >
-          {{ distributionHint }}
-        </p>
-
-        <div class="flex items-center justify-between gap-4">
-          <div class="flex items-center gap-3">
-            <USelect
-              v-if="props.spell.level > 0"
-              v-model.number="selectedSpellLevel"
-              :items="spellLevelItems"
-              value-key="value"
-              label-key="label"
-              class="w-32"
-              size="sm"
-              color="neutral"
-              variant="outline"
-            />
-
-            <span class="text-sm font-bold text-toned">
-              {{ assignedLabel
-              }}{{ projectileStore.assignedProjectilesCount }} /
-              {{ calculatedMaxProjectiles }}
-            </span>
-          </div>
-
-          <div class="flex items-center gap-2">
-            <UButton
-              icon="tabler:check"
-              color="primary"
-              variant="solid"
-              size="sm"
-              :disabled="!canConfirm"
-              @click.left.exact.prevent="handleConfirm"
-            />
-
-            <UButton
-              icon="tabler:x"
-              color="neutral"
-              variant="ghost"
-              size="sm"
-              @click.left.exact.prevent="handleCancel"
-            />
-          </div>
-        </div>
+        <span class="text-sm font-bold text-toned">
+          {{ assignedLabel }}{{ projectileStore.assignedProjectilesCount }} /
+          {{ calculatedMaxProjectiles }}
+        </span>
       </div>
-    </Transition>
-  </Teleport>
-</template>
 
-<style scoped src="../hudPromptTransition.css"></style>
+      <div class="flex items-center gap-2">
+        <UButton
+          icon="tabler:check"
+          color="primary"
+          variant="solid"
+          size="sm"
+          :disabled="!canConfirm"
+          @click.left.exact.prevent="handleConfirm"
+        />
+
+        <UButton
+          icon="tabler:x"
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          @click.left.exact.prevent="handleCancel"
+        />
+      </div>
+    </div>
+  </HudPromptPanel>
+</template>

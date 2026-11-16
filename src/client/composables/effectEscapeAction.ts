@@ -23,11 +23,9 @@ import type {
 
 import type { CheckRollResult } from '../ui/actor/diceRollTypes';
 
-import { resolveTokenScale } from '@/core/entityUtils';
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
 import { useWorldStore } from '@/stores/worldStore';
-import { getTokenEdgeDistance } from '@vtt/shared';
 import {
   applyDamagePartsToCopy,
   buildEscapeAftermath,
@@ -46,6 +44,8 @@ import {
   listEscapeSkillChoices,
   mergeAppliedEffects,
   resolveEscapeRollMode,
+  resolvePublicEntityName,
+  toReachDistance,
 } from '@vtt/shared/system/dnd.js';
 
 import { useSystemToastStore } from '../stores/systemToastStore';
@@ -63,6 +63,7 @@ import { changeEntityCombatState } from './entityCombatWrite';
 import { controlsEntityAsUser } from './gmApprovalRequest';
 import { refuseWhilePaused } from './pauseLock';
 import { chooseOne } from './questionChoice';
+import { createSceneLevelMeasure } from './sceneLevelMeasure';
 import { refuseWhileSheetEditing } from './sheetEditLock';
 import { openSkillCheckModal } from './skillCheckRoll';
 import { resolveEntityStats } from './useResolvedStats';
@@ -121,8 +122,9 @@ function refuseOutsideOwnTurn(
 }
 
 /**
- * Существа текущей сцены в пределах футов от существа — по краям фишек, как
- * считает дистанцию атака.
+ * Существа текущей сцены в пределах футов от существа — по краям фишек в 3D,
+ * как считает дистанцию атака: с высотой полёта и без досягаемости сквозь
+ * перекрытие и стену.
  *
  * @param entityId - от кого мерить
  * @param feet - предел в футах
@@ -132,28 +134,15 @@ export function listEntitiesNear(
   entityId: string,
   feet: number,
 ): DnDSceneEntity[] {
-  const worldStore = useWorldStore();
-  const scene = worldStore.currentScene;
-  const tokens: Token[] = scene?.tokens ?? [];
+  const scene = useWorldStore().currentScene;
 
   if (!scene) {
     return [];
   }
 
-  /**
-   * Фишка с её настоящим масштабом на сцене.
-   *
-   * @param token - фишка
-   * @returns фишка для измерения
-   */
-  const scaled = (token: Token): Token => ({
-    ...token,
-    scale: resolveTokenScale(worldStore.currentWorld, token),
-  });
-
-  const origins = tokens
-    .filter((token) => token.actorId === entityId)
-    .map(scaled);
+  const tokens: Token[] = scene.tokens ?? [];
+  const measure = createSceneLevelMeasure(scene);
+  const origins = tokens.filter((token) => token.actorId === entityId);
 
   const nearIds = new Set(
     tokens
@@ -161,9 +150,7 @@ export function listEntitiesNear(
         (token) =>
           token.actorId !== entityId
           && origins.some(
-            (origin) =>
-              getTokenEdgeDistance(origin, scaled(token), scene.gridSettings)
-              <= feet,
+            (origin) => toReachDistance(measure(origin, token)) <= feet,
           ),
       )
       .map((token) => token.actorId),
@@ -316,7 +303,7 @@ function settleEscape(
   }
 
   useChatStore().sendMessage(
-    `${effect.name}${EFFECT_ESCAPE_PROMPT_LABELS.failDamageMiddle}${hurt.name}${EFFECT_ESCAPE_PROMPT_LABELS.failDamageSuffix}${dealt}`,
+    `${effect.name}${EFFECT_ESCAPE_PROMPT_LABELS.failDamageMiddle}${resolvePublicEntityName(hurt)}${EFFECT_ESCAPE_PROMPT_LABELS.failDamageSuffix}${dealt}`,
     'text',
     undefined,
     undefined,

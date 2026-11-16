@@ -29,14 +29,55 @@
 
 import type { HpDisplayMode } from '@vtt/shared';
 
-import type { DnDSceneEntity } from './dndEntities.js';
+import type { DnDActor, DnDSceneEntity } from './dndEntities.js';
+import type { DnDHitPoints } from './types.js';
 
 import { isActorEntity, isCreatureEntity } from '@vtt/shared';
 
+import { calculateAbilityModifier } from './calculations.js';
+import { getTotalLevel } from './classTypes.js';
 import {
   resolveMaxHitPointsDelta,
   targetHpGateMatches,
 } from './effectPipeline.js';
+
+/**
+ * Хиты после ручного изменения базового Телосложения.
+ *
+ * Меняем сохранённый запас на разницу модификаторов за каждый уровень, а не
+ * пересчитываем его по классам: ручной максимум и полученный урон сохраняются.
+ * Прибавки предыстории и других эффектов добавляются отдельно пайплайном.
+ *
+ * @param actor - персонаж до изменения характеристики
+ * @param nextConstitution - новое базовое Телосложение
+ * @returns новые хиты листа без мутации персонажа
+ */
+export function resolveHitPointsAfterBaseConstitutionChange(
+  actor: DnDActor,
+  nextConstitution: number,
+): DnDHitPoints {
+  const modifierDelta =
+    calculateAbilityModifier(nextConstitution)
+    - calculateAbilityModifier(actor.system.abilities.constitution);
+
+  const hitPointsDelta = modifierDelta * getTotalLevel(actor.system.classes);
+
+  if (hitPointsDelta === 0) {
+    return { ...actor.system.hitPoints };
+  }
+
+  const max = Math.max(1, actor.system.hitPoints.max + hitPointsDelta);
+  const { current } = actor.system.hitPoints;
+
+  return {
+    ...actor.system.hitPoints,
+    // На 0 хитов персонаж без сознания: правка листа не лечит, поднимает его
+    // только лечение или спасброски от смерти
+    current:
+      current === 0 ? 0 : Math.min(max, Math.max(0, current + hitPointsDelta)),
+    max,
+  };
+}
 
 /**
  * Записанный в лист максимум хитов — БЕЗ активных эффектов.

@@ -52,6 +52,7 @@ import type {
   AttackDamageRecord,
   AttackDamageTarget,
   ChangedDamageModes,
+  ChatTarget,
   DnDSceneEntity,
   HpChangeRowPlacement,
 } from '@vtt/shared/system/dnd.js';
@@ -65,6 +66,7 @@ import {
   attachHpChangeDetails,
   ATTACK_DAMAGE_FOLLOW_UP_KIND,
   ATTACK_DAMAGE_REVERTED_FOLLOW_UP_KIND,
+  buildChatTargetFields,
   buildDamageChatBlock,
   buildDamageChatRowLabel,
   buildDamageLabel,
@@ -80,7 +82,7 @@ import {
   listRolledDiceValues,
   listUnrolledCritDice,
   parseAttackDamageRecord,
-  pickRowTargetName,
+  pickRowTarget,
   planDamageReroll,
   planSneakAttackReapply,
   raiseDiceToMinimum,
@@ -88,10 +90,10 @@ import {
   resolveAttackDamageActionRefusal,
   resolveEntityCurrentHp,
   resolveEntityTempHp,
+  resolvePublicEntityName,
   REVERT_CHAT_DAMAGE_PERMISSION,
   revertRecordedDamage,
   revertRecordedDeathSaves,
-  serializeAttackDamageRecord,
   supportsDamageModes,
   toRollerFormula,
   withCritDiceRolls,
@@ -104,6 +106,11 @@ import {
   ATTACK_DAMAGE_ACTION_LABELS,
   DAMAGE_DEDUCTION_LABELS,
 } from '../ui/actor/constants';
+import {
+  resolvePublicTargetName,
+  serializeChatDamageRecord,
+  toRecordChatTarget,
+} from './chatTargetNames';
 import { buildAttackDamageChatOptions } from './damageChatMessage';
 import { resolveTurnStamp } from './encounterTurn';
 import { changeEntityCombatState } from './entityCombatWrite';
@@ -275,7 +282,7 @@ function listRemovedEffectNames(
  * Строка об одной цели в отметке отмены: сколько хитов ей вернулось и какие
  * эффекты удара с неё сняты.
  *
- * @param name - имя цели
+ * @param name - имя цели для общего текста (`resolvePublicEntityName`)
  * @param before - цель до возврата
  * @param after - цель после возврата
  * @returns строка для чата
@@ -311,13 +318,13 @@ function formatRestoredLine(
  * временные хиты и хиты цели до и после. Имя цели — только когда целей несколько: единственную
  * называет шапка карточки атаки.
  *
- * @param targetName - имя цели для строки; нет — цель у удара одна
+ * @param rowTarget - цель для строки; нет — цель у удара одна
  * @param before - цель до возврата
  * @param after - цель после возврата
  * @returns строка блока карточки чата
  */
 function buildRestoredRow(
-  targetName: string | undefined,
+  rowTarget: ChatTarget | undefined,
   before: DnDSceneEntity,
   after: DnDSceneEntity,
 ): ChatBlockRow {
@@ -327,7 +334,7 @@ function buildRestoredRow(
   const restoredRow: ChatBlockRow = {
     icon: ATTACK_DAMAGE_ACTION_LABELS.revertIcon,
     name: ATTACK_DAMAGE_ACTION_LABELS.reverted,
-    ...(targetName ? { target: targetName } : {}),
+    ...buildChatTargetFields(rowTarget),
     ...formatHpChangeValue(
       resolveEntityCurrentHp(after) - resolveEntityCurrentHp(before),
       { isHealing: true },
@@ -408,11 +415,18 @@ export function revertAttackDamage(context: ChatFollowUpActionContext): void {
     changeEntityCombatState(target.entityId, (current) => {
       const restored = revertRecordedDamage(current, target);
 
-      lines.push(formatRestoredLine(current.name, current, restored));
+      // Запасной текст получают все — в нём скрытое имя не называется; в
+      // блоке имя настоящее и уходит вместе с id цели: спрячет его ядро
+      lines.push(
+        formatRestoredLine(resolvePublicEntityName(current), current, restored),
+      );
 
       rows.push(
         buildRestoredRow(
-          pickRowTargetName(current.name, record.targets.length),
+          pickRowTarget(
+            { name: current.name, entityId: current.id },
+            record.targets.length,
+          ),
           current,
           restored,
         ),
@@ -446,7 +460,7 @@ export function revertAttackDamage(context: ChatFollowUpActionContext): void {
     // Окраска не трогается: карточка броска атаки выделена и без урона
     kind: ATTACK_DAMAGE_REVERTED_FOLLOW_UP_KIND,
     // Последствия удара отменены и повтору не нужны: он считает их заново
-    payload: serializeAttackDamageRecord({
+    payload: serializeChatDamageRecord({
       ...record,
       targets: record.targets.map(toBareTarget),
     }),
@@ -489,7 +503,12 @@ function buildRollFollowUp(
   const [part] = record.parts;
 
   const applyResult = {
-    actorName: reapplied.target.name,
+    // Имя идёт только в подпись броска, а её получают все: скрытое имя цели
+    // в неё не попадает (блок такой карточки цель не называет вовсе)
+    actorName: resolvePublicTargetName(
+      reapplied.target.entityId,
+      reapplied.target.name,
+    ),
     hpBefore: reapplied.applied.hpBefore,
     hpAfter: reapplied.applied.hpAfter,
     tempAbsorbed: reapplied.applied.tempLost,
@@ -533,16 +552,23 @@ function buildSummaryFollowUp(
   const hpRowByEntity = new Map<string, HpChangeRowPlacement>();
 
   /**
-   * Имя цели для строки сводки: только когда целей несколько — единственную
+   * Цель для строки сводки: только когда целей несколько — единственную
    * называет шапка карточки атаки.
    *
+   * @param entityId - id цели строки
    * @param targetName - имя цели строки
-   * @returns поле `target` строки или пусто
+   * @returns поля цели строки или пусто
    */
-  function rowTarget(targetName: string): Pick<ChatBlockRow, 'target'> {
-    const target = pickRowTargetName(targetName, reapplied.length);
-
-    return target ? { target } : {};
+  function rowTarget(
+    entityId: string,
+    targetName: string,
+  ): Pick<ChatBlockRow, 'target' | 'targetEntityId'> {
+    return buildChatTargetFields(
+      pickRowTarget(
+        toRecordChatTarget({ name: targetName, entityId }),
+        reapplied.length,
+      ),
+    );
   }
 
   record.parts.forEach((part, partIndex) => {
@@ -589,14 +615,14 @@ function buildSummaryFollowUp(
     });
 
     blocks.push({
-      rows: hits.map(({ name, appliedPart }) => ({
+      rows: hits.map(({ name, entityId, appliedPart }) => ({
         ...(isDeduction
           ? {
               icon: DAMAGE_DEDUCTION_LABELS.icon,
               name: DAMAGE_DEDUCTION_LABELS.header,
             }
           : buildDamageChatRowLabel({ types: part.types })),
-        ...rowTarget(name),
+        ...rowTarget(entityId, name),
         ...(isDeduction
           ? { value: `${appliedPart.applied}` }
           : formatHpChangeValue(appliedPart.applied)),
@@ -607,13 +633,13 @@ function buildSummaryFollowUp(
       })),
     });
 
-    for (const { name, appliedPart } of hits) {
+    for (const { name, entityId, appliedPart } of hits) {
       const amount = isDeduction
         ? `${appliedPart.applied}`
         : `-${appliedPart.applied} HP${formatDamageDefenseSuffix(appliedPart.outcome)}`;
 
       lines.push(
-        `→ ${name}: ${formatDiceFormula(part.formula)} ${breakdown}${amount}`,
+        `→ ${resolvePublicTargetName(entityId, name)}: ${formatDiceFormula(part.formula)} ${breakdown}${amount}`,
       );
     }
   });
@@ -800,7 +826,7 @@ function buildModeRow(
     {
       ...buildDamageChatRowLabel(
         { types },
-        pickRowTargetName(view.target.name, record.targets.length),
+        pickRowTarget(toRecordChatTarget(view.target), record.targets.length),
       ),
       ...(badge ? { badge } : {}),
       ...formatHpChangeValue(view.damage),
@@ -829,7 +855,8 @@ function buildModesFollowUp(
     content: [
       record.label,
       ...views.map(
-        (view) => `→ ${view.target.name}: -${view.damage} HP${suffix}`,
+        (view) =>
+          `→ ${resolvePublicTargetName(view.target.entityId, view.target.name)}: -${view.damage} HP${suffix}`,
       ),
     ].join('\n'),
     blocks: [{ rows: views.map((view) => buildModeRow(record, view)) }],

@@ -17,6 +17,7 @@ import type {
   DnDSceneEntity,
   EffectAreaChoice,
   FormulaContext,
+  LevelSceneInput,
 } from '@vtt/shared/system/dnd.js';
 
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
@@ -29,6 +30,7 @@ import {
   resolveAreaCaster,
   settleAreaChoice,
   toChoiceCandidatePayload,
+  withTemplateAreaHeight,
 } from '@vtt/shared/system/dnd.js';
 
 import { EFFECT_TARGET_PROMPT_MODAL } from '../ui/effect/constants';
@@ -50,6 +52,8 @@ export interface AreaTargetsInput {
   tokens: readonly Token[];
   /** Размер клетки, пикс. */
   gridSize: number;
+  /** Сцена шаблона: этажи и высота делают шаблон объёмом */
+  scene?: LevelSceneInput;
   /** Сущности разбора */
   entities: readonly SceneEntity[];
 }
@@ -95,11 +99,19 @@ export function resolveAreaTargets(
   input: AreaTargetsInput,
   proceed: (targets: DnDSceneEntity[]) => void,
 ): void {
-  const candidates = listAreaCandidates(
+  // Высота цилиндра — из записи источника: в шаблон хост её не переносит
+  const template = withTemplateAreaHeight(
     input.template,
+    input.source.areaOfEffect,
+    input.scene?.gridSettings.units,
+  );
+
+  const candidates = listAreaCandidates(
+    template,
     input.tokens,
     input.gridSize,
     input.entities,
+    input.scene,
   );
 
   const choice = findAreaChoice(input.source.activeEffects);

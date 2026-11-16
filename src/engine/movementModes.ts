@@ -26,18 +26,36 @@
  * приземлении в труднопроходимую местность.
  *
  * Своя цена прыжка (`jump.cost`, заклинание «Прыжок») — участок с `cost`:
- * ядро списывает с хода цену, а не длину.
+ * ядро списывает с хода цену, а не длину. Прыжок в высоту поднимает фишку
+ * (`vertical.maxRise`, VTTG 0.9.780): приземление — общим падением ядра.
+ *
+ * Этажи (VTTG 0.9.780): полёт, левитация, плавание, лазание и копание — виды,
+ * которые можно включить СОСТОЯНИЕМ фишки (`persistent`), со своей Скоростью и
+ * правом менять высоту (`vertical`):
+ * - полёт — Скорость полёта, по прямой над низкими стенами; держит в воздухе
+ *   (`aloft`), пока летун не сбит с ног и Скорость не 0 — тогда он падает,
+ *   если не парит (PHB 2024, «Скорость полёта»);
+ * - левитация (флаг `movement.levitate`) — только вверх и вниз, до 20 футов за
+ *   перемещение, по плану не двигает;
+ * - плавание и лазание — своей Скоростью, без неё фут стоит два; в воздухе
+ *   лазание не держит — за стену держит область ядра «Подъём»;
+ * - копание — только со Скоростью копания, в том числе ниже пола.
+ * Лестница-пандус — обычная местность (в PHB 2024 ступени не труднопроходимы),
+ * приставная лестница и стена — лазание.
  *
  * @module system/dnd/movementModes
  */
 
-import type { MovementBand, MovementModes } from '@vtt/shared';
+import type { MovementBand, MovementMode, MovementModes } from '@vtt/shared';
 
-import type { ResolvedActorStats } from './activeEffectTypes.js';
+import type { EffectFlagKey, ResolvedActorStats } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 
 import { isTurnMovementSpent } from './actionRestrictions.js';
+import { hasEntityCondition } from './activeEffectTypes.js';
+import { PRONE_CONDITION_KEY } from './conditionKeys.js';
 import { JUMP_OBSTACLE_RATIO, JUMP_RUN_UP_FEET } from './consts.js';
+import { HOVER_FLAG } from './falling.js';
 
 /** Id вида «Ходьба» — вид обычного перетаскивания фишки */
 export const WALK_MOVEMENT_MODE_ID = 'walk';
@@ -45,11 +63,47 @@ export const WALK_MOVEMENT_MODE_ID = 'walk';
 /** Id вида «Прыжок» — его включает кнопка полки действий */
 export const JUMP_MOVEMENT_MODE_ID = 'jump';
 
+/** Id вида «Полёт» */
+export const FLY_MOVEMENT_MODE_ID = 'fly';
+
+/** Id вида «Левитация» */
+export const LEVITATE_MOVEMENT_MODE_ID = 'levitate';
+
+/** Id вида «Плавание» */
+export const SWIM_MOVEMENT_MODE_ID = 'swim';
+
+/** Id вида «Лазание» */
+export const CLIMB_MOVEMENT_MODE_ID = 'climb';
+
+/** Id вида «Копание» */
+export const BURROW_MOVEMENT_MODE_ID = 'burrow';
+
+/** Флаг «Левитация»: держится в воздухе, движется только вверх и вниз */
+export const LEVITATE_FLAG: EffectFlagKey = 'movement.levitate';
+
+/** На сколько футов за перемещение левитация поднимает или опускает (PHB 2024) */
+export const LEVITATE_VERTICAL_FEET = 20;
+
+/**
+ * Во сколько раз дороже фут плавания и лазания без своей Скорости (PHB 2024:
+ * каждый фут стоит один лишний)
+ */
+const UNTRAINED_MOVE_COST = 2;
+
 /** Подписи видов и участков — их ядро пишет у курсора */
 const MOVEMENT_MODE_LABELS = {
   walk: 'Ходьба',
   dash: 'Рывок',
   walkBeyond: 'не дойти за ход',
+  fly: 'Полёт',
+  flyBeyond: 'не долететь за ход',
+  levitate: 'Левитация',
+  levitateOnly: 'Только вверх и вниз',
+  levitateHint: `Вверх или вниз до ${LEVITATE_VERTICAL_FEET} фт`,
+  swim: 'Плавание',
+  climb: 'Лазание',
+  burrow: 'Копание',
+  slowBeyond: 'не добраться за ход',
   jump: 'Прыжок',
   standingJump: 'Прыжок с места',
   runningJump: 'Прыжок с разбегом',
@@ -229,35 +283,197 @@ function describeHighJump(jump: JumpDistances): string | undefined {
 }
 
 /**
+ * Участки хода своей Скоростью: до Скорости обычным шагом, до двух —
+ * «Рывком». Нет хода — пусто.
+ *
+ * @param speed - Скорость вида
+ * @returns участки
+ */
+function buildSpeedBands(speed: number): MovementBand[] {
+  return speed > 0
+    ? [
+        { id: 'walk', label: '', upTo: speed, tone: 'success' },
+        {
+          id: 'dash',
+          label: MOVEMENT_MODE_LABELS.dash,
+          upTo: speed * 2,
+          tone: 'error',
+        },
+      ]
+    : [];
+}
+
+/** Что, кроме Скорости ходьбы и прыжка, решает виды перемещения сущности */
+export interface MovementModesState {
+  /** Скорости по видам с эффектами (`speed.zero` их уже обнулил) */
+  movement: ResolvedActorStats['movement'];
+  /** Ход за этот ход уже отдан («одно из трёх») */
+  movementSpent: boolean;
+  /** Парит: сбитый с ног или без Скорости летун не падает */
+  hover: boolean;
+  /** Под левитацией */
+  levitating: boolean;
+  /** Лежит ничком */
+  prone: boolean;
+}
+
+/**
+ * Что решает виды перемещения сущности: скорости, парение, левитация и
+ * «ничком».
+ *
+ * @param entity - сущность
+ * @param stats - её разрешённые статы
+ * @returns состояние для видов
+ */
+export function resolveMovementModesState(
+  entity: DnDSceneEntity,
+  stats: Pick<ResolvedActorStats, 'movement' | 'activeFlags'>,
+): MovementModesState {
+  return {
+    movement: stats.movement,
+    movementSpent: isTurnMovementSpent(entity, stats.activeFlags),
+    hover:
+      entity.system.movement?.hover === true
+      || stats.activeFlags.has(HOVER_FLAG),
+    levitating: stats.activeFlags.has(LEVITATE_FLAG),
+    prone: hasEntityCondition(entity, PRONE_CONDITION_KEY),
+  };
+}
+
+/**
+ * Скорость вида без своей Скорости: ходьба, где каждый фут стоит два.
+ *
+ * @param own - своя Скорость вида
+ * @param walk - Скорость ходьбы
+ * @returns Скорость вида
+ */
+function resolveUntrainedSpeed(own: number, walk: number): number {
+  return own > 0 ? own : Math.floor(walk / UNTRAINED_MOVE_COST);
+}
+
+/**
+ * Виды перемещения, которые меняют высоту: полёт, левитация, плавание,
+ * лазание, копание. Каждый — своей Скоростью; вид, которого у сущности нет
+ * (полёт без Скорости полёта), не предлагается.
+ *
+ * @param state - скорости и состояние сущности
+ * @returns виды по порядку
+ */
+export function buildVerticalMovementModes(
+  state: MovementModesState,
+): MovementMode[] {
+  const { movement } = state;
+  const turn = (speed: number): number => (state.movementSpent ? 0 : speed);
+  const modes: MovementMode[] = [];
+
+  if (movement.fly > 0 || state.hover) {
+    modes.push({
+      id: FLY_MOVEMENT_MODE_ID,
+      label: MOVEMENT_MODE_LABELS.fly,
+      measure: 'straight',
+      bands: buildSpeedBands(turn(movement.fly)),
+      beyondLabel: MOVEMENT_MODE_LABELS.flyBeyond,
+      persistent: true,
+      // Сбитый с ног или без Скорости летун падает, если не парит
+      aloft: state.hover || (!state.prone && movement.fly > 0),
+      vertical: { allowed: true },
+      // Над низкой стеной летун пролетает; стену во всю высоту — нет
+      clearance: {},
+    });
+  }
+
+  if (state.levitating) {
+    modes.push({
+      id: LEVITATE_MOVEMENT_MODE_ID,
+      label: MOVEMENT_MODE_LABELS.levitate,
+      measure: 'straight',
+      bands: [
+        {
+          id: 'levitate',
+          label: MOVEMENT_MODE_LABELS.levitateOnly,
+          upTo: 0,
+          tone: 'success',
+        },
+      ],
+      beyondLabel: MOVEMENT_MODE_LABELS.levitateOnly,
+      hint: MOVEMENT_MODE_LABELS.levitateHint,
+      persistent: true,
+      aloft: true,
+      vertical: {
+        allowed: true,
+        maxRise: LEVITATE_VERTICAL_FEET,
+        maxDrop: LEVITATE_VERTICAL_FEET,
+      },
+    });
+  }
+
+  modes.push(
+    {
+      id: SWIM_MOVEMENT_MODE_ID,
+      label: MOVEMENT_MODE_LABELS.swim,
+      measure: 'path',
+      bands: buildSpeedBands(
+        turn(resolveUntrainedSpeed(movement.swim, movement.walk)),
+      ),
+      beyondLabel: MOVEMENT_MODE_LABELS.slowBeyond,
+      persistent: true,
+      // Ныряет ниже поверхности (VTTG 0.9.780: без поля ядро не пустит под пол)
+      vertical: { allowed: true, belowFloor: true },
+    },
+    {
+      id: CLIMB_MOVEMENT_MODE_ID,
+      label: MOVEMENT_MODE_LABELS.climb,
+      measure: 'path',
+      bands: buildSpeedBands(
+        turn(resolveUntrainedSpeed(movement.climb, movement.walk)),
+      ),
+      beyondLabel: MOVEMENT_MODE_LABELS.slowBeyond,
+      persistent: true,
+      // В воздухе вид НЕ держит: иначе включённое «Лазание» вешало бы фишку
+      // посреди комнаты, как полёт. За стену, стремянку, канат держит область
+      // ядра «Подъём» — там высоту меняют и без вида
+      vertical: { allowed: true },
+    },
+  );
+
+  if (movement.burrow > 0) {
+    modes.push({
+      id: BURROW_MOVEMENT_MODE_ID,
+      label: MOVEMENT_MODE_LABELS.burrow,
+      measure: 'path',
+      bands: buildSpeedBands(turn(movement.burrow)),
+      beyondLabel: MOVEMENT_MODE_LABELS.slowBeyond,
+      persistent: true,
+      // Копает вглубь, ниже пола своего этажа
+      vertical: { allowed: true, belowFloor: true },
+    });
+  }
+
+  return modes;
+}
+
+/**
  * Виды перемещения сущности для ядра.
  *
  * Ходьба — по маршруту: до Скорости обычным шагом, до двух Скоростей —
  * «Рывком» (прибавка, равная Скорости). Прыжок — по прямой, участки с места и
- * с разбегом. Нет хода — у обоих видов пустые участки: ядро зону не рисует, а
- * режим прыжка не включается.
+ * с разбегом, вверх — на высоту прыжка. Нет хода — у обоих видов пустые
+ * участки: ядро зону не рисует, а режим прыжка не включается. Дальше — виды
+ * со сменой высоты ({@link buildVerticalMovementModes}).
  *
  * @param speed - Скорость, которой сущность перемещается
  * @param jump - дальности прыжка
+ * @param state - скорости и состояние сущности; нет — только ходьба и прыжок
  * @returns виды перемещения; вид по умолчанию — ходьба
  */
 export function buildMovementModes(
   speed: number,
   jump: JumpDistances,
+  state?: MovementModesState,
 ): MovementModes {
-  const walkBands: MovementBand[] =
-    speed > 0
-      ? [
-          { id: 'walk', label: '', upTo: speed, tone: 'success' },
-          {
-            id: 'dash',
-            label: MOVEMENT_MODE_LABELS.dash,
-            upTo: speed * 2,
-            tone: 'error',
-          },
-        ]
-      : [];
-
+  const walkBands = buildSpeedBands(speed);
   const hint = describeHighJump(jump);
+  const highJump = Math.max(jump.standingHigh, jump.runningHigh);
 
   return {
     defaultModeId: WALK_MOVEMENT_MODE_ID,
@@ -283,7 +499,12 @@ export function buildMovementModes(
         // Низкое препятствие (VTTG 0.9.756+, стена с высотой) не выше четверти
         // длины прыжка перелетается; выше — «вы врезаетесь», поэтому без оговорки
         clearance: { ratio: JUMP_OBSTACLE_RATIO },
+        // Прыжок в высоту поднимает фишку (VTTG 0.9.780); вниз — общим падением
+        ...(highJump > 0
+          ? { vertical: { allowed: true, maxRise: highJump } }
+          : {}),
       },
+      ...(state ? buildVerticalMovementModes(state) : []),
     ],
   };
 }

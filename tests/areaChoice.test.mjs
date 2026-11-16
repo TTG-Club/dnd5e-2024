@@ -521,6 +521,7 @@ describe('общий разбор целей области', () => {
         resolveAreaCaster: engine.resolveAreaCaster,
         settleAreaChoice: engine.settleAreaChoice,
         toChoiceCandidatePayload: engine.toChoiceCandidatePayload,
+        withTemplateAreaHeight: engine.withTemplateAreaHeight,
         buildChoiceContext: () => undefined,
         EFFECT_TARGET_PROMPT_MODAL: 'EffectTargetPromptModal',
         useModalManager: () => ({

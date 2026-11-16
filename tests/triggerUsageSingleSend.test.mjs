@@ -218,6 +218,7 @@ describe('журнал срабатываний уходит один раз н�
     const toasts = [];
 
     const payPorts = {
+      resolvePublicEntityName: (entity) => entity.name,
       planEffectPay: engine.planEffectPay,
       settleEffectPay: engine.settleEffectPay,
       payNeedsChoice: engine.payNeedsChoice,

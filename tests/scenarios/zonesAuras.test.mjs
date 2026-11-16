@@ -516,10 +516,62 @@ describe('каталог: зоны и ауры', () => {
     assert.equal(Math.abs(toward.dy), 0);
   });
 
-  // Пробелы: точку выбирает человек, а «При действии» клиентское; третьей
-  // координаты фишки ядро не отдаёт
+  it('[Z20] Высота области: «всем в радиусе» и шаблон — в объёме', () => {
+    const cleric = createActor({ id: 'cleric' });
+    const walker = createCreature({ id: 'walker' });
+    const flyer = createCreature({ id: 'flyer' });
+
+    const surroundings = {
+      token: createToken('cleric', 0, 0),
+      gridSettings: GRID,
+      neighbors: [
+        { entity: walker, token: createToken('walker', 1, 0) },
+        {
+          entity: flyer,
+          token: createToken('flyer', 1, 0, { aboveFloor: 4 * FEET_PER_CELL }),
+        },
+      ],
+    };
+
+    // Радиус 10 футов: летун на 20 футах над полом — мимо
+    assert.deepEqual(
+      engine
+        .findEntitiesInArea(surroundings, { radius: 2 * FEET_PER_CELL }, cleric)
+        .map((entity) => entity.id),
+      ['walker'],
+    );
+
+    // Огненный шар радиусом 20 футов: летун над центром — в шаре, выше — нет
+    const fireball = {
+      id: 'fireball',
+      type: 'circle',
+      originX: CELL_SIZE * 1.5,
+      originY: CELL_SIZE / 2,
+      targetX: CELL_SIZE * 5.5,
+      targetY: CELL_SIZE / 2,
+    };
+
+    const high = createCreature({ id: 'high' });
+
+    const candidates = engine.listAreaCandidates(
+      fireball,
+      [
+        createToken('flyer', 1, 0, { aboveFloor: 3 * FEET_PER_CELL }),
+        createToken('high', 1, 0, { aboveFloor: 5 * FEET_PER_CELL }),
+      ],
+      CELL_SIZE,
+      [flyer, high],
+      { gridSettings: GRID },
+    );
+
+    assert.deepEqual(
+      candidates.map((candidate) => candidate.entity.id),
+      ['flyer'],
+    );
+  });
+
+  // Пробелы: точку выбирает человек, а «При действии» клиентское
   it.todo('[Z18b] Переместить зону действием в выбранную точку');
-  it.todo('[Z20] Высота области');
   it.todo('[Z21] Зона, в которую нельзя войти');
   it.todo('[Z22] Зона не пропускает звук');
   it.todo('[Z23] Вырезанные участки зоны');

@@ -6,9 +6,28 @@
  * какие токены попали в область заклинания.
  */
 
-import type { DiagonalRule, MeasurementTemplate, Token } from '@vtt/shared';
+import type {
+  DiagonalRule,
+  DistanceUnit,
+  MeasurementTemplate,
+  PreparedSight3d,
+  ScenePoint3d,
+  SceneVerticalModel,
+  SpellAreaOfEffect,
+  Token,
+  VerticalRange,
+} from '@vtt/shared';
 
-import { isPointInCircle } from '@vtt/shared';
+import {
+  convertDistance,
+  getPointVerticalRange,
+  getTokenPlanCenter,
+  getTokenVerticalRange,
+  hasLineOfSight3d,
+  isOpenThroughFloors,
+  isPointInCircle,
+  normalizeFloorId,
+} from '@vtt/shared';
 
 /**
  * Половинный угол конуса D&D 5e (радианы).
@@ -289,6 +308,259 @@ export function isPointInTemplate(
 }
 
 /**
+ * Допуск на границе объёма, пикселей: точка ровно на верхней грани куба или
+ * на краю сферы не должна выпадать по погрешности перевода футов в пиксели.
+ */
+const TEMPLATE_VOLUME_EPSILON_PX = 0.1;
+
+/**
+ * Сколько единиц сцены в клетке, когда хук ядра сетки не назвал: клетка D&D —
+ * 5 футов.
+ */
+export const DEFAULT_TEMPLATE_UNITS_PER_CELL = 5;
+
+/**
+ * Попадает ли точка в ОБЪЁМ шаблона по правилам D&D 5e (PHB 2024, «Области
+ * воздействия»):
+ * - круг (`circle`) — **сфера** с центром в точке начала: огненный шар
+ *   задевает и балкон над двором, и летуна;
+ * - цилиндр — круг от точки начала вверх на свою высоту
+ *   (`template.height`, из `areaOfEffect.height`); без высоты — вверх без
+ *   предела (до потолка, его режет ядро);
+ * - куб (`rect`) — от пола точки начала вверх на свою сторону;
+ * - конус — объёмный, с горизонтальной осью: угол к оси меряется в 3D, и
+ *   ширина у основания равна длине и вверх, и вниз;
+ * - линия (`ray`) — брус своей ширины, по высоте — полширины вверх и вниз.
+ *
+ * На высоте точки начала ответ тот же, что у плоского
+ * {@link isPointInTemplate}.
+ *
+ * @param point - точка: план в пикселях, высота в единицах сцены
+ * @param origin - точка начала шаблона: план в пикселях, высота в единицах
+ * @param template - шаблон
+ * @param gridSize - размер клетки, пикселей
+ * @param unitsPerCell - единиц сцены в клетке (футов)
+ * @returns true, если точка в объёме
+ */
+export function isPointInTemplateVolume(
+  point: ScenePoint3d,
+  origin: ScenePoint3d,
+  template: MeasurementTemplate,
+  gridSize: number,
+  unitsPerCell: number,
+): boolean {
+  if (!isPointInTemplate(point.x, point.y, gridSize, template)) {
+    // Сфера и конус в объёме по плану не шире своего круга: вне плоской
+    // фигуры точка не попадёт и выше или ниже
+    return false;
+  }
+
+  const pixelsPerUnit = unitsPerCell > 0 ? gridSize / unitsPerCell : 0;
+  const dz = (point.z - origin.z) * pixelsPerUnit;
+
+  if (dz === 0) {
+    return true;
+  }
+
+  const dx = point.x - template.originX;
+  const dy = point.y - template.originY;
+  const axisX = template.targetX - template.originX;
+  const axisY = template.targetY - template.originY;
+  const length = Math.hypot(axisX, axisY);
+
+  switch (template.type) {
+    case 'circle': {
+      return Math.hypot(dx, dy, dz) <= length + TEMPLATE_VOLUME_EPSILON_PX;
+    }
+    case 'cylinder': {
+      const heightPx =
+        template.height === undefined
+          ? Number.POSITIVE_INFINITY
+          : template.height * pixelsPerUnit;
+
+      return (
+        dz >= -TEMPLATE_VOLUME_EPSILON_PX
+        && dz <= heightPx + TEMPLATE_VOLUME_EPSILON_PX
+      );
+    }
+    case 'rect': {
+      const sidePx = Math.max(Math.abs(axisX), Math.abs(axisY));
+
+      return (
+        dz >= -TEMPLATE_VOLUME_EPSILON_PX
+        && dz <= sidePx + TEMPLATE_VOLUME_EPSILON_PX
+      );
+    }
+    case 'cone': {
+      const distance = Math.hypot(dx, dy, dz);
+
+      if (distance > length + TEMPLATE_VOLUME_EPSILON_PX) {
+        return false;
+      }
+
+      // Проекция на горизонтальную ось конуса против наклона к ней
+      const alongAxis = (dx * axisX + dy * axisY) / length;
+
+      return (
+        Math.acos(Math.min(1, alongAxis / distance))
+        <= MEASUREMENT_CONE_HALF_ANGLE + CONE_EDGE_ANGLE_EPSILON
+      );
+    }
+    case 'ray': {
+      const halfWidth = (template.width ?? gridSize) / 2;
+
+      return Math.abs(dz) <= halfWidth + TEMPLATE_VOLUME_EPSILON_PX;
+    }
+    default: {
+      return false;
+    }
+  }
+}
+
+/**
+ * Шаблон с высотой цилиндра из записи заклинания. Хост при размещении
+ * переносит в шаблон только форму, размер и ширину, а высота цилиндра живёт
+ * в `areaOfEffect.height`; без неё цилиндр («Лунный луч», «Огненная стена»
+ * кольцом) был бы бесконечно высоким. Высота переводится в единицы сцены.
+ *
+ * @param template - размещённый шаблон
+ * @param area - область заклинания; нет — шаблон как есть
+ * @param sceneUnit - единицы сцены; нет — высота в единицах записи
+ * @returns шаблон с высотой цилиндра
+ */
+export function withTemplateAreaHeight(
+  template: MeasurementTemplate,
+  area: SpellAreaOfEffect | undefined,
+  sceneUnit: DistanceUnit | undefined,
+): MeasurementTemplate {
+  if (
+    template.type !== 'cylinder'
+    || template.height !== undefined
+    || area?.height === undefined
+  ) {
+    return template;
+  }
+
+  return {
+    ...template,
+    height: sceneUnit
+      ? convertDistance(area.height, area.unit, sceneUnit)
+      : area.height,
+  };
+}
+
+/**
+ * Вертикаль сцены для шаблона: модель этажей и рост фишек. Без неё шаблон
+ * плоский, как раньше.
+ */
+export interface TemplateLevelContext {
+  /** Модель вертикали сцены */
+  model: SceneVerticalModel;
+  /** Подготовленный 3D-луч со стенами; без него проверяются только перекрытия */
+  preparedSight?: PreparedSight3d;
+  /** Рост фишки по правилам; нет ответа — по умолчанию ядра */
+  resolveHeight?: (token: Token) => number | undefined;
+}
+
+/**
+ * Абсолютная точка начала шаблона: план и высота его этажа плюс
+ * `aboveFloor`.
+ *
+ * @param model - модель вертикали
+ * @param template - шаблон
+ * @returns точка начала
+ */
+export function resolveTemplateOrigin(
+  model: SceneVerticalModel,
+  template: MeasurementTemplate,
+): ScenePoint3d {
+  return {
+    x: template.originX,
+    y: template.originY,
+    z: getPointVerticalRange(
+      model,
+      template.floorId,
+      template.aboveFloor,
+      template.originX,
+      template.originY,
+    ).bottom,
+  };
+}
+
+/**
+ * На сколько единиц сцены пробные точки роста отступают внутрь отрезка фишки:
+ * ступни лежат ровно на плоскости пола, и без отступа пол под ними не
+ * считался бы преградой.
+ */
+const TEMPLATE_BODY_INSET = 0.01;
+
+/**
+ * Пробные высоты на росте фишки: ближайшая к точке начала шаблона, ступни,
+ * середина и макушка (с отступом внутрь). Шаблон задевает существо, если
+ * задевает хоть часть его роста, до которой от начала ничто не закрывает.
+ *
+ * @param range - отрезок фишки
+ * @param originZ - высота точки начала
+ * @returns высоты пробных точек
+ */
+function listProbeHeights(range: VerticalRange, originZ: number): number[] {
+  const inset = Math.min(TEMPLATE_BODY_INSET, (range.top - range.bottom) / 2);
+  const low = range.bottom + inset;
+  const high = Math.max(low, range.top - inset);
+
+  return [
+    Math.min(Math.max(originZ, low), high),
+    low,
+    (range.bottom + range.top) / 2,
+    high,
+  ];
+}
+
+/**
+ * Накрывает ли шаблон фишку в объёме: центр фишки по плану, по высоте — хоть
+ * одна пробная точка роста в объёме, и между ней и точкой начала нет
+ * перекрытия без проёма (огненный шар во дворе не жжёт сквозь пол комнату
+ * над ним, а того, кто стоит на балконе над краем двора, — жжёт).
+ *
+ * @param token - фишка
+ * @param template - шаблон
+ * @param gridSize - размер клетки, пикселей
+ * @param levels - вертикаль сцены
+ * @param origin - точка начала шаблона
+ * @returns true, если фишка в объёме
+ */
+function isTokenInTemplateVolume(
+  token: Token,
+  template: MeasurementTemplate,
+  gridSize: number,
+  levels: TemplateLevelContext,
+  origin: ScenePoint3d,
+): boolean {
+  const { model } = levels;
+  const center = getTokenPlanCenter(model, token, token.scale);
+
+  const range = getTokenVerticalRange(model, token, {
+    height: levels.resolveHeight?.(token),
+  });
+
+  const sameFloor =
+    normalizeFloorId(token.floorId) === normalizeFloorId(template.floorId);
+
+  return listProbeHeights(range, origin.z).some((z) => {
+    const point = { ...center, z };
+
+    const open = levels.preparedSight
+      ? hasLineOfSight3d(levels.preparedSight, origin, point)
+      : sameFloor || isOpenThroughFloors(model, origin, point, 'movement');
+
+    return (
+      isPointInTemplateVolume(point, origin, template, gridSize, model.cellStep)
+      && open
+    );
+  });
+}
+
+/**
  * Проверяет, попадает ли центр токена в область шаблона.
  *
  * @param tokenX - X позиция токена (левый верхний угол)
@@ -324,18 +596,32 @@ export function isTokenInTemplate(
  * получает. Пока скрытые отсеивались здесь, мастер накрывал их площадью и
  * получал «в области никого нет».
  *
+ * С вертикалью сцены шаблон — объём ({@link isPointInTemplateVolume}):
+ * летун над кругом заклинания задет, только если до него достаёт сфера, а
+ * фишка за перекрытием без проёма не задета вовсе.
+ *
  * @param template - шаблон измерения (область заклинания)
  * @param tokens - массив токенов сцены
  * @param gridSize - размер клетки в пикселях
+ * @param levels - вертикаль сцены; нет — по плану
  * @returns массив токенов, попавших в область
  */
 export function findTokensInTemplate(
   template: MeasurementTemplate,
   tokens: readonly Token[],
   gridSize: number,
+  levels?: TemplateLevelContext,
 ): Token[] {
+  if (!levels) {
+    return tokens.filter((token) =>
+      isTokenInTemplate(token.x, token.y, token.scale, gridSize, template),
+    );
+  }
+
+  const origin = resolveTemplateOrigin(levels.model, template);
+
   return tokens.filter((token) =>
-    isTokenInTemplate(token.x, token.y, token.scale, gridSize, template),
+    isTokenInTemplateVolume(token, template, gridSize, levels, origin),
   );
 }
 

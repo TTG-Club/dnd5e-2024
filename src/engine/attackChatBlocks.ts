@@ -10,6 +10,8 @@
  * урона и снятые хиты, формула и защиты цели — в свёрнутых подробностях.
  * Единственную цель называет шапка, и строки её не повторяют; несколько
  * целей называют строки, а шапка — нет; без цели имени нет нигде.
+ * Рядом с именем цели уходит её id (`ChatTarget`): по нему ядро прячет от
+ * игроков имя существа без «Показывать имя» (см. `chatTargets.ts`).
  * Хиты цели до и после («HP: 47 → 42») — тоже в подробностях строки урона,
  * но видят их все, только если хиты цели открыты игрокам; иначе строка
  * уходит в подробности для мастера (`gmDetail`), которые сервер игрокам не
@@ -22,12 +24,14 @@
 
 import type { ChatBadge, ChatBlock, ChatBlockRow } from '@vtt/shared';
 
+import type { ChatTarget } from './chatTargets.js';
 import type {
   DamageDefenseOutcome,
   DndDamageApplyResult,
   HpChangeDetail,
 } from './damageUtils.js';
 
+import { buildChatTargetFields } from './chatTargets.js';
 import { resolveDamageTypeLabel } from './damageConstants.js';
 
 /** Каким видом идёт атака — от него значок в шапке карточки */
@@ -105,6 +109,8 @@ export interface AttackChatBlockParams {
   name: string;
   /** Имя цели; нет — цель не выбрана */
   targetName?: string;
+  /** id цели: по нему ядро прячет от игроков её скрытое имя */
+  targetEntityId?: string | null;
   /** Исход броска */
   result: AttackChatOutcome;
   /** Вид атаки; не задан — рукопашная */
@@ -168,7 +174,14 @@ export function buildAttackChatBlock(params: AttackChatBlockParams): ChatBlock {
   return {
     icon: ATTACK_CHAT_ICONS[params.attackKind ?? 'melee'],
     title: params.name,
-    ...(params.targetName ? { target: params.targetName } : {}),
+    ...buildChatTargetFields(
+      params.targetName
+        ? {
+            name: params.targetName,
+            entityId: params.targetEntityId ?? undefined,
+          }
+        : undefined,
+    ),
     ...(badge ? { badge } : {}),
     ...resolveAttackNote(params),
   };
@@ -178,40 +191,40 @@ export function buildAttackChatBlock(params: AttackChatBlockParams): ChatBlock {
 export interface ActionChatHeaderParams {
   /** Чем действовали: оружие, действие существа, заклинание */
   name: string;
-  /** Имена всех целей действия; единственную называет шапка */
-  targetNames?: readonly string[];
+  /** Все цели действия; единственную называет шапка */
+  targets?: readonly ChatTarget[];
   /** Значок действия; не задан — шапка без значка */
   icon?: string;
 }
 
 /**
- * Имя цели для шапки карточки: единственная цель называется в шапке, и строки
+ * Цель для шапки карточки: единственная цель называется в шапке, и строки
  * её не повторяют. Целей несколько или нет вовсе — шапка без цели.
  *
- * @param targetNames - имена всех целей действия
- * @returns имя единственной цели или `undefined`
+ * @param targets - все цели действия
+ * @returns единственная цель или `undefined`
  */
-export function pickHeaderTargetName(
-  targetNames: readonly string[],
-): string | undefined {
-  const [onlyName, ...rest] = targetNames;
+export function pickHeaderTarget(
+  targets: readonly ChatTarget[],
+): ChatTarget | undefined {
+  const [onlyTarget, ...rest] = targets;
 
-  return rest.length === 0 ? onlyName : undefined;
+  return rest.length === 0 ? onlyTarget : undefined;
 }
 
 /**
- * Имя цели для строки итога: строки называют цель, только когда целей
+ * Цель для строки итога: строки называют цель, только когда целей
  * несколько, — единственную уже назвала шапка.
  *
- * @param targetName - имя цели строки
+ * @param target - цель строки
  * @param targetCount - сколько целей у действия
- * @returns имя цели или `undefined`, если строке оно не нужно
+ * @returns цель или `undefined`, если строке она не нужна
  */
-export function pickRowTargetName(
-  targetName: string,
+export function pickRowTarget(
+  target: ChatTarget,
   targetCount: number,
-): string | undefined {
-  return targetCount > 1 ? targetName : undefined;
+): ChatTarget | undefined {
+  return targetCount > 1 ? target : undefined;
 }
 
 /**
@@ -223,17 +236,15 @@ export function pickRowTargetName(
  */
 export function buildActionChatHeader(
   params: ActionChatHeaderParams,
-): Pick<ChatBlock, 'icon' | 'title' | 'target'> {
+): Pick<ChatBlock, 'icon' | 'title' | 'target' | 'targetEntityId'> {
   if (!params.name) {
     return {};
   }
 
-  const target = pickHeaderTargetName(params.targetNames ?? []);
-
   return {
     ...(params.icon ? { icon: params.icon } : {}),
     title: params.name,
-    ...(target ? { target } : {}),
+    ...buildChatTargetFields(pickHeaderTarget(params.targets ?? [])),
   };
 }
 
@@ -253,14 +264,14 @@ export interface DamageChatKind {
  * несколько. Значок — только у лечения: урон назван словами.
  *
  * @param kind - вид части
- * @param targetName - имя цели для строки (см. {@link pickRowTargetName})
+ * @param rowTarget - цель для строки (см. {@link pickRowTarget})
  * @returns значок, название и цель строки блока
  */
 export function buildDamageChatRowLabel(
   kind: DamageChatKind,
-  targetName?: string,
-): Pick<ChatBlockRow, 'icon' | 'name' | 'target'> {
-  const target = targetName ? { target: targetName } : {};
+  rowTarget?: ChatTarget,
+): Pick<ChatBlockRow, 'icon' | 'name' | 'target' | 'targetEntityId'> {
+  const target = buildChatTargetFields(rowTarget);
 
   if (kind.isHealing) {
     return kind.healTemp
@@ -445,6 +456,8 @@ export interface DamageChatRowOptions {
   detail?: string;
   /** Назвать цель в строке: целей у действия несколько */
   namesTarget?: boolean;
+  /** id цели — рядом с её именем в строке (см. `ChatTarget.entityId`) */
+  targetEntityId?: string;
 }
 
 /**
@@ -475,7 +488,9 @@ export function buildDamageChatRow(
     {
       ...buildDamageChatRowLabel(
         { types: options.damageType ? [options.damageType] : [] },
-        options.namesTarget ? applyResult.actorName : undefined,
+        options.namesTarget
+          ? { name: applyResult.actorName, entityId: options.targetEntityId }
+          : undefined,
       ),
       ...formatHpChangeValue(totalDamage),
       ...(rowDetail ? { detail: rowDetail } : {}),
@@ -542,7 +557,10 @@ export function buildDamageChatBlock(
  * @returns блоки для отдельного сообщения; без блоков — одна шапка
  */
 export function headChatBlocks(
-  header: Pick<ChatBlock, 'icon' | 'title' | 'target' | 'note'>,
+  header: Pick<
+    ChatBlock,
+    'icon' | 'title' | 'target' | 'targetEntityId' | 'note'
+  >,
   blocks: readonly ChatBlock[],
 ): ChatBlock[] {
   const [first, ...rest] = blocks;

@@ -357,7 +357,9 @@ it('каст существа решает окно тем же планом, с
   // Своего условия «без окна» у существа больше нет — решает план
   assert.match(source, /resolveSpellCastPlan\(/u);
   assert.match(source, /plan\.window !== 'roll'/u);
-  assert.match(source, /forceMultiPart: true/u);
+  // Многочастный путь у существа всегда, кроме снарядов: их формула
+  // катится на каждый снаряд, как у персонажа
+  assert.match(source, /forceMultiPart: !hasProjectiles/u);
 
   for (const row of TABLE.filter((entry) => !entry.input.hasProjectiles)) {
     const castSpell = row.input.spell;

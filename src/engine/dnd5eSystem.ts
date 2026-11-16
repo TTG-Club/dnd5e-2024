@@ -7,22 +7,29 @@ import type {
   ConditionDefinition,
   CustomArea,
   DiceRollData,
+  EffectAura,
   Feature,
   GridSettings,
   HealthCondition,
+  ItemStorageFitInput,
+  ItemStorageVerdict,
   MeasurementTemplate,
   MovementModes,
   MovementRange,
   SceneEntity,
+  ScenePoint3d,
   ServerRollRequester,
   SystemClientEventContext,
   SystemCombatStateResult,
   SystemDeferredTrigger,
   SystemDeferredTriggerResult,
+  SystemDistanceSubject,
   SystemRelatedTriggerResult,
   SystemRollResult,
   SystemTokenMovement,
   SystemTriggerContext,
+  SystemUnsupportedContext,
+  SystemUnsupportedDecision,
   Token,
   VttSystem,
 } from '@vtt/shared';
@@ -50,7 +57,11 @@ import type {
 import type { EffectTriggerArea } from './effectTriggerTypes.js';
 import type { DndEntityLight } from './entityLight.js';
 import type { DndEntityVision } from './entityVision.js';
-import type { AreaEffectsSyncResult } from './positionalEffects.js';
+import type { InventoryItemChange } from './itemTransfer.js';
+import type {
+  AreaEffectsSyncResult,
+  AuraTriggerScene,
+} from './positionalEffects.js';
 import type { SceneSight } from './sceneSight.js';
 import type { SystemClientEvent } from './systemClientEvents.js';
 import type {
@@ -91,6 +102,7 @@ import {
 } from './auraMath.js';
 import { syncAutoAppliedConditions } from './autoConditions.js';
 import { normalizeActor, normalizeCreature } from './calculations.js';
+import { resolvePublicEntityName } from './chatTargets.js';
 import { resolveClassLabel } from './classLabels.js';
 import { CLASS_KEY_OPTIONS } from './classTypes.js';
 import { recordCombatBaseline } from './combatEffectChanges.js';
@@ -174,6 +186,7 @@ import { isLegacyTrigger, listEffectEventTriggers } from './effectTriggers.js';
 import { isDndSceneEntity } from './entityGuards.js';
 import { resolveEntityLight as resolveEntityLightImpl } from './entityLight.js';
 import { resolveEntityVision as resolveEntityVisionImpl } from './entityVision.js';
+import { applyFallToEntity, resolveDndUnsupported } from './falling.js';
 import { buildFeatGrantsSummary } from './featGrantsSummary.js';
 import { validateFormula } from './formulaParser.js';
 import {
@@ -181,18 +194,31 @@ import {
   resolveEntityMaxHp,
   resolveEntityTempHp,
 } from './hitPoints.js';
+import {
+  canStoreItem as canStoreItemImpl,
+  isContainerItem as isContainerItemImpl,
+} from './itemContainer.js';
+import { getSceneItemIcon } from './itemIcon.js';
 import { validateGameItem } from './itemSchemas.js';
-import { transferItem } from './itemTransfer.js';
+import {
+  giveItemToEntity as giveItemToEntityImpl,
+  listEntityItems as listEntityItemsImpl,
+  takeItemFromEntity as takeItemFromEntityImpl,
+  transferItem,
+} from './itemTransfer.js';
 import {
   buildMovementModes,
   resolveJumpDistances,
+  resolveMovementModesState,
   resolveTurnSpeed,
 } from './movementModes.js';
+import { reconcileMovementMode } from './movementModeSync.js';
 import {
   applyAuraTriggerEffects as computeAuraTriggerEffects,
   runPresenceTriggerSources,
   syncActorAreaEffects,
 } from './positionalEffects.js';
+import { getVerticalRangeGap, resolveDndEntityHeight } from './sceneLevels.js';
 import {
   reconcileScenePresence,
   releaseOffSceneEffects,
@@ -202,7 +228,11 @@ import { SPELL_SCHOOL_LABELS } from './spellTypes.js';
 import { damagePartIsHealing } from './spellUtils.js';
 import { parseSystemClientEvent } from './systemClientEvents.js';
 import { SYSTEM_ID } from './systemId.js';
-import { isPointInTemplate as isPointInTemplateGeometry } from './templateGeometry.js';
+import {
+  DEFAULT_TEMPLATE_UNITS_PER_CELL,
+  isPointInTemplate as isPointInTemplateGeometry,
+  isPointInTemplateVolume,
+} from './templateGeometry.js';
 import {
   entityIgnoresTerrainCost as entityIgnoresTerrainCostImpl,
   resolveAreaTerrainCost,
@@ -368,7 +398,7 @@ function formatEntryDeferredSummary(
 ): (entity: DnDSceneEntity, outcome: DeferredEffectOutcome) => string | null {
   return (entity, outcome) =>
     formatDeferredEffectsSummary(
-      entity.name,
+      resolvePublicEntityName(entity),
       label,
       outcome,
       formatEntrySaveStatus,
@@ -437,7 +467,7 @@ function toSystemDeferredTriggers(
               changed: outcome.changed,
               chatSummary: formatSummary(entity, outcome),
               ...effectRollsField(
-                entity.name,
+                resolvePublicEntityName(entity),
                 outcome.damageOutcomes,
                 outcome.healingOutcomes,
               ),
@@ -511,9 +541,15 @@ function withScenePresence<Result extends SystemDeferredTriggerResult>(
   context: SystemTriggerContext | undefined,
   result: Result,
 ): Result {
-  const note = isDndSceneEntity(entity)
-    ? reconcileScenePresence(entity, context)
-    : null;
+  if (!isDndSceneEntity(entity)) {
+    return result;
+  }
+
+  // Вид перемещения фишки — по тем же эффектам: левитация поднимает,
+  // кончившийся «Полёт» выключает вид, и ядро роняет летуна
+  reconcileMovementMode(entity, context);
+
+  const note = reconcileScenePresence(entity, context);
 
   if (!note) {
     return result;
@@ -545,19 +581,19 @@ function toDamageEventsTriggerResult(
       changed: outcome.changed,
       chatSummary: appendEffectsSummaryNotes(
         formatEffectsSummary(
-          outcome.entity.name,
+          resolvePublicEntityName(outcome.entity),
           label,
           outcome.damageOutcomes,
           outcome.saveOutcomes,
           formatEntrySaveStatus,
           outcome.healingOutcomes,
         ),
-        outcome.entity.name,
+        resolvePublicEntityName(outcome.entity),
         label,
         outcome.notes,
       ),
       ...effectRollsField(
-        outcome.entity.name,
+        resolvePublicEntityName(outcome.entity),
         outcome.damageOutcomes,
         outcome.healingOutcomes,
       ),
@@ -568,19 +604,19 @@ function toDamageEventsTriggerResult(
     changed: events.changed,
     chatSummary: appendEffectsSummaryNotes(
       formatEffectsSummary(
-        entity.name,
+        resolvePublicEntityName(entity),
         label,
         events.damageOutcomes,
         events.saveOutcomes,
         formatEntrySaveStatus,
         events.healingOutcomes,
       ),
-      entity.name,
+      resolvePublicEntityName(entity),
       label,
       events.notes,
     ),
     ...effectRollsField(
-      entity.name,
+      resolvePublicEntityName(entity),
       events.damageOutcomes,
       events.healingOutcomes,
     ),
@@ -621,7 +657,11 @@ function withDamageEvents(
   const withDeathSave = deathSave
     ? mergeTriggerResults(base, {
         changed: true,
-        chatSummary: formatDeathSaveSummary(entity.name, deathSave, 'damage'),
+        chatSummary: formatDeathSaveSummary(
+          resolvePublicEntityName(entity),
+          deathSave,
+          'damage',
+        ),
       })
     : base;
 
@@ -908,19 +948,19 @@ function toEntityTriggerResult(
       changed: outcome.changed,
       chatSummary: appendEffectsSummaryNotes(
         formatEffectsSummary(
-          entity.name,
+          resolvePublicEntityName(entity),
           label,
           outcome.damageOutcomes,
           outcome.saveOutcomes,
           formatEntrySaveStatus,
           outcome.healingOutcomes,
         ),
-        entity.name,
+        resolvePublicEntityName(entity),
         label,
         outcome.notes,
       ),
       ...effectRollsField(
-        entity.name,
+        resolvePublicEntityName(entity),
         outcome.damageOutcomes,
         outcome.healingOutcomes,
       ),
@@ -1262,7 +1302,7 @@ function settleTurnEffects(
   };
 
   const chatSummary = formatTurnEffectsMessage(
-    entity.name,
+    resolvePublicEntityName(entity),
     timing,
     result,
     turnOf,
@@ -1271,7 +1311,7 @@ function settleTurnEffects(
   const hits = toDamageHits(result.damageOutcomes);
 
   const rolls = effectRollsField(
-    entity.name,
+    resolvePublicEntityName(entity),
     result.damageOutcomes,
     result.healingOutcomes,
   );
@@ -1404,7 +1444,7 @@ function settleTurnEffects(
       deferred,
       (outcomeEntity, outcome) =>
         formatDeferredEffectsSummary(
-          outcomeEntity.name,
+          resolvePublicEntityName(outcomeEntity),
           resolveTurnSummaryLabel(timing, turnOf),
           outcome,
           formatRecurringSaveStatus,
@@ -1702,7 +1742,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.8.342';
+  readonly version = '0.8.363';
 
   /** Раунд D&D 5e — 6 игровых секунд: столько двигает часы мира новый раунд */
   readonly secondsPerRound = DND_SECONDS_PER_ROUND;
@@ -2237,7 +2277,7 @@ export class Dnd5eVttSystem implements VttSystem {
    */
   // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   applyAuraTriggerEffects(
-    scene: { tokens?: Token[]; gridSettings?: GridSettings },
+    scene: AuraTriggerScene,
     movedToken: Token,
     movedEntity: SceneEntity,
     previousToken: Token | undefined,
@@ -2295,6 +2335,10 @@ export class Dnd5eVttSystem implements VttSystem {
    * Срабатывания «прошёл N футов» за одно перемещение фишки: длину пути уже
    * измерило ядро. Урон, который носитель получил на ходу, будит его события
    * урона так же, как урон зоны.
+   *
+   * Этажи (VTTG 0.9.780): подъём и спуск своим ходом (полёт, лазание) — тоже
+   * футы пути; падение — нет, оно бьёт 1к6 за 10 футов и кладёт ничком
+   * (`falling.ts`).
    */
   // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
   applyMovementEffects(
@@ -2308,13 +2352,22 @@ export class Dnd5eVttSystem implements VttSystem {
 
     const hpBefore = resolveEntityCurrentHp(entity);
     const options = buildTriggerEventOptions(entity, context);
+    const verticalFeet = movement.verticalDistance ?? 0;
+
+    const fall =
+      movement.fell && verticalFeet > 0
+        ? applyFallToEntity(entity, verticalFeet, rollDamageFormulaImpl)
+        : undefined;
+
+    // Свой путь — по плану и по высоте; падение своим ходом не считается
+    const pathFeet = movement.distance + (movement.fell ? 0 : verticalFeet);
 
     // «За ход одно из трёх»: своё перемещение в свой ход — трата хода, после
     // него действие и бонусное действие недоступны. Толчок и телепорт
     // правилами — не оно
     const moveSpend =
       !movement.forced
-      && movement.distance > 0
+      && pathFeet > 0
       && options.inCombat
       && options.activeTurnActorId === entity.id
         ? recordActionSpend(entity, 'move', {
@@ -2329,7 +2382,7 @@ export class Dnd5eVttSystem implements VttSystem {
     const events = settleMovementEvents(
       entity,
       {
-        distance: movement.distance,
+        distance: pathFeet,
         forced: movement.forced,
         offset: {
           dx: movement.to.x - movement.from.x,
@@ -2347,7 +2400,11 @@ export class Dnd5eVttSystem implements VttSystem {
       context,
     );
 
-    const own = moveSpend ? { ...settled, changed: true } : settled;
+    const moved = moveSpend ? { ...settled, changed: true } : settled;
+
+    const own = fall
+      ? mergeTriggerResults({ changed: true, chatSummary: fall.summary }, moved)
+      : moved;
 
     // Действия, отданные другим («урон тому, кто рядом»), уходят в мир
     // другими сторонами — снимок пишет только перемещённая сущность
@@ -2360,6 +2417,23 @@ export class Dnd5eVttSystem implements VttSystem {
     return related && related.length > 0
       ? { ...own, related: [...(own.related ?? []), ...related] }
       : own;
+  }
+
+  /**
+   * Фишка без опоры (VTTG 0.9.780): по правилам D&D она падает. Летуна и
+   * левитирующего держит включённый вид (`aloft`), лазающего — область ядра
+   * «Подъём»; их ядро не спрашивает; сбитый с ног или без Скорости летун вида
+   * не держит и падает.
+   * Урон и «ничком» — в {@link applyMovementEffects} по `fell`.
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  resolveUnsupported(
+    entity: SceneEntity,
+    context: SystemUnsupportedContext,
+  ): SystemUnsupportedDecision {
+    return isDndSceneEntity(entity)
+      ? resolveDndUnsupported(entity, context)
+      : 'fall';
   }
 
   /**
@@ -2525,7 +2599,11 @@ export class Dnd5eVttSystem implements VttSystem {
 
     const speed = resolveTurnSpeed(entity, stats);
 
-    return buildMovementModes(speed, resolveJumpDistances(stats, speed));
+    return buildMovementModes(
+      speed,
+      resolveJumpDistances(stats, speed),
+      resolveMovementModesState(entity, stats),
+    );
   }
 
   /**
@@ -2578,6 +2656,59 @@ export class Dnd5eVttSystem implements VttSystem {
     return isDndSceneEntity(entity)
       ? resolveEntityLightImpl(entity)
       : undefined;
+  }
+
+  /**
+   * Рост фишки по правилам D&D (VTTG 0.9.780): сторона пространства по
+   * размеру, лёжа — вдвое ниже. По нему ядро считает 3D-расстояние, глаз и
+   * упор в потолок; на клиенте и сервере ответ один — те же данные сущности.
+   * Футы: хук не знает сетки сцены, а система меряет в футах.
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  resolveEntityHeight(entity: SceneEntity): number | undefined {
+    return isDndSceneEntity(entity)
+      ? resolveDndEntityHeight(entity)
+      : undefined;
+  }
+
+  /**
+   * Объём шаблона по правилам D&D (VTTG 0.9.780): круг — сфера, цилиндр — своей
+   * высоты, куб — вверх на сторону, конус — объёмный, линия — брус. Масштаб
+   * клетки передаёт хост (контракт 1.10.0); старый хост его не знает — тогда
+   * клетка считается 5 футов, как в D&D.
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  isPointInTemplate3d(
+    point: ScenePoint3d,
+    gridSize: number,
+    template: MeasurementTemplate,
+    origin: ScenePoint3d,
+    unitsPerCell?: number,
+  ): boolean {
+    return isPointInTemplateVolume(
+      point,
+      origin,
+      template,
+      gridSize,
+      unitsPerCell ?? DEFAULT_TEMPLATE_UNITS_PER_CELL,
+    );
+  }
+
+  /**
+   * Достаёт ли аура по вертикали (VTTG 0.9.780): аура тянется на радиус во все
+   * стороны от существа, и зазор между отрезками фишек по высоте не больше
+   * радиуса. План и перекрытия ядро проверило до вызова.
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  auraReachesVertically(
+    aura: EffectAura,
+    source: SystemDistanceSubject,
+    target: SystemDistanceSubject,
+  ): boolean {
+    return (
+      getVerticalRangeGap(source.verticalRange, target.verticalRange)
+      <= aura.radius
+    );
   }
 
   /**
@@ -2780,6 +2911,88 @@ export class Dnd5eVttSystem implements VttSystem {
     item: BaseGameItem,
   ): { source: SceneEntity; target: SceneEntity } | null {
     return transferItem(source, target, item);
+  }
+
+  /**
+   * Предметы в инвентаре сущности (только чтение) — для окна хранилища и
+   * переноса ядра.
+   *
+   * @param entity - сущность сцены
+   * @returns снаряжение сущности; без инвентаря — пустой список
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  listEntityItems(entity: SceneEntity): readonly BaseGameItem[] {
+    return listEntityItemsImpl(entity);
+  }
+
+  /**
+   * Забирает предмет из инвентаря целиком или частью стопки — первая половина
+   * атомарного переноса ядра «сущность → хранилище».
+   *
+   * @param entity - сущность, у которой берут
+   * @param itemId - id предмета
+   * @param quantity - часть стопки; нет — весь предмет
+   * @returns сущность без предмета и сам предмет либо `null`
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  takeItemFromEntity(
+    entity: SceneEntity,
+    itemId: string,
+    quantity?: number,
+  ): InventoryItemChange | null {
+    return takeItemFromEntityImpl(entity, itemId, quantity);
+  }
+
+  /**
+   * Кладёт предмет в инвентарь — вторая половина атомарного переноса ядра
+   * «хранилище → сущность». Предмет получает новый id и снимается со
+   * снаряжения.
+   *
+   * @param entity - сущность, которой дают предмет
+   * @param item - предмет
+   * @returns сущность с предметом и предмет в том виде, в каком он лёг, либо `null`
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  giveItemToEntity(
+    entity: SceneEntity,
+    item: BaseGameItem,
+  ): InventoryItemChange | null {
+    return giveItemToEntityImpl(entity, item);
+  }
+
+  /**
+   * Может ли предмет стать мешком: у него есть поле контейнера.
+   *
+   * @param item - предмет
+   * @returns `true`, если предмет — контейнер
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  isContainerItem(item: BaseGameItem): boolean {
+    return isContainerItemImpl(item);
+  }
+
+  /**
+   * Значок предмета для его значка на карте — тот же, что в инвентаре листа.
+   * Ядро берёт метод с экземпляра без привязки (`system.getItemIcon`), поэтому
+   * `this` здесь не используется.
+   *
+   * @param item - предмет
+   * @returns имя иконки `tabler:*` либо `undefined`
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  getItemIcon(item: BaseGameItem): string | undefined {
+    return getSceneItemIcon(item);
+  }
+
+  /**
+   * Влезет ли предмет в хранилище по весу (вместимость мешка).
+   *
+   * @param input - хранилище, предмет-мешок и кладущийся предмет
+   * @returns `{ ok: true }` или отказ с причиной по-русски
+   */
+  // eslint-disable-next-line class-methods-use-this -- хук контракта VttSystem: ядро вызывает его на экземпляре системы
+  canStoreItem(input: ItemStorageFitInput): ItemStorageVerdict {
+    return canStoreItemImpl(input);
   }
 
   /**

@@ -8,10 +8,12 @@ import type {
 
 import { computed } from 'vue';
 
+import { useItemStorageStore } from '@/stores/itemStorageStore';
 import {
   DEFAULT_CARRYING_CAPACITY,
   DEFAULT_CREATURE_SIZE,
   formatWeight,
+  getCarriedContainersWeight,
   getCarryingCapacityBreakdown,
   isDndCreature,
 } from '@vtt/shared/system/dnd.js';
@@ -34,16 +36,30 @@ export function useCarryingCapacity(
   actorRef: Ref<DnDSceneEntity>,
   resolvedStatsRef: Ref<ResolvedActorStats | undefined>,
 ) {
+  const itemStorageStore = useItemStorageStore();
+
   /**
-   * Суммарный вес всех предметов в инвентаре. Список читается со страховкой:
+   * Суммарный вес всех предметов в инвентаре вместе с содержимым мешков
+   * (кроме мешков, чьё содержимое не весит). Список читается со страховкой:
    * у существа поле необязательное, и у записи старого мира его нет вовсе.
    */
-  const totalWeight = computed(() =>
-    (actorRef.value.equipment ?? []).reduce(
+  const totalWeight = computed(() => {
+    const equipment = actorRef.value.equipment ?? [];
+
+    const ownWeight = equipment.reduce(
       (sum, item) => sum + (item.weight ?? 0) * (item.quantity ?? 1),
       0,
-    ),
-  );
+    );
+
+    return (
+      ownWeight
+      + getCarriedContainersWeight(
+        equipment,
+        actorRef.value.id,
+        itemStorageStore.getStorage,
+      )
+    );
+  });
 
   /**
    * Настройка предела переносимого веса. Её нет ни у существа (там предел

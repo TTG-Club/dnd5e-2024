@@ -1,5 +1,7 @@
 import type { ItemActionBlock } from '@vtt/shared/system/dnd.js';
 
+import { ITEM_USE_ICON } from '@vtt/shared/system/dnd.js';
+
 /** Типы макросов D&D на панели быстрого доступа */
 export const DND_MACRO_TYPES = {
   weaponAttack: 'weapon-attack',
@@ -8,8 +10,8 @@ export const DND_MACRO_TYPES = {
   effectUse: 'effect-use',
 } as const;
 
-/** Значок кнопки применения предмета */
-export const ITEM_USE_MACRO_ICON = 'tabler:flask';
+/** Значок кнопки применения предмета — тот же, что у предмета в инвентаре */
+export const ITEM_USE_MACRO_ICON = ITEM_USE_ICON;
 
 /** Значок кнопки особенности с переключателем («Ярость») */
 export const FEATURE_TOGGLE_MACRO_ICON = 'tabler:flame';

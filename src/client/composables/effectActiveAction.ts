@@ -15,6 +15,7 @@ import {
   listEffectServerActions,
   planEffectPay,
   resolveEffectActionTemplate,
+  resolvePublicEntityName,
   runEffectActiveAction,
   toUseAreaOfEffect,
   usesPaidHitDiceRoll,
@@ -147,7 +148,7 @@ export function runEntityEffectAction(
 
     emitActedEntity(current, acted);
 
-    sendSelfTriggerReport(current.name, report);
+    sendSelfTriggerReport(resolvePublicEntityName(current), report);
 
     runServerActions();
   };

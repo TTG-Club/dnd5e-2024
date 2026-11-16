@@ -420,10 +420,14 @@ describe('фиксация: разовое срабатывание при вх�
     }
   });
 
-  it('строка чата входа в зону', () => {
+  /**
+   * Сводка в чат о входе существа в ядовитую зону с непроходимым спасброском.
+   *
+   * @param {object} wolf - вошедшее существо
+   * @returns {string} текст сводки
+   */
+  function enterVenomZone(wolf) {
     const system = new engine.Dnd5eVttSystem();
-
-    const wolf = createCreature();
 
     const zone = createZone(
       'zone_poison',
@@ -442,16 +446,33 @@ describe('фиксация: разовое срабатывание при вх�
       { name: 'Ядовитое облако' },
     );
 
-    const result = withRandom([MIN_ROLL], () =>
+    return withRandom([MIN_ROLL], () =>
       system.syncAreaEffects(wolf, new Set(), new Set([zone.id]), [zone]),
-    );
+    ).chatSummary;
+  }
+
+  it('строка чата входа в зону', () => {
+    const wolf = createCreature();
+
+    // Сводку читают все: имя существа в ней — только при «Показывать имя»
+    wolf.token = { ...wolf.token, showName: true };
 
     assert.equal(
-      result.chatSummary,
+      enterVenomZone(wolf),
       'Эффекты (область): Волк\n'
         + 'venom: −4 HP (Урон ядом)\n'
         + 'venom: спас Телосложение [1] = 1 vs 99 — ✗ провал',
     );
+  });
+
+  it('строка чата входа в зону не называет существо со скрытым именем', () => {
+    const wolf = createCreature();
+
+    wolf.token = { ...wolf.token, showName: false };
+
+    const [header] = enterVenomZone(wolf).split('\n');
+
+    assert.equal(header, `Эффекты (область): ${engine.HIDDEN_ENTITY_NAME}`);
   });
 
   it('половина урона: движок и клиентский путь округляют сумму частей', async () => {

@@ -34,6 +34,7 @@ import {
   isDndSceneEntity,
   isRollRequestAnswered,
   parseEffectPromptResult,
+  resolvePublicEntityName,
   SAVE_OVERRIDE_ACCEPT,
   SAVE_OVERRIDE_LABELS,
   SAVE_OVERRIDE_OPTIONS,
@@ -149,7 +150,7 @@ export function spendEntitySaveOverride(
 
   chatStore.sendMessage(
     formatSaveOverrideChatLine(
-      entity.name,
+      resolvePublicEntityName(entity),
       available.source.label,
       available.remaining - 1,
     ),

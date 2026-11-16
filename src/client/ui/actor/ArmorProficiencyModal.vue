@@ -1,4 +1,6 @@
 <script setup lang="ts">
+  import type { ProficiencyBaseType } from './utils/proficiencySelection';
+
   import { computed, ref, watch } from 'vue';
 
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
@@ -6,6 +8,12 @@
 
   import { useSystemDataStore } from '../../stores/systemDataStore';
   import { MODAL_BUTTON_LABELS, PROFICIENCY_MODAL_LABELS } from './constants';
+  import {
+    isProficiencyCategorySelected,
+    isProficiencyItemSelected,
+    toggleProficiencyCategory,
+    toggleProficiencyItem,
+  } from './utils/proficiencySelection';
 
   /** Блокирующий модал — фиксированный z-index поверх остальных */
   const MODAL_Z_INDEX = Z_INDEX.MODAL_ELEVATED;
@@ -49,7 +57,7 @@
       title: PROFICIENCY_MODAL_LABELS.armorLight,
       color: 'text-primary',
       items: systemDataStore.armorBaseTypes.filter(
-        (bt) => bt.category === 'light',
+        (baseType) => baseType.category === 'light',
       ),
     },
     {
@@ -57,7 +65,7 @@
       title: PROFICIENCY_MODAL_LABELS.armorMedium,
       color: 'text-primary',
       items: systemDataStore.armorBaseTypes.filter(
-        (bt) => bt.category === 'medium',
+        (baseType) => baseType.category === 'medium',
       ),
     },
     {
@@ -65,7 +73,7 @@
       title: PROFICIENCY_MODAL_LABELS.armorHeavy,
       color: 'text-primary',
       items: systemDataStore.armorBaseTypes.filter(
-        (bt) => bt.category === 'heavy',
+        (baseType) => baseType.category === 'heavy',
       ),
     },
     {
@@ -73,66 +81,69 @@
       title: PROFICIENCY_MODAL_LABELS.armorShields,
       color: 'text-primary',
       items: systemDataStore.armorBaseTypes.filter(
-        (bt) => bt.category === 'shield',
+        (baseType) => baseType.category === 'shield',
       ),
     },
   ]);
 
   /**
-   * Переключает владение конкретной бронёй
-   * @param key - ключ брони
+   * Переключает владение конкретной бронёй с учётом владения всей категорией.
+   *
+   * @param item - базовый тип доспеха
    */
-  function toggleItem(key: string): void {
-    const set = new Set(localSelected.value);
-
-    if (set.has(key)) {
-      set.delete(key);
-    } else {
-      set.add(key);
-    }
-
-    localSelected.value = set;
+  function toggleItem(item: ProficiencyBaseType): void {
+    localSelected.value = toggleProficiencyItem(
+      localSelected.value,
+      item,
+      systemDataStore.armorBaseTypes.filter(
+        (baseType) => baseType.category === item.category,
+      ),
+    );
   }
 
   /**
-   * Переключает «Все» в категории
+   * Переключает «Все» в категории.
+   *
    * @param category - ключ категории
    */
   function toggleAllCategory(category: string): void {
-    const panel = panels.value.find((playlist) => playlist.key === category);
+    const panel = panels.value.find((entry) => entry.key === category);
 
     if (!panel) {
       return;
     }
 
-    const allKeys = panel.items.map((item) => item.key);
-    const set = new Set(localSelected.value);
-    const allSelected = allKeys.every((key) => set.has(key));
-
-    if (allSelected) {
-      for (const key of allKeys) {
-        set.delete(key);
-      }
-    } else {
-      for (const key of allKeys) {
-        set.add(key);
-      }
-    }
-
-    localSelected.value = set;
+    localSelected.value = toggleProficiencyCategory(
+      localSelected.value,
+      category,
+      panel.items,
+    );
   }
 
   /**
-   * Проверяет, выбраны ли все элементы категории
+   * Проверяет, выбраны ли все элементы категории явно либо её ключом.
+   *
+   * @param category - ключ категории
    */
   function isAllCategorySelected(category: string): boolean {
-    const panel = panels.value.find((playlist) => playlist.key === category);
+    const panel = panels.value.find((entry) => entry.key === category);
 
-    if (!panel || panel.items.length === 0) {
-      return false;
-    }
+    return panel
+      ? isProficiencyCategorySelected(
+          localSelected.value,
+          category,
+          panel.items,
+        )
+      : false;
+  }
 
-    return panel.items.every((item) => localSelected.value.has(item.key));
+  /**
+   * Проверяет владение конкретным доспехом с учётом его категории.
+   *
+   * @param item - базовый тип доспеха
+   */
+  function isItemSelected(item: ProficiencyBaseType): boolean {
+    return isProficiencyItemSelected(localSelected.value, item);
   }
 
   /**
@@ -211,8 +222,8 @@
               </span>
 
               <UCheckbox
-                :model-value="localSelected.has(item.key)"
-                @update:model-value="toggleItem(item.key)"
+                :model-value="isItemSelected(item)"
+                @update:model-value="toggleItem(item)"
               />
             </div>
           </div>

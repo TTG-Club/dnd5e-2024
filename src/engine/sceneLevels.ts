@@ -1,0 +1,588 @@
+/**
+ * Этажи и высота сцены глазами правил D&D 5e: рост существа, 3D-расстояние
+ * между фишками и «достаёт ли сквозь пол».
+ *
+ * Геометрию — этажи, проёмы, отрезки фишек, слои клеток — считает ядро
+ * (`@vtt/shared`, VTTG 0.9.780); здесь только правила поверх неё: рост по
+ * размеру, лёжа ниже, и что удар, «Тактика стаи» и дальность заклинания не
+ * проходят сквозь перекрытие без проёма. Одна мера на клиент и сервер, иначе
+ * лист и сервер разошлись бы в «достаёт ли».
+ *
+ * Сцена без этажей и фишки без высоты дают то же, что плоская мера
+ * (`getTokenEdgeDistance`): это проверено тестами ядра бит в бит.
+ *
+ * @module system/dnd/sceneLevels
+ */
+
+import type {
+  CustomArea,
+  FloorPlanPoint,
+  GridSettings,
+  PreparedSight3d,
+  Scene,
+  SceneFloor,
+  ScenePoint3d,
+  SceneStructure,
+  SceneVerticalModel,
+  Token,
+  VerticalRange,
+} from '@vtt/shared';
+
+import type { DnDSceneEntity } from './dndEntities.js';
+import type { CreatureSize } from './types.js';
+
+import {
+  buildSceneVerticalModel,
+  getTokenPlanCenter,
+  getTokenVerticalRange,
+  getVerticalLayerGap,
+  hasLineOfSight3d,
+  isOpenThroughFloors,
+  measureEdgeDistance3d,
+  normalizeFloorId,
+  prepareSight3d,
+  resolveGridCellSize,
+} from '@vtt/shared';
+
+import { hasEntityCondition } from './activeEffectTypes.js';
+import { PRONE_CONDITION_KEY } from './conditionKeys.js';
+import { normalizeCreatureSize } from './consts.js';
+
+/**
+ * Рост существа по размеру, футы. В PHB 2024 роста нет, есть сторона
+ * пространства (крошечное — 2½ фута, огромное — 15); рост берётся равным ей,
+ * как ширина фишки по плану.
+ */
+export const CREATURE_SIZE_HEIGHT_FEET: Record<CreatureSize, number> = {
+  tiny: 2.5,
+  small: 5,
+  medium: 5,
+  large: 10,
+  huge: 15,
+  gargantuan: 20,
+};
+
+/** Во сколько раз ниже лежащее существо */
+export const PRONE_HEIGHT_RATIO = 0.5;
+
+/**
+ * Рост сущности по правилам D&D, футы: сторона пространства по размеру, лёжа
+ * — вдвое ниже. Хук `resolveEntityHeight` ядра отдаёт его как есть: система
+ * меряет в футах, а сетка сцены ядра у хука не спрашивается.
+ *
+ * @param entity - сущность сцены
+ * @returns рост, футы
+ */
+export function resolveDndEntityHeight(entity: DnDSceneEntity): number {
+  const height =
+    CREATURE_SIZE_HEIGHT_FEET[normalizeCreatureSize(entity.system.size)];
+
+  return hasEntityCondition(entity, PRONE_CONDITION_KEY)
+    ? height * PRONE_HEIGHT_RATIO
+    : height;
+}
+
+/** Сцена в объёме, нужном вертикали: сетка, этажи, постройки и области */
+export interface LevelSceneInput {
+  /** Сетка сцены */
+  gridSettings: GridSettings;
+  /** Этажи; нет — одноэтажная сцена (или старое ядро) */
+  floors?: readonly SceneFloor[];
+  /** Постройки этажей: контуры пола, проёмы и лестницы */
+  structures?: readonly SceneStructure[];
+  /** Стены и окна, влияющие на 3D-луч */
+  drawings?: Scene['drawings'];
+  /** Пользовательские области: проёмы в полу, площадки, лестницы */
+  customAreas?: readonly CustomArea[];
+}
+
+/**
+ * Сцена с необходимой для вертикали и 3D-луча частью данных.
+ *
+ * @param scene - сетка, этажи, постройки, стены и области сцены
+ * @returns сцена для общей модели ядра
+ */
+export function buildLevelScene(scene: LevelSceneInput): Scene {
+  return {
+    id: '',
+    name: '',
+    width: 0,
+    height: 0,
+    backgroundImage: '',
+    gridSettings: scene.gridSettings,
+    tokens: [],
+    drawings: scene.drawings ? [...scene.drawings] : [],
+    visibility: 'hidden',
+    forceView: false,
+    floors: scene.floors ? [...scene.floors] : undefined,
+    structures: scene.structures ? [...scene.structures] : undefined,
+    customAreas: scene.customAreas ? [...scene.customAreas] : undefined,
+  };
+}
+
+/**
+ * Модель вертикали ядра по тому, что знает вызывающий. Полной сцены у
+ * правил на сервере нет (только сетка, этажи и области из окружения ядра),
+ * поэтому сцена собирается из этих частей; остальные её поля вертикаль не
+ * читает. Модель — снимок: строить на каждый расчёт, а в цикле — один раз.
+ *
+ * @param scene - сетка, этажи, постройки и области сцены
+ * @returns модель вертикали
+ */
+export function buildLevelModel(scene: LevelSceneInput): SceneVerticalModel {
+  return buildSceneVerticalModel(buildLevelScene(scene));
+}
+
+/**
+ * Готовит 3D-луч между точками: этажи, контуры пола и стены.
+ *
+ * @param scene - сетка, этажи, постройки, стены и области сцены
+ * @returns подготовленная сцена для 3D-луча
+ */
+export function buildLevelSight(scene: LevelSceneInput): PreparedSight3d {
+  const verticalScene = buildLevelScene(scene);
+
+  return prepareSight3d(verticalScene, buildSceneVerticalModel(verticalScene));
+}
+
+/** Фишка как участник 3D-меры */
+export interface LevelTokenSubject {
+  /** Фишка: угол, масштаб, этаж и высота над полом */
+  token: Pick<Token, 'x' | 'y' | 'scale' | 'floorId' | 'aboveFloor'>;
+  /** Рост; нет — по умолчанию ядра (сторона клетки × масштаб) */
+  height?: number;
+  /** Масштаб с учётом сущности; нет — `token.scale` */
+  scale?: number;
+}
+
+/**
+ * Участник 3D-меры для фишки сущности: рост по правилам D&D, если сущность
+ * известна.
+ *
+ * @param token - фишка
+ * @param entity - её сущность
+ * @param scale - масштаб с учётом сущности
+ * @returns участник меры
+ */
+export function toLevelSubject(
+  token: LevelTokenSubject['token'],
+  entity?: DnDSceneEntity,
+  scale?: number,
+): LevelTokenSubject {
+  return {
+    token,
+    height: entity ? resolveDndEntityHeight(entity) : undefined,
+    scale,
+  };
+}
+
+/**
+ * Абсолютный отрезок фишки `[низ, верх)` в единицах сцены.
+ *
+ * @param model - модель вертикали
+ * @param subject - фишка с ростом
+ * @returns отрезок
+ */
+export function resolveLevelTokenRange(
+  model: SceneVerticalModel,
+  subject: LevelTokenSubject,
+): VerticalRange {
+  return getTokenVerticalRange(model, subject.token, {
+    height: subject.height,
+    scale: subject.scale,
+  });
+}
+
+/**
+ * На сколько единиц сцены точка проверки отступает внутрь отрезка фишки от
+ * его края: ступни стоящего лежат ровно на плоскости пола, а плоскость,
+ * которой отрезок лишь касается, перекрытием не считается.
+ */
+const BODY_EDGE_INSET = 0.01;
+
+/** Отрезок по одной оси: от и до */
+interface AxisSpan {
+  /** Начало */
+  min: number;
+  /** Конец (не меньше начала) */
+  max: number;
+}
+
+/** Отпечаток фишки по плану: отрезки по X и Y, пиксели */
+interface PlanFootprint {
+  /** По X */
+  x: AxisSpan;
+  /** По Y */
+  y: AxisSpan;
+}
+
+/**
+ * Ближайшие точки двух отрезков на одной оси: пересекаются — обе в середине
+ * общей части; нет — на обращённых друг к другу концах, отступив внутрь на
+ * `inset`.
+ *
+ * @param spanA - отрезок первой фишки
+ * @param spanB - отрезок второй фишки
+ * @param inset - отступ внутрь
+ * @returns координаты на оси для первой и второй
+ */
+function closestOnAxis(
+  spanA: AxisSpan,
+  spanB: AxisSpan,
+  inset: number,
+): [number, number] {
+  if (spanA.min >= spanB.max) {
+    return [
+      Math.min(spanA.min + inset, spanA.max),
+      Math.max(spanB.max - inset, spanB.min),
+    ];
+  }
+
+  if (spanB.min >= spanA.max) {
+    return [
+      Math.max(spanA.max - inset, spanA.min),
+      Math.min(spanB.min + inset, spanB.max),
+    ];
+  }
+
+  const middle =
+    (Math.max(spanA.min, spanB.min) + Math.min(spanA.max, spanB.max)) / 2;
+
+  return [middle, middle];
+}
+
+/**
+ * Отпечаток фишки по плану, пиксели.
+ *
+ * @param model - модель вертикали
+ * @param subject - фишка
+ * @returns отрезки по X и Y
+ */
+function resolveFootprint(
+  model: SceneVerticalModel,
+  subject: LevelTokenSubject,
+): PlanFootprint {
+  const center = getTokenPlanCenter(
+    model,
+    subject.token,
+    subject.scale ?? subject.token.scale,
+  );
+
+  const half =
+    (resolveGridCellSize(model.gridSettings)
+      * (subject.scale ?? subject.token.scale))
+    / 2;
+
+  return {
+    x: { min: center.x - half, max: center.x + half },
+    y: { min: center.y - half, max: center.y + half },
+  };
+}
+
+/**
+ * Проходит ли тело (удар, бросок, снаряд) от одной фишки к другой: сквозь
+ * перекрытия этажей — только через открытый проём для движения или мимо края
+ * пола (балкон над двором); стеклянный пол и закрытый люк не пропускают. Со
+ * сценой для 3D-луча (`preparedSight`) мешают и стены — на высоте своего
+ * отрезка: над низкой стеной бросок проходит, сквозь сплошную — нет, как и
+ * взгляд ядра.
+ *
+ * Укрытие по PHB 2024 полное, только если преграда заслоняет цель целиком:
+ * хватит одной открытой линии между точками тел. Линии идут от ближайших
+ * точек отпечатков по плану (со стенами — ещё и от центров), по высоте —
+ * между ступнями, серединой и макушкой. Одна линия «ступни — макушка» сразу
+ * ныряла в пол: лучник в шаге от края балкона не доставал до двора, хотя с
+ * высоты глаз двор виден. Из середины комнаты сквозь её пол — по-прежнему нет.
+ *
+ * @param model - модель вертикали
+ * @param subjectA - первая фишка
+ * @param rangeA - её отрезок
+ * @param subjectB - вторая фишка
+ * @param rangeB - её отрезок
+ * @param preparedSight - сцена для 3D-луча со стенами; нет — только перекрытия
+ * @returns true, если путь открыт
+ */
+export function isLevelPathOpen(
+  model: SceneVerticalModel,
+  subjectA: LevelTokenSubject,
+  rangeA: VerticalRange,
+  subjectB: LevelTokenSubject,
+  rangeB: VerticalRange,
+  preparedSight?: PreparedSight3d,
+): boolean {
+  const sameFloor =
+    normalizeFloorId(subjectA.token.floorId)
+    === normalizeFloorId(subjectB.token.floorId);
+
+  // Без стен на одном этаже перекрытию мешать нечем
+  if (sameFloor && !preparedSight) {
+    return true;
+  }
+
+  const footprintA = resolveFootprint(model, subjectA);
+  const footprintB = resolveFootprint(model, subjectB);
+  const [xA, xB] = closestOnAxis(footprintA.x, footprintB.x, 0);
+  const [yA, yB] = closestOnAxis(footprintA.y, footprintB.y, 0);
+
+  const [zA, zB] = closestOnAxis(
+    { min: rangeA.bottom, max: rangeA.top },
+    { min: rangeB.bottom, max: rangeB.top },
+    BODY_EDGE_INSET,
+  );
+
+  const pointsA = listBodyPlanPoints(
+    { x: xA, y: yA },
+    footprintA,
+    preparedSight,
+  );
+
+  const pointsB = listBodyPlanPoints(
+    { x: xB, y: yB },
+    footprintB,
+    preparedSight,
+  );
+
+  const heightsA = listBodyProbeHeights(rangeA, zA);
+  const heightsB = listBodyProbeHeights(rangeB, zB);
+
+  const isLineOpen = (from: ScenePoint3d, to: ScenePoint3d): boolean =>
+    // Перекрытие — по проходу тела (стеклянный пол виден, но не пропускает),
+    // стены — лучом взгляда ядра на высоте луча
+    (sameFloor || isOpenThroughFloors(model, from, to, 'movement'))
+    && (!preparedSight || hasLineOfSight3d(preparedSight, from, to));
+
+  return pointsA.some((planA) =>
+    pointsB.some((planB) =>
+      heightsA.some((heightA) =>
+        heightsB.some((heightB) =>
+          isLineOpen({ ...planA, z: heightA }, { ...planB, z: heightB }),
+        ),
+      ),
+    ),
+  );
+}
+
+/**
+ * Пробные точки тела по плану: ближайшая к другой фишке, а со стенами — и
+ * центр отпечатка (из-за угла стены ближайшая точка бывает закрыта, а центр —
+ * нет, и наоборот).
+ *
+ * @param closest - ближайшая к другой фишке точка
+ * @param footprint - отпечаток фишки
+ * @param preparedSight - сцена для 3D-луча; нет — стены не проверяются
+ * @returns точки, ближайшая — первой
+ */
+function listBodyPlanPoints(
+  closest: FloorPlanPoint,
+  footprint: PlanFootprint,
+  preparedSight: PreparedSight3d | undefined,
+): FloorPlanPoint[] {
+  if (!preparedSight) {
+    return [closest];
+  }
+
+  const center = {
+    x: (footprint.x.min + footprint.x.max) / 2,
+    y: (footprint.y.min + footprint.y.max) / 2,
+  };
+
+  return center.x === closest.x && center.y === closest.y
+    ? [closest]
+    : [closest, center];
+}
+
+/**
+ * Пробные высоты тела для линии сквозь перекрытия: ближайшая к другой фишке
+ * (с неё проверка и начинается — обычно её и хватает), ступни, середина и
+ * макушка. Ступни и макушка отступают внутрь отрезка, чтобы плоскость пола,
+ * которой тело лишь касается, не считалась перекрытием.
+ *
+ * @param range - отрезок фишки
+ * @param closest - высота, ближайшая к другой фишке
+ * @returns высоты без повторов, ближайшая — первой
+ */
+function listBodyProbeHeights(range: VerticalRange, closest: number): number[] {
+  const inset = Math.min(BODY_EDGE_INSET, (range.top - range.bottom) / 2);
+
+  return [
+    ...new Set([
+      closest,
+      range.bottom + inset,
+      (range.bottom + range.top) / 2,
+      range.top - inset,
+    ]),
+  ];
+}
+
+/** 3D-расстояние между фишками и то, мешает ли перекрытие */
+export interface LevelDistance {
+  /** Расстояние по правилу диагоналей сцены, единицы сцены */
+  distance: number;
+  /** Расстояние по плану, единицы сцены */
+  horizontalDistance: number;
+  /** Разница слоёв по вертикали, единицы сцены */
+  verticalDistance: number;
+  /**
+   * Между фишками перекрытие без проёма (а с 3D-лучом — и стена): ни удар, ни
+   * заклинание не проходят
+   */
+  blocked: boolean;
+}
+
+/**
+ * Расстояние между краями двух фишек в 3D — мера ядра (вертикаль в слоях
+ * клеток, правило диагоналей сцены) плюс признак перекрытия.
+ *
+ * @param model - модель вертикали
+ * @param subjectA - первая фишка
+ * @param subjectB - вторая фишка
+ * @param preparedSight - сцена для 3D-луча: со стенами (удар и заклинание по
+ *   цели); нет — только перекрытия (ауры, «союзник рядом»)
+ * @returns расстояние и его части
+ */
+export function measureLevelDistance(
+  model: SceneVerticalModel,
+  subjectA: LevelTokenSubject,
+  subjectB: LevelTokenSubject,
+  preparedSight?: PreparedSight3d,
+): LevelDistance {
+  const rangeA = resolveLevelTokenRange(model, subjectA);
+  const rangeB = resolveLevelTokenRange(model, subjectB);
+
+  const measured = measureEdgeDistance3d(
+    model.gridSettings,
+    {
+      x: subjectA.token.x,
+      y: subjectA.token.y,
+      scale: subjectA.scale ?? subjectA.token.scale,
+    },
+    rangeA,
+    {
+      x: subjectB.token.x,
+      y: subjectB.token.y,
+      scale: subjectB.scale ?? subjectB.token.scale,
+    },
+    rangeB,
+  );
+
+  return {
+    ...measured,
+    blocked: !isLevelPathOpen(
+      model,
+      subjectA,
+      rangeA,
+      subjectB,
+      rangeB,
+      preparedSight,
+    ),
+  };
+}
+
+/**
+ * Расстояние досягаемости: 3D-расстояние, а сквозь перекрытие — бесконечность
+ * (ни удар, ни «союзник рядом» не считаются).
+ *
+ * @param model - модель вертикали
+ * @param subjectA - первая фишка
+ * @param subjectB - вторая фишка
+ * @returns расстояние, единицы сцены
+ */
+export function getLevelReachDistance(
+  model: SceneVerticalModel,
+  subjectA: LevelTokenSubject,
+  subjectB: LevelTokenSubject,
+): number {
+  return toReachDistance(measureLevelDistance(model, subjectA, subjectB));
+}
+
+/**
+ * Расстояние досягаемости из 3D-меры: сквозь перекрытие — бесконечность.
+ *
+ * @param measured - 3D-расстояние
+ * @returns расстояние, единицы сцены
+ */
+export function toReachDistance(measured: LevelDistance): number {
+  return measured.blocked ? Number.POSITIVE_INFINITY : measured.distance;
+}
+
+/**
+ * Зазор между двумя отрезками по вертикали в слоях клеток × шаг — так же, как
+ * вертикальная часть 3D-меры ядра: летун, у которого низ на 10 футах над
+ * средним существом на полу, — 10 футов, касающийся макушки — 5.
+ *
+ * @param rangeA - первый отрезок
+ * @param rangeB - второй отрезок
+ * @param step - шаг слоя (масштаб клетки)
+ * @returns зазор, единицы сцены
+ */
+export function getVerticalLayerGapUnits(
+  rangeA: VerticalRange,
+  rangeB: VerticalRange,
+  step: number,
+): number {
+  return step > 0 ? getVerticalLayerGap(rangeA, rangeB, step) * step : 0;
+}
+
+/**
+ * Зазор между двумя отрезками по вертикали, единицы сцены, без нарезки на
+ * слои: так меряют ауры и сферы — «во все стороны от существа» на столько-то
+ * футов, как и их круг по плану.
+ *
+ * @param rangeA - первый отрезок
+ * @param rangeB - второй отрезок
+ * @returns зазор; пересекаются — 0
+ */
+export function getVerticalRangeGap(
+  rangeA: VerticalRange,
+  rangeB: VerticalRange,
+): number {
+  return Math.max(
+    0,
+    Math.max(rangeA.bottom, rangeB.bottom) - Math.min(rangeA.top, rangeB.top),
+  );
+}
+
+/** Вертикаль пары фишек: их отрезки и перекрытие между ними */
+export interface LevelPairVertical {
+  /** Отрезок первой фишки */
+  rangeA: VerticalRange;
+  /** Отрезок второй фишки */
+  rangeB: VerticalRange;
+  /** Между ними перекрытие без проёма */
+  blocked: boolean;
+}
+
+/**
+ * Вертикаль пары фишек, если её можно знать. Фишки разных этажей, которых
+ * модель не знает (правилам не дали этажей сцены), меряются только по плану:
+ * отметки их полов неизвестны, а отсев по этажу тогда уже сделало ядро.
+ *
+ * @param model - модель вертикали
+ * @param subjectA - первая фишка
+ * @param subjectB - вторая фишка
+ * @returns отрезки и перекрытие либо `undefined` — вертикаль неизвестна
+ */
+export function resolveLevelPairVertical(
+  model: SceneVerticalModel,
+  subjectA: LevelTokenSubject,
+  subjectB: LevelTokenSubject,
+): LevelPairVertical | undefined {
+  const floorA = normalizeFloorId(subjectA.token.floorId);
+  const floorB = normalizeFloorId(subjectB.token.floorId);
+
+  if (
+    floorA !== floorB
+    && (!model.floorIndexById.has(floorA) || !model.floorIndexById.has(floorB))
+  ) {
+    return undefined;
+  }
+
+  const rangeA = resolveLevelTokenRange(model, subjectA);
+  const rangeB = resolveLevelTokenRange(model, subjectB);
+
+  return {
+    rangeA,
+    rangeB,
+    blocked: !isLevelPathOpen(model, subjectA, rangeA, subjectB, rangeB),
+  };
+}

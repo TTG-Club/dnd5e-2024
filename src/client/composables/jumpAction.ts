@@ -35,7 +35,7 @@ type MovementModeControl = ClientSystemAPI['movementMode'];
  * @param api - API ядра для системы
  * @returns управление режимом либо `undefined` на старом приложении
  */
-function findMovementModeControl(
+export function findMovementModeControl(
   api: ClientSystemAPI,
 ): MovementModeControl | undefined {
   if (!('movementMode' in api)) {

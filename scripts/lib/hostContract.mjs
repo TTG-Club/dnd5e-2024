@@ -25,9 +25,11 @@ import { HOST_SHARED_PACKAGE } from './serverBuildOptions.mjs';
 
 /**
  * Версия контракта, под которую собрана система. Приложение с другой старшей
- * цифрой или с более старым контрактом откажется её загружать.
+ * цифрой или с более старым контрактом откажется её загружать. 1.8.0 — контракт
+ * VTTG с этажами сцены: необязательные хуки `VttSystem` для высоты, падения,
+ * объёмных шаблонов и аур и общие функции 3D-меры в `@vtt/shared`.
  */
-export const HOST_CONTRACT_VERSION = '1.0.0';
+export const HOST_CONTRACT_VERSION = '1.8.0';
 
 /** Манифест контракта в соседнем чекауте приложения (относительно корня). */
 const HOST_CONTRACT_MANIFEST = '../vttg/packages/shared/host-contract.json';

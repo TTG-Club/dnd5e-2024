@@ -306,7 +306,10 @@ export function resolveAttackLanded(result: AttackResult): boolean | undefined {
 interface AttackLabelParams {
   /** Название оружия или контекст броска */
   weaponName: string;
-  /** Имя цели; нет — цель не выбрана */
+  /**
+   * Имя цели; нет — цель не выбрана. Подпись получают все, поэтому имя здесь
+   * уже общее: у цели со скрытым именем — заглушка (`resolvePublicEntityName`)
+   */
   targetName?: string;
   /** Результат определения попадания */
   result: AttackResult;
@@ -352,7 +355,10 @@ export function buildAttackLabel(params: AttackLabelParams): string {
  * Формирует лейбл для броска урона с результатом применения.
  *
  * @param weaponName - название оружия
- * @param applyResult - результат применения урона к цели (может отсутствовать)
+ * @param applyResult - результат применения урона к цели (может
+ *   отсутствовать). Подпись получают все, поэтому `actorName` в нём — имя
+ *   цели для общего текста: у цели со скрытым именем — заглушка
+ *   (`resolvePublicEntityName`)
  * @param damageType - тип урона
  * @returns текст лейбла
  */
@@ -548,6 +554,13 @@ export interface PerformAttackParams {
   weaponName: string;
   /** Имя цели; нет — цель не выбрана */
   targetName?: string;
+  /**
+   * Имя цели для текста, который получают все (подписи бросков): у цели со
+   * скрытым именем — заглушка (`resolvePublicEntityName`). Не задано —
+   * `targetName`. В блок карточки идёт настоящее имя вместе с
+   * `targetActorId`: кому его показать, решает ядро
+   */
+  targetPublicName?: string;
   /** Атака с помехой */
   isDisadvantage?: boolean;
   /** Формула урона (если есть) */
@@ -605,7 +618,7 @@ export function performTwoStageAttack(
 
   attackRoll.label = buildAttackLabel({
     weaponName: params.weaponName,
-    targetName: params.targetName,
+    targetName: params.targetPublicName ?? params.targetName,
     result: attackResult,
     isDisadvantage: params.isDisadvantage,
   });
@@ -613,6 +626,7 @@ export function performTwoStageAttack(
   attackRoll.block = buildAttackChatBlock({
     name: params.weaponName,
     targetName: params.targetName,
+    targetEntityId: params.targetActorId,
     result: attackResult,
     attackKind: params.attackKind,
     isDisadvantage: params.isDisadvantage,
@@ -640,7 +654,10 @@ export function performTwoStageAttack(
 
     damageRoll.label = buildDamageLabel(
       params.weaponName,
-      applyResult,
+      // Подпись получают все: цель в ней названа общим именем
+      applyResult && params.targetPublicName
+        ? { ...applyResult, actorName: params.targetPublicName }
+        : applyResult,
       params.damageType,
     );
 

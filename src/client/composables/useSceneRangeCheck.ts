@@ -1,18 +1,25 @@
 import type { DistanceUnit, Token } from '@vtt/shared';
 import type { Spell } from '@vtt/shared/system/dnd.js';
 
-import { resolveTokenScale } from '@/core/entityUtils';
 import { useTargetStore } from '@/stores/targetStore';
 import { useWorldStore } from '@/stores/worldStore';
-import { DISTANCE_UNIT_SHORT, getTokenEdgeDistance } from '@vtt/shared';
-import { checkSpellRange, getSpellMaxRange } from '@vtt/shared/system/dnd.js';
+import { DISTANCE_UNIT_SHORT } from '@vtt/shared';
+import {
+  checkSpellRange,
+  getSpellMaxRange,
+  toReachDistance,
+} from '@vtt/shared/system/dnd.js';
 
 import { OUT_OF_RANGE_LABELS } from '../ui/actor/constants';
 import { refuseAction } from './actionRefusal';
+import { createSceneLevelMeasure } from './sceneLevelMeasure';
 
 /** Результат измерения дистанции между токенами на сцене */
 export interface SceneTokenDistance {
-  /** Округлённое расстояние между краями токенов (в единицах сцены) */
+  /**
+   * Округлённое расстояние между краями токенов в 3D (в единицах сцены);
+   * сквозь стену или перекрытие без проёма — бесконечность
+   */
   distance: number;
   /** Единица измерения сцены */
   units: DistanceUnit;
@@ -48,6 +55,11 @@ export interface SpellRangeCheckResult {
  * Цель — единственная фишка самого атакующего: расстояние 0. Применение «на
  * цель» с дальностью допускает получателем самого применившего.
  *
+ * Мера — в 3D, с этажами и высотой полёта (`sceneLevels.ts` движка): летун в
+ * 10 футах над головой — 10 футов, а цель за перекрытием без проёма или за
+ * стеной (на высоте её отрезка) не достаётся вовсе — ни ударом, ни
+ * заклинанием.
+ *
  * @param attackerActorId - ID актора-атакующего (ищутся его токены)
  * @param targetTokenId - ID токена-цели
  * @returns расстояние и единицы измерения, либо null (нет сцены / токенов)
@@ -71,10 +83,7 @@ export function measureTokenDistanceOnScene(
     return null;
   }
 
-  const targetBounds = {
-    ...targetToken,
-    scale: resolveTokenScale(worldStore.currentWorld, targetToken),
-  };
+  const measure = createSceneLevelMeasure(scene);
 
   // Сама цель в кандидаты не входит: гоблин может целиться в другую копию
   // того же существа, и тогда «ближайший» оказался бы самой целью
@@ -83,16 +92,7 @@ export function measureTokenDistanceOnScene(
       (token: Token) =>
         token.actorId === attackerActorId && token.id !== targetTokenId,
     )
-    .map((token: Token) =>
-      getTokenEdgeDistance(
-        {
-          ...token,
-          scale: resolveTokenScale(worldStore.currentWorld, token),
-        },
-        targetBounds,
-        scene.gridSettings,
-      ),
-    );
+    .map((token: Token) => toReachDistance(measure(token, targetToken)));
 
   // Других фишек у атакующего нет, а цель — его собственная: до себя 0.
   // Иначе выбрать себя получателем (выпить своё зелье) было бы нельзя
@@ -105,6 +105,9 @@ export function measureTokenDistanceOnScene(
 
   const units = scene.gridSettings.units ?? 'ft';
 
+  // На сетке расстояние и так кратно клетке. Без сетки оно непрерывное, и
+  // округление до целой единицы — допуск в полфута: фишка, поставленная «почти
+  // вплотную» (5,4 фт), досягаема так же, как стоящая вплотную.
   return {
     distance: isSelfTarget ? 0 : Math.round(Math.min(...distances)),
     units,
@@ -199,10 +202,27 @@ export function isSpellTargetBlockedByRange(
 
   refuseAction(
     spell.name,
-    `${OUT_OF_RANGE_LABELS.outOfSpellRange}${rangeCheck.distance} ${rangeCheck.unitLabel}${maxRangeSuffix}${OUT_OF_RANGE_LABELS.close}`,
+    `${OUT_OF_RANGE_LABELS.outOfSpellRange}${formatSceneDistance(rangeCheck.distance, rangeCheck.unitLabel)}${maxRangeSuffix}${OUT_OF_RANGE_LABELS.close}`,
   );
 
   return true;
+}
+
+/**
+ * Расстояние до цели для сообщений: число с единицей, а цель за преградой —
+ * словами (бесконечность в тексте ничего не скажет).
+ *
+ * @param distance - расстояние
+ * @param unitLabel - единица
+ * @returns подпись
+ */
+export function formatSceneDistance(
+  distance: number,
+  unitLabel: string,
+): string {
+  return Number.isFinite(distance)
+    ? `${distance} ${unitLabel}`
+    : OUT_OF_RANGE_LABELS.behindBarrier;
 }
 
 /**
@@ -220,7 +240,7 @@ export function refuseOutOfReach(
 ): void {
   refuseAction(
     sourceName,
-    `${OUT_OF_RANGE_LABELS.outOfReach}${measurement.distance} ${measurement.unitLabel}${OUT_OF_RANGE_LABELS.close}`,
+    `${OUT_OF_RANGE_LABELS.outOfReach}${formatSceneDistance(measurement.distance, measurement.unitLabel)}${OUT_OF_RANGE_LABELS.close}`,
   );
 }
 

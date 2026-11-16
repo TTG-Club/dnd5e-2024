@@ -25,6 +25,7 @@ async function loadCastFailure({ roll = 100, save = { passed: true } } = {}) {
   const ports = {
     CANTRIP_SPELL_LEVEL: engine.CANTRIP_SPELL_LEVEL,
     formatCastFailureMessage: engine.formatCastFailureMessage,
+    resolvePublicEntityName: (entity) => entity.name,
     listCastFailureChecks: engine.listCastFailureChecks,
     resolveLostCastSlotLevel: engine.resolveLostCastSlotLevel,
     SOURCE_SAVE_DC: engine.SOURCE_SAVE_DC,

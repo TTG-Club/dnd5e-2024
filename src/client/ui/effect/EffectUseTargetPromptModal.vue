@@ -11,25 +11,20 @@
 
   import { computed, onBeforeUnmount, watch } from 'vue';
 
-  import { HUD_PROMPT_TITLE_ATTR } from '@/shared_ui/consts';
+  import { HudPromptPanel } from '@/shared_ui/components';
   import { useProjectileStore } from '@/stores/projectileStore';
   import { useWorldStore } from '@/stores/worldStore';
 
-  import { checkSpellRangeOnScene } from '../../composables/useSceneRangeCheck';
-  import { useWorldEntities } from '../../composables/useWorldEntities';
   import {
-    HUD_PROMPT_PANEL_CLASS,
-    HUD_PROMPTS_TELEPORT_TARGET,
-  } from '../actor/constants';
+    checkSpellRangeOnScene,
+    formatSceneDistance,
+  } from '../../composables/useSceneRangeCheck';
+  import { useWorldEntities } from '../../composables/useWorldEntities';
   import {
     EFFECT_USE_TARGET_ICONS,
     EFFECT_USE_TARGET_LABELS,
   } from './constants';
   import { formatPromptTitle } from './utils/promptTitle';
-
-  defineOptions({
-    inheritAttrs: false,
-  });
 
   const props = defineProps<{
     open: boolean;
@@ -110,7 +105,7 @@
       tokenId,
       name: entity.name,
       inReach: rangeCheck.allowed,
-      distance: `${rangeCheck.distance} ${rangeCheck.unitLabel}`,
+      distance: formatSceneDistance(rangeCheck.distance, rangeCheck.unitLabel),
     };
   });
 
@@ -195,65 +190,48 @@
 </script>
 
 <template>
-  <Teleport :to="HUD_PROMPTS_TELEPORT_TARGET">
-    <Transition name="slide-up">
-      <div
-        v-if="open && ownsTargeting"
-        :class="HUD_PROMPT_PANEL_CLASS"
-        :[HUD_PROMPT_TITLE_ATTR]="title"
-      >
-        <div class="flex items-center gap-2 border-b border-muted/50 pb-2">
-          <UIcon
-            :name="EFFECT_USE_TARGET_ICONS.header"
-            class="h-5 w-5 shrink-0 text-toned"
-          />
+  <HudPromptPanel
+    :open="open && ownsTargeting"
+    :icon="EFFECT_USE_TARGET_ICONS.header"
+    :title="title"
+  >
+    <p class="text-xs text-dimmed">
+      {{ EFFECT_USE_TARGET_LABELS.mapHint }}
+    </p>
 
-          <span class="min-w-0 text-sm font-medium break-words">
-            {{ title }}
-          </span>
-        </div>
+    <p
+      class="text-sm"
+      :class="chosenLabelClass"
+    >
+      {{ chosenLabel }}
+    </p>
 
-        <p class="text-xs text-dimmed">
-          {{ EFFECT_USE_TARGET_LABELS.mapHint }}
-        </p>
+    <UAlert
+      v-if="needsGmApproval"
+      :icon="EFFECT_USE_TARGET_ICONS.far"
+      color="warning"
+      variant="subtle"
+      :title="EFFECT_USE_TARGET_LABELS.farTitle"
+      :description="EFFECT_USE_TARGET_LABELS.farText"
+    />
 
-        <p
-          class="text-sm"
-          :class="chosenLabelClass"
-        >
-          {{ chosenLabel }}
-        </p>
+    <template #footer>
+      <UButton
+        :label="confirmLabel"
+        color="primary"
+        variant="solid"
+        size="md"
+        :disabled="!chosen"
+        @click.left.exact.prevent="handleConfirm"
+      />
 
-        <UAlert
-          v-if="needsGmApproval"
-          :icon="EFFECT_USE_TARGET_ICONS.far"
-          color="warning"
-          variant="subtle"
-          :title="EFFECT_USE_TARGET_LABELS.farTitle"
-          :description="EFFECT_USE_TARGET_LABELS.farText"
-        />
-
-        <div class="flex items-center justify-center gap-2">
-          <UButton
-            :label="confirmLabel"
-            color="primary"
-            variant="solid"
-            size="md"
-            :disabled="!chosen"
-            @click.left.exact.prevent="handleConfirm"
-          />
-
-          <UButton
-            :label="EFFECT_USE_TARGET_LABELS.cancel"
-            color="neutral"
-            variant="soft"
-            size="md"
-            @click.left.exact.prevent="handleCancel"
-          />
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
+      <UButton
+        :label="EFFECT_USE_TARGET_LABELS.cancel"
+        color="neutral"
+        variant="soft"
+        size="md"
+        @click.left.exact.prevent="handleCancel"
+      />
+    </template>
+  </HudPromptPanel>
 </template>
-
-<style scoped src="../hudPromptTransition.css"></style>

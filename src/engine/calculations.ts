@@ -79,6 +79,7 @@ import {
   stripDamageTypeTokens,
   stripHealTokens,
 } from './formulaTokens.js';
+import { assignContainerStorageIds } from './itemContainer.js';
 import { isAwaitingAttunement } from './itemUses.js';
 import {
   DEFAULT_PROFICIENCY_BONUS,
@@ -1534,6 +1535,8 @@ export function normalizeActor(actor: BaseActor): void {
     raw.equipment = [];
   }
 
+  assignContainerStorageIds(raw.equipment);
+
   if (!Array.isArray(raw.features)) {
     raw.features = [];
   }
@@ -1807,6 +1810,8 @@ export function normalizeCreature(creature: BaseCreature): void {
   if (!Array.isArray(raw.equipment)) {
     raw.equipment = [];
   }
+
+  assignContainerStorageIds(raw.equipment);
 
   // Разовая коэрсия способа расчёта КД. До появления инвентаря расчёт существа
   // это поле игнорировал и всегда брал число статблока, а окно КД записывало в

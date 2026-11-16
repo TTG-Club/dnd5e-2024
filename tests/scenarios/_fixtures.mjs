@@ -14,7 +14,11 @@ import { loadEngineBundle } from '../helpers/engineBundle.mjs';
 // eslint-disable-next-line antfu/no-top-level-await
 export const engine = await loadEngineBundle(`
   export * from './src/engine/index.ts';
-  export { isCreatureEntity, isPointInPolygon } from '@vtt/shared';
+  export {
+    HIDDEN_ENTITY_NAME,
+    isCreatureEntity,
+    isPointInPolygon,
+  } from '@vtt/shared';
 `);
 
 /** Управляющий персонажем игрок */

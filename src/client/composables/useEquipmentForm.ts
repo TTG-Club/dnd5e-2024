@@ -9,6 +9,7 @@ import type {
   CurrencyType,
   DnDEquipmentCategory,
   DnDGameItem,
+  ItemContainer,
 } from '@vtt/shared/system/dnd.js';
 
 import { computed, ref, watch } from 'vue';
@@ -28,6 +29,35 @@ import { useItemUsesForm } from './useItemUsesForm';
  * попросил другой. Лёгкая броня — самый частый случай.
  */
 const DEFAULT_CREATE_CATEGORY: DnDEquipmentCategory = 'light';
+
+/**
+ * Собирает поле контейнера из флажков формы.
+ *
+ * Пустое или испорченное поле вместимости (`v-model.number` отдаёт `''` после
+ * очистки) значит «без ограничения», а не ноль.
+ *
+ * @param isContainer - отмечено ли «Это контейнер»
+ * @param capacity - вместимость в фунтах из поля формы
+ * @param weightless - отмечено ли «Содержимое не весит»
+ * @returns поле `container` предмета либо `undefined`, если это не контейнер
+ */
+function buildContainer(
+  isContainer: boolean,
+  capacity: number | null,
+  weightless: boolean,
+): ItemContainer | undefined {
+  if (!isContainer) {
+    return undefined;
+  }
+
+  const hasCapacity =
+    typeof capacity === 'number' && Number.isFinite(capacity) && capacity >= 0;
+
+  return {
+    capacityWeight: hasCapacity ? capacity : undefined,
+    weightless: weightless || undefined,
+  };
+}
 
 /**
  * Composable для логики формы доспеха.
@@ -73,6 +103,11 @@ export function useEquipmentForm(
   const activeEffects = ref<ActiveEffect[]>([]);
   const itemUses = useItemUsesForm();
   const consumable = ref(false);
+  const isContainer = ref(false);
+  // `null` — вместимость не ограничена: пустое поле, а не ноль, иначе мешок
+  // без указанной вместимости не вмещал бы ничего
+  const containerCapacity = ref<number | null>(null);
+  const containerWeightless = ref(false);
 
   // Тип боеприпаса формой не правится: он нужен лишь автоподбору стрел из
   // компендиума и сохраняется как пришёл
@@ -296,6 +331,9 @@ export function useEquipmentForm(
 
         itemUses.loadItemUses(armor.uses);
         consumable.value = armor.consumable ?? false;
+        isContainer.value = armor.container !== undefined;
+        containerCapacity.value = armor.container?.capacityWeight ?? null;
+        containerWeightless.value = armor.container?.weightless ?? false;
         ammunitionType.value = armor.ammunitionType;
       } else {
         // Дефолты для создания
@@ -334,6 +372,9 @@ export function useEquipmentForm(
         activeEffects.value = [];
         itemUses.resetItemUses();
         consumable.value = false;
+        isContainer.value = false;
+        containerCapacity.value = null;
+        containerWeightless.value = false;
         ammunitionType.value = undefined;
       }
     },
@@ -387,6 +428,11 @@ export function useEquipmentForm(
         isMagical.value && magicBonus.value > 0 ? magicBonus.value : undefined,
       uses: itemUses.buildItemUses(),
       consumable: consumable.value || undefined,
+      container: buildContainer(
+        isContainer.value,
+        containerCapacity.value,
+        containerWeightless.value,
+      ),
       ammunitionType: ammunitionType.value,
       activeEffects:
         activeEffects.value.length > 0 ? activeEffects.value : undefined,
@@ -420,6 +466,9 @@ export function useEquipmentForm(
     rarity,
     activeEffects,
     consumable,
+    isContainer,
+    containerCapacity,
+    containerWeightless,
     ...itemUses,
 
     // Computed

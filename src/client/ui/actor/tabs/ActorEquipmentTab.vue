@@ -72,6 +72,10 @@
   import { toggleEntityItemEffect } from '../../../composables/itemEffectToggle';
   import { useCarryingCapacity } from '../../../composables/useCarryingCapacity';
   import { useCompendiumWarmup } from '../../../composables/useCompendiumWarmup';
+  import {
+    isContainerRow,
+    useContainerItems,
+  } from '../../../composables/useContainerItems';
   import { useResolvedStats } from '../../../composables/useResolvedStats';
   import { useWeaponIcon } from '../../../composables/useWeaponIcon';
   import {
@@ -99,6 +103,8 @@
   import {
     ACTOR_EQUIPMENT_TAB_LABELS,
     EQUIPMENT_AMMUNITION_BADGE,
+    EQUIPMENT_CONTAINER_LABELS,
+    EQUIPMENT_CONTAINER_OPEN_ICON,
     EQUIPMENT_EQUIP_ACTION_LABELS,
     EQUIPMENT_MENU_LABELS,
     EQUIPMENT_PURCHASE_ICON,
@@ -554,8 +560,9 @@
    * @param formId - ID модалки для закрытия
    */
   function saveEquipmentEdit(updatedItem: DnDGameItem, formId: string): void {
-    // Надет ли предмет и чем заряжено оружие — состояние листа, а не записи:
-    // форма его не знает, и правка его не сбрасывает
+    // Надет ли предмет, чем заряжено оружие и где лежит содержимое мешка —
+    // состояние листа, а не записи: форма его не знает, и правка его не
+    // сбрасывает
     const equipment = inventory.value.map((item) =>
       item.id === updatedItem.id
         ? {
@@ -564,6 +571,7 @@
             ...(item.loadedAmmunitionId
               ? { loadedAmmunitionId: item.loadedAmmunitionId }
               : {}),
+            ...(item.storageId ? { storageId: item.storageId } : {}),
           }
         : item,
     );
@@ -847,6 +855,31 @@
   /** Типы записей, у которых на листе есть своя форма правки */
   const EDITABLE_ITEM_TYPES = new Set(['weapon', 'equipment', 'spell', 'tool']);
 
+  // --- Мешки ---
+
+  const { getContainerFillLabel, openContainer } = useContainerItems();
+
+  /**
+   * Можно ли открыть мешок с этого листа. В режиме правки и у листа только
+   * для чтения — нет: открытие мешка без хранилища переписывает инвентарь на
+   * сервере, и сохранение черновика затёрло бы это.
+   *
+   * @param item - предмет инвентаря
+   * @returns `true`, если показывать «Открыть»
+   */
+  function canOpenContainer(item: DnDGameItem): boolean {
+    return !props.isReadOnly && !props.isEditMode && isContainerRow(item);
+  }
+
+  /**
+   * Открывает окно мешка из строки снаряжения.
+   *
+   * @param item - предмет-мешок
+   */
+  function openContainerRow(item: DnDGameItem): void {
+    void openContainer(props.entity.id, item.id);
+  }
+
   /**
    * Пункты меню строки предмета. Меню одно на правую кнопку мыши и на «⋮» в
    * конце строки: два набора действий у одной строки расходились бы.
@@ -859,6 +892,14 @@
    */
   function getItemMenuItems(item: DnDGameItem): DropdownMenuItem[][] {
     const gameActions: DropdownMenuItem[] = [];
+
+    if (canOpenContainer(item)) {
+      gameActions.push({
+        label: EQUIPMENT_CONTAINER_LABELS.open,
+        icon: EQUIPMENT_CONTAINER_OPEN_ICON,
+        onSelect: () => openContainerRow(item),
+      });
+    }
 
     // Надевание стоит первым и повторяет кнопку со значком слева: по одному
     // значку не всякий поймёт, что предмет им и берут в руки. Значок —
@@ -1287,6 +1328,15 @@
       });
     }
 
+    if (isContainerRow(item)) {
+      stats.push({
+        key: 'containerFill',
+        label: EQUIPMENT_CONTAINER_LABELS.fill,
+        value: getContainerFillLabel(item),
+        tooltip: EQUIPMENT_CONTAINER_LABELS.fillHint,
+      });
+    }
+
     return stats;
   }
 
@@ -1307,6 +1357,7 @@
         menuItems: getItemMenuItems(item),
         isEquipBlocked: isEquipDisabled(item),
         ammunition: getAmmunitionBadge(item),
+        canOpenContainer: canOpenContainer(item),
       })),
     })),
   );
@@ -1648,12 +1699,14 @@
             :menu-items="row.menuItems"
             :is-equip-blocked="row.isEquipBlocked"
             :ammunition="row.ammunition"
+            :can-open-container="row.canOpenContainer"
             :is-edit-mode="isEditMode"
             @open="openDetailModal(row.item)"
             @toggle-equip="toggleEquipped(row.item.id)"
             @roll="openRollModal(row.item)"
             @update:quantity="updateItemQuantity(row.item.id, $event)"
             @dragstart="handleItemDragStart($event, row.item)"
+            @open-container="openContainerRow(row.item)"
           />
         </div>
       </div>

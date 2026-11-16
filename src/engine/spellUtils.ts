@@ -610,6 +610,52 @@ export function getSpellProjectileCount(
 }
 
 /**
+ * Уровень заклинателя-существа для числа снарядов заговора: уровня персонажа
+ * у существа нет, и заговор идёт базовым числом снарядов.
+ */
+export const CREATURE_PROJECTILE_CASTER_LEVEL = 1;
+
+/**
+ * Сколько снарядов у каста — одно правило для персонажа и существа: каст идёт
+ * снарядами, только когда их больше одного и у заклинания нет области. Один
+ * снаряд — обычная атака или урон одной цели.
+ *
+ * @param spell - заклинание
+ * @param context - круг ячейки и/или уровень заклинателя
+ * @returns число снарядов; `0` — каст идёт без снарядов
+ */
+export function getCastProjectileCount(
+  spell: Spell,
+  context: ProjectileCountContext,
+): number {
+  if (spell.areaOfEffect) {
+    return 0;
+  }
+
+  const count = getSpellProjectileCount(spell, context);
+
+  return count > 1 ? count : 0;
+}
+
+/**
+ * Число снарядов каста существа. Ячеек у существа нет: круг — из группы
+ * статблока, а без него — круг самого заклинания; уровня персонажа тоже нет.
+ *
+ * @param spell - заклинание существа
+ * @param castLevel - круг наложения из группы статблока
+ * @returns число снарядов; `0` — каст идёт без снарядов
+ */
+export function getCreatureSpellProjectileCount(
+  spell: Spell,
+  castLevel: number | undefined,
+): number {
+  return getCastProjectileCount(spell, {
+    slotLevel: castLevel ?? spell.level,
+    casterLevel: CREATURE_PROJECTILE_CASTER_LEVEL,
+  });
+}
+
+/**
  * Считает предел разных целей эффекта с учётом выбранной ячейки.
  *
  * @param spell - заклинание

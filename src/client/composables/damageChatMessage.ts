@@ -9,8 +9,12 @@ import type { AttackDamageRecord } from '@vtt/shared/system/dnd.js';
 import {
   ATTACK_DAMAGE_FOLLOW_UP_KIND,
   buildActionChatHeader,
-  serializeAttackDamageRecord,
 } from '@vtt/shared/system/dnd.js';
+
+import {
+  serializeChatDamageRecord,
+  toRecordChatTarget,
+} from './chatTargetNames';
 
 /**
  * Параметры отправки сообщения боя: лента чата отмечает такое сообщение
@@ -86,7 +90,7 @@ export function buildAttackDamageChatOptions(
   return {
     ...base,
     kind: ATTACK_DAMAGE_FOLLOW_UP_KIND,
-    payload: serializeAttackDamageRecord(record),
+    payload: serializeChatDamageRecord(record),
   };
 }
 
@@ -131,7 +135,7 @@ function withStandaloneHeader(
       ...rollData.block,
       ...buildActionChatHeader({
         name: record.label,
-        targetNames: record.targets.map((target) => target.name),
+        targets: record.targets.map(toRecordChatTarget),
       }),
     },
   };

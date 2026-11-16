@@ -144,6 +144,7 @@ import {
 } from './effectTriggerUsage.js';
 import {
   findSceneToken,
+  findSceneTokenRange,
   resolveForcedMoveOptions,
   resolveForcedMoveOrigin,
   resolveForcedMovePosition,
@@ -1859,15 +1860,31 @@ function pushRecipient(
     return;
   }
 
+  const targetRange = findSceneTokenRange(surroundings, target);
+  const originRange = findSceneTokenRange(surroundings, origin);
+
   const position = resolveForcedMovePosition(action, {
     target,
     origin,
     gridSettings: surroundings.gridSettings,
     targetFlags: resolveActorStats(entity).activeFlags,
+    ...(targetRange && originRange
+      ? { vertical: { target: targetRange, origin: originRange } }
+      : {}),
   });
 
   if (position) {
-    moveToken(target.id, position, resolveForcedMoveOptions(action));
+    // Высота толчка — опцией ядра (VTTG 0.9.780); старое ядро её не читает
+    moveToken(
+      target.id,
+      { x: position.x, y: position.y },
+      position.aboveFloor === undefined
+        ? resolveForcedMoveOptions(action)
+        : {
+            ...resolveForcedMoveOptions(action),
+            aboveFloor: position.aboveFloor,
+          },
+    );
   }
 }
 

@@ -948,12 +948,6 @@ export const EFFECT_VARIANT_LABELS = {
   defaultGroup: 'вариант',
 } as const;
 
-/**
- * До скольких вариантов группа выбирается переключателем: больше в ширину
- * плашки не помещается — тогда выпадающий список
- */
-export const EFFECT_VARIANT_SWITCH_MAX = 3;
-
 /** Приставка ключа плашки выбора варианта */
 export const EFFECT_VARIANT_MODAL_KEY_PREFIX = 'effect-variant';
 

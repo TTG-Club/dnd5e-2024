@@ -9,22 +9,14 @@
 
   import { computed, ref } from 'vue';
 
-  import { HUD_PROMPT_TITLE_ATTR } from '@/shared_ui/consts';
+  import { HudPromptPanel } from '@/shared_ui/components';
 
-  import {
-    HUD_PROMPT_PANEL_CLASS,
-    HUD_PROMPTS_TELEPORT_TARGET,
-  } from '../actor/constants';
   import {
     CHOICE_SEARCH_THRESHOLD,
     EFFECT_TARGET_PROMPT_LABELS,
     TARGET_CANDIDATE_BUTTON,
   } from './constants';
   import { formatPromptTitle } from './utils/promptTitle';
-
-  defineOptions({
-    inheritAttrs: false,
-  });
 
   const props = defineProps<{
     open: boolean;
@@ -169,86 +161,69 @@
 </script>
 
 <template>
-  <Teleport :to="HUD_PROMPTS_TELEPORT_TARGET">
-    <Transition name="slide-up">
-      <div
-        v-if="open"
-        :class="HUD_PROMPT_PANEL_CLASS"
-        :[HUD_PROMPT_TITLE_ATTR]="title"
+  <HudPromptPanel
+    :open="open"
+    icon="tabler:target"
+    :title="title"
+  >
+    <UInput
+      v-if="showSearch"
+      v-model="search"
+      icon="tabler:search"
+      size="md"
+      :placeholder="EFFECT_TARGET_PROMPT_LABELS.search"
+    />
+
+    <div class="flex max-h-72 flex-col gap-1 overflow-y-auto">
+      <p
+        v-if="visibleCandidates.length === 0"
+        class="px-1 py-2 text-center text-xs text-dimmed"
       >
-        <div class="flex items-center gap-2 border-b border-muted/50 pb-2">
-          <UIcon
-            name="tabler:target"
-            class="h-5 w-5 shrink-0 text-toned"
-          />
+        {{ EFFECT_TARGET_PROMPT_LABELS.searchEmpty }}
+      </p>
 
-          <span class="min-w-0 text-sm font-medium break-words">
-            {{ title }}
-          </span>
-        </div>
+      <UButton
+        v-for="row in candidateRows"
+        :key="row.id"
+        :color="row.color"
+        :variant="row.variant"
+        :icon="row.icon"
+        size="md"
+        class="justify-start"
+        @click.left.exact.prevent="toggle(row.id)"
+      >
+        {{ row.label }}
+      </UButton>
+    </div>
 
-        <UInput
-          v-if="showSearch"
-          v-model="search"
-          icon="tabler:search"
-          size="md"
-          :placeholder="EFFECT_TARGET_PROMPT_LABELS.search"
-        />
+    <span class="text-center text-xs text-toned">{{ counter }}</span>
 
-        <div class="flex max-h-72 flex-col gap-1 overflow-y-auto">
-          <p
-            v-if="visibleCandidates.length === 0"
-            class="px-1 py-2 text-center text-xs text-dimmed"
-          >
-            {{ EFFECT_TARGET_PROMPT_LABELS.searchEmpty }}
-          </p>
+    <template #footer>
+      <UButton
+        :label="EFFECT_TARGET_PROMPT_LABELS.confirm"
+        color="primary"
+        variant="solid"
+        size="md"
+        :disabled="!canConfirm"
+        @click.left.exact.prevent="handleConfirm"
+      />
 
-          <UButton
-            v-for="row in candidateRows"
-            :key="row.id"
-            :color="row.color"
-            :variant="row.variant"
-            :icon="row.icon"
-            size="md"
-            class="justify-start"
-            @click.left.exact.prevent="toggle(row.id)"
-          >
-            {{ row.label }}
-          </UButton>
-        </div>
+      <UButton
+        v-if="optional"
+        :label="EFFECT_TARGET_PROMPT_LABELS.decline"
+        color="neutral"
+        variant="soft"
+        size="md"
+        @click.left.exact.prevent="handleDecline"
+      />
 
-        <span class="text-center text-xs text-toned">{{ counter }}</span>
-
-        <div class="flex flex-wrap items-center justify-center gap-2">
-          <UButton
-            :label="EFFECT_TARGET_PROMPT_LABELS.confirm"
-            color="primary"
-            variant="solid"
-            size="md"
-            :disabled="!canConfirm"
-            @click.left.exact.prevent="handleConfirm"
-          />
-
-          <UButton
-            v-if="optional"
-            :label="EFFECT_TARGET_PROMPT_LABELS.decline"
-            color="neutral"
-            variant="soft"
-            size="md"
-            @click.left.exact.prevent="handleDecline"
-          />
-
-          <UButton
-            :label="EFFECT_TARGET_PROMPT_LABELS.cancel"
-            color="neutral"
-            variant="soft"
-            size="md"
-            @click.left.exact.prevent="handleCancel"
-          />
-        </div>
-      </div>
-    </Transition>
-  </Teleport>
+      <UButton
+        :label="EFFECT_TARGET_PROMPT_LABELS.cancel"
+        color="neutral"
+        variant="soft"
+        size="md"
+        @click.left.exact.prevent="handleCancel"
+      />
+    </template>
+  </HudPromptPanel>
 </template>
-
-<style scoped src="../hudPromptTransition.css"></style>

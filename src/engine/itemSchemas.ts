@@ -22,6 +22,8 @@ import { z } from 'zod';
 
 import { isRecord } from '@vtt/shared';
 
+import { ItemContainerSchema } from './itemContainer.js';
+
 /** Известные типы предметов D&D 5e (дискриминатор объединения). */
 const ITEM_TYPES = [
   'weapon',
@@ -69,6 +71,10 @@ const GameItemEnvelopeSchema = z.object({
   rarity: z.string(),
   equipped: z.boolean(),
   isReadOnly: z.boolean(),
+  // Контейнер проверяется у любого типа: мешком бывает и снаряжение, и
+  // инструмент (набор в футляре). Поле необязательное — старые записи без него
+  container: ItemContainerSchema.optional(),
+  storageId: z.string().optional(),
 });
 
 /**

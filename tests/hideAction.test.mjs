@@ -148,6 +148,7 @@ async function loadHide({
     listHideCosts: engine.listHideCosts,
     mergeAppliedEffects: engine.mergeAppliedEffects,
     pickFoundHides: engine.pickFoundHides,
+    resolvePublicEntityName: engine.resolvePublicEntityName,
     resolveHideSearchDc: engine.resolveHideSearchDc,
     resolveActionCostBlock: () => null,
     listAmbientEffects: () => [],
@@ -586,7 +587,12 @@ describe('полка действий', () => {
    * @param {object} [movementMode] - режим вида перемещения ядра (VTTG 0.9.751+)
    * @returns {Promise<object>} журнал регистраций
    */
-  async function registerOn(withShelf, selected, movementMode) {
+  async function registerOn(
+    withShelf,
+    selected,
+    movementMode,
+    sceneTokens = [],
+  ) {
     const calls = [];
     const registered = { shelf: null, followUps: null, calls };
 
@@ -628,6 +634,11 @@ describe('полка действий', () => {
       resolveJumpDistances: engine.resolveJumpDistances,
       resolveTurnSpeed: engine.resolveTurnSpeed,
       JUMP_MOVEMENT_MODE_ID: engine.JUMP_MOVEMENT_MODE_ID,
+      FLY_MOVEMENT_MODE_ID: engine.FLY_MOVEMENT_MODE_ID,
+      LEVITATE_MOVEMENT_MODE_ID: engine.LEVITATE_MOVEMENT_MODE_ID,
+      buildVerticalMovementModes: engine.buildVerticalMovementModes,
+      resolveMovementModesState: engine.resolveMovementModesState,
+      useWorldStore: () => ({ currentScene: { tokens: sceneTokens } }),
     };
 
     for (const name of [
@@ -638,6 +649,19 @@ describe('полка действий', () => {
     ]) {
       ports[name] = await loadHandler(
         'src/client/composables/jumpAction.ts',
+        name,
+        ports,
+      );
+    }
+
+    for (const name of [
+      'FLIGHT_BUTTON_SPECS',
+      'hasActiveModeControl',
+      'findEntityTokenId',
+      'buildFlightShelfButtons',
+    ]) {
+      ports[name] = await loadHandler(
+        'src/client/composables/flightAction.ts',
         name,
         ports,
       );
@@ -746,6 +770,63 @@ describe('полка действий', () => {
       assert.equal(button.disabled, true, 'и вся погашена');
       assert.equal(button.onClick, undefined);
     }
+  });
+
+  it('«Полёт» включает вид состоянием фишки и приземляет', async () => {
+    const active = new Map();
+    const calls = [];
+
+    const movementMode = {
+      set: () => {},
+      current: () => null,
+      setActive: (tokenId, modeId) => {
+        calls.push([tokenId, modeId]);
+        active.set(tokenId, modeId);
+      },
+      activeOf: (tokenId) => active.get(tokenId) ?? null,
+    };
+
+    const flyer = entity('flyer', {
+      ownerIds: [PLAYER_ID],
+      system: { abilities: { strength: 10 }, movement: { walk: 30, fly: 60 } },
+    });
+
+    const tokens = [
+      { id: 'flyer-token', actorId: 'flyer', x: 0, y: 0, scale: 1 },
+    ];
+
+    const shelf = (await registerOn(true, flyer, movementMode, tokens)).shelf;
+
+    const findFly = () =>
+      shelf
+        .list({ entityId: 'flyer', tokenId: 'flyer-token' })
+        .find((button) => button.id === 'fly');
+
+    assert.equal(findFly().active, false);
+
+    findFly().onClick();
+    assert.deepEqual(calls[0], ['flyer-token', 'fly']);
+    assert.equal(findFly().active, true, 'горит, пока фишка в полёте');
+
+    findFly().onClick();
+    assert.deepEqual(calls[1], ['flyer-token', null], 'приземлиться');
+
+    const oldCore = (
+      await registerOn(
+        true,
+        flyer,
+        { set: () => {}, current: () => null },
+        tokens,
+      )
+    ).shelf;
+
+    assert.equal(
+      oldCore
+        .list({ entityId: 'flyer', tokenId: 'flyer-token' })
+        .some((button) => button.id === 'fly'),
+      false,
+      'ядро без включения состоянием — кнопки нет',
+    );
   });
 
   it('«Прыжок» включает и выключает режим прыжка у ядра', async () => {

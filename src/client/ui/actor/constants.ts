@@ -41,9 +41,11 @@ import {
   DEATH_SAVE_DOUBLE_FAILURE_ROLL,
   DEATH_SAVE_REVIVE_ROLL,
   DEATH_SAVE_REVIVED_HP,
+  DEFAULT_ITEM_TYPE_ICON,
   FEET_UNIT_LABEL,
   HIT_DICE_FORMULA_LETTER,
   HIT_DIE_OPTIONS,
+  ITEM_TYPE_ICONS,
   SAVING_THROW_REQUEST_TITLE_PARTS,
   SNEAK_ATTACK_LABEL,
 } from '@vtt/shared/system/dnd.js';
@@ -1510,29 +1512,11 @@ export const SHEET_ROW_MENU_LABELS: Record<
 };
 
 /**
- * Значки записей по типу предмета. Оружия и снаряжения здесь нет: у оружия
- * значок рисует `WeaponIcon` по базовому типу, а у снаряжения его выбирает
- * категория (`getEquipmentCategoryIcon` из движка).
+ * Значки записей по типу предмета и заглушка неизвестного типа — из движка
+ * (`itemIcon.ts`): по ним же ядро рисует значок предмета на карте.
  */
-export const EQUIPMENT_TYPE_ICONS: Record<string, string> = {
-  'trinket': 'tabler:diamond',
-  'rod': 'tabler:wand',
-  'ring': 'tabler:circle-dotted',
-  'clothing': 'tabler:hanger',
-  'wand': 'tabler:wand',
-  'wondrous': 'tabler:sparkles',
-  'vehicle-equipment': 'tabler:horse',
-  'tool': 'tabler:tools',
-  'spell': 'tabler:sparkles',
-};
-
-/**
- * Значок записи неизвестного типа — когда типа нет в списке выше. У снаряжения
- * заглушка своя, из движка (`getEquipmentCategoryIcon`): там она отвечает за
- * категорию, а не за тип записи, и одно имя на две разные заглушки заставляло
- * бы гадать, какая из них сработала.
- */
-export const DEFAULT_ITEM_TYPE_ICON = 'tabler:box';
+export const EQUIPMENT_TYPE_ICONS = ITEM_TYPE_ICONS;
+export { DEFAULT_ITEM_TYPE_ICON };
 
 /** Подпись типа дальности оружия — вторая часть подписи под названием */
 export const WEAPON_RANGE_TYPE_LABELS: Record<WeaponRangeType, string> = {
@@ -2097,6 +2081,15 @@ export const SPECIES_FORM_DEFAULT_NAMES = {
  * `ITEM_FORM_LABELS`.
  */
 export const EQUIPMENT_FORM_LABELS = {
+  containerTitle: 'Контейнер',
+  isContainer: 'Это контейнер',
+  isContainerDescription:
+    'В предмет можно складывать другие вещи: рюкзак, мешок, сундук, кошель.',
+  containerCapacity: 'Вместимость (фунты)',
+  containerCapacityPlaceholder: 'Без ограничения',
+  containerWeightless: 'Содержимое не весит',
+  containerWeightlessDescription:
+    'Вес вещей внутри не идёт в нагрузку — как у Сумки хранения.',
   consumptionTitle: 'Расход',
   consumable: 'Расходуемый',
   consumableDescription:
@@ -3303,11 +3296,6 @@ export const INITIATIVE_ROLL_LABELS = {
    * именем — и в заголовке окна, и в сообщении чата.
    */
   nameSeparator: ' — ',
-  /**
-   * Что пишется в чат вместо имени существа, у которого выключено «Показывать
-   * имя»: то же слово ядро показывает игрокам в трекере инициативы.
-   */
-  hiddenName: 'Неизвестный',
 } as const;
 
 /** Подписи вкладок листа персонажа */
@@ -4003,6 +3991,8 @@ export const OUT_OF_RANGE_LABELS = {
   outOfSpellRange: 'Цель вне дистанции (до цели ',
   /** Предел заклинания — показывается, чтобы расстояние не читалось требованием */
   spellRangePrefix: ', дистанция заклинания — ',
+  /** Вместо расстояния: между фишками стена или перекрытие без проёма */
+  behindBarrier: 'за стеной или перекрытием',
   close: ')',
 } as const;
 
@@ -6290,17 +6280,6 @@ export const DEATH_SAVE_STATUS_CLASS = {
   alive: 'text-muted',
 } as const;
 
-/** Слой плашек запросов хоста: сюда телепортируются плашки системы */
-export const HUD_PROMPTS_TELEPORT_TARGET = '#hud-prompts-container';
-
-/**
- * Оформление плашки запроса над сценой — одно на все плашки системы (вопрос,
- * выбор варианта, цели, оплата, круг, снаряды): вид у них общий, и расходиться
- * он не должен. Появление — общая анимация `hudPromptTransition.css`.
- */
-export const HUD_PROMPT_PANEL_CLASS =
-  'pointer-events-auto flex w-95 max-w-full flex-col gap-3 rounded-xl border border-default/50 bg-default/90 px-4 py-3 text-highlighted shadow-xl ring-accented backdrop-blur-sm';
-
 /** Итог спасброска согласной цели: провал с натуральной единицей */
 export const WILLING_SAVE_TOTAL = 1;
 
@@ -6320,3 +6299,17 @@ export const WINDOW_TAB_CONTENT_CLASS =
  * несут один ключ (`DamageHit.actionId`)
  */
 export const ROLL_ACTION_ID_PREFIX = 'roll-action';
+
+/**
+ * Мешки в «Снаряжении»: кнопка «Открыть» и плитка заполненности. Сами окна
+ * хранилищ — ядра, здесь только подписи строки листа.
+ */
+export const EQUIPMENT_CONTAINER_LABELS = {
+  open: 'Открыть',
+  openRefusedTitle: 'Мешок не открыт',
+  fill: 'Внутри',
+  fillHint: 'Вес вещей в мешке и его вместимость, фунты',
+} as const;
+
+/** Значок кнопки «Открыть» у мешка */
+export const EQUIPMENT_CONTAINER_OPEN_ICON = 'tabler:backpack';

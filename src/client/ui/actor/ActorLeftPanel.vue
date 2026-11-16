@@ -81,6 +81,7 @@
   import SheetSettingsGear from './SheetSettingsGear.vue';
   import ToolProficiencyModal from './ToolProficiencyModal.vue';
   import { formatSignedNumber } from './utils/formatSignedNumber';
+  import { isProficiencyCategorySelected } from './utils/proficiencySelection';
   import { getSheetBlockClass } from './utils/sheetBlockClass';
   import WeaponProficiencyModal from './WeaponProficiencyModal.vue';
 
@@ -213,21 +214,23 @@
     const selected = new Set(props.actor.system.proficiencies.armor);
     const badges: string[] = [];
 
-    for (const cat of ARMOR_BADGE_CATEGORIES) {
-      const catKeys = systemDataStore.armorBaseTypes
-        .filter((bt) => bt.category === cat.key)
-        .map((bt) => bt.key);
+    for (const category of ARMOR_BADGE_CATEGORIES) {
+      const categoryItems = systemDataStore.armorBaseTypes.filter(
+        (baseType) => baseType.category === category.key,
+      );
 
-      const allSelected =
-        catKeys.length > 0
-        && catKeys.every((armorKey) => selected.has(armorKey));
+      const allSelected = isProficiencyCategorySelected(
+        selected,
+        category.key,
+        categoryItems,
+      );
 
       if (allSelected) {
-        badges.push(cat.label);
+        badges.push(category.label);
       } else {
-        for (const key of catKeys) {
-          if (selected.has(key)) {
-            badges.push(armorProfNameMap.value.get(key) ?? key);
+        for (const item of categoryItems) {
+          if (selected.has(item.key)) {
+            badges.push(armorProfNameMap.value.get(item.key) ?? item.key);
           }
         }
       }
@@ -292,21 +295,28 @@
 
     const badges: Array<{ label: string; hasMastery: boolean }> = [];
 
-    const simpleKeys = systemDataStore.weaponBaseTypes
-      .filter((bt) => bt.category === 'simple')
-      .map((bt) => bt.key);
+    const simpleItems = systemDataStore.weaponBaseTypes.filter(
+      (baseType) => baseType.category === 'simple',
+    );
 
-    const martialKeys = systemDataStore.weaponBaseTypes
-      .filter((bt) => bt.category === 'martial')
-      .map((bt) => bt.key);
+    const martialItems = systemDataStore.weaponBaseTypes.filter(
+      (baseType) => baseType.category === 'martial',
+    );
 
-    const allSimple =
-      simpleKeys.length > 0
-      && simpleKeys.every((weaponKey) => selected.has(weaponKey));
+    const simpleKeys = simpleItems.map((item) => item.key);
+    const martialKeys = martialItems.map((item) => item.key);
 
-    const allMartial =
-      martialKeys.length > 0
-      && martialKeys.every((weaponKey) => selected.has(weaponKey));
+    const allSimple = isProficiencyCategorySelected(
+      selected,
+      'simple',
+      simpleItems,
+    );
+
+    const allMartial = isProficiencyCategorySelected(
+      selected,
+      'martial',
+      martialItems,
+    );
 
     if (allSimple) {
       const simpleMasteries = simpleKeys.filter((weaponKey) =>

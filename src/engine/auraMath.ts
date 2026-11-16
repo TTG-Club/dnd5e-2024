@@ -10,7 +10,17 @@
  * @module system/dnd/auraMath
  */
 
-import type { GridSettings, SystemSceneSurroundings, Token } from '@vtt/shared';
+import type {
+  CustomArea,
+  GridSettings,
+  SceneFloor,
+  SceneStructure,
+  SceneVerticalModel,
+  SystemSceneNeighbor,
+  SystemSceneSurroundings,
+  Token,
+  VerticalRange,
+} from '@vtt/shared';
 
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
@@ -18,8 +28,9 @@ import type { AdjacentAllyState } from './effectPipeline.js';
 import type { EffectTriggerArea } from './effectTriggerTypes.js';
 
 import {
-  getTokenEdgeDistance,
   isCreatureEntity,
+  resolveGridCellSize,
+  resolveGridUnitsPerCell,
   withTokenDisposition,
 } from '@vtt/shared';
 
@@ -49,6 +60,14 @@ import {
 import { isDndSceneEntity } from './entityGuards.js';
 import { buildResolvedFormulaContext } from './resolvedFormulaContext.js';
 import {
+  buildLevelModel,
+  getLevelReachDistance,
+  getVerticalRangeGap,
+  resolveDndEntityHeight,
+  resolveLevelPairVertical,
+  toLevelSubject,
+} from './sceneLevels.js';
+import {
   bindSourceEffectFormulas,
   effectUsesSourceFormulas,
 } from './sourceFormulaBinding.js';
@@ -74,6 +93,72 @@ export type TokenDisposition = 'ally' | 'enemy' | 'neutral';
 export interface AuraSourceToken {
   token: Token;
   effects: ActiveEffect[];
+}
+
+/**
+ * Вертикаль сцены для аур: модель этажей и рост фишек. Без неё ауры меряются
+ * по плану, как раньше.
+ */
+export interface AuraLevelContext {
+  /** Модель вертикали сцены */
+  model: SceneVerticalModel;
+  /** Рост фишки по правилам; нет ответа — по умолчанию ядра */
+  resolveHeight?: (token: Token) => number | undefined;
+}
+
+/** Вертикаль источника и цели ауры ({@link isAuraReachingTarget}) */
+export interface AuraVertical {
+  /** Отрезок источника */
+  sourceRange: VerticalRange;
+  /** Отрезок цели */
+  targetRange: VerticalRange;
+  /** Между ними перекрытие без проёма: аура не проходит */
+  blocked: boolean;
+}
+
+/**
+ * Вертикаль пары «источник — цель» для ауры: по модели сцены и росту фишек.
+ *
+ * @param levels - вертикаль сцены
+ * @param sourceToken - источник
+ * @param targetToken - цель
+ * @returns вертикаль либо `undefined` — меряется только план
+ */
+export function resolveAuraVertical(
+  levels: AuraLevelContext | undefined,
+  sourceToken: Token,
+  targetToken: Token,
+): AuraVertical | undefined {
+  if (!levels) {
+    return undefined;
+  }
+
+  const pair = resolveLevelPairVertical(
+    levels.model,
+    { token: sourceToken, height: levels.resolveHeight?.(sourceToken) },
+    { token: targetToken, height: levels.resolveHeight?.(targetToken) },
+  );
+
+  return pair
+    ? {
+        sourceRange: pair.rangeA,
+        targetRange: pair.rangeB,
+        blocked: pair.blocked,
+      }
+    : undefined;
+}
+
+/**
+ * Вертикаль сцены по одной сетке: этажей нет, но высота полёта
+ * (`aboveFloor`) у фишек есть — ауру над головой это уже касается.
+ *
+ * @param gridSettings - сетка сцены
+ * @returns вертикаль сцены
+ */
+export function buildGridAuraLevels(
+  gridSettings: GridSettings,
+): AuraLevelContext {
+  return { model: buildLevelModel({ gridSettings }) };
 }
 
 /**
@@ -246,16 +331,20 @@ function shapeEntityAuras(
  * Проверка попадания: аура действует на цель, когда центр цели
  * находится внутри круга ауры (евклидова дистанция).
  * Круг ауры: центр источника + радиус ауры + половина размера источника.
+ * По вертикали аура достаёт на тот же радиус от отрезка источника и не
+ * проходит сквозь перекрытие без проёма.
  *
  * @param targetToken - токен, для которого запрашиваем внешние ауры
  * @param sources - массив токенов-источников с их аура-эффектами
  * @param gridSettings - настройки координатной сетки сцены
+ * @param levels - вертикаль сцены; по умолчанию — по одной сетке
  * @returns массив ActiveEffect (аур), которые достают до targetToken
  */
 export function calculateAmbientAuras(
   targetToken: Token,
   sources: AuraSourceToken[],
   gridSettings: GridSettings,
+  levels: AuraLevelContext = buildGridAuraLevels(gridSettings),
 ): ActiveEffect[] {
   const ambientEffects: ActiveEffect[] = [];
 
@@ -298,6 +387,7 @@ export function calculateAmbientAuras(
           targetToken,
           aura.radius,
           gridSettings,
+          resolveAuraVertical(levels, source.token, targetToken),
         )
       ) {
         continue;
@@ -323,10 +413,16 @@ export function calculateAmbientAuras(
  * токена-источника + хитбокс цели против евклидова расстояния между центрами.
  * Им пользуются и постоянные ambient-ауры, и разовые триггеры входа и выхода.
  *
+ * С вертикалью аура — объём: зазор по плану сверх этого круга и зазор между
+ * отрезками фишек по высоте складываются по Пифагору и сравниваются с
+ * радиусом (аура тянется на радиус во все стороны). Перекрытие без проёма
+ * ауру не пропускает. Без зазора по высоте ответ тот же, что по плану.
+ *
  * @param sourceToken - токен-источник ауры
  * @param targetToken - целевой токен
  * @param auraRadiusFeet - радиус ауры в футах
  * @param gridSettings - настройки сетки сцены
+ * @param vertical - отрезки источника и цели; нет — только план
  * @returns true, если цель в пределах ауры
  */
 export function isAuraReachingTarget(
@@ -334,9 +430,18 @@ export function isAuraReachingTarget(
   targetToken: Token,
   auraRadiusFeet: number,
   gridSettings: GridSettings,
+  vertical?: AuraVertical,
 ): boolean {
-  const cellSize = gridSettings.cellSize ?? DEFAULT_CELL_SIZE_PX;
-  const distancePerCell = gridSettings.scale ?? DEFAULT_FEET_PER_CELL;
+  if (vertical?.blocked) {
+    return false;
+  }
+
+  // Масштаб — через хост: у сетки «fixed» поле `cellSize` не действует, а
+  // сцена без сетки держит в этих полях масштаб карты
+  const cellSize = resolveGridCellSize(gridSettings) || DEFAULT_CELL_SIZE_PX;
+
+  const distancePerCell =
+    resolveGridUnitsPerCell(gridSettings) || DEFAULT_FEET_PER_CELL;
 
   const targetTokenSizePx = (targetToken.scale ?? 1) * cellSize;
   const targetCenterX = targetToken.x + targetTokenSizePx / 2;
@@ -357,7 +462,19 @@ export function isAuraReachingTarget(
   const totalReachPx =
     sourceTokenSizePx / 2 + auraRadiusPx + targetHitboxRadiusPx;
 
-  return centerDistancePx <= totalReachPx;
+  const verticalGap = vertical
+    ? getVerticalRangeGap(vertical.sourceRange, vertical.targetRange)
+    : 0;
+
+  if (verticalGap <= 0) {
+    return centerDistancePx <= totalReachPx;
+  }
+
+  const planGapFeet =
+    (Math.max(0, centerDistancePx - (totalReachPx - auraRadiusPx)) / cellSize)
+    * distancePerCell;
+
+  return Math.hypot(planGapFeet, verticalGap) <= auraRadiusFeet;
 }
 
 /**
@@ -365,6 +482,10 @@ export function isAuraReachingTarget(
  * геометрия и те же отношения, что у ауры: радиус от края фишки субъекта,
  * союзник — фишка того же действующего отношения (`withTokenDisposition` ядра:
  * отношение живёт в настройках фишки сущности).
+ *
+ * По вертикали — как аура: отрезки фишек от ядра (VTTG 0.9.780; ядро же
+ * отсеяло соседей за перекрытием), а без них — по этажам и росту из
+ * окружения.
  *
  * @param surroundings - сцена вокруг субъекта от ядра
  * @param area - радиус и отбор
@@ -383,6 +504,7 @@ export function findEntitiesInArea(
   const target = areaTargetRelation(area.target);
   const found = new Map<string, DnDSceneEntity>();
   const subjectToken = withTokenDisposition(surroundings.token, subject);
+  const levels = buildSurroundingsAuraLevels(surroundings, subject);
 
   // «И носитель тоже»: соседей ядро отдаёт без субъекта, и добавить его может
   // только система — она одна знает, кто субъект
@@ -410,6 +532,7 @@ export function findEntitiesInArea(
         token,
         area.radius,
         surroundings.gridSettings,
+        resolveNeighborVertical(levels, surroundings, neighbor),
       )
     ) {
       continue;
@@ -419,6 +542,71 @@ export function findEntitiesInArea(
   }
 
   return [...found.values()];
+}
+
+/**
+ * Вертикаль окружения от ядра: этажи и области сцены, рост субъекта и
+ * соседей по правилам D&D.
+ *
+ * @param surroundings - сцена вокруг субъекта
+ * @param subject - субъект
+ * @returns вертикаль сцены
+ */
+function buildSurroundingsAuraLevels(
+  surroundings: SystemSceneSurroundings,
+  subject: DnDSceneEntity | undefined,
+): AuraLevelContext {
+  const entityByTokenId = new Map<string, DnDSceneEntity>();
+
+  if (subject) {
+    entityByTokenId.set(surroundings.token.id, subject);
+  }
+
+  for (const neighbor of surroundings.neighbors) {
+    if (isDndSceneEntity(neighbor.entity)) {
+      entityByTokenId.set(neighbor.token.id, neighbor.entity);
+    }
+  }
+
+  // Построек этажей (люки, балконы) ядро в окружении не отдаёт — README,
+  // § «Чего не хватает для полноценного SDK», п. 7
+  return {
+    model: buildLevelModel({
+      gridSettings: surroundings.gridSettings,
+      floors: surroundings.floors,
+      customAreas: surroundings.areas,
+    }),
+    resolveHeight: (token) => {
+      const entity = entityByTokenId.get(token.id);
+
+      return entity ? resolveDndEntityHeight(entity) : undefined;
+    },
+  };
+}
+
+/**
+ * Вертикаль пары «субъект — сосед»: готовые отрезки ядра, если оно их дало
+ * (соседей за перекрытием ядро уже не отдало), иначе — по модели сцены.
+ *
+ * @param levels - вертикаль сцены
+ * @param surroundings - сцена вокруг субъекта
+ * @param neighbor - сосед
+ * @returns вертикаль либо `undefined` — только план
+ */
+function resolveNeighborVertical(
+  levels: AuraLevelContext,
+  surroundings: SystemSceneSurroundings,
+  neighbor: SystemSceneNeighbor,
+): AuraVertical | undefined {
+  if (surroundings.verticalRange && neighbor.verticalRange) {
+    return {
+      sourceRange: surroundings.verticalRange,
+      targetRange: neighbor.verticalRange,
+      blocked: false,
+    };
+  }
+
+  return resolveAuraVertical(levels, surroundings.token, neighbor.token);
 }
 
 /**
@@ -433,6 +621,12 @@ export interface AllyAdjacencyScene {
   tokens: readonly Token[];
   /** Сетка сцены */
   gridSettings: GridSettings;
+  /** Этажи сцены; нет — одноэтажная */
+  floors?: readonly SceneFloor[];
+  /** Постройки этажей: контуры пола, проёмы и лестницы */
+  structures?: readonly SceneStructure[];
+  /** Области сцены: проёмы в полу, площадки */
+  customAreas?: readonly CustomArea[];
   /** Атакующая сущность */
   attackerId: string;
   /** Фишка цели */
@@ -464,31 +658,40 @@ export function listEntityConditionKeys(entity: DnDSceneEntity): string[] {
 
 /**
  * Фишка сущности, ближайшая к цели. У одной записи на сцене бывает несколько
- * фишек (стая волков из одного существа), и бьёт та, что ближе.
+ * фишек (стая волков из одного существа), и бьёт та, что ближе. Мера — в 3D,
+ * сквозь перекрытие без проёма фишка не дотягивается вовсе.
  *
+ * @param model - вертикаль сцены
  * @param tokens - фишки сцены
  * @param entityId - сущность
  * @param targetToken - фишка цели
- * @param gridSettings - сетка сцены
+ * @param getEntity - живая сущность мира по id: рост фишки
  * @returns фишка либо `undefined`, если у сущности нет фишек кроме цели
  */
 export function findNearestEntityToken(
+  model: SceneVerticalModel,
   tokens: readonly Token[],
   entityId: string,
   targetToken: Token,
-  gridSettings: GridSettings,
+  getEntity: (entityId: string) => DnDSceneEntity | undefined,
 ): Token | undefined {
   let nearest: Token | undefined;
   let nearestDistance = Number.POSITIVE_INFINITY;
+
+  const target = toLevelSubject(targetToken, getEntity(targetToken.actorId));
 
   for (const token of tokens) {
     if (token.actorId !== entityId || token.id === targetToken.id) {
       continue;
     }
 
-    const distance = getTokenEdgeDistance(token, targetToken, gridSettings);
+    const distance = getLevelReachDistance(
+      model,
+      toLevelSubject(token, getEntity(token.actorId)),
+      target,
+    );
 
-    if (distance < nearestDistance) {
+    if (nearest === undefined || distance < nearestDistance) {
       nearest = token;
       nearestDistance = distance;
     }
@@ -501,23 +704,27 @@ export function findNearestEntityToken(
  * Союзники атакующего рядом с целью и их состояния: фишки того же
  * действующего отношения (`withTokenDisposition` ядра — отношение живёт в
  * настройках фишки сущности), не фишка атакующего и не цель, в пределах
- * {@link ALLY_ADJACENT_RANGE_FEET} от края до края. Атакует ближайшая к цели
- * фишка сущности; другие её фишки — отдельные существа на поле и в счёт идут.
- * Какой союзник годится, решает условие броска.
+ * {@link ALLY_ADJACENT_RANGE_FEET} от края до края в 3D. Союзник этажом выше
+ * за перекрытием без проёма рядом не считается: «Тактика стаи» сквозь пол не
+ * работает. Атакует ближайшая к цели фишка сущности; другие её фишки —
+ * отдельные существа на поле и в счёт идут. Какой союзник годится, решает
+ * условие броска.
  *
- * @param scene - фишки, сетка и сущности сцены
+ * @param scene - фишки, сетка, этажи и сущности сцены
  * @returns союзники рядом с целью; у атакующего нет фишки — пусто
  */
 export function listAdjacentAllies(
   scene: AllyAdjacencyScene,
 ): AdjacentAllyState[] {
-  const { tokens, gridSettings, attackerId, targetToken, getEntity } = scene;
+  const { tokens, attackerId, targetToken, getEntity } = scene;
+  const model = buildLevelModel(scene);
 
   const attackerToken = findNearestEntityToken(
+    model,
     tokens,
     attackerId,
     targetToken,
-    gridSettings,
+    getEntity,
   );
 
   if (!attackerToken) {
@@ -529,13 +736,10 @@ export function listAdjacentAllies(
     getEntity(attackerId),
   );
 
+  const target = toLevelSubject(targetToken, getEntity(targetToken.actorId));
+
   return tokens.flatMap((token) => {
-    if (
-      token.id === attackerToken.id
-      || token.id === targetToken.id
-      || getTokenEdgeDistance(token, targetToken, gridSettings)
-        > ALLY_ADJACENT_RANGE_FEET
-    ) {
+    if (token.id === attackerToken.id || token.id === targetToken.id) {
       return [];
     }
 
@@ -543,6 +747,8 @@ export function listAdjacentAllies(
 
     if (
       !ally
+      || getLevelReachDistance(model, toLevelSubject(token, ally), target)
+        > ALLY_ADJACENT_RANGE_FEET
       || getRelativeDisposition(attackerSide, withTokenDisposition(token, ally))
         !== 'ally'
     ) {
@@ -601,12 +807,14 @@ export interface TriggerAuraHit {
  * @param targetToken - целевой токен
  * @param sources - токены-источники с их аура-эффектами
  * @param gridSettings - настройки сетки сцены
+ * @param levels - вертикаль сцены; по умолчанию — по одной сетке
  * @returns список попаданий триггер-аур на цель
  */
 export function collectTriggerAurasForTarget(
   targetToken: Token,
   sources: AuraSourceToken[],
   gridSettings: GridSettings,
+  levels: AuraLevelContext = buildGridAuraLevels(gridSettings),
 ): TriggerAuraHit[] {
   const hits: TriggerAuraHit[] = [];
 
@@ -638,6 +846,7 @@ export function collectTriggerAurasForTarget(
           targetToken,
           aura.radius,
           gridSettings,
+          resolveAuraVertical(levels, source.token, targetToken),
         )
       ) {
         hits.push({

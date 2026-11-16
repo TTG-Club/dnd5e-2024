@@ -13,13 +13,19 @@
 import type {
   CustomArea,
   GridSettings,
+  SceneFloor,
+  SceneStructure,
   ServerRollRequester,
   SystemSceneSurroundings,
   Token,
 } from '@vtt/shared';
 
 import type { ActiveEffect } from './activeEffectTypes.js';
-import type { AuraSourceToken, TriggerAuraHit } from './auraMath.js';
+import type {
+  AuraLevelContext,
+  AuraSourceToken,
+  TriggerAuraHit,
+} from './auraMath.js';
 import type { EngineDeferredTrigger } from './deferredEffectSaves.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 import type { TriggerSourcePreparer } from './effectPay.js';
@@ -48,6 +54,7 @@ import {
   collectTriggerAurasForTarget,
   isTriggerAura,
 } from './auraMath.js';
+import { resolvePublicEntityName } from './chatTargets.js';
 import {
   requestEntryEffect,
   requestPresenceTriggerSave,
@@ -79,6 +86,7 @@ import {
   triggerAsksPermission,
 } from './effectTriggerTypes.js';
 import { buildTriggerUsageScope } from './effectTriggerUsage.js';
+import { buildLevelModel, resolveDndEntityHeight } from './sceneLevels.js';
 import { listChoiceCandidates } from './triggerChoice.js';
 import {
   passesLandingCondition,
@@ -749,6 +757,23 @@ function auraHitKey(hit: TriggerAuraHit): string {
 }
 
 /**
+ * Сцена перемещения для триггер-аур: ядро отдаёт её целиком, правилам нужны
+ * фишки, сетка и вертикаль (этажи, проёмы).
+ */
+export interface AuraTriggerScene {
+  /** Фишки сцены */
+  tokens?: Token[];
+  /** Сетка сцены */
+  gridSettings?: GridSettings;
+  /** Этажи сцены (VTTG 0.9.780); нет — одноэтажная */
+  floors?: SceneFloor[];
+  /** Постройки этажей: контуры пола, проёмы и лестницы */
+  structures?: SceneStructure[];
+  /** Области сцены: проёмы в полу, площадки */
+  customAreas?: CustomArea[];
+}
+
+/**
  * Обрабатывает разовые триггер-ауры (enter/exit) при перемещении токена.
  *
  * Перемещение влияет на членство в аурах двусторонне, поэтому считаем оба
@@ -782,7 +807,7 @@ function auraHitKey(hit: TriggerAuraHit): string {
  * @returns исходы по каждой затронутой сущности (для рассылки и чата)
  */
 export function applyAuraTriggerEffects(
-  scene: { tokens?: Token[]; gridSettings?: GridSettings },
+  scene: AuraTriggerScene,
   movedToken: Token,
   movedEntity: DnDSceneEntity,
   previousToken: Token | undefined,
@@ -819,9 +844,13 @@ export function applyAuraTriggerEffects(
 
   const outcomes = new Map<string, AuraTriggerOutcome>();
 
-  /** Имена сущностей по токенам — подпись источника ауры в запросе броска */
+  /**
+   * Имена сущностей по токенам — подпись источника ауры в запросе броска.
+   * Запрос читает владелец цели, поэтому имя общее: скрытое от игроков не
+   * называется
+   */
   const sourceNames = new Map<string, string>([
-    [movedToken.id, movedEntity.name],
+    [movedToken.id, resolvePublicEntityName(movedEntity)],
   ]);
 
   const getAccumulator = (targetEntity: DnDSceneEntity): AuraTriggerOutcome => {
@@ -962,8 +991,32 @@ export function applyAuraTriggerEffects(
       auraEffects: collectAllAuraEffects(entity),
     });
 
-    sourceNames.set(token.id, entity.name);
+    sourceNames.set(token.id, resolvePublicEntityName(entity));
   }
+
+  // Вертикаль: этажи сцены (ядро отдаёт сцену целиком) и рост по правилам —
+  // аура над полом, балкон над двором, перекрытие без проёма
+  const entityByTokenId = new Map<string, DnDSceneEntity>([
+    [movedToken.id, movedEntity],
+    ...others.map((other): [string, DnDSceneEntity] => [
+      other.token.id,
+      other.entity,
+    ]),
+  ]);
+
+  const levels: AuraLevelContext = {
+    model: buildLevelModel({
+      gridSettings,
+      floors: scene.floors,
+      structures: scene.structures,
+      customAreas: scene.customAreas,
+    }),
+    resolveHeight: (token) => {
+      const entity = entityByTokenId.get(token.id);
+
+      return entity ? resolveDndEntityHeight(entity) : undefined;
+    },
+  };
 
   // 1. Перемещённый токен как ЦЕЛЬ: ауры остальных токенов (текущие позиции)
   const otherSources: AuraSourceToken[] = others
@@ -975,6 +1028,7 @@ export function applyAuraTriggerEffects(
         previousTokenResolved,
         otherSources,
         gridSettings,
+        levels,
       )
     : [];
 
@@ -982,6 +1036,7 @@ export function applyAuraTriggerEffects(
     movedTokenResolved,
     otherSources,
     gridSettings,
+    levels,
   );
 
   diffAndFire(movedEntity, prevTargetHits, currTargetHits);
@@ -1005,12 +1060,14 @@ export function applyAuraTriggerEffects(
         other.token,
         sourcePrev,
         gridSettings,
+        levels,
       );
 
       const currHits = collectTriggerAurasForTarget(
         other.token,
         sourceCurr,
         gridSettings,
+        levels,
       );
 
       diffAndFire(other.entity, prevHits, currHits);

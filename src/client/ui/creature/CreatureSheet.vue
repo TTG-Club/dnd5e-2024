@@ -26,6 +26,7 @@
   import { computed, ref, toRef, useTemplateRef, watch } from 'vue';
 
   import { generateEntityId, requireSocket } from '@/core/entityUtils';
+  import { hasDraggedGameItem } from '@/core/itemStorageDrag';
   import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
@@ -1411,7 +1412,9 @@
     const types = event.dataTransfer.types;
 
     const hasItem =
-      types.includes(GAME_ITEM_MIME) || types.includes(GAME_ITEM_TRANSFER_MIME);
+      types.includes(GAME_ITEM_MIME)
+      || types.includes(GAME_ITEM_TRANSFER_MIME)
+      || hasDraggedGameItem(event.dataTransfer);
 
     if (!types.includes(SPELL_MIME) && !hasItem) {
       return;

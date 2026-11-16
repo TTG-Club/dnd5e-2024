@@ -126,3 +126,75 @@ describe('телосложение из эффектов в максимуме �
     );
   });
 });
+
+describe('ручное изменение базового Телосложения', () => {
+  it('обновляет запас листа и не теряет прибавку предыстории', () => {
+    const hero = createActor({
+      activeEffects: [
+        createEffect('background', {
+          changes: [change('ability.constitution', '2')],
+        }),
+      ],
+    });
+
+    hero.system.classes = [
+      {
+        classKey: 'fighter',
+        className: 'Воин',
+        level: 1,
+        subclassKey: null,
+        hitDie: 8,
+        hitDiceUsed: 0,
+        hitPointsGained: [{ level: 1, method: 'max', rolled: 8 }],
+        chosenSkills: [],
+        featureChoices: {},
+      },
+    ];
+
+    hero.system.hitPoints = { current: 8, max: 8, temp: 0 };
+
+    hero.system.hitPoints = engine.resolveHitPointsAfterBaseConstitutionChange(
+      hero,
+      14,
+    );
+
+    hero.system.abilities = { ...hero.system.abilities, constitution: 14 };
+
+    assert.deepEqual(hero.system.hitPoints, { current: 10, max: 10, temp: 0 });
+    assert.equal(engine.resolveActorStats(hero).abilityMods.constitution, 3);
+    assert.equal(engine.resolveEntityMaxHp(hero), 11);
+  });
+
+  it('умножает снижение на уровень и сохраняет ручной максимум', () => {
+    const hero = wizardAtFifthLevel();
+
+    hero.system.hitPoints = { current: 25, max: 40, temp: 4 };
+
+    assert.deepEqual(
+      engine.resolveHitPointsAfterBaseConstitutionChange(hero, 8),
+      { current: 15, max: 30, temp: 4 },
+    );
+  });
+
+  it('на 0 хитов рост Телосложения поднимает максимум, но не будит', () => {
+    const hero = wizardAtFifthLevel();
+
+    hero.system.hitPoints = { current: 0, max: 30, temp: 0 };
+
+    assert.deepEqual(
+      engine.resolveHitPointsAfterBaseConstitutionChange(hero, 14),
+      { current: 0, max: 35, temp: 0 },
+    );
+  });
+
+  it('не меняет хиты, если модификатор остался прежним', () => {
+    const hero = wizardAtFifthLevel();
+
+    hero.system.hitPoints = { current: 20, max: 30, temp: 2 };
+
+    assert.deepEqual(
+      engine.resolveHitPointsAfterBaseConstitutionChange(hero, 13),
+      hero.system.hitPoints,
+    );
+  });
+});

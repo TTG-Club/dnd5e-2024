@@ -8,13 +8,9 @@
 <script setup lang="ts">
   import { computed, ref } from 'vue';
 
-  import { HUD_PROMPT_TITLE_ATTR } from '@/shared_ui/consts';
+  import { HudPromptPanel } from '@/shared_ui/components';
   import { MIN_ESCAPE_SKILL_DC } from '@vtt/shared/system/dnd.js';
 
-  import {
-    HUD_PROMPT_PANEL_CLASS,
-    HUD_PROMPTS_TELEPORT_TARGET,
-  } from '../actor/constants';
   import {
     EFFECT_ESCAPE_ICON,
     EFFECT_ESCAPE_PROMPT_LABELS,
@@ -29,10 +25,6 @@
     /** У навыка нет своей Сл — он ждёт числа из поля */
     needsDc: boolean;
   }
-
-  defineOptions({
-    inheritAttrs: false,
-  });
 
   const props = defineProps<{
     open: boolean;
@@ -103,81 +95,68 @@
 </script>
 
 <template>
-  <Teleport :to="HUD_PROMPTS_TELEPORT_TARGET">
-    <Transition name="slide-up">
-      <div
-        v-if="open"
-        :class="HUD_PROMPT_PANEL_CLASS"
-        :[HUD_PROMPT_TITLE_ATTR]="title"
+  <HudPromptPanel
+    :open="open"
+    :icon="EFFECT_ESCAPE_ICON"
+    :title="title"
+  >
+    <template #header-actions>
+      <span
+        v-if="actorName"
+        class="ml-auto min-w-0 truncate text-xs text-dimmed"
       >
-        <div class="flex items-center gap-2 border-b border-muted/50 pb-2">
-          <UIcon
-            :name="EFFECT_ESCAPE_ICON"
-            class="h-5 w-5 shrink-0 text-toned"
-          />
+        {{ actorName }}
+      </span>
+    </template>
 
-          <span class="min-w-0 text-sm font-medium break-words">
-            {{ title }}
-          </span>
+    <p
+      v-if="difficulty"
+      class="text-sm break-words text-toned"
+    >
+      {{ difficulty }}
+    </p>
 
-          <span
-            v-if="actorName"
-            class="ml-auto min-w-0 truncate text-xs text-dimmed"
-          >
-            {{ actorName }}
-          </span>
-        </div>
+    <label
+      v-if="asksDc"
+      class="flex items-center justify-between gap-2 text-sm text-toned"
+    >
+      <span class="min-w-0 break-words">
+        {{ EFFECT_ESCAPE_PROMPT_LABELS.difficultyInput }}
+      </span>
 
-        <p
-          v-if="difficulty"
-          class="text-sm break-words text-toned"
-        >
-          {{ difficulty }}
-        </p>
+      <UInputNumber
+        v-model="askedDc"
+        :min="MIN_ESCAPE_SKILL_DC"
+        size="sm"
+        class="w-28 shrink-0"
+      />
+    </label>
 
-        <label
-          v-if="asksDc"
-          class="flex items-center justify-between gap-2 text-sm text-toned"
-        >
-          <span class="min-w-0 break-words">
-            {{ EFFECT_ESCAPE_PROMPT_LABELS.difficultyInput }}
-          </span>
+    <template #footer>
+      <div class="flex w-full items-center gap-2">
+        <UButton
+          v-for="option in optionRows"
+          :key="option.id"
+          :label="option.label"
+          :title="option.title"
+          :disabled="option.disabled"
+          color="primary"
+          variant="soft"
+          size="sm"
+          class="min-w-0 flex-1 justify-center"
+          @click.left.exact.prevent="handleAnswer(option.id)"
+        />
 
-          <UInputNumber
-            v-model="askedDc"
-            :min="MIN_ESCAPE_SKILL_DC"
-            size="sm"
-            class="w-28 shrink-0"
-          />
-        </label>
-
-        <div class="flex items-center gap-2">
-          <UButton
-            v-for="option in optionRows"
-            :key="option.id"
-            :label="option.label"
-            :title="option.title"
-            :disabled="option.disabled"
-            color="primary"
-            variant="soft"
-            size="sm"
-            class="min-w-0 flex-1 justify-center"
-            @click.left.exact.prevent="handleAnswer(option.id)"
-          />
-
-          <UButton
-            icon="tabler:x"
-            color="neutral"
-            variant="ghost"
-            size="sm"
-            class="shrink-0"
-            :title="EFFECT_ESCAPE_PROMPT_LABELS.cancel"
-            @click.left.exact.prevent="closePrompt"
-          />
-        </div>
+        <UButton
+          icon="tabler:x"
+          color="neutral"
+          variant="ghost"
+          size="sm"
+          class="shrink-0"
+          :title="EFFECT_ESCAPE_PROMPT_LABELS.cancel"
+          @click.left.exact.prevent="closePrompt"
+        />
       </div>
-    </Transition>
-  </Teleport>
+    </template>
+  </HudPromptPanel>
 </template>
-
-<style scoped src="../hudPromptTransition.css"></style>

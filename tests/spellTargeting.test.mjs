@@ -129,9 +129,10 @@ const bundle = await build({
               'import { chatStore } from "test:host"; export const useChatStore = () => chatStore;',
             '@/shared_ui/composables/useModalManager':
               'import { modalManager } from "test:host"; export const useModalManager = () => modalManager;',
-            // Плашки целей ставят заголовок для напоминания хоста о закрытой плашке
-            '@/shared_ui/consts':
-              'export const HUD_PROMPT_TITLE_ATTR = "data-hud-prompt-title";',
+            // Плашки целей рисуются общей рамкой хоста; в тесте важна логика,
+            // а не разметка, поэтому хватает пустых компонентов
+            '@/shared_ui/components':
+              'export const HudPromptPanel = {}; export const HudPromptChoices = {};',
             '@/core/entityUtils':
               'export { emitEntityCombatState } from "test:host"; export const emitEntityUpdate = () => {}; export const emitEntityPatch = () => Promise.resolve({ ok: true, changed: true }); export const emitEntityChange = () => Promise.resolve({ ok: true, changed: true }); export const buildEntityPatchFailureToast = () => null; export const resolveTokenScale = (_world, token) => token.scale; export const collectWorldEntities = (world) => [...(world?.actors ?? []), ...(world?.creatures ?? [])]; export const findEntityInWorld = (world, entityId) => collectWorldEntities(world).find((entity) => entity.id === entityId);',
           };
@@ -873,7 +874,7 @@ async function loadCastWindow(overrides) {
     PAGE_UNLOAD_EVENT: 'beforeunload',
     beginSpellCast: () => {},
     getTotalLevel: () => 1,
-    getSpellProjectileCount: () => 0,
+    getCastProjectileCount: () => 0,
     pickCantripTierParts: () => undefined,
     getSpellDamageParts: (spell) => spell.damageParts ?? [],
     useBonusDamageParts: () => ({
