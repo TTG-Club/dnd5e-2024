@@ -874,7 +874,7 @@ async function loadCastWindow(overrides) {
     PAGE_UNLOAD_EVENT: 'beforeunload',
     beginSpellCast: () => {},
     getTotalLevel: () => 1,
-    getSpellProjectileCount: () => 0,
+    getCastProjectileCount: () => 0,
     pickCantripTierParts: () => undefined,
     getSpellDamageParts: (spell) => spell.damageParts ?? [],
     useBonusDamageParts: () => ({

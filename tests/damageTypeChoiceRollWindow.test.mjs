@@ -261,6 +261,7 @@ function createPorts(applied) {
     getSpellAttackType: (spell) => spell.deliveryType,
     // Общий разбор заклинания существа: вид каста — план движка
     resolveSpellCastPlan: engine.resolveSpellCastPlan,
+    getCreatureSpellProjectileCount: engine.getCreatureSpellProjectileCount,
     useTargetStore: () => ({ getTargetActor: () => null }),
     isTargetAtFullHp: () => undefined,
     isDndSceneEntity: () => false,

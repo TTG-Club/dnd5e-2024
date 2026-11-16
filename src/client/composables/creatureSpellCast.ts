@@ -16,15 +16,24 @@
 import type {
   CreatureSpellPlacement,
   DnDCreature,
+  RollContext,
   Spell,
+  SpellCastPlan,
 } from '@vtt/shared/system/dnd.js';
 
 import type { AttackRollSnapshot } from './attackRollSnapshot';
+import type { RollBonusEvaluator } from './rollBonusEvaluator';
 import type { SpellCasterSource } from './spellCastCompletion';
 import type { SpellCastRefusal } from './spellCastFlow';
-import type { RolledSpellDamagePart } from './useSpellResolution';
+import type { BonusPartsRollContext } from './useBonusDamageParts';
+import type {
+  ProjectileAttackContext,
+  RolledSpellDamagePart,
+  SpellDamagePartInput,
+} from './useSpellResolution';
 
 import { useChatStore } from '@/stores/chatStore';
+import { useProjectileStore } from '@/stores/projectileStore';
 import { useSpellTemplateStore } from '@/stores/spellTemplateStore';
 import { useTargetStore } from '@/stores/targetStore';
 import { useWorldStore } from '@/stores/worldStore';
@@ -35,8 +44,10 @@ import {
   castReachesTargets,
   collectActiveEffects,
   consumeCreatureSpellGroupUse,
+  CREATURE_PROJECTILE_CASTER_LEVEL,
   getCreatureSpellBlockAbility,
   getCreatureSpellMod,
+  getCreatureSpellProjectileCount,
   getCreatureSpellRollButtonText,
   getDamagePartsPrimaryType,
   getDamageTemplateColor,
@@ -83,7 +94,10 @@ import {
 import { runWithEffectVariants } from './effectVariantChoice';
 import { changeEntitySheet } from './entitySheetWrite';
 import { refuseWhilePaused } from './pauseLock';
-import { buildRollBonusEvaluator } from './rollBonusEvaluator';
+import {
+  buildRollBonusEvaluator,
+  collectProjectileRollBonuses,
+} from './rollBonusEvaluator';
 import { refuseWhileSheetEditing } from './sheetEditLock';
 import {
   afterSpellCast,
@@ -91,6 +105,10 @@ import {
   SPELL_CAST_KEY_PREFIX,
 } from './spellCastCompletion';
 import { beginSpellCast } from './spellCasts';
+import {
+  createProjectileCastValidator,
+  requestProjectileTargets,
+} from './spellEffectTargeting';
 import { discardSpellTemplate } from './spellResolutionShared';
 import { useBonusDamageParts } from './useBonusDamageParts';
 import { dispatchSpellCastTriggers } from './useEffectTriggerEvents';
@@ -387,33 +405,55 @@ export function startCreatureSpellCast(
 
       // Провал каста («Замедление», «Слово силы: Боль»): ход тратится,
       // применение — только если так велит правило
-      runWithCastFailure(
+      const castWithFailureCheck = (): void =>
+        runWithCastFailure(
+          spell,
+          creature,
+          { loseUse: spendUse, spendTurn },
+          () => {
+            if (!spell.areaOfEffect) {
+              openRoll(undefined);
+
+              return;
+            }
+
+            // Область: шаблон у фишки существа, затем окно. Круг наложения
+            // группы растит область так же, как ячейка персонажа
+            useSpellTemplateStore().requestPlacement(
+              resolveSpellAreaAtLevel(spell, placement?.ref.castLevel)
+                ?? spell.areaOfEffect,
+              getDamageTemplateColor(
+                getDamagePartsPrimaryType(spell.damageParts),
+              ),
+              creature.id,
+              openRoll,
+              null,
+              isSpellAreaPlacedAtRange(spell),
+              areaOriginatesFromCaster(spell),
+            );
+          },
+        );
+
+      // Снаряды («Волшебная стрела», «Палящий луч»): цели выбираются до
+      // каста, как у персонажа, — закрытый выбор ни хода, ни применения не
+      // тратит
+      const projectileCount = getCreatureSpellProjectileCount(
         spell,
-        creature,
-        { loseUse: spendUse, spendTurn },
-        () => {
-          if (!spell.areaOfEffect) {
-            openRoll(undefined);
-
-            return;
-          }
-
-          // Область: шаблон у фишки существа, затем окно. Круг наложения
-          // группы растит область так же, как ячейка персонажа
-          useSpellTemplateStore().requestPlacement(
-            resolveSpellAreaAtLevel(spell, placement?.ref.castLevel)
-              ?? spell.areaOfEffect,
-            getDamageTemplateColor(
-              getDamagePartsPrimaryType(spell.damageParts),
-            ),
-            creature.id,
-            openRoll,
-            null,
-            isSpellAreaPlacedAtRange(spell),
-            areaOriginatesFromCaster(spell),
-          );
-        },
+        placement?.ref.castLevel,
       );
+
+      if (projectileCount > 0) {
+        // Ячеек у существа нет: круг в окне выбора закреплён
+        requestProjectileTargets(spell, creature.id, projectileCount, {
+          casterLevel: CREATURE_PROJECTILE_CASTER_LEVEL,
+          availableSpellLevels: [placement?.ref.castLevel ?? spell.level],
+          onConfirm: castWithFailureCheck,
+        });
+
+        return;
+      }
+
+      castWithFailureCheck();
     },
   );
 }
@@ -475,18 +515,23 @@ export function openCreatureSpellRoll(
     spellcastingAbility,
   });
 
+  // Снаряды выбраны до окна; у шаблона их не бывает
+  const hasProjectiles =
+    templateId === undefined
+    && getCreatureSpellProjectileCount(spell, placement?.ref.castLevel) > 0;
+
   const plan = resolveSpellCastPlan({
     spell,
-    // Плану нужны только наличие частей: путь существа всегда многочастный,
-    // а надпись кнопки у него своя
+    // Плану нужны только наличие частей: путь существа многочастный, кроме
+    // снарядов — их формула катится на каждый снаряд; надпись кнопки своя
     damageParts: setup.baseParts.map(({ formula }) => ({ formula })),
-    hasProjectiles: false,
+    hasProjectiles,
     hasBonusDamage: false,
     // Ячеек у существа нет: круг закреплён, как у врождённого
     isInnate: true,
     hasTemplate: templateId !== undefined,
     attackType,
-    forceMultiPart: true,
+    forceMultiPart: !hasProjectiles,
   });
 
   const numbers = calculateCreatureSpellBlockNumbers(
@@ -576,32 +621,58 @@ export function openCreatureSpellRoll(
       attack,
     );
 
+  const evaluateAttackBonusRollFormulas = usesAttack
+    ? buildRollBonusEvaluator(() => readCreature(creature.id), SPELL_ATTACK_KEY)
+    : undefined;
+
+  // Свойства окна, общие для частей урона и снарядов
+  const commonWindowProps = {
+    title: usesAttack
+      ? `${CREATURE_ACTIONS_BLOCK_LABELS.attackRollPrefix}${spell.name}`
+      : spell.name,
+    rollLabel: spell.name,
+    actorName: creature.name,
+    rollButtonText: getCreatureSpellRollButtonText(usesAttack, isHealing),
+    formula: setup.baseParts[0]?.formula ?? '',
+    initialRollMode: spellAttackRoll?.mode ?? 'normal',
+    rollModeReasons: spellAttackRoll?.reasons,
+    incomingAttackType: plan.attackType,
+    damageType: getDamagePartsPrimaryType(spell.damageParts),
+    isHealing,
+    spellLevel: castLevel === undefined ? undefined : spell.level,
+    availableSpellLevels: castLevel === undefined ? undefined : [castLevel],
+    spellScalingDice:
+      castLevel === undefined ? undefined : spell.scaling?.additionalDice,
+    damageTypeChoice,
+  };
+
+  const attackModifier = usesAttack ? numbers.attackBonus : undefined;
+
+  if (hasProjectiles) {
+    return openCreatureProjectileRoll({
+      creatureId: creature.id,
+      plan,
+      windowProps: commonWindowProps,
+      attackModifier,
+      readCastSpell: () => castSpell,
+      projectileFormula: commonWindowProps.formula,
+      evaluateBonusDamageParts: setup.evaluateBonusDamageParts,
+      evaluateAttackBonusRollFormulas,
+      casterSource,
+      castKey,
+      sourceKey,
+      commitCastStart,
+    });
+  }
+
   const opened = openDiceRollWindow(
     {
-      title: usesAttack
-        ? `${CREATURE_ACTIONS_BLOCK_LABELS.attackRollPrefix}${spell.name}`
-        : spell.name,
-      rollLabel: spell.name,
-      actorName: creature.name,
-      rollButtonText: getCreatureSpellRollButtonText(usesAttack, isHealing),
-      formula: setup.baseParts[0]?.formula ?? '',
-      attackModifier: usesAttack ? numbers.attackBonus : undefined,
-      evaluateBonusRollFormulas: usesAttack
-        ? buildRollBonusEvaluator(
-            () => readCreature(creature.id),
-            SPELL_ATTACK_KEY,
-          )
-        : undefined,
-      initialRollMode: spellAttackRoll?.mode ?? 'normal',
-      rollModeReasons: spellAttackRoll?.reasons,
-      incomingAttackType: plan.attackType,
-      damageType: getDamagePartsPrimaryType(spell.damageParts),
-      isHealing,
+      ...commonWindowProps,
+      attackModifier,
+      // Расход одноразовых эффектов «следующей атаки» на броске атаки существа
+      attackerId: creature.id,
+      evaluateBonusRollFormulas: evaluateAttackBonusRollFormulas,
       damageParts: setup.baseParts,
-      spellLevel: castLevel === undefined ? undefined : spell.level,
-      availableSpellLevels: castLevel === undefined ? undefined : [castLevel],
-      spellScalingDice:
-        castLevel === undefined ? undefined : spell.scaling?.additionalDice,
       evaluateBonusDamageParts: setup.evaluateBonusDamageParts,
       onRollParts: applyParts,
       // Атака без частей урона: окно не зовёт `onRollParts`, и эффекты на
@@ -610,11 +681,8 @@ export function openCreatureSpellRoll(
         usesAttack && !plan.hasDamage && setup.pseudoSpell.activeEffects
           ? (attack?: AttackRollSnapshot) => applyParts([], attack)
           : undefined,
-      damageTypeChoice,
       // Отмена окна обязана убрать шаблон: он размещается ДО броска
       onCancel: templateId ? () => discardSpellTemplate(templateId) : undefined,
-      // Расход одноразовых эффектов «следующей атаки» на броске атаки существа
-      attackerId: creature.id,
     },
     {
       ...(sourceKey === undefined ? {} : { sourceKey }),
@@ -623,6 +691,178 @@ export function openCreatureSpellRoll(
   );
 
   return opened !== null;
+}
+
+/** Вход окна снарядов существа */
+interface CreatureProjectileRollInput {
+  /** Существо-заклинатель */
+  creatureId: string;
+  /** Решение о касте */
+  plan: SpellCastPlan;
+  /** Свойства окна, общие с многочастным путём */
+  windowProps: Record<string, unknown>;
+  /** Модификатор атаки заклинанием; нет — снаряды без броска попадания */
+  attackModifier: number | undefined;
+  /** Заклинание каста: тип урона на выбор окно может заменить в броске */
+  readCastSpell: () => Spell;
+  /** Формула одного снаряда с числами существа */
+  projectileFormula: string;
+  /** Кость-бонусы урона заклинаний с эффектов существа */
+  evaluateBonusDamageParts: (
+    context: BonusPartsRollContext,
+  ) => SpellDamagePartInput[];
+  /** Бонусы к броску атаки с эффектов существа; нет — снаряды без атаки */
+  evaluateAttackBonusRollFormulas: RollBonusEvaluator | undefined;
+  /** Сл и модификатор существа как заклинателя */
+  casterSource: SpellCasterSource;
+  /** Ключ каста */
+  castKey: string;
+  /** Источник действия: окно встаёт на место прежнего окна */
+  sourceKey: string | undefined;
+  /** Каст состоялся: ход и применение */
+  commitCastStart: (() => boolean) | undefined;
+}
+
+/**
+ * Окно снарядов существа — путь персонажа: формула катится на каждый снаряд.
+ * Атакующие снаряды («Палящий луч») — серия бросков попадания, по одному на
+ * снаряд; без атаки («Волшебная стрела») — урон каждого снаряда без броска
+ * попадания. Закрытое без броска окно отпускает выбор снарядов.
+ *
+ * @param input - каст и окно
+ * @returns `true` — окно открылось
+ */
+function openCreatureProjectileRoll(
+  input: CreatureProjectileRollInput,
+): boolean {
+  const { evaluateAttackBonusRollFormulas } = input;
+  const { attackType } = input.plan;
+  const isCurrentProjectileCast = createProjectileCastValidator(true);
+
+  let applied = false;
+
+  /**
+   * Окно закрылось без броска: выбор снарядов этого каста отпускается.
+   *
+   * @param isOpen - окно открыто
+   */
+  const handleClose = (isOpen: boolean): void => {
+    if (!isOpen && !applied && isCurrentProjectileCast()) {
+      useProjectileStore().stopTargeting();
+    }
+  };
+
+  /**
+   * Применяет снаряды: доводит каст и разбирает цели.
+   *
+   * @param projectileAttack - контекст серии атак; нет — автопопадание
+   */
+  const applyProjectiles = (
+    projectileAttack?: ProjectileAttackContext,
+  ): void => {
+    applied = true;
+
+    applyCreatureSpellProjectiles(input, projectileAttack);
+  };
+
+  const opened = openDiceRollWindow(
+    {
+      ...input.windowProps,
+      attackModifier: input.attackModifier,
+      // Расход одноразовых эффектов «следующей атаки» на броске атаки существа
+      attackerId: input.creatureId,
+      skipDamageApplication: true,
+      skipChatMessage: true,
+      evaluateProjectileBonusRollFormulas: evaluateAttackBonusRollFormulas
+        ? (context: RollContext) =>
+            collectProjectileRollBonuses(
+              context,
+              evaluateAttackBonusRollFormulas,
+            )
+        : undefined,
+      // Атакующие снаряды: окно отдаёт контекст, серию бросков катит разбор
+      onProjectileAttack: attackType
+        ? (rollContext: Omit<ProjectileAttackContext, 'attackType'>) =>
+            applyProjectiles({ ...rollContext, attackType })
+        : undefined,
+      onRoll: () => applyProjectiles(),
+    },
+    {
+      ...(input.sourceKey === undefined ? {} : { sourceKey: input.sourceKey }),
+      onClose: handleClose,
+      validateRoll: isCurrentProjectileCast,
+      ...(input.commitCastStart ? { commit: input.commitCastStart } : {}),
+    },
+  );
+
+  if (opened === null) {
+    handleClose(false);
+  }
+
+  return opened !== null;
+}
+
+/**
+ * Применяет снаряды заклинания существа: доводит каст и катит формулу на
+ * каждый снаряд по выбранным целям. Бонус-части эффектов катаются на каждый
+ * снаряд с режимом броска серии.
+ *
+ * @param input - каст
+ * @param projectileAttack - контекст серии атак; нет — автопопадание
+ */
+function applyCreatureSpellProjectiles(
+  input: CreatureProjectileRollInput,
+  projectileAttack: ProjectileAttackContext | undefined,
+): void {
+  const creature = readCreature(input.creatureId);
+
+  if (!creature) {
+    return;
+  }
+
+  const spell = input.readCastSpell();
+
+  const bonusDamageParts = input.evaluateBonusDamageParts({
+    hasAdvantage: projectileAttack?.rollMode === 'advantage',
+    hasDisadvantage: projectileAttack?.rollMode === 'disadvantage',
+  });
+
+  afterSpellCast(
+    completeSpellCast({
+      spell,
+      caster: creature,
+      source: input.casterSource,
+      template: null,
+      castKey: input.castKey,
+    }),
+    () => {
+      const socket = useChatStore().getSocket();
+      const actors = listAttackResolutionEntities(projectileAttack?.attack);
+
+      if (!socket || actors.length === 0) {
+        return;
+      }
+
+      useSpellResolution().resolveSpellDamage(
+        {
+          spell,
+          damageTotal: 0,
+          spellSaveDC: input.casterSource.saveDc,
+          actors,
+          socket,
+          casterId: input.creatureId,
+          attack: projectileAttack?.attack,
+        },
+        {
+          hasProjectiles: true,
+          resolvedDamageFormula: input.projectileFormula,
+          scene: useWorldStore().currentScene,
+          bonusDamageParts,
+          ...(projectileAttack ? { projectileAttack } : {}),
+        },
+      );
+    },
+  );
 }
 
 /**

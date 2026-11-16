@@ -35,7 +35,6 @@ import type {
   SpellDamagePartInput,
 } from './useSpellResolution';
 
-import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useActionPromptStore } from '@/stores/actionPromptStore';
 import { useChatStore } from '@/stores/chatStore';
 import { useProjectileStore } from '@/stores/projectileStore';
@@ -50,11 +49,11 @@ import {
   findSpellCastBlock,
   formatConditionalDamageDisplay,
   getAvailableSpellLevels,
+  getCastProjectileCount,
   getDamageTemplateColor,
   getPactSlotInfo,
   getSpellDamageParts,
   getSpellPrimaryDamageType,
-  getSpellProjectileCount,
   getTotalLevel,
   hasTargetToken,
   isDndActor,
@@ -87,8 +86,6 @@ import {
 
 import {
   ACTOR_SPELLS_TAB_LABELS,
-  PROJECTILE_MODAL_KEY_PREFIX,
-  PROJECTILE_PROMPT_MODAL,
   SPELL_CAST_PROMPT_ID_PREFIX,
   SPELL_MENU_LABELS,
   SPELL_ROLL_BUTTON_LABELS,
@@ -125,6 +122,7 @@ import {
   applySpellTargetEffects,
   createProjectileCastValidator,
   needsSpellEffectTargets,
+  requestProjectileTargets,
   requestSpellEffectTargets,
   settleNoRollSpellTargets,
 } from './spellEffectTargeting';
@@ -472,12 +470,12 @@ function chooseSpellCastTargets(
   // (заговоры — от уровня персонажа, уровневые — от круга ячейки)
   const casterLevel = getTotalLevel(caster.system?.classes);
 
-  const baseProjectileCount = getSpellProjectileCount(spell, {
+  const baseProjectileCount = getCastProjectileCount(spell, {
     slotLevel: availableLevels[0] ?? spell.level,
     casterLevel,
   });
 
-  const hasProjectiles = baseProjectileCount > 1 && !spell.areaOfEffect;
+  const hasProjectiles = baseProjectileCount > 0;
 
   // Проверка дистанции каста до выбранной цели (только одиночная цель:
   // у области и снарядов собственные механики выбора)
@@ -499,21 +497,10 @@ function chooseSpellCastTargets(
   }
 
   if (hasProjectiles) {
-    const projectileStore = useProjectileStore();
-
-    projectileStore.startTargeting(
-      spell.projectiles?.targetDistribution ?? null,
-      baseProjectileCount,
-      (tokenId) => !isSpellTargetBlockedByRange(spell, caster.id, tokenId),
-    );
-
-    useModalManager().openModal(PROJECTILE_PROMPT_MODAL, {
-      _modalKey: `${PROJECTILE_MODAL_KEY_PREFIX}-${projectileStore.sessionId}`,
-      targetingSessionId: projectileStore.sessionId,
-      spell,
+    requestProjectileTargets(spell, caster.id, baseProjectileCount, {
       casterLevel,
       availableSpellLevels: availableLevels,
-      onConfirm: (selectedLevel: number) => {
+      onConfirm: (selectedLevel) => {
         proceedWithSpellCast(spell, port, selectedLevel);
       },
     });
@@ -1127,13 +1114,12 @@ export function openSpellCastWindow(
   // уровня персонажа (заговоры); у области и шаблона снарядов нет
   const casterLevel = getTotalLevel(caster.system?.classes);
 
-  const projectileCount = getSpellProjectileCount(sourceSpell, {
+  const projectileCount = getCastProjectileCount(sourceSpell, {
     slotLevel: lockedLevel ?? sourceSpell.level,
     casterLevel,
   });
 
-  const hasProjectiles =
-    projectileCount > 1 && !sourceSpell.areaOfEffect && !template;
+  const hasProjectiles = projectileCount > 0 && !template;
 
   // Ступень заговора целиком заменяет базовые части урона
   const spellDamageParts =

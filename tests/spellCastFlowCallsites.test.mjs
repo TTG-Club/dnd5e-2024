@@ -34,6 +34,8 @@ const CREATURE_FLOW_PATH = 'src/client/composables/creatureSpellCast.ts';
 const ALLOWED_CALLERS = {
   'resolveSpellDamage(': [
     FLOW_PATH,
+    // Снаряды существа: формула катится на каждый снаряд, как у персонажа
+    CREATURE_FLOW_PATH,
     'src/client/composables/spellEffectTargeting.ts',
     'src/client/composables/useSpellResolution.ts',
   ],
@@ -320,11 +322,10 @@ async function loadCastEnvironment(entities, { windowOpens = true } = {}) {
     ports[name] = await loadHandler(REFUSAL_PATH, name, ports);
   }
 
-  ports.needsSpellEffectTargets = await loadHandler(
-    TARGETING_PATH,
-    'needsSpellEffectTargets',
-    ports,
-  );
+  // Выбор целей эффекта и снарядов — общий у персонажа и существа
+  for (const name of ['needsSpellEffectTargets', 'requestProjectileTargets']) {
+    ports[name] = await loadHandler(TARGETING_PATH, name, ports);
+  }
 
   ports.withFlatDamageBonusPart = await loadHandler(
     BONUS_PARTS_PATH,

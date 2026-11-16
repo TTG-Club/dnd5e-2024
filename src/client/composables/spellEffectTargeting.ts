@@ -25,6 +25,7 @@ import {
 } from '@vtt/shared/system/dnd.js';
 
 import {
+  PROJECTILE_MODAL_KEY_PREFIX,
   PROJECTILE_PROMPT_MODAL,
   SPELL_EFFECT_TARGET_LABELS,
   SPELL_EFFECT_TARGET_MODE,
@@ -220,6 +221,47 @@ export function needsSpellEffectTargets(spell: Spell): boolean {
     && spell.saveType === 'none'
     && getTargetSpellEffects(spell).length > 0
   );
+}
+
+/** Что окно выбора снарядов показывает и чем продолжает каст */
+export interface ProjectileTargetsPrompt {
+  /** Уровень заклинателя: число снарядов заговора растёт порогами уровня */
+  casterLevel: number;
+  /** Круги, доступные для каста */
+  availableSpellLevels: number[];
+  /** Цели выбраны: продолжение каста с выбранным кругом */
+  onConfirm: (selectedLevel: number) => void;
+}
+
+/**
+ * Начинает выбор целей снарядов и открывает его окно — одно на каст
+ * персонажа и существа. Цели вне дистанции заклинания недоступны.
+ *
+ * @param spell - заклинание
+ * @param casterId - заклинатель
+ * @param projectileCount - число снарядов
+ * @param prompt - круги, уровень заклинателя и продолжение каста
+ */
+export function requestProjectileTargets(
+  spell: Spell,
+  casterId: string,
+  projectileCount: number,
+  prompt: ProjectileTargetsPrompt,
+): void {
+  const projectileStore = useProjectileStore();
+
+  projectileStore.startTargeting(
+    spell.projectiles?.targetDistribution ?? null,
+    projectileCount,
+    (tokenId) => !isSpellTargetBlockedByRange(spell, casterId, tokenId),
+  );
+
+  useModalManager().openModal(PROJECTILE_PROMPT_MODAL, {
+    _modalKey: `${PROJECTILE_MODAL_KEY_PREFIX}-${projectileStore.sessionId}`,
+    targetingSessionId: projectileStore.sessionId,
+    spell,
+    ...prompt,
+  });
 }
 
 /**
