@@ -53,7 +53,7 @@
       </label>
     </div>
 
-    <div class="grid grid-cols-3 gap-2">
+    <div class="grid grid-cols-2 gap-2">
       <button
         v-for="option in TOKEN_HP_DISPLAY_OPTIONS"
         :key="option.label"

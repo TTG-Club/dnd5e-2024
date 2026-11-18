@@ -1994,6 +1994,8 @@
         title: entry.name,
         image: null,
         copyToWorld: () => copyToItems(entry.id),
+        // Предмет ещё и кладётся копией в мешок, сундук, на землю или в лист
+        gameItem: entry,
       };
     }
 

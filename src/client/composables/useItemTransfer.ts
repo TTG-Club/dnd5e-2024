@@ -19,11 +19,20 @@
  * перенос просится у ядра запросом хранилищ (`storage:move-item`), а правила
  * взятия и выдачи — те же методы движка (`takeItemFromEntity` /
  * `giveItemToEntity`).
+ *
+ * Так же лист принимает предмет из компендиума: сервер кладёт в инвентарь его
+ * копию (`storage:move-item` из каталога `compendium`, VTTG 0.9.857). Запись
+ * «Мастерской» лист принимает по-прежнему своим форматом (`GAME_ITEM_MIME`).
  */
 
 import type { ItemTransferOutcome } from '@/core/entityUtils';
 import type { ItemStorageOutcome } from '@/core/itemStorageRequest';
-import type { SceneEntity, TypedWebSocketClient } from '@vtt/shared';
+import type {
+  CatalogItemSource,
+  SceneEntity,
+  StorageItemEndpoint,
+  TypedWebSocketClient,
+} from '@vtt/shared';
 import type { DnDGameItem } from '@vtt/shared/system/dnd.js';
 
 import {
@@ -109,32 +118,34 @@ export function isItemTransferDrop(event: DragEvent): boolean {
   return readTransferPayload(event) !== null || readStorageDrop(event) !== null;
 }
 
-/** Предмет, брошенный на лист из окна хранилища */
+/** Предмет, брошенный на лист из окна хранилища или из компендиума */
 interface StorageItemDrop {
-  /** Хранилище, откуда предмет берут */
-  storageId: string;
-  /** id предмета в хранилище */
+  /** Откуда предмет берут: хранилище либо компендиум (тогда — копией) */
+  from: StorageItemEndpoint | CatalogItemSource;
+  /** id предмета в хранилище или записи в компендиуме */
   itemId: string;
   /** Название предмета для сообщения игроку */
   itemName: string;
 }
 
 /**
- * Разбирает перенос из окна хранилища. Перенос из листа сюда не попадает —
- * у него свой путь (`entity:transfer-item`).
+ * Разбирает перенос из окна хранилища или из компендиума. Перенос из листа
+ * сюда не попадает — у него свой путь (`entity:transfer-item`); запись
+ * «Мастерской» — тоже: её лист берёт своим форматом.
  *
  * @param event - событие drop
- * @returns предмет хранилища либо `null`
+ * @returns предмет хранилища или компендиума либо `null`
  */
 function readStorageDrop(event: DragEvent): StorageItemDrop | null {
   const dragged = readDraggedGameItem(event.dataTransfer);
+  const from = dragged?.from;
 
-  if (dragged?.from.kind !== 'storage') {
+  if (!dragged || (from?.kind !== 'storage' && from?.kind !== 'compendium')) {
     return null;
   }
 
   return {
-    storageId: dragged.from.storageId,
+    from,
     itemId: dragged.item.id,
     itemName: dragged.item.name,
   };
@@ -295,10 +306,11 @@ export function useItemTransfer() {
   }
 
   /**
-   * Просит ядро переложить предмет из хранилища в инвентарь листа. Права и
-   * вместимость проверяет сервер; лист узнаёт итог из обычной рассылки.
+   * Просит ядро переложить предмет из хранилища (или копию записи
+   * компендиума) в инвентарь листа. Права и вместимость проверяет сервер;
+   * лист узнаёт итог из обычной рассылки.
    *
-   * @param drop - предмет хранилища
+   * @param drop - предмет хранилища или компендиума
    * @param target - сущность-получатель
    * @returns итог переноса
    */
@@ -307,7 +319,7 @@ export function useItemTransfer() {
     target: SceneEntity,
   ): Promise<ItemTransferResult> {
     const outcome = await itemStorageStore.moveItem({
-      from: { kind: 'storage', storageId: drop.storageId },
+      from: drop.from,
       to: { kind: 'entity', entityId: target.id },
       itemId: drop.itemId,
     });

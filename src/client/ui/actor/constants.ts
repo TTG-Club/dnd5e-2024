@@ -2420,6 +2420,7 @@ export const TOKEN_SETTINGS_LABELS = {
   hpWorld: 'Как в мире',
   hpBar: 'Полоска',
   hpState: 'Состояние',
+  hpHidden: 'Скрыть',
   tokenSize: 'Размер токена',
   disposition: 'Отношение токена (Disposition)',
   dispositionFriendly: 'Дружелюбный',
@@ -2493,6 +2494,11 @@ export const TOKEN_HP_DISPLAY_OPTIONS: readonly TokenHpDisplayOption[] = [
     mode: 'text',
     label: TOKEN_SETTINGS_LABELS.hpState,
     icon: 'tabler:text-size',
+  },
+  {
+    mode: 'none',
+    label: TOKEN_SETTINGS_LABELS.hpHidden,
+    icon: 'tabler:eye-off',
   },
 ];
 
