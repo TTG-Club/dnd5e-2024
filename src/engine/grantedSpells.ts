@@ -60,6 +60,12 @@ export interface GrantedSpellSource {
    * пока в пределе подготовки есть место ({@link ChosenSpellPreparation}).
    */
   chosenByPlayer?: boolean;
+  /**
+   * Не выше этого круга; пусто — без границы. Ставит выдача «при ячейке круга»
+   * ({@link GrantedSpellRef.fromSlots}): сюда уже подставлен наибольший круг ячеек
+   * листа, и запись круга выше при разборе отбрасывается. Заговор проходит всегда.
+   */
+  maxLevel?: number;
 }
 
 /**
