@@ -285,8 +285,6 @@ export interface WizardFeatureReplacementOffer {
   featureKey: string;
   /** Название умения — им подписаны записи на листе */
   featureName: string;
-  /** Подпись выбора: своя у настройки, иначе название умения */
-  label: string;
   /** Название класса или подкласса, откуда умение */
   sourceName: string;
   /** Умение подкласса: от этого зависит подпись источника на листе */
@@ -1216,7 +1214,6 @@ export function useClassWizard(
           offers.push({
             featureKey: feature.key,
             featureName: feature.name,
-            label: feature.choiceConfig?.label || feature.name,
             sourceName: source.sourceName,
             isSubclass: source.isSubclass,
             feature,
