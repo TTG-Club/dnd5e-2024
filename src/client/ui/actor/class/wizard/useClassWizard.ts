@@ -14,6 +14,7 @@ import type {
   ActiveEffect,
   ActorClassEntry,
   ActorCounterState,
+  ActorFeatureChoiceReplacement,
   ClassCounterDefinition,
   ClassDefinition,
   ClassFeature,
@@ -47,6 +48,7 @@ import {
   buildFeatGrantEffect,
   buildTakenFeat,
   calculateProficiencyBonus,
+  canReplaceClassFeatureChoiceAt,
   collectClassCounterDefinitions,
   collectClassOptionGrants,
   collectClassSpellListOffers,
@@ -62,6 +64,7 @@ import {
   evaluateCounterMaxFormula,
   expandChoiceScaling,
   featChoicePendingCount,
+  featureChoiceReplacementsUpTo,
   findScalingParentFeature,
   getActorAbilityModifiers,
   getActorProficiencyBonus,
@@ -91,6 +94,7 @@ import {
   resizeCounterCurrent,
   resolveChosenAbilities,
   resolveChosenDamageDefenses,
+  resolveFeatureChoiceKeys,
   SKILLS_LIST,
   toFeatureChoiceKeys,
   withCounterMinimum,
@@ -115,6 +119,7 @@ import {
   listFeatureEffectIds,
   mergeClassEffects,
 } from '../classEffects';
+import { removeReplacedClassOption } from './classOptionReplacement';
 
 // ── Типы ──────────────────────────────────────────────────────
 
@@ -178,6 +183,12 @@ export interface WizardState {
    * сразу. Взятое на прошлых уровнях лежит в записи класса на листе.
    */
   featureChoices: Record<string, string[]>;
+  /**
+   * Замены взятых раньше вариантов, задуманные ПРЯМО СЕЙЧАС: ключ умения →
+   * что убрать и что взять взамен. Замена необязательная и одна на умение;
+   * пока не названы обе стороны, на лист она не идёт.
+   */
+  featureReplacements: Record<string, WizardFeatureReplacement>;
   asi: WizardAsiState;
   /**
    * Ключи владений инструментами, разобранные на шаге владений. Определение
@@ -220,6 +231,14 @@ export type ClassSpellListMode = 'all' | 'chosen';
  */
 export const CLASS_SPELL_LIST_DEFAULT_MODE: ClassSpellListMode = 'chosen';
 
+/** Замена одного взятого раньше варианта умения: что убрать и на что заменить */
+export interface WizardFeatureReplacement {
+  /** Ключ убираемого варианта; `null` — замены нет */
+  removedKey: string | null;
+  /** Ключ варианта взамен; `null` — ещё не выбран */
+  addedKey: string | null;
+}
+
 /** Умение класса с указанием источника (базовый класс или подкласс) */
 export interface WizardFeatureItem extends ClassFeature {
   sourceName?: string;
@@ -255,6 +274,40 @@ export interface WizardFeatureChoicePick {
   taken: ClassFeatureChoice[];
   /** Умение выдаётся прямо сейчас: выбор показывается в его карточке */
   isGainedNow: boolean;
+}
+
+/**
+ * Замена взятого раньше варианта, которую разрешает этот уровень: колдун 2024
+ * на каждом уровне колдуна может поменять одно воззвание на другое.
+ */
+export interface WizardFeatureReplacementOffer {
+  /** Ключ умения, чей вариант меняют */
+  featureKey: string;
+  /** Название умения — им подписаны записи на листе */
+  featureName: string;
+  /** Подпись выбора: своя у настройки, иначе название умения */
+  label: string;
+  /** Название класса или подкласса, откуда умение */
+  sourceName: string;
+  /** Умение подкласса: от этого зависит подпись источника на листе */
+  isSubclass: boolean;
+  /** Умение из записи класса: его эффекты и список заклинаний */
+  feature: ClassFeature;
+  /** Взятые раньше варианты — из них убирают один */
+  removable: ClassFeatureChoice[];
+  /**
+   * Чем можно заменить: открытые на этом уровне и не взятые варианты. Взятые
+   * сюда не идут даже повторяемые — второй ключ того же варианта список не
+   * держит, и такая замена молча только убрала бы прежний.
+   */
+  options: ClassFeatureChoice[];
+}
+
+/** Замена, у которой названы обе стороны */
+interface WizardCompletedReplacement {
+  offer: WizardFeatureReplacementOffer;
+  removed: ClassFeatureChoice;
+  added: ClassFeatureChoice;
 }
 
 /**
@@ -329,6 +382,8 @@ export interface WizardLevelRow {
   isReopened: boolean;
   /** Выбор вариантов умения; null — вариантов умение не предлагает */
   pick: WizardFeatureChoicePick | null;
+  /** Замена взятого варианта; null — на этом уровне замены нет */
+  replacement: WizardFeatureReplacementOffer | null;
   /**
    * Варианты справочного списка умения — показываются для чтения, без выбора.
    * Пусто — списка нет либо из него выбирают ({@link pick}).
@@ -781,30 +836,72 @@ function featureOptionRecordName(
  * запись, перезаписанная новыми ключами, потеряла бы взятое раньше. Записи
  * старого вида, где ключ лежит строкой, читаются тем же разбором.
  *
- * @param stored - выборы из записи класса на листе
+ * Повтор сверяется с ИТОГОВЫМ набором, а не с хранимым списком: вариант,
+ * убранный заменой, лежит в списке по-прежнему, и взятый снова он обязан
+ * встать в конец ещё раз — иначе замена прошлого уровня убрала бы и его.
+ *
+ * @param entry - запись класса на листе до уровня
  * @param added - выборы этого уровня
  * @returns выборы умений после уровня
  */
 function mergeFeatureChoices(
-  stored: Record<string, string[]>,
+  entry: ActorClassEntry,
   added: Record<string, string[]>,
 ): Record<string, string[]> {
   const merged: Record<string, string[]> = {};
 
-  for (const [featureKey, keys] of Object.entries(stored ?? {})) {
+  for (const [featureKey, keys] of Object.entries(entry.featureChoices ?? {})) {
     merged[featureKey] = toFeatureChoiceKeys(keys);
   }
 
   for (const [featureKey, keys] of Object.entries(added)) {
-    const before = merged[featureKey] ?? [];
+    const chosen = resolveFeatureChoiceKeys(entry, featureKey);
 
     merged[featureKey] = [
-      ...before,
-      ...keys.filter((key) => !before.includes(key)),
+      ...(merged[featureKey] ?? []),
+      ...keys.filter((key) => !chosen.includes(key)),
     ];
   }
 
   return merged;
+}
+
+/**
+ * Замены вариантов в записи класса после уровня: действующие на прошлом уровне
+ * и сделанные на этом. Замены выше прошлого уровня остались от понижения
+ * уровня — их место занимает то, что игрок решил сейчас.
+ *
+ * @param entry - запись класса на листе до уровня
+ * @param level - получаемый уровень класса
+ * @param replacements - замены, сделанные на этом уровне
+ * @returns поле замен записи; пусто — замен не было и нет
+ */
+function featureChoiceReplacementsField(
+  entry: ActorClassEntry,
+  level: number,
+  replacements: ReadonlyArray<WizardCompletedReplacement>,
+): Pick<ActorClassEntry, 'featureChoiceReplacements'> {
+  const kept = featureChoiceReplacementsUpTo(
+    entry.featureChoiceReplacements,
+    entry.level,
+  );
+
+  const made = replacements.map(
+    (replacement): ActorFeatureChoiceReplacement => ({
+      featureKey: replacement.offer.featureKey,
+      level,
+      removedKey: replacement.removed.key,
+      addedKey: replacement.added.key,
+    }),
+  );
+
+  const all = [...kept, ...made];
+
+  // Поле пишется и пустым, если оно было: иначе замена, оставшаяся от
+  // понижения уровня, пережила бы запись и ожила бы на этом же уровне
+  return all.length > 0 || entry.featureChoiceReplacements
+    ? { featureChoiceReplacements: all }
+    : {};
 }
 
 /**
@@ -902,6 +999,7 @@ export function useClassWizard(
     selectedEquipmentIndex: null,
     subclassKey: null,
     featureChoices: {},
+    featureReplacements: {},
     asi: {
       mode: 'asi',
       abilityIncreases: {},
@@ -1037,10 +1135,10 @@ export function useClassWizard(
 
     for (const source of featureSources.value) {
       for (const feature of source.features) {
+        // Взятое — с заменами прошлых уровней: убранное воззвание снова
+        // доступно, а взятое взамен второй раз не предлагается
         const takenKeys = new Set(
-          toFeatureChoiceKeys(
-            currentClassEntry.value?.featureChoices?.[feature.key],
-          ),
+          resolveFeatureChoiceKeys(currentClassEntry.value, feature.key),
         );
 
         const options = (openClassFeatureChoices(feature, level) ?? []).filter(
@@ -1078,6 +1176,107 @@ export function useClassWizard(
   });
 
   /**
+   * Замены взятых раньше вариантов, которые разрешает этот уровень.
+   *
+   * Только у умений, где есть что менять и на что: на уровне получения умения
+   * взятого ещё нет, а исчерпанный список заменить нечем. Одно умение — одна
+   * замена: класс с сайта повторяет умение класса на странице подкласса под
+   * тем же ключом, и второе предложение было бы той же заменой дважды.
+   */
+  const featureReplacementOffers = computed(
+    (): WizardFeatureReplacementOffer[] => {
+      const level = nextLevel.value;
+      const offers: WizardFeatureReplacementOffer[] = [];
+
+      for (const source of featureSources.value) {
+        for (const feature of source.features) {
+          if (
+            !canReplaceClassFeatureChoiceAt(feature, level)
+            || offers.some((offer) => offer.featureKey === feature.key)
+          ) {
+            continue;
+          }
+
+          const takenKeys = new Set(
+            resolveFeatureChoiceKeys(currentClassEntry.value, feature.key),
+          );
+
+          const removable = (feature.choices ?? []).filter((choice) =>
+            takenKeys.has(choice.key),
+          );
+
+          const options = (
+            openClassFeatureChoices(feature, level) ?? []
+          ).filter((choice) => !takenKeys.has(choice.key));
+
+          if (!removable.length || !options.length) {
+            continue;
+          }
+
+          offers.push({
+            featureKey: feature.key,
+            featureName: feature.name,
+            label: feature.choiceConfig?.label || feature.name,
+            sourceName: source.sourceName,
+            isSubclass: source.isSubclass,
+            feature,
+            removable,
+            options,
+          });
+        }
+      }
+
+      return offers;
+    },
+  );
+
+  /**
+   * Замены, у которых названы обе стороны и которые не спорят с новыми
+   * вариантами уровня: один и тот же вариант не берут дважды — новым и взамен.
+   * Недоделанная замена на лист не идёт.
+   */
+  const completedReplacements = computed((): WizardCompletedReplacement[] =>
+    featureReplacementOffers.value.flatMap((offer) => {
+      const state = wizardState.featureReplacements[offer.featureKey];
+
+      const removed = offer.removable.find(
+        (choice) => choice.key === state?.removedKey,
+      );
+
+      const added = offer.options.find(
+        (choice) => choice.key === state?.addedKey,
+      );
+
+      const isPickedAsNew = (
+        wizardState.featureChoices[offer.featureKey] ?? []
+      ).includes(added?.key ?? '');
+
+      return removed && added && !isPickedAsNew
+        ? [{ offer, removed, added }]
+        : [];
+    }),
+  );
+
+  /**
+   * Все начатые замены доведены до конца: убираемое названо — значит, названо
+   * и то, что взамен, и оно не совпало с новым вариантом уровня. Замену можно
+   * не делать вовсе, но начатая наполовину увела бы игрока с уровня без
+   * воззвания.
+   */
+  const areReplacementsComplete = computed(() =>
+    featureReplacementOffers.value.every((offer) => {
+      const state = wizardState.featureReplacements[offer.featureKey];
+
+      return (
+        !state?.removedKey
+        || completedReplacements.value.some(
+          (replacement) => replacement.offer.featureKey === offer.featureKey,
+        )
+      );
+    }),
+  );
+
+  /**
    * Выбранные варианты умения по его ключу — в порядке списка вариантов.
    *
    * @param featureKey - ключ умения
@@ -1106,8 +1305,8 @@ export function useClassWizard(
    * Ключи выборов при этом сужаются до области варианта, иначе два манёвра со
    * своим «выбери навык» слились бы в один вопрос на двоих.
    */
-  const selectedOptionGrants = computed<ClassOptionGrant[]>(() =>
-    featureChoicePicks.value.flatMap((pick) =>
+  const selectedOptionGrants = computed<ClassOptionGrant[]>(() => [
+    ...featureChoicePicks.value.flatMap((pick) =>
       // Варианты берутся из самого предложения, а не поиском умения по ключу:
       // ключ умения уникален не всегда — у класса с сайта умение класса и
       // умение подкласса носят один ключ («Таинственные воззвания» повторены на
@@ -1119,7 +1318,18 @@ export function useClassWizard(
         selectedChoicesFor(pick.featureKey).map((choice) => choice.key),
       ),
     ),
-  );
+    // Вариант, взятый взамен, выдаёт то же, что и выбранный новым: его дары,
+    // эффекты, заклинания и вопросы идут тем же путём
+    ...completedReplacements.value.flatMap((replacement) =>
+      collectClassOptionGrants(
+        {
+          key: replacement.offer.featureKey,
+          choices: replacement.offer.options,
+        },
+        [replacement.added.key],
+      ),
+    ),
+  ]);
 
   /** Дары выбранных вариантов по ключу «умение:вариант» — их ищет сборка записей. */
   const optionGrantByKey = computed(() => {
@@ -1964,6 +2174,7 @@ export function useClassWizard(
       row: Omit<
         WizardLevelRow,
         | 'pick'
+        | 'replacement'
         | 'referenceChoices'
         | 'referenceGrantNames'
         | 'choices'
@@ -1972,6 +2183,11 @@ export function useClassWizard(
       >,
     ): void => {
       const pick = picks.find((entry) => entry.featureKey === row.key) ?? null;
+
+      const replacement =
+        featureReplacementOffers.value.find(
+          (entry) => entry.featureKey === row.key,
+        ) ?? null;
 
       const referenceChoices =
         referenceChoicesByFeature.value.get(row.key) ?? [];
@@ -2002,6 +2218,7 @@ export function useClassWizard(
       rows.push({
         ...row,
         pick,
+        replacement,
         referenceChoices,
         referenceGrantNames,
         choices,
@@ -2065,6 +2282,26 @@ export function useClassWizard(
         isSubclass: pick.isSubclass,
         isOwnGrants: false,
         isReopened: !pick.isGainedNow,
+        skillChoice: null,
+      });
+    }
+
+    // Замена взятого варианта у умения, которое на этом уровне ничего нового не
+    // спрашивает: колдун меняет воззвание и на уровнях, где новых не берёт
+    for (const offer of featureReplacementOffers.value) {
+      if (rows.some((row) => row.key === offer.featureKey)) {
+        continue;
+      }
+
+      push({
+        key: offer.featureKey,
+        name: offer.featureName,
+        level: offer.feature.level,
+        description: offer.feature.description,
+        sourceName: offer.sourceName,
+        isSubclass: offer.isSubclass,
+        isOwnGrants: false,
+        isReopened: true,
         skillChoice: null,
       });
     }
@@ -2606,6 +2843,8 @@ export function useClassWizard(
         // получив того, что умение выдаёт
         return (
           variantsChosen
+          // Замена необязательна, но начатая должна быть доведена до конца
+          && areReplacementsComplete.value
           && areFeatChoicesComplete.value
           && areFeatureSkillsComplete.value
           // Черта, взятая в умении, спрашивает своё здесь же
@@ -2675,6 +2914,7 @@ export function useClassWizard(
     wizardState.selectedEquipmentIndex = null;
     wizardState.subclassKey = null;
     wizardState.featureChoices = {};
+    wizardState.featureReplacements = {};
     wizardState.featDataChoices = {};
     wizardState.featOwnChoices = {};
     wizardState.asi = { mode: 'asi', abilityIncreases: {}, featKey: null };
@@ -2712,7 +2952,62 @@ export function useClassWizard(
 
     const systemUpdates: Partial<DnDActor['system']> = {};
     const rootUpdates: Partial<DnDActor> = {};
-    const classes = [...(actor.value.system.classes || [])];
+
+    // Заменённые варианты снимаются с листа ДО того, как на него ляжет
+    // уровень: вариант взамен может выдать то же владение, и снятие после
+    // забрало бы и его. Дальше уровень собирается поверх листа без них
+    const replacements = completedReplacements.value;
+    const removedOptionRecords = new Map<string, AppliedFeatFeature>();
+
+    let sheet: DnDActor = actor.value;
+
+    for (const replacement of replacements) {
+      const removal = removeReplacedClassOption(sheet, {
+        classKey: classDef.key,
+        featureKey: replacement.offer.featureKey,
+        option: replacement.removed,
+        recordName: featureOptionRecordName(
+          replacement.offer.featureName,
+          replacement.removed.name,
+        ),
+        grantedBy: featureGrantedBy(
+          classDef.name,
+          replacement.offer.isSubclass,
+          replacement.offer.sourceName,
+        ),
+      });
+
+      if (removal.removedRecord) {
+        removedOptionRecords.set(
+          replacement.offer.featureKey,
+          removal.removedRecord,
+        );
+      }
+
+      sheet = {
+        ...sheet,
+        features: removal.features,
+        activeEffects: removal.activeEffects,
+        spells: removal.spells,
+        system: {
+          ...sheet.system,
+          proficiencies: removal.proficiencies,
+          classCounters: removal.classCounters,
+        },
+      };
+    }
+
+    // Снятое обязано дойти до листа, даже если уровень ничего не добавит в те
+    // же списки: дальше они пишутся, только когда в них что-то прибавилось
+    if (replacements.length > 0) {
+      rootUpdates.features = sheet.features;
+      rootUpdates.activeEffects = sheet.activeEffects;
+      rootUpdates.spells = sheet.spells;
+      systemUpdates.proficiencies = sheet.system.proficiencies;
+      systemUpdates.classCounters = sheet.system.classCounters;
+    }
+
+    const classes = [...(sheet.system.classes || [])];
 
     const existingIndex = classes.findIndex(
       (entry) => entry.classKey === classDef.key,
@@ -2753,8 +3048,13 @@ export function useClassWizard(
           },
         ],
         featureChoices: mergeFeatureChoices(
-          classes[existingIndex].featureChoices,
+          classes[existingIndex],
           wizardState.featureChoices,
+        ),
+        ...featureChoiceReplacementsField(
+          classes[existingIndex],
+          levelGained,
+          replacements,
         ),
         ...classChoiceAnswersField(classes[existingIndex].choiceAnswers),
         ...(effectiveSpellcasting && !classes[existingIndex].spellcastingAbility
@@ -2805,7 +3105,7 @@ export function useClassWizard(
 
     // Ресурсы чужих подклассов этого класса снимаются: они могли попасть на
     // лист только той же ошибкой, и повышение уровня — момент прибраться
-    const existingCounters = (actor.value.system.classCounters ?? []).filter(
+    const existingCounters = (sheet.system.classCounters ?? []).filter(
       (counter) =>
         !isForeignSubclassCounter(counter, classDef.key, chosenSubclassKey),
     );
@@ -2821,8 +3121,8 @@ export function useClassWizard(
       // суммарному уровню и классу не принадлежит
       const counterContext: FormulaContext = {
         ...buildCounterFormulaContext({
-          ...actor.value,
-          system: { ...actor.value.system, classes },
+          ...sheet,
+          system: { ...sheet.system, classes },
         }),
         level: classLevel,
         // Тот же уровень своим именем: формула компендиума, написанная через
@@ -2901,13 +3201,13 @@ export function useClassWizard(
     // Уровень уже новый: формулы ресурсов (`@prof`, `@level`) обязаны считать
     // от него, иначе очки удачи вырастут только со следующим повышением
     const leveledActor = {
-      ...actor.value,
-      system: { ...actor.value.system, ...systemUpdates },
+      ...sheet,
+      system: { ...sheet.system, ...systemUpdates },
     };
 
     systemUpdates.classCounters = refreshFeatCounters(
       leveledActor,
-      systemUpdates.classCounters ?? actor.value.system.classCounters ?? [],
+      systemUpdates.classCounters ?? sheet.system.classCounters ?? [],
     );
 
     // Свои ресурсы игрока с формулой максимума растут по той же причине: их
@@ -2919,7 +3219,7 @@ export function useClassWizard(
 
     // Владения — обновляем proficiencies при добавлении нового класса
     if (isFirstClass.value || isMulticlass.value) {
-      const existingProf = actor.value.system.proficiencies;
+      const existingProf = sheet.system.proficiencies;
       const systemStore = useSystemDataStore();
 
       /**
@@ -3057,7 +3357,7 @@ export function useClassWizard(
     // Навыки от умения — своим блоком: их дают и на повышении уровня, когда
     // блок стартовых владений выше не выполняется
     if (chosenFeatureSkills.value.length > 0) {
-      const existingProf = actor.value.system.proficiencies;
+      const existingProf = sheet.system.proficiencies;
 
       const skills = {
         ...(systemUpdates.proficiencies?.skills ?? existingProf?.skills ?? {}),
@@ -3087,7 +3387,7 @@ export function useClassWizard(
     // разбор ответов общий с ней — второй бы разошёлся с первым
     if (levelFeatData.value.length > 0) {
       systemUpdates.proficiencies = applyLevelFeatData(
-        systemUpdates.proficiencies ?? actor.value.system.proficiencies,
+        systemUpdates.proficiencies ?? sheet.system.proficiencies,
         levelFeatData.value,
         wizardState.featDataChoices,
       );
@@ -3137,10 +3437,7 @@ export function useClassWizard(
           flags: [],
         };
 
-        rootUpdates.activeEffects = [
-          ...(actor.value.activeEffects ?? []),
-          asiEffect,
-        ];
+        rootUpdates.activeEffects = [...(sheet.activeEffects ?? []), asiEffect];
       }
     }
 
@@ -3173,8 +3470,8 @@ export function useClassWizard(
         source.featData,
         CLASS_GRANT_EFFECT_PRESENTATION,
         {
-          acquisitionLevel: getTotalLevel(actor.value.system.classes) + 1,
-          walkSpeed: actor.value.system.movement?.walk,
+          acquisitionLevel: getTotalLevel(sheet.system.classes) + 1,
+          walkSpeed: sheet.system.movement?.walk,
           chosenDamageDefenses: resolveChosenDamageDefenses(
             source.featData,
             wizardState.featDataChoices,
@@ -3196,8 +3493,7 @@ export function useClassWizard(
     }
 
     if (declaredEffects.length > 0) {
-      const before =
-        rootUpdates.activeEffects ?? actor.value.activeEffects ?? [];
+      const before = rootUpdates.activeEffects ?? sheet.activeEffects ?? [];
 
       const merged = mergeClassEffects(before, declaredEffects);
 
@@ -3213,10 +3509,7 @@ export function useClassWizard(
       0,
     );
 
-    const raisedToken = raiseTokenDarkvision(
-      actor.value.token,
-      featDataDarkvision,
-    );
+    const raisedToken = raiseTokenDarkvision(sheet.token, featDataDarkvision);
 
     if (raisedToken) {
       rootUpdates.token = raisedToken;
@@ -3232,9 +3525,10 @@ export function useClassWizard(
     if (
       levelFeatures.value.length > 0
       || reopenedPicks.length > 0
+      || replacements.length > 0
       || referenceOptions.value.length > 0
     ) {
-      const newFeatures = [...(actor.value.features || [])];
+      const newFeatures = [...(sheet.features || [])];
       // Название класса берётся до вложенной функции: внутри неё TypeScript
       // уже не помнит, что запись класса проверена на существование
       const className = classDef.name;
@@ -3390,6 +3684,42 @@ export function useClassWizard(
         }
       }
 
+      // Варианты, взятые взамен: запись — на уровне замены, как у добора. Если
+      // убранная запись стояла вместо записи самого умения (вариант взят на
+      // его уровне), новая наследует его эффекты и список заклинаний — иначе
+      // строка умения потеряла бы на листе ссылку на свой эффект
+      for (const replacement of replacements) {
+        const { feature } = replacement.offer;
+        const removedRecord = removedOptionRecords.get(feature.key);
+
+        const featureEffectIds = listFeatureEffectIds(
+          classKey,
+          feature.activeEffects,
+        );
+
+        const carriesFeatureEffects = featureEffectIds.some((effectId) =>
+          removedRecord?.effectIds?.includes(effectId),
+        );
+
+        const carriesSpellList = Boolean(
+          feature.featData?.spellList && removedRecord?.featData?.spellList,
+        );
+
+        pushFeature(
+          featureOptionRecordName(
+            replacement.offer.featureName,
+            replacement.added.name,
+          ),
+          replacement.added.description,
+          nextLevel.value,
+          replacement.offer.isSubclass,
+          replacement.offer.sourceName,
+          optionGrantByKey.value.get(`${feature.key}:${replacement.added.key}`),
+          carriesSpellList ? feature.featData?.spellList : undefined,
+          carriesFeatureEffects ? feature.activeEffects : undefined,
+        );
+      }
+
       // Варианты справочных списков: выбирать их не нужно, а механика у
       // варианта своя — запись варианта несёт её так же, как запись выбранного.
       // Само умение при этом остаётся на листе своей записью (выше): вариант
@@ -3405,7 +3735,7 @@ export function useClassWizard(
         );
       }
 
-      if (newFeatures.length > actor.value.features?.length) {
+      if (newFeatures.length > sheet.features?.length) {
         rootUpdates.features = newFeatures;
 
         // Ресурсы выбранных вариантов: у варианта они лежат ВНУТРИ его даров —
@@ -3415,11 +3745,11 @@ export function useClassWizard(
         // уровень, иначе ресурс застрял бы на значении прошлого
         systemUpdates.classCounters = refreshFeatCounters(
           {
-            ...actor.value,
+            ...sheet,
             ...rootUpdates,
-            system: { ...actor.value.system, ...systemUpdates },
+            system: { ...sheet.system, ...systemUpdates },
           },
-          systemUpdates.classCounters ?? actor.value.system.classCounters ?? [],
+          systemUpdates.classCounters ?? sheet.system.classCounters ?? [],
         );
       }
     }
@@ -3431,7 +3761,7 @@ export function useClassWizard(
     // правило одно на создание, повышение уровня и мультикласс
     if (resolvedGrantedSpells.length > 0) {
       rootUpdates.spells = appendGrantedSpells(
-        actor.value.spells ?? [],
+        sheet.spells ?? [],
         resolvedGrantedSpells,
         undefined,
         { limit: preparedSpellsLimit.value },
@@ -3445,12 +3775,12 @@ export function useClassWizard(
     // добавлены выше вместе с заклинаниями умений
     if (chosenCompendiumFeats.value.length > 0) {
       let intermediate: DnDActor = {
-        ...actor.value,
+        ...sheet,
         ...rootUpdates,
-        system: { ...actor.value.system, ...systemUpdates },
+        system: { ...sheet.system, ...systemUpdates },
       };
 
-      const acquisitionLevel = getTotalLevel(actor.value.system.classes) + 1;
+      const acquisitionLevel = getTotalLevel(sheet.system.classes) + 1;
 
       for (const feat of chosenCompendiumFeats.value) {
         const applied = applyFeatToActor(
@@ -3485,7 +3815,7 @@ export function useClassWizard(
       systemUpdates.proficiencies = intermediate.system.proficiencies;
       systemUpdates.classCounters = intermediate.system.classCounters;
 
-      if (intermediate.token !== actor.value.token) {
+      if (intermediate.token !== sheet.token) {
         rootUpdates.token = intermediate.token;
       }
     }

@@ -24,6 +24,7 @@ import type {
   ClassFeature,
   ClassFeatureChoice,
   ClassFeatureChoiceConfig,
+  ClassFeatureChoiceReplacement,
   ClassFeatureSkillChoice,
   ClassLevelEntry,
   FeatData,
@@ -43,10 +44,15 @@ import {
   calculateProficiencyBonus,
   findScalingParentFeature,
   isAsiFeatureKey,
+  isClassFeatureChoiceReplacement,
   scalingFeatureKey,
 } from '@vtt/shared/system/dnd.js';
 
-import { CHOICE_CONFIG_DEFAULT_COUNT, CHOICE_COUNT_MIN } from '../constants';
+import {
+  CHOICE_CONFIG_DEFAULT_COUNT,
+  CHOICE_COUNT_MIN,
+  CHOICE_REPLACEMENT_NONE,
+} from '../constants';
 import {
   buildCounterExtras,
   entriesToProgression,
@@ -192,7 +198,17 @@ export interface EditableClassFeatureChoiceConfig {
   count: number;
   /** Рост количества по уровням — тот же ряд, что у выбора в дарах. */
   scaling: EditableChoiceScaling[];
+  /**
+   * Замена ранее выбранного варианта при повышении уровня;
+   * {@link CHOICE_REPLACEMENT_NONE} — замены нет. Своё значение вместо пустого:
+   * пустой пункт выпадающий список не выбирает.
+   */
+  replacement: EditableChoiceReplacement;
 }
+
+/** Режим замены в форме: режим записи либо «замены нет» */
+export type EditableChoiceReplacement =
+  ClassFeatureChoiceReplacement | typeof CHOICE_REPLACEMENT_NONE;
 
 /**
  * Ступень роста умения по уровням: уровень, на котором умение повторяется или
@@ -507,6 +523,10 @@ function toEditableChoiceConfig(
     label: config.label ?? '',
     count: config.count ?? CHOICE_CONFIG_DEFAULT_COUNT,
     scaling,
+    // Незнакомый режим читается «замены нет» — так же, как его читает мастер
+    replacement: isClassFeatureChoiceReplacement(config.replacement)
+      ? config.replacement
+      : CHOICE_REPLACEMENT_NONE,
   };
 }
 
@@ -1050,6 +1070,11 @@ function buildChoiceConfig(
 
   if (Object.keys(progression).length > 0) {
     built.progression = progression;
+  }
+
+  // «Замены нет» не пишется: так же выглядит настройка с сайта без замены
+  if (config.replacement !== CHOICE_REPLACEMENT_NONE) {
+    built.replacement = config.replacement;
   }
 
   return built;
@@ -1603,6 +1628,16 @@ export function buildSubclass(subclass: EditableSubclass): SubclassDefinition {
 
   return built;
 }
+
+/** Опции режима замены выбранного варианта для USelect. */
+export const CHOICE_REPLACEMENT_OPTIONS: {
+  value: EditableChoiceReplacement;
+  label: string;
+}[] = [
+  { value: CHOICE_REPLACEMENT_NONE, label: 'Нет' },
+  { value: 'every-level', label: 'На каждом уровне' },
+  { value: 'choice-levels', label: 'Только на уровнях новой ступени' },
+];
 
 /** Опции типов заклинателей для USelect. */
 export const CASTER_TYPE_OPTIONS: { value: CasterType; label: string }[] = [

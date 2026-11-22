@@ -12,6 +12,7 @@
 
   import { useExpandedRows } from '../../../composables/useExpandedRows';
   import {
+    CHOICE_REPLACEMENT_NONE,
     CLASS_FEATURE_DEFAULT_NAME,
     CLASS_FEATURES_EDITOR_LABELS,
     DELETE_CONFIRM_TITLE,
@@ -123,6 +124,17 @@
           ? choiceBadgeLabel(feature)
           : `${CLASS_FEATURES_EDITOR_LABELS.choicesBadge}${feature.choices.length}`,
         color: feature.choiceConfig ? 'primary' : 'neutral',
+      });
+    }
+
+    if (
+      feature.choiceConfig
+      && feature.choiceConfig.replacement !== CHOICE_REPLACEMENT_NONE
+    ) {
+      badges.push({
+        key: 'replacement',
+        label: CLASS_FEATURES_EDITOR_LABELS.replacementBadge,
+        color: 'primary',
       });
     }
 

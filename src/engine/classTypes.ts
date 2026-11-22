@@ -284,6 +284,69 @@ export interface ClassFeatureChoiceConfig {
    * втором он выбирает два новых.
    */
   progression?: Record<string, number>;
+  /**
+   * Можно ли при повышении уровня заменить ОДИН ранее выбранный вариант на
+   * другой доступный — воззвание колдуна, манёвр, метамагию, инфузию. Нет поля
+   * — замены нет. Так же выгружает поле компендиум TTG Club
+   * ({@code VttgClass.ChoiceConfig.replacement}); когда замена разрешена на
+   * этом уровне, решает {@link canReplaceClassFeatureChoiceAt}.
+   */
+  replacement?: ClassFeatureChoiceReplacement;
+}
+
+/**
+ * Когда разрешена замена ранее выбранного варианта умения: на каждом уровне
+ * класса либо только на уровнях, где у выбора есть ступень. Значения заданы
+ * выгрузкой компендиума TTG Club — их не переименовывают.
+ */
+export const CLASS_FEATURE_CHOICE_REPLACEMENTS = [
+  'every-level',
+  'choice-levels',
+] as const;
+
+/** Режимы замены множеством — для проверки значения из записи класса */
+const CLASS_FEATURE_CHOICE_REPLACEMENT_SET: ReadonlySet<string> = new Set(
+  CLASS_FEATURE_CHOICE_REPLACEMENTS,
+);
+
+/** Режим замены выбранного варианта умения при повышении уровня */
+export type ClassFeatureChoiceReplacement =
+  (typeof CLASS_FEATURE_CHOICE_REPLACEMENTS)[number];
+
+/**
+ * Проверяет, что значение — известный режим замены. Поле приходит из
+ * компендиума как есть, и незнакомое значение должно читаться «замены нет», а
+ * не разрешать её молча.
+ *
+ * @param value - значение поля `replacement` из записи класса
+ * @returns `true`, если это режим замены, который система понимает
+ */
+export function isClassFeatureChoiceReplacement(
+  value: unknown,
+): value is ClassFeatureChoiceReplacement {
+  return (
+    typeof value === 'string' && CLASS_FEATURE_CHOICE_REPLACEMENT_SET.has(value)
+  );
+}
+
+/**
+ * Замена одного выбранного варианта умения, сделанная при повышении уровня
+ * класса: что убрали и что взяли взамен.
+ *
+ * Хранится отдельно от {@link ActorClassEntry.featureChoices}, а не правкой
+ * этого списка: так замена откатывается вместе с уровнем, на котором сделана, —
+ * итоговый набор ({@link resolveFeatureChoiceKeys}) учитывает только замены не
+ * выше уровня класса.
+ */
+export interface ActorFeatureChoiceReplacement {
+  /** Ключ умения, чей вариант заменили */
+  featureKey: string;
+  /** Уровень класса, на котором сделана замена */
+  level: number;
+  /** Ключ убранного варианта */
+  removedKey: string;
+  /** Ключ варианта, взятого взамен */
+  addedKey: string;
 }
 
 /**
@@ -712,6 +775,13 @@ export interface ActorClassEntry {
    */
   featureChoices: Record<string, string[]>;
   /**
+   * Замены выбранных вариантов, сделанные при повышении уровня, в порядке
+   * уровней. {@link featureChoices} хранит взятое, а итоговый набор — взятое
+   * с этими заменами — даёт {@link resolveFeatureChoiceKeys}. Поля нет —
+   * замен не было (так читаются и записи, сделанные до его появления).
+   */
+  featureChoiceReplacements?: ActorFeatureChoiceReplacement[];
+  /**
    * Ответы игрока на выборы самого класса, подкласса и их умений
    * (`featData.choices`): ключ выбора → значения. «Гримуар монстров» — два типа
    * существ под ключом `monster-manual`. По ним эффекты умений читают выбор
@@ -934,6 +1004,49 @@ export function newClassFeatureChoicesAt(
 }
 
 /**
+ * Можно ли на этом уровне класса заменить один ранее выбранный вариант умения.
+ *
+ * Режим задаёт настройка выбора ({@link ClassFeatureChoiceConfig.replacement}):
+ * `every-level` — на любом уровне, начиная с уровня умения; `choice-levels` —
+ * только на уровнях со ступенью выбора (уровень самого умения или ключ
+ * `progression`). Колдун 2024 меняет одно воззвание на каждом уровне колдуна,
+ * хотя новые воззвания получает не на каждом.
+ *
+ * Есть ли что менять, функция не знает: на уровне получения умения выбранного
+ * раньше ещё нет, и это решает тот, кто держит запись класса на листе.
+ *
+ * @param feature - умение класса или подкласса
+ * @param classLevel - уровень класса, который берут сейчас
+ * @returns `true` — замена на этом уровне разрешена
+ */
+export function canReplaceClassFeatureChoiceAt(
+  feature: Pick<ClassFeature, 'level' | 'choices' | 'choiceConfig'>,
+  classLevel: number,
+): boolean {
+  const config = feature.choiceConfig;
+
+  if (
+    !config
+    || classLevel < feature.level
+    || !feature.choices?.length
+    || !isClassFeatureChoiceReplacement(config.replacement)
+  ) {
+    return false;
+  }
+
+  if (config.replacement === 'every-level') {
+    return true;
+  }
+
+  return (
+    classLevel === feature.level
+    || Object.keys(config.progression ?? {}).some(
+      (levelKey) => Number(levelKey) === classLevel,
+    )
+  );
+}
+
+/**
  * Сколько вариантов берут из списка, строкой: «1» либо «1–10».
  *
  * Число выбранного растёт по уровням, и говорить о списке одним числом нельзя:
@@ -974,6 +1087,132 @@ export function toFeatureChoiceKeys(value: unknown): string[] {
   }
 
   return value.filter((key) => typeof key === 'string');
+}
+
+/**
+ * Замены выбранных вариантов из записи класса на листе.
+ *
+ * Поле читается с проверкой: запись приходит с листа как есть, и замена без
+ * какого-то из ключей ничего не значит — такая отбрасывается.
+ *
+ * @param value - значение из `ActorClassEntry.featureChoiceReplacements`
+ * @returns замены в порядке записи
+ */
+export function readFeatureChoiceReplacements(
+  value: unknown,
+): ActorFeatureChoiceReplacement[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((entry): ActorFeatureChoiceReplacement[] => {
+    if (!isRecord(entry)) {
+      return [];
+    }
+
+    const { featureKey, level, removedKey, addedKey } = entry;
+
+    if (
+      typeof featureKey !== 'string'
+      || typeof removedKey !== 'string'
+      || typeof addedKey !== 'string'
+      || typeof level !== 'number'
+      || !Number.isFinite(level)
+    ) {
+      return [];
+    }
+
+    return [{ featureKey, level, removedKey, addedKey }];
+  });
+}
+
+/**
+ * Замены, сделанные не выше уровня класса.
+ *
+ * Замена принадлежит уровню, на котором сделана: класс опустили ниже — она
+ * больше не действует, и при новом взятии того же уровня записывается заново.
+ *
+ * @param value - значение из `ActorClassEntry.featureChoiceReplacements`
+ * @param classLevel - уровень класса
+ * @returns действующие замены в порядке записи
+ */
+export function featureChoiceReplacementsUpTo(
+  value: unknown,
+  classLevel: number,
+): ActorFeatureChoiceReplacement[] {
+  return readFeatureChoiceReplacements(value).filter(
+    (replacement) => replacement.level <= classLevel,
+  );
+}
+
+/**
+ * Применяет одну замену к списку выбранных вариантов: убранный вариант
+ * уступает место новому на той же позиции.
+ *
+ * Убранного в списке нет — замена ни к чему не относится, и список остаётся
+ * как был: взять вариант «просто так», без убранного, замена не может. Новый
+ * уже в списке — убранный просто уходит, второй копии не появляется.
+ *
+ * @param keys - ключи выбранных вариантов умения
+ * @param replacement - замена
+ * @param replacement.removedKey - ключ убранного варианта
+ * @param replacement.addedKey - ключ варианта, взятого взамен
+ * @returns ключи после замены
+ */
+export function applyFeatureChoiceReplacement(
+  keys: ReadonlyArray<string>,
+  replacement: Pick<ActorFeatureChoiceReplacement, 'removedKey' | 'addedKey'>,
+): string[] {
+  const removedIndex = keys.indexOf(replacement.removedKey);
+
+  if (removedIndex === -1) {
+    return [...keys];
+  }
+
+  if (keys.includes(replacement.addedKey)) {
+    return keys.filter((_key, position) => position !== removedIndex);
+  }
+
+  return keys.map((key, position) =>
+    position === removedIndex ? replacement.addedKey : key,
+  );
+}
+
+/**
+ * Итоговый набор выбранных вариантов умения на листе: взятое на уровнях с
+ * заменами, действующими на текущем уровне класса.
+ *
+ * Читать выбранное полагается только так: голый `featureChoices` после замены
+ * держал бы убранное воззвание взятым, и мастер не предложил бы его снова, а
+ * взятое взамен — предложил бы второй раз.
+ *
+ * @param entry - запись класса на листе; нет — ничего не выбрано
+ * @param featureKey - ключ умения
+ * @returns ключи выбранных вариантов
+ */
+export function resolveFeatureChoiceKeys(
+  entry:
+    | Pick<
+        ActorClassEntry,
+        'level' | 'featureChoices' | 'featureChoiceReplacements'
+      >
+    | null
+    | undefined,
+  featureKey: string,
+): string[] {
+  if (!entry) {
+    return [];
+  }
+
+  return featureChoiceReplacementsUpTo(
+    entry.featureChoiceReplacements,
+    entry.level,
+  )
+    .filter((replacement) => replacement.featureKey === featureKey)
+    .reduce(
+      applyFeatureChoiceReplacement,
+      toFeatureChoiceKeys(entry.featureChoices?.[featureKey]),
+    );
 }
 
 /**
