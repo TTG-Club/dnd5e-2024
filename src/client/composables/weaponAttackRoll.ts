@@ -150,7 +150,7 @@ export function checkWeaponRangeOnScene(
   }
 
   return {
-    ...checkRange(weapon, measurement.distance),
+    ...checkRange(weapon, measurement.distance, measurement.units),
     distance: measurement.distance,
     unitLabel: measurement.unitLabel,
   };

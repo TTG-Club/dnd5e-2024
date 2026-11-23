@@ -190,6 +190,197 @@ describe('виды атаки у действия существа', () => {
     );
   });
 
+  it('спасбросок без вида атаки: дистанция — жёсткий предел без помехи', () => {
+    /** «Ужасный облик» банши: спасбросок Мудрости, 60 фт., вида атаки нет */
+    const horrifyingVisage = {
+      name: 'Ужасный облик',
+      description: [],
+      saveType: 'wisdom',
+      saveDC: 13,
+      range: { normal: 60 },
+      distanceUnit: 'ft',
+    };
+
+    for (const distance of [15, 60]) {
+      assert.deepEqual(
+        engine.checkCreatureActionRange(horrifyingVisage, distance),
+        { allowed: true, disadvantage: false },
+      );
+    }
+
+    assert.deepEqual(engine.checkCreatureActionRange(horrifyingVisage, 65), {
+      allowed: false,
+      disadvantage: false,
+    });
+
+    // Есть long — предел по нему, и всё равно без помехи
+    const withLong = { ...horrifyingVisage, range: { normal: 30, long: 120 } };
+
+    assert.deepEqual(engine.checkCreatureActionRange(withLong, 90), {
+      allowed: true,
+      disadvantage: false,
+    });
+
+    assert.equal(engine.checkCreatureActionRange(withLong, 125).allowed, false);
+  });
+
+  it('без дистанции и вида — досягаемость 5 фт.; melee — своя досягаемость', () => {
+    const noRange = { name: 'Укус', description: [], attackBonus: 3 };
+
+    assert.equal(engine.checkCreatureActionRange(noRange, 5).allowed, true);
+    assert.equal(engine.checkCreatureActionRange(noRange, 10).allowed, false);
+
+    const longReach = { ...noRange, rangeType: 'melee', reach: 10 };
+
+    assert.deepEqual(engine.checkCreatureActionRange(longReach, 10), {
+      allowed: true,
+      disadvantage: false,
+    });
+
+    assert.equal(engine.checkCreatureActionRange(longReach, 15).allowed, false);
+
+    // melee с дистанцией в записи — по-прежнему досягаемость, не дистанция
+    assert.equal(
+      engine.checkCreatureActionRange(
+        { ...longReach, range: { normal: 60 } },
+        15,
+      ).allowed,
+      false,
+    );
+  });
+
+  it('дальнобойная атака: помеха между обычной и длинной дистанцией', () => {
+    const bow = {
+      name: 'Длинный лук',
+      description: [],
+      attackBonus: 5,
+      rangeType: 'ranged',
+      range: { normal: 150, long: 600 },
+    };
+
+    assert.deepEqual(engine.checkCreatureActionRange(bow, 150), {
+      allowed: true,
+      disadvantage: false,
+    });
+
+    assert.deepEqual(engine.checkCreatureActionRange(bow, 300), {
+      allowed: true,
+      disadvantage: true,
+    });
+
+    assert.equal(engine.checkCreatureActionRange(bow, 605).allowed, false);
+  });
+
+  it('сцена в метрах: пределы в футах пересчитываются в метры', () => {
+    // Клетка 1,5 м: соседняя фишка — 1,5 м, округлённые до 2 (как у
+    // `measureTokenDistanceOnScene`); через клетку — 3 м
+    const bite = {
+      name: 'Укус',
+      description: [],
+      attackBonus: 3,
+      rangeType: 'melee',
+      distanceUnit: 'ft',
+    };
+
+    assert.deepEqual(engine.checkCreatureActionRange(bite, 2, 'm'), {
+      allowed: true,
+      disadvantage: false,
+    });
+
+    assert.equal(engine.checkCreatureActionRange(bite, 3, 'm').allowed, false);
+
+    // Без distanceUnit — футы по умолчанию
+    const { distanceUnit: _unit, ...biteNoUnit } = bite;
+
+    assert.equal(
+      engine.checkCreatureActionRange(biteNoUnit, 2, 'm').allowed,
+      true,
+    );
+
+    assert.equal(
+      engine.checkCreatureActionRange(biteNoUnit, 3, 'm').allowed,
+      false,
+    );
+
+    // Длинный лук 150/600 фт ≈ 46/183 м
+    const bow = {
+      name: 'Длинный лук',
+      description: [],
+      attackBonus: 5,
+      rangeType: 'ranged',
+      range: { normal: 150, long: 600 },
+      distanceUnit: 'ft',
+    };
+
+    assert.deepEqual(engine.checkCreatureActionRange(bow, 45, 'm'), {
+      allowed: true,
+      disadvantage: false,
+    });
+
+    assert.deepEqual(engine.checkCreatureActionRange(bow, 47, 'm'), {
+      allowed: true,
+      disadvantage: true,
+    });
+
+    // 150 м — раньше сравнивалось с «150 фт» напрямую и давало помеху
+    // на 151 м; теперь это ещё длинная дистанция
+    assert.deepEqual(engine.checkCreatureActionRange(bow, 183, 'm'), {
+      allowed: true,
+      disadvantage: true,
+    });
+
+    assert.equal(engine.checkCreatureActionRange(bow, 184, 'm').allowed, false);
+
+    // «Ужасный облик» банши без вида атаки: 60 фт ≈ 18 м
+    const horrifyingVisage = {
+      name: 'Ужасный облик',
+      description: [],
+      saveType: 'wisdom',
+      saveDC: 13,
+      range: { normal: 60 },
+      distanceUnit: 'ft',
+    };
+
+    assert.deepEqual(
+      engine.checkCreatureActionRange(horrifyingVisage, 18, 'm'),
+      { allowed: true, disadvantage: false },
+    );
+
+    assert.equal(
+      engine.checkCreatureActionRange(horrifyingVisage, 20, 'm').allowed,
+      false,
+    );
+
+    // «Рукопашная или дальнобойная» копья: 5 фт ≈ 2 м, 30/120 фт ≈ 9/37 м
+    assert.deepEqual(
+      engine.listReachableCreatureActionAttackKinds(JAVELIN_ACTION, 2, 'm'),
+      ['melee', 'ranged'],
+    );
+
+    assert.deepEqual(
+      engine.listReachableCreatureActionAttackKinds(JAVELIN_ACTION, 9, 'm'),
+      ['ranged'],
+    );
+
+    assert.deepEqual(engine.checkCreatureActionRange(JAVELIN_ACTION, 20, 'm'), {
+      allowed: true,
+      disadvantage: true,
+    });
+
+    assert.equal(
+      engine.checkCreatureActionRange(JAVELIN_ACTION, 38, 'm').allowed,
+      false,
+    );
+
+    // Сцена в футах — числа записи без пересчёта
+    assert.equal(engine.checkCreatureActionRange(bow, 600, 'ft').allowed, true);
+
+    assert.equal(
+      engine.checkCreatureActionRange(bow, 605, 'ft').allowed,
+      false,
+    );
+  });
+
   it('по расстоянию остаются виды, которыми цель достаётся', () => {
     assert.deepEqual(
       engine.listReachableCreatureActionAttackKinds(JAVELIN_ACTION, 5),
@@ -481,7 +672,8 @@ describe('вопрос о виде атаки перед броском', () => 
         useChatStore: () => ({
           sendMessage: (text) => messages.push(text),
         }),
-        measureDistanceToTarget: () => distance,
+        measureDistanceToTarget: () =>
+          distance === undefined ? undefined : { distance, units: 'ft' },
         generateId: (prefix) => `${prefix}_test`,
         ATTACK_KIND_MODAL_KEY_PREFIX: 'attack-kind',
         ATTACK_KIND_PROMPT_LABELS: {
@@ -505,8 +697,8 @@ describe('вопрос о виде атаки перед броском', () => 
   function weaponSetup(weapon) {
     return {
       kinds: engine.listWeaponAttackKinds(weapon),
-      listReachable: (distance) =>
-        engine.listReachableWeaponAttackKinds(weapon, distance),
+      listReachable: (distance, sceneUnit) =>
+        engine.listReachableWeaponAttackKinds(weapon, distance, sceneUnit),
       apply: (kind) => engine.withWeaponAttackKind(weapon, kind),
       promptLabels: PROMPT,
       chatLabels: CHAT,
@@ -566,5 +758,36 @@ describe('вопрос о виде атаки перед броском', () => 
     assert.equal(modals.length, 0);
     assert.equal(chosen[0], DART);
     assert.deepEqual(messages, []);
+  });
+});
+
+describe('дальность оружия на сцене в метрах', () => {
+  it('досягаемость и дистанция броска пересчитываются из футов', () => {
+    const struck = engine.withWeaponAttackKind(JAVELIN, 'melee');
+    const thrown = engine.withWeaponAttackKind(JAVELIN, 'ranged');
+
+    // 5 фт ≈ 2 м после округления, 30/120 фт ≈ 9/37 м
+    assert.equal(engine.checkRange(struck, 2, 'm').allowed, true);
+    assert.equal(engine.checkRange(struck, 3, 'm').allowed, false);
+
+    assert.deepEqual(engine.checkRange(thrown, 9, 'm'), {
+      allowed: true,
+      disadvantage: false,
+    });
+
+    assert.deepEqual(engine.checkRange(thrown, 30, 'm'), {
+      allowed: true,
+      disadvantage: true,
+    });
+
+    assert.equal(engine.checkRange(thrown, 38, 'm').allowed, false);
+
+    assert.deepEqual(engine.listReachableWeaponAttackKinds(JAVELIN, 6, 'm'), [
+      'ranged',
+    ]);
+
+    // Сцена в футах — как раньше
+    assert.equal(engine.checkRange(struck, 5, 'ft').allowed, true);
+    assert.equal(engine.checkRange(struck, 10, 'ft').allowed, false);
   });
 });
