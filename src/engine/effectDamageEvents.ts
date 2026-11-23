@@ -13,7 +13,7 @@
  * друга без конца.
  */
 
-import type { ServerRollRequester } from '@vtt/shared';
+import type { DistanceUnit, ServerRollRequester } from '@vtt/shared';
 
 import type { ActiveEffect } from './activeEffectTypes.js';
 import type { DamageHit } from './damageHits.js';
@@ -46,6 +46,7 @@ import type {
 import { withTokenDisposition } from '@vtt/shared';
 
 import { isEffectDormant, listLiveEffects } from './activeEffectTypes.js';
+import { countSceneRangeSteps } from './attackUtils.js';
 import { getRelativeDisposition } from './auraMath.js';
 import {
   formatEffectNotes,
@@ -1257,8 +1258,10 @@ export function settleHealingEvents(
 
 /** Перемещение носителя, как его увидело ядро */
 export interface MovementEventData {
-  /** Длина пройденного пути в футах */
+  /** Длина пройденного пути, единицы сцены */
   distance: number;
+  /** Единица сцены; нет — футы */
+  sceneUnit?: DistanceUnit;
   /** Фишку переставили правила (толчок, притягивание), а не носитель */
   forced: boolean;
   /** Смещение фишки за перемещение, px: по нему зона идёт за носителем */
@@ -1299,7 +1302,8 @@ export function settleMovementEvents(
       step === undefined
         ? 1
         : Math.min(
-            Math.floor(movement.distance / step),
+            // Шаг записан в футах, путь — в единицах сцены
+            countSceneRangeSteps(movement.distance, step, movement.sceneUnit),
             MAX_TRIGGER_PATH_REPEATS,
           );
 

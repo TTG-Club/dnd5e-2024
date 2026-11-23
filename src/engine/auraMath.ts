@@ -39,6 +39,7 @@ import {
   isEffectDormant,
   listLiveEffects,
 } from './activeEffectTypes.js';
+import { toSceneFeetLimit } from './attackUtils.js';
 import { bindOwnerTokens } from './classEffectScope.js';
 import { INCAPACITATED_CONDITION_KEY } from './conditionKeys.js';
 import { resolveEffectConditionKey } from './conditionTemplates.js';
@@ -420,7 +421,8 @@ export function calculateAmbientAuras(
  *
  * @param sourceToken - токен-источник ауры
  * @param targetToken - целевой токен
- * @param auraRadiusFeet - радиус ауры в футах
+ * @param auraRadiusFeet - радиус ауры в футах (пересчитывается в единицы
+ *   сцены, `toSceneFeetLimit`)
  * @param gridSettings - настройки сетки сцены
  * @param vertical - отрезки источника и цели; нет — только план
  * @returns true, если цель в пределах ауры
@@ -443,6 +445,10 @@ export function isAuraReachingTarget(
   const distancePerCell =
     resolveGridUnitsPerCell(gridSettings) || DEFAULT_FEET_PER_CELL;
 
+  // Радиус записан в футах, а клетка и высоты — в единицах сцены: на сцене в
+  // метрах аура в 10 футов — 3 м (2 клетки по 1,5 м), а не 10 м
+  const auraRadius = toSceneFeetLimit(auraRadiusFeet, gridSettings.units);
+
   const targetTokenSizePx = (targetToken.scale ?? 1) * cellSize;
   const targetCenterX = targetToken.x + targetTokenSizePx / 2;
   const targetCenterY = targetToken.y + targetTokenSizePx / 2;
@@ -457,7 +463,7 @@ export function isAuraReachingTarget(
 
   const centerDistancePx = Math.sqrt(deltaXPx * deltaXPx + deltaYPx * deltaYPx);
 
-  const auraRadiusPx = (auraRadiusFeet / distancePerCell) * cellSize;
+  const auraRadiusPx = (auraRadius / distancePerCell) * cellSize;
 
   const totalReachPx =
     sourceTokenSizePx / 2 + auraRadiusPx + targetHitboxRadiusPx;
@@ -470,11 +476,11 @@ export function isAuraReachingTarget(
     return centerDistancePx <= totalReachPx;
   }
 
-  const planGapFeet =
+  const planGap =
     (Math.max(0, centerDistancePx - (totalReachPx - auraRadiusPx)) / cellSize)
     * distancePerCell;
 
-  return Math.hypot(planGapFeet, verticalGap) <= auraRadiusFeet;
+  return Math.hypot(planGap, verticalGap) <= auraRadius;
 }
 
 /**
@@ -738,6 +744,12 @@ export function listAdjacentAllies(
 
   const target = toLevelSubject(targetToken, getEntity(targetToken.actorId));
 
+  // Расстояние модели — в единицах сцены: 5 футов на сцене в метрах — 2 м
+  const adjacentRange = toSceneFeetLimit(
+    ALLY_ADJACENT_RANGE_FEET,
+    scene.gridSettings.units,
+  );
+
   return tokens.flatMap((token) => {
     if (token.id === attackerToken.id || token.id === targetToken.id) {
       return [];
@@ -748,7 +760,7 @@ export function listAdjacentAllies(
     if (
       !ally
       || getLevelReachDistance(model, toLevelSubject(token, ally), target)
-        > ALLY_ADJACENT_RANGE_FEET
+        > adjacentRange
       || getRelativeDisposition(attackerSide, withTokenDisposition(token, ally))
         !== 'ally'
     ) {

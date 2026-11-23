@@ -41,6 +41,7 @@ import {
   snapTokenTopLeft,
 } from '@vtt/shared';
 
+import { toSceneFeetLimit } from './attackUtils.js';
 import { DEFAULT_TRIGGER_MOVE_ORIGIN } from './effectTriggerTypes.js';
 
 /** Точка на сцене, px */
@@ -222,15 +223,15 @@ function resolveBringStep(
  * друг друга не поднимают.
  *
  * @param scene - кого двигают и от чего считают
- * @param planFeet - расстояние между центрами по плану, футы
- * @param stepFeet - шаг перемещения, футы
+ * @param planDistance - расстояние между центрами по плану, единицы сцены
+ * @param stepDistance - шаг перемещения, единицы сцены
  * @param toward - к опоре, а не от неё
  * @returns доля шага по плану и сдвиг высоты (единицы сцены)
  */
 function splitVerticalShift(
   scene: ForcedMoveScene,
-  planFeet: number,
-  stepFeet: number,
+  planDistance: number,
+  stepDistance: number,
   toward: boolean,
 ): { planShare: number; rise: number } {
   const deltaZ = scene.vertical
@@ -241,11 +242,11 @@ function splitVerticalShift(
     return { planShare: 1, rise: 0 };
   }
 
-  const length = Math.hypot(planFeet, deltaZ);
-  const shift = toward ? -Math.min(stepFeet, length) : stepFeet;
+  const length = Math.hypot(planDistance, deltaZ);
+  const shift = toward ? -Math.min(stepDistance, length) : stepDistance;
 
   return {
-    planShare: length > 0 ? planFeet / length : 0,
+    planShare: length > 0 ? planDistance / length : 0,
     rise: (deltaZ / length) * shift,
   };
 }
@@ -273,12 +274,16 @@ export function resolveForcedMovePosition(
   scene: ForcedMoveScene,
 ): ForcedMovePosition | null {
   const { target, origin, gridSettings } = scene;
-  const perFoot = resolveGridPixelsPerUnit(gridSettings);
+  const perUnit = resolveGridPixelsPerUnit(gridSettings);
   const isBring = action.kind === 'bring';
 
-  if (perFoot <= 0 || (!isBring && action.distance <= 0)) {
+  if (perUnit <= 0 || (!isBring && action.distance <= 0)) {
     return null;
   }
+
+  // Футы действия — в единицы сцены: на сцене в метрах толчок на 10 футов —
+  // 3 м (2 клетки по 1,5 м), а не 10 м
+  const distance = toSceneFeetLimit(action.distance, gridSettings.units);
 
   // «Не может телепортироваться» («Цепи Белета»): перенос не состоится, а
   // толчок и притягивание — обычное перемещение, их запрет не касается
@@ -294,18 +299,18 @@ export function resolveForcedMovePosition(
   const measure = resolveGridLengthMeasure(gridSettings);
   const toward = isBring || action.kind === 'pull';
 
-  const planFeet =
+  const planDistance =
     measure(targetAnchor.x - originAnchor.x, targetAnchor.y - originAnchor.y)
-    / perFoot;
+    / perUnit;
 
-  const stepFeet = isBring
-    ? resolveBringStep(scene, targetAnchor, originAnchor) / perFoot
-    : action.distance;
+  const stepDistance = isBring
+    ? resolveBringStep(scene, targetAnchor, originAnchor) / perUnit
+    : distance;
 
   const { planShare, rise } = splitVerticalShift(
     scene,
-    planFeet,
-    stepFeet,
+    planDistance,
+    stepDistance,
     toward,
   );
 
@@ -314,7 +319,7 @@ export function resolveForcedMovePosition(
 
   const verticalPart = aboveFloor === undefined ? {} : { aboveFloor };
 
-  if (planShare === 0 || planFeet === 0) {
+  if (planShare === 0 || planDistance === 0) {
     // Строго над или под опорой: толчок только по вертикали
     return aboveFloor === undefined
       ? null
@@ -331,7 +336,7 @@ export function resolveForcedMovePosition(
     : shiftAlongLine(
         targetAnchor,
         originAnchor,
-        action.distance * perFoot * planShare,
+        distance * perUnit * planShare,
         // «На выбор» без выбора (спросить было некого) толкает от опоры
         action.kind === 'pull',
         // Футы толчка — в счёте сетки: клетка наискось стоит как прямая

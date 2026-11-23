@@ -1141,18 +1141,84 @@ export function buildAttackFormula(
  * `measureTokenDistanceOnScene` тоже округляет: на клетке 1,5 м соседняя фишка
  * стоит в 2 м, и досягаемость 5 футов (1,524 м) без округления её бы не
  * пустила. На сцене в футах пересчёта нет, и пределы те же, что в записи.
+ * Тем же способом пересчитываются футы эффектов: ауры, «союзник рядом»,
+ * «рядом» у помощи выбраться.
  *
  * @param value - предел в единицах записи
  * @param unit - единица записи
  * @param sceneUnit - единица сцены
  * @returns предел в единицах сцены
  */
-function toSceneRangeLimit(
+export function toSceneRangeLimit(
   value: number,
   unit: DistanceUnit,
   sceneUnit: DistanceUnit,
 ): number {
   return Math.round(convertDistance(value, unit, sceneUnit));
+}
+
+/** Единица, в которой записаны расстояния правил D&D: футы */
+export const RULES_DISTANCE_UNIT: DistanceUnit = 'ft';
+
+/**
+ * Предел правил в футах (аура, «рядом», толчок) в единицах сцены — тем же
+ * способом, что дальность оружия ({@link toSceneRangeLimit}).
+ *
+ * @param feet - предел, футы
+ * @param sceneUnit - единица сцены; нет — единица по умолчанию (футы)
+ * @returns предел в единицах сцены
+ */
+export function toSceneFeetLimit(
+  feet: number,
+  sceneUnit: DistanceUnit = DEFAULT_DISTANCE_UNIT,
+): number {
+  return toSceneRangeLimit(feet, RULES_DISTANCE_UNIT, sceneUnit);
+}
+
+/**
+ * Сколько полных шагов в футах уложилось в пройденный путь на сцене: «за
+ * каждые 10 футов пути», «1к6 за каждые 10 футов падения».
+ *
+ * Шаг пересчитывается в единицы сцены тем же способом, что и пределы
+ * дистанции ({@link toSceneRangeLimit}): n шагов уложились, если предел
+ * n × шаг не дальше пути. Простое деление пересчитанных метров не годится:
+ * 10 клеток по 1,5 м — 15 м = 49,2 фута, и шагов по 5 футов вышло бы 9, а
+ * не 10. Путь на сцене не в футах округляется до целой единицы, как
+ * расстояние до цели в `measureTokenDistanceOnScene`; на сцене в футах путь
+ * не округляется, и счёт тот же, что делением.
+ *
+ * @param distance - пройденный путь, единицы сцены
+ * @param stepFeet - шаг, футы
+ * @param sceneUnit - единица сцены; нет — футы
+ * @returns число полных шагов; шаг не положительный — 0
+ */
+export function countSceneRangeSteps(
+  distance: number,
+  stepFeet: number,
+  sceneUnit: DistanceUnit = DEFAULT_DISTANCE_UNIT,
+): number {
+  if (!(stepFeet > 0) || !(distance > 0)) {
+    return 0;
+  }
+
+  const measured =
+    sceneUnit === RULES_DISTANCE_UNIT ? distance : Math.round(distance);
+
+  // Сверху с запасом в полединицы округления — дальше вниз до первого
+  // уложившегося числа шагов
+  let steps =
+    Math.floor(
+      convertDistance(measured + 1, sceneUnit, RULES_DISTANCE_UNIT) / stepFeet,
+    ) + 1;
+
+  while (
+    steps > 0
+    && toSceneFeetLimit(steps * stepFeet, sceneUnit) > measured
+  ) {
+    steps -= 1;
+  }
+
+  return steps;
 }
 
 /**

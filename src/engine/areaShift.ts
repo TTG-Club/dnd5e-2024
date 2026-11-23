@@ -17,6 +17,7 @@ import type { SceneOffset, ScenePosition } from './forcedMovement.js';
 
 import { resolveGridPixelsPerUnit } from '@vtt/shared';
 
+import { toSceneFeetLimit } from './attackUtils.js';
 import { DEFAULT_TRIGGER_MOVE_DISTANCE } from './effectTriggerTypes.js';
 import { resolveTokenAnchor, shiftAlongLine } from './forcedMovement.js';
 
@@ -77,11 +78,17 @@ export function resolveAreaShift(
     return offset && (offset.dx !== 0 || offset.dy !== 0) ? offset : null;
   }
 
-  const perFoot = resolveGridPixelsPerUnit(scene.gridSettings);
-  const distance = action.distance ?? DEFAULT_TRIGGER_MOVE_DISTANCE;
+  const perUnit = resolveGridPixelsPerUnit(scene.gridSettings);
+
+  // Футы действия — в единицы сцены, как у толчка фишки
+  const distance = toSceneFeetLimit(
+    action.distance ?? DEFAULT_TRIGGER_MOVE_DISTANCE,
+    scene.gridSettings.units,
+  );
+
   const center = resolveAreaCenter(area);
 
-  if (!scene.recipient || !center || perFoot <= 0 || distance <= 0) {
+  if (!scene.recipient || !center || perUnit <= 0 || distance <= 0) {
     return null;
   }
 
@@ -89,7 +96,7 @@ export function resolveAreaShift(
   return shiftAlongLine(
     center,
     resolveTokenAnchor(scene.recipient, scene.gridSettings),
-    distance * perFoot,
+    distance * perUnit,
     action.kind === 'toward',
   );
 }

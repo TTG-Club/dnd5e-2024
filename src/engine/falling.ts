@@ -14,6 +14,7 @@
  */
 
 import type {
+  DistanceUnit,
   SystemUnsupportedContext,
   SystemUnsupportedDecision,
 } from '@vtt/shared';
@@ -21,7 +22,10 @@ import type {
 import type { EffectFlagKey } from './activeEffectTypes.js';
 import type { DnDSceneEntity } from './dndEntities.js';
 
+import { DEFAULT_DISTANCE_UNIT, DISTANCE_UNIT_SHORT } from '@vtt/shared';
+
 import { hasEntityCondition } from './activeEffectTypes.js';
+import { countSceneRangeSteps, RULES_DISTANCE_UNIT } from './attackUtils.js';
 import { PRONE_CONDITION_KEY } from './conditionKeys.js';
 import { buildConditionActiveEffect } from './conditionTemplates.js';
 import {
@@ -50,7 +54,8 @@ export const FALL_DAMAGE_TYPE = 'bludgeoning';
 
 /** Подписи падения в чате */
 const FALL_LABELS = {
-  fell: (name: string, feet: number): string => `${name} падает на ${feet} фт`,
+  fell: (name: string, height: number, unit: DistanceUnit): string =>
+    `${name} падает на ${height} ${DISTANCE_UNIT_SHORT[unit] ?? unit}`,
   damage: (formula: string, total: number): string =>
     `: ${formula} = ${total} дробящего урона`,
   prone: ', ничком',
@@ -60,26 +65,35 @@ const FALL_LABELS = {
 
 /**
  * Число костей урона за падение: 1к6 за каждые полные 10 футов, не больше
- * 20к6.
+ * 20к6. Высота — в единицах сцены: на сцене в метрах 10 футов — 3 м
+ * (`countSceneRangeSteps`).
  *
- * @param fallFeet - высота падения, футы
+ * @param fallHeight - высота падения, единицы сцены
+ * @param sceneUnit - единица сцены; нет — футы
  * @returns кости урона; меньше 10 футов — 0
  */
-export function resolveFallDiceCount(fallFeet: number): number {
+export function resolveFallDiceCount(
+  fallHeight: number,
+  sceneUnit: DistanceUnit = DEFAULT_DISTANCE_UNIT,
+): number {
   return Math.min(
     FALL_MAX_DICE,
-    Math.max(0, Math.floor(fallFeet / FALL_FEET_PER_DIE)),
+    countSceneRangeSteps(fallHeight, FALL_FEET_PER_DIE, sceneUnit),
   );
 }
 
 /**
  * Формула урона от падения в записи системы (`3к6`).
  *
- * @param fallFeet - высота падения, футы
+ * @param fallHeight - высота падения, единицы сцены
+ * @param sceneUnit - единица сцены; нет — футы
  * @returns формула либо `null` — падение без урона
  */
-export function resolveFallDamageFormula(fallFeet: number): string | null {
-  const dice = resolveFallDiceCount(fallFeet);
+export function resolveFallDamageFormula(
+  fallHeight: number,
+  sceneUnit: DistanceUnit = DEFAULT_DISTANCE_UNIT,
+): string | null {
+  const dice = resolveFallDiceCount(fallHeight, sceneUnit);
 
   return dice > 0 ? `${dice}к${FALL_DIE_SIDES}` : null;
 }
@@ -131,17 +145,24 @@ export type FallDamageRoller = (formula: string) => { total: number };
  * ноги. Мутирует хиты и `activeEffects` сущности.
  *
  * @param entity - упавшая сущность
- * @param fallFeet - высота падения, футы
+ * @param fallHeight - высота падения, единицы сцены
  * @param rollFormula - бросок формулы урона
+ * @param sceneUnit - единица сцены; нет — футы
  * @returns итог для чата
  */
 export function applyFallToEntity(
   entity: DnDSceneEntity,
-  fallFeet: number,
+  fallHeight: number,
   rollFormula: FallDamageRoller,
+  sceneUnit: DistanceUnit = DEFAULT_DISTANCE_UNIT,
 ): FallOutcome {
-  const feet = Math.round(fallFeet);
-  const head = FALL_LABELS.fell(entity.name, feet);
+  // Футы — целыми, как раньше; метры — до десятых: 4,5 м, а не 5
+  const height =
+    sceneUnit === RULES_DISTANCE_UNIT
+      ? Math.round(fallHeight)
+      : Math.round(fallHeight * 10) / 10;
+
+  const head = FALL_LABELS.fell(entity.name, height, sceneUnit);
 
   if (hasActiveFlag(entity, FEATHER_FALL_FLAG)) {
     return {
@@ -151,7 +172,7 @@ export function applyFallToEntity(
     };
   }
 
-  const formula = resolveFallDamageFormula(fallFeet);
+  const formula = resolveFallDamageFormula(fallHeight, sceneUnit);
 
   if (!formula) {
     return {
