@@ -16,8 +16,12 @@
  * @module system/dnd/attackKind
  */
 
+import type { DistanceUnit } from '@vtt/shared';
+
 import type { CreatureAction } from './creatureTypes.js';
 import type { DnDGameItem } from './dndEntities.js';
+
+import { DEFAULT_DISTANCE_UNIT } from '@vtt/shared';
 
 import { checkCreatureActionRange, checkRange } from './attackUtils.js';
 import { getDefaultWeaponAbility } from './calculations.js';
@@ -137,17 +141,20 @@ export function withWeaponAttackKind(
  *
  * @param action - действие существа
  * @param distance - расстояние до цели в единицах сцены
+ * @param sceneUnit - единица сцены (по умолчанию футы)
  * @returns виды, из которых выбирать
  */
 export function listReachableCreatureActionAttackKinds(
   action: CreatureAction,
   distance: number,
+  sceneUnit: DistanceUnit = DEFAULT_DISTANCE_UNIT,
 ): readonly AttackKind[] {
   return listCreatureActionAttackKinds(action).filter(
     (kind) =>
       checkCreatureActionRange(
         withCreatureActionAttackKind(action, kind),
         distance,
+        sceneUnit,
       ).allowed,
   );
 }
@@ -158,13 +165,17 @@ export function listReachableCreatureActionAttackKinds(
  *
  * @param weapon - оружие
  * @param distance - расстояние до цели в единицах сцены
+ * @param sceneUnit - единица сцены (по умолчанию футы)
  * @returns виды, из которых выбирать
  */
 export function listReachableWeaponAttackKinds(
   weapon: DnDGameItem,
   distance: number,
+  sceneUnit: DistanceUnit = DEFAULT_DISTANCE_UNIT,
 ): readonly AttackKind[] {
   return listWeaponAttackKinds(weapon).filter(
-    (kind) => checkRange(withWeaponAttackKind(weapon, kind), distance).allowed,
+    (kind) =>
+      checkRange(withWeaponAttackKind(weapon, kind), distance, sceneUnit)
+        .allowed,
   );
 }

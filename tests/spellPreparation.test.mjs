@@ -1288,12 +1288,13 @@ it('creation and level up share one wizard and one preparation rule', () => {
     'src/client/ui/actor/class/wizard/useClassWizard.ts',
   );
 
-  // Мастер кладёт заклинания одним вызовом и передаёт в него предел листа
+  // Мастер кладёт заклинания одним вызовом и передаёт в него предел листа.
+  // Лист — уже без варианта, заменённого на этом уровне (`sheet`)
   assert.equal(wizard.match(/appendGrantedSpells\(/gu).length, 1);
 
   assert.match(
     wizard,
-    /appendGrantedSpells\(\s*actor\.value\.spells \?\? \[\],\s*resolvedGrantedSpells,\s*undefined,\s*\{ limit: preparedSpellsLimit\.value \},\s*\)/u,
+    /appendGrantedSpells\(\s*sheet\.spells \?\? \[\],\s*resolvedGrantedSpells,\s*undefined,\s*\{ limit: preparedSpellsLimit\.value \},\s*\)/u,
   );
 
   // Предел — расчёт плитки вкладки заклинаний: таблицы классов и поправки листа

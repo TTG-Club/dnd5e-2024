@@ -1742,7 +1742,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.10.0';
+  readonly version = '0.10.5';
 
   /** Раунд D&D 5e — 6 игровых секунд: столько двигает часы мира новый раунд */
   readonly secondsPerRound = DND_SECONDS_PER_ROUND;
@@ -2352,22 +2352,26 @@ export class Dnd5eVttSystem implements VttSystem {
 
     const hpBefore = resolveEntityCurrentHp(entity);
     const options = buildTriggerEventOptions(entity, context);
-    const verticalFeet = movement.verticalDistance ?? 0;
+    const vertical = movement.verticalDistance ?? 0;
+
+    // Путь и высота — в единицах сцены, правила «за 10 футов» — в футах
+    const sceneUnit =
+      context?.getSceneSurroundings?.(entity)?.gridSettings.units;
 
     const fall =
-      movement.fell && verticalFeet > 0
-        ? applyFallToEntity(entity, verticalFeet, rollDamageFormulaImpl)
+      movement.fell && vertical > 0
+        ? applyFallToEntity(entity, vertical, rollDamageFormulaImpl, sceneUnit)
         : undefined;
 
     // Свой путь — по плану и по высоте; падение своим ходом не считается
-    const pathFeet = movement.distance + (movement.fell ? 0 : verticalFeet);
+    const path = movement.distance + (movement.fell ? 0 : vertical);
 
     // «За ход одно из трёх»: своё перемещение в свой ход — трата хода, после
     // него действие и бонусное действие недоступны. Толчок и телепорт
     // правилами — не оно
     const moveSpend =
       !movement.forced
-      && pathFeet > 0
+      && path > 0
       && options.inCombat
       && options.activeTurnActorId === entity.id
         ? recordActionSpend(entity, 'move', {
@@ -2382,7 +2386,8 @@ export class Dnd5eVttSystem implements VttSystem {
     const events = settleMovementEvents(
       entity,
       {
-        distance: pathFeet,
+        distance: path,
+        sceneUnit,
         forced: movement.forced,
         offset: {
           dx: movement.to.x - movement.from.x,

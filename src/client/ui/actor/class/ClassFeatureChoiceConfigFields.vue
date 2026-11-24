@@ -8,9 +8,11 @@
     CHOICE_CONFIG_DEFAULT_COUNT,
     CHOICE_COUNT_MAX,
     CHOICE_COUNT_MIN,
+    CHOICE_REPLACEMENT_NONE,
     CLASS_FEATURE_CHOICE_CONFIG_LABELS,
   } from '../constants';
   import FieldHint from '../FieldHint.vue';
+  import { CHOICE_REPLACEMENT_OPTIONS } from './classEditorTypes';
 
   /**
    * Настройка выбора из вариантов умения.
@@ -43,6 +45,7 @@
             label: '',
             count: CHOICE_CONFIG_DEFAULT_COUNT,
             scaling: [],
+            replacement: CHOICE_REPLACEMENT_NONE,
           }
         : undefined;
   }
@@ -101,6 +104,26 @@
         :empty-text="CLASS_FEATURE_CHOICE_CONFIG_LABELS.scalingEmpty"
         :hint="CLASS_FEATURE_CHOICE_CONFIG_LABELS.scalingHint"
       />
+
+      <!-- Замена взятого: воззвание колдуна меняют при получении уровня -->
+      <UFormField class="max-w-sm">
+        <template #label>
+          <span class="flex items-center gap-1">
+            {{ CLASS_FEATURE_CHOICE_CONFIG_LABELS.replacement }}
+
+            <FieldHint
+              :text="CLASS_FEATURE_CHOICE_CONFIG_LABELS.replacementHint"
+            />
+          </span>
+        </template>
+
+        <USelect
+          v-model="config.replacement"
+          :items="CHOICE_REPLACEMENT_OPTIONS"
+          value-key="value"
+          class="w-full"
+        />
+      </UFormField>
     </template>
   </div>
 </template>

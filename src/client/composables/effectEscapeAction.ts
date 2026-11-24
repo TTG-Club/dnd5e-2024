@@ -46,6 +46,7 @@ import {
   resolveEscapeRollMode,
   resolvePublicEntityName,
   toReachDistance,
+  toSceneFeetLimit,
 } from '@vtt/shared/system/dnd.js';
 
 import { useSystemToastStore } from '../stores/systemToastStore';
@@ -144,13 +145,16 @@ export function listEntitiesNear(
   const measure = createSceneLevelMeasure(scene);
   const origins = tokens.filter((token) => token.actorId === entityId);
 
+  // Мера сцены — в её единицах, предел записан в футах
+  const limit = toSceneFeetLimit(feet, scene.gridSettings.units);
+
   const nearIds = new Set(
     tokens
       .filter(
         (token) =>
           token.actorId !== entityId
           && origins.some(
-            (origin) => toReachDistance(measure(origin, token)) <= feet,
+            (origin) => toReachDistance(measure(origin, token)) <= limit,
           ),
       )
       .map((token) => token.actorId),

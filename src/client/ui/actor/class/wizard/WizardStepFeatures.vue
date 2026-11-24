@@ -24,7 +24,12 @@
   } from '@vtt/shared/system/dnd.js';
 
   import type { ChoicePickerOption } from '../../ChoicePickerModal.vue';
-  import type { CompendiumFeat, WizardLevelRow } from './useClassWizard';
+  import type {
+    CompendiumFeat,
+    WizardFeatureChoicePick,
+    WizardFeatureReplacement,
+    WizardLevelRow,
+  } from './useClassWizard';
 
   import { computed } from 'vue';
 
@@ -46,6 +51,7 @@
   import ClassFeatureChoicesView from '../ClassFeatureChoicesView.vue';
   import { SKILL_LABELS } from './constants';
   import WizardFeatureChoicePicker from './WizardFeatureChoicePicker.vue';
+  import WizardFeatureReplacementPicker from './WizardFeatureReplacementPicker.vue';
   import WizardSpellChip from './WizardSpellChip.vue';
 
   const { getSourceLabel } = useSourceLabels();
@@ -60,6 +66,8 @@
     rows: WizardLevelRow[];
     /** Выбранные варианты умений: ключ умения → ключи вариантов */
     featureChoices: Record<string, string[]>;
+    /** Замены взятых раньше вариантов: ключ умения → что убрать и на что */
+    featureReplacements: Record<string, WizardFeatureReplacement>;
     /** Ответы на выборы даров: ключ выбора → значения */
     featSelections: Record<string, string[]>;
     /** Ответы на собственные вопросы черт, взятых уровнем */
@@ -84,6 +92,9 @@
 
   const emit = defineEmits<{
     'update:featureChoices': [choices: Record<string, string[]>];
+    'update:featureReplacements': [
+      replacements: Record<string, WizardFeatureReplacement>,
+    ];
     'update:subclassKey': [key: string];
     'update:featSelection': [key: string, featId: string | null];
     'update:featSelections': [selections: Record<string, string[]>];
@@ -109,6 +120,7 @@
   const rowViews = computed(() =>
     props.rows.map((row) => ({
       row,
+      pick: visiblePick(row),
       badge: rowBadge(row),
       referenceHint: referenceHint(row),
       skillOptions: skillOptions(row),
@@ -117,6 +129,40 @@
       ),
     })),
   );
+
+  /**
+   * Выбор новых вариантов строки без варианта, взятого взамен: один и тот же
+   * вариант дважды — новым и взамен — не берут.
+   *
+   * @param row - строка уровня
+   * @returns выбор строки; `null` — новых вариантов строка не спрашивает
+   */
+  function visiblePick(row: WizardLevelRow): WizardFeatureChoicePick | null {
+    const addedKey = props.featureReplacements[row.key]?.addedKey;
+
+    if (!row.pick || !addedKey) {
+      return row.pick;
+    }
+
+    return {
+      ...row.pick,
+      options: row.pick.options.filter((choice) => choice.key !== addedKey),
+    };
+  }
+
+  /**
+   * Начата ли замена в строке, но не доведена: убираемое названо, а взамен —
+   * ничего.
+   *
+   * @param row - строка уровня
+   */
+  function isReplacementPending(row: WizardLevelRow): boolean {
+    const replacement = props.featureReplacements[row.key];
+
+    return Boolean(
+      row.replacement && replacement?.removedKey && !replacement.addedKey,
+    );
+  }
 
   /**
    * Пояснение справочного списка вариантов: выбирать из него нечего, а записи
@@ -209,7 +255,11 @@
         ),
     ).length;
 
-    return variants + choices + featPicks + featQuestions + skills;
+    const replacement = isReplacementPending(row) ? 1 : 0;
+
+    return (
+      variants + replacement + choices + featPicks + featQuestions + skills
+    );
   }
 
   /**
@@ -221,16 +271,21 @@
    */
   function rowBadge(
     row: WizardLevelRow,
-  ): { label: string; color: 'warning' | 'success' } | null {
+  ): { label: string; color: 'warning' | 'success' | 'neutral' } | null {
     const asksAnything =
       row.pick
       || row.choices.length
       || row.featPicks.length
       || row.featQuestions.length
-      || row.skillChoice;
+      || row.skillChoice
+      || isReplacementPending(row);
 
+    // Замена необязательна: «выбор сделан» над строкой, где игрок ничего не
+    // делал, читался бы неправдой, а без пометки замену легко не заметить
     if (!asksAnything) {
-      return null;
+      return row.replacement
+        ? { label: CLASS_WIZARD_LABELS.replacementBadge, color: 'neutral' }
+        : null;
     }
 
     const pending = pendingCount(row);
@@ -274,6 +329,22 @@
     emit('update:featureChoices', {
       ...props.featureChoices,
       [featureKey]: choiceKeys,
+    });
+  }
+
+  /**
+   * Запоминает замену взятого раньше варианта умения.
+   *
+   * @param featureKey - ключ умения
+   * @param replacement - что убрать и на что заменить
+   */
+  function selectReplacement(
+    featureKey: string,
+    replacement: WizardFeatureReplacement,
+  ): void {
+    emit('update:featureReplacements', {
+      ...props.featureReplacements,
+      [featureKey]: replacement,
     });
   }
 
@@ -455,10 +526,19 @@
 
         <!-- Варианты умения: боевой стиль, манёвры, воззвания -->
         <WizardFeatureChoicePicker
-          v-if="row.pick"
-          :pick="row.pick"
+          v-if="view.pick"
+          :pick="view.pick"
           :selected="featureChoices[row.key] ?? []"
           @update:selected="selectChoice"
+        />
+
+        <!-- Замена взятого раньше варианта: колдун меняет воззвание -->
+        <WizardFeatureReplacementPicker
+          v-if="row.replacement"
+          :offer="row.replacement"
+          :replacement="featureReplacements[row.key]"
+          :new-choice-keys="featureChoices[row.key] ?? []"
+          @update:replacement="selectReplacement"
         />
 
         <!-- Выборы даров: свои у умения и вопросы взятых им вариантов -->

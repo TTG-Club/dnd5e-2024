@@ -32,7 +32,7 @@ import type { EffectTriggerSaveMode } from './effectTriggerTypes.js';
 
 import { z } from 'zod';
 
-import { convertDistance } from '@vtt/shared';
+import { convertDistance, DEFAULT_DISTANCE_UNIT } from '@vtt/shared';
 
 import {
   buildSaveVsConditionFlag,
@@ -1134,93 +1134,219 @@ export function buildAttackFormula(
 }
 
 /**
- * Проверяет, находится ли цель в пределах досягаемости оружия.
+ * Предел дистанции из единиц записи в единицах сцены — одна мера для ударов
+ * оружием, действий существ и заклинаний.
  *
- * @param weapon - оружие для атаки
- * @param distance - расстояние до цели
- * @returns объект с результатом проверки или null
+ * Округление до целой единицы — пара к расстоянию до цели, которое
+ * `measureTokenDistanceOnScene` тоже округляет: на клетке 1,5 м соседняя фишка
+ * стоит в 2 м, и досягаемость 5 футов (1,524 м) без округления её бы не
+ * пустила. На сцене в футах пересчёта нет, и пределы те же, что в записи.
+ * Тем же способом пересчитываются футы эффектов: ауры, «союзник рядом»,
+ * «рядом» у помощи выбраться.
+ *
+ * @param value - предел в единицах записи
+ * @param unit - единица записи
+ * @param sceneUnit - единица сцены
+ * @returns предел в единицах сцены
  */
-export function checkRange(
-  weapon: DnDGameItem,
+export function toSceneRangeLimit(
+  value: number,
+  unit: DistanceUnit,
+  sceneUnit: DistanceUnit,
+): number {
+  return Math.round(convertDistance(value, unit, sceneUnit));
+}
+
+/** Единица, в которой записаны расстояния правил D&D: футы */
+export const RULES_DISTANCE_UNIT: DistanceUnit = 'ft';
+
+/**
+ * Предел правил в футах (аура, «рядом», толчок) в единицах сцены — тем же
+ * способом, что дальность оружия ({@link toSceneRangeLimit}).
+ *
+ * @param feet - предел, футы
+ * @param sceneUnit - единица сцены; нет — единица по умолчанию (футы)
+ * @returns предел в единицах сцены
+ */
+export function toSceneFeetLimit(
+  feet: number,
+  sceneUnit: DistanceUnit = DEFAULT_DISTANCE_UNIT,
+): number {
+  return toSceneRangeLimit(feet, RULES_DISTANCE_UNIT, sceneUnit);
+}
+
+/**
+ * Сколько полных шагов в футах уложилось в пройденный путь на сцене: «за
+ * каждые 10 футов пути», «1к6 за каждые 10 футов падения».
+ *
+ * Шаг пересчитывается в единицы сцены тем же способом, что и пределы
+ * дистанции ({@link toSceneRangeLimit}): n шагов уложились, если предел
+ * n × шаг не дальше пути. Простое деление пересчитанных метров не годится:
+ * 10 клеток по 1,5 м — 15 м = 49,2 фута, и шагов по 5 футов вышло бы 9, а
+ * не 10. Путь на сцене не в футах округляется до целой единицы, как
+ * расстояние до цели в `measureTokenDistanceOnScene`; на сцене в футах путь
+ * не округляется, и счёт тот же, что делением.
+ *
+ * @param distance - пройденный путь, единицы сцены
+ * @param stepFeet - шаг, футы
+ * @param sceneUnit - единица сцены; нет — футы
+ * @returns число полных шагов; шаг не положительный — 0
+ */
+export function countSceneRangeSteps(
   distance: number,
+  stepFeet: number,
+  sceneUnit: DistanceUnit = DEFAULT_DISTANCE_UNIT,
+): number {
+  if (!(stepFeet > 0) || !(distance > 0)) {
+    return 0;
+  }
+
+  const measured =
+    sceneUnit === RULES_DISTANCE_UNIT ? distance : Math.round(distance);
+
+  // Сверху с запасом в полединицы округления — дальше вниз до первого
+  // уложившегося числа шагов
+  let steps =
+    Math.floor(
+      convertDistance(measured + 1, sceneUnit, RULES_DISTANCE_UNIT) / stepFeet,
+    ) + 1;
+
+  while (
+    steps > 0
+    && toSceneFeetLimit(steps * stepFeet, sceneUnit) > measured
+  ) {
+    steps -= 1;
+  }
+
+  return steps;
+}
+
+/**
+ * Проверка дальности по пределам в единицах сцены — общая для оружия и
+ * действий существ.
+ *
+ * @param source - дальность и досягаемость источника
+ * @param unit - единица чисел источника
+ * @param distance - расстояние до цели в единицах сцены
+ * @param sceneUnit - единица сцены
+ * @returns разрешён ли удар и с помехой ли
+ */
+function checkAttackRangeOnScene(
+  source: Pick<CreatureAction, 'rangeType' | 'range' | 'reach'>,
+  unit: DistanceUnit,
+  distance: number,
+  sceneUnit: DistanceUnit,
 ): { allowed: boolean; disadvantage: boolean } {
-  if (weapon.rangeType === 'ranged' && weapon.range) {
-    const normalRange = weapon.range.normal;
-    const longRange = weapon.range.long ?? normalRange;
+  if (source.rangeType === 'ranged' && source.range) {
+    const normalRange = toSceneRangeLimit(source.range.normal, unit, sceneUnit);
+
+    const longRange = toSceneRangeLimit(
+      source.range.long ?? source.range.normal,
+      unit,
+      sceneUnit,
+    );
 
     if (distance > longRange) {
       return { allowed: false, disadvantage: false };
     }
 
-    if (distance > normalRange) {
-      return { allowed: true, disadvantage: true };
-    }
-
-    return { allowed: true, disadvantage: false };
+    return { allowed: true, disadvantage: distance > normalRange };
   }
 
   // Ближний бой: проверяем reach
-  const reach = weapon.reach ?? DEFAULT_REACH_FEET;
+  const reach = toSceneRangeLimit(
+    source.reach ?? DEFAULT_REACH_FEET,
+    unit,
+    sceneUnit,
+  );
 
-  if (distance > reach) {
-    return { allowed: false, disadvantage: false };
-  }
+  return { allowed: distance <= reach, disadvantage: false };
+}
 
-  return { allowed: true, disadvantage: false };
+/**
+ * Проверяет, находится ли цель в пределах досягаемости оружия.
+ *
+ * Числа оружия заданы в `distanceUnit` (по умолчанию футы) и пересчитываются
+ * в единицы сцены (`toSceneRangeLimit`), как у заклинаний.
+ *
+ * @param weapon - оружие для атаки
+ * @param distance - расстояние до цели в единицах сцены
+ * @param sceneUnit - единица сцены (по умолчанию футы)
+ * @returns объект с результатом проверки
+ */
+export function checkRange(
+  weapon: DnDGameItem,
+  distance: number,
+  sceneUnit: DistanceUnit = DEFAULT_DISTANCE_UNIT,
+): { allowed: boolean; disadvantage: boolean } {
+  return checkAttackRangeOnScene(
+    weapon,
+    weapon.distanceUnit ?? DEFAULT_DISTANCE_UNIT,
+    distance,
+    sceneUnit,
+  );
 }
 
 /**
  * Проверяет, находится ли цель в пределах досягаемости действия существа.
  *
- * Логика идентична checkRange для оружия:
- * - ranged: проверяет normal/long дистанцию, помеха при превышении нормальной
- * - melee: проверяет reach (по умолчанию 5)
- * - meleeOrRanged без выбранного вида: в досягаемости — как рукопашная, дальше
- *   — как дальнобойная (обычно вид выбран до проверки, и сюда приходит
+ * Для атак логика та же, что у checkRange для оружия:
+ * - `ranged`: проверяет normal/long дистанцию, помеха при превышении нормальной
+ * - `melee`: проверяет reach (по умолчанию 5 футов)
+ * - `meleeOrRanged` без выбранного вида: в досягаемости — как рукопашная,
+ *   дальше — как дальнобойная (обычно вид выбран до проверки, и сюда приходит
  *   `melee` либо `ranged`)
  *
+ * У действия без вида атаки (спасбросок или эффект — выгрузка ставит
+ * `rangeType` только атакам) дистанция `range` — жёсткий предел: дальше
+ * `long ?? normal` нельзя, а помехи нет, потому что нет броска атаки
+ * («Ужасный облик» банши — 60 футов). Без `range` и без вида — досягаемость,
+ * как у рукопашной.
+ *
+ * Числа действия заданы в `distanceUnit` (по умолчанию футы) и во всех ветках
+ * пересчитываются в единицы сцены одним способом (`toSceneRangeLimit`).
+ *
  * @param action - действие существа
- * @param distance - расстояние до цели
+ * @param distance - расстояние до цели в единицах сцены
+ * @param sceneUnit - единица сцены (по умолчанию футы)
  * @returns объект с результатом проверки
  */
 export function checkCreatureActionRange(
   action: CreatureAction,
   distance: number,
+  sceneUnit: DistanceUnit = DEFAULT_DISTANCE_UNIT,
 ): { allowed: boolean; disadvantage: boolean } {
+  const unit = action.distanceUnit ?? DEFAULT_DISTANCE_UNIT;
+
+  if (!action.rangeType && action.range) {
+    const maxRange = toSceneRangeLimit(
+      action.range.long ?? action.range.normal,
+      unit,
+      sceneUnit,
+    );
+
+    return { allowed: distance <= maxRange, disadvantage: false };
+  }
+
   if (action.rangeType === 'meleeOrRanged') {
-    const meleeCheck = checkCreatureActionRange(
+    const meleeCheck = checkAttackRangeOnScene(
       { ...action, rangeType: 'melee' },
+      unit,
       distance,
+      sceneUnit,
     );
 
     return meleeCheck.allowed
       ? meleeCheck
-      : checkCreatureActionRange({ ...action, rangeType: 'ranged' }, distance);
+      : checkAttackRangeOnScene(
+          { ...action, rangeType: 'ranged' },
+          unit,
+          distance,
+          sceneUnit,
+        );
   }
 
-  if (action.rangeType === 'ranged' && action.range) {
-    const normalRange = action.range.normal;
-    const longRange = action.range.long ?? normalRange;
-
-    if (distance > longRange) {
-      return { allowed: false, disadvantage: false };
-    }
-
-    if (distance > normalRange) {
-      return { allowed: true, disadvantage: true };
-    }
-
-    return { allowed: true, disadvantage: false };
-  }
-
-  // Ближний бой: проверяем reach
-  const actionReach = action.reach ?? DEFAULT_REACH_FEET;
-
-  if (distance > actionReach) {
-    return { allowed: false, disadvantage: false };
-  }
-
-  return { allowed: true, disadvantage: false };
+  return checkAttackRangeOnScene(action, unit, distance, sceneUnit);
 }
 
 /**
@@ -1242,14 +1368,14 @@ export function getSpellMaxRange(
   sceneUnit: DistanceUnit,
 ): number | null {
   if (spell.deliveryType === 'melee' || spell.deliveryType === 'touch') {
-    return Math.round(convertDistance(DEFAULT_REACH_FEET, 'ft', sceneUnit));
+    return toSceneRangeLimit(DEFAULT_REACH_FEET, 'ft', sceneUnit);
   }
 
   if (
     (spell.deliveryType === 'ranged' || spell.deliveryType === 'none')
     && spell.range > 0
   ) {
-    return Math.round(convertDistance(spell.range, spell.rangeUnit, sceneUnit));
+    return toSceneRangeLimit(spell.range, spell.rangeUnit, sceneUnit);
   }
 
   return null;

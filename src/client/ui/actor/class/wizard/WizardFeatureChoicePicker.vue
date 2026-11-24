@@ -6,6 +6,7 @@
 
   import ChoicePickerField from '../../ChoicePickerField.vue';
   import { CLASS_WIZARD_LABELS } from '../../constants';
+  import { toFeatureChoicePickerOption } from './featureChoiceOptions';
 
   /**
    * Выбор вариантов одного умения: боевой стиль, манёвры, воззвания.
@@ -36,15 +37,7 @@
 
   /** Варианты для окна выбора: описание открывается в нём отдельным окном */
   const options = computed<ChoicePickerOption[]>(() =>
-    props.pick.options.map((choice) => ({
-      value: choice.key,
-      name: choice.name,
-      nameEn: choice.nameEn,
-      additional: choice.additional,
-      prerequisite: choice.prerequisite,
-      description: choice.description,
-      repeatable: choice.repeatable,
-    })),
+    props.pick.options.map(toFeatureChoicePickerOption),
   );
 
   /**

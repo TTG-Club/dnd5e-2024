@@ -383,6 +383,7 @@
                 v-model="grants.grantedSpellGroups"
                 :available-spells="availableSpells"
                 :socket="socket"
+                allow-from-slots
                 @open-spell="openSpellDetail"
               />
             </FormSection>

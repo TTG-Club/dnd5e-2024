@@ -624,6 +624,12 @@ export interface EditableGrantedSpellGroup {
   spellcastingAbility?: AbilityType;
   /** Заклинания группы не занимают подготовку */
   alwaysPrepared: boolean;
+  /**
+   * Перечисленное заклинание открывается, только когда у персонажа есть ячейка
+   * его круга (`GrantedSpellRef.fromSlots`). У списка класса не используется —
+   * там та же граница задаётся кругом «не выше доступного».
+   */
+  fromSlots: boolean;
 }
 
 /** Откуда группа берёт заклинания. */
@@ -716,6 +722,7 @@ export function createGrantedSpellGroup(): EditableGrantedSpellGroup {
     spellPackIds: [],
     levelMode: 'slots',
     alwaysPrepared: false,
+    fromSlots: false,
   };
 }
 
@@ -733,7 +740,9 @@ export function grantedSpellGroupTitle(
     : 'сразу';
 
   if (group.source === 'list') {
-    return `Перечисленные — ${level}`;
+    return group.fromSlots
+      ? `Перечисленные — ${level}, при ячейке круга`
+      : `Перечисленные — ${level}`;
   }
 
   const classes = group.classNames.length
@@ -1668,14 +1677,16 @@ function groupGrantedSpellRefs(
 
   for (const ref of refs) {
     // Ключ карты — уровень числом: «сразу» и «с первого» — одно и то же, и
-    // двумя ступенями они выглядели бы как разные. Характеристика и подготовка
-    // входят в ключ: заклинания, которые считаются от разных характеристик, —
+    // двумя ступенями они выглядели бы как разные. Характеристика, подготовка и
+    // отметка «при ячейке круга» входят в ключ: заклинания с разными настройками —
     // разные группы, иначе настройка одного стёрла бы настройку другого
     const level =
       ref.requiredLevel && ref.requiredLevel > 1 ? ref.requiredLevel : 1;
 
     const prepared = ref.alwaysPrepared ?? fallbackAlwaysPrepared;
-    const key = `${level}:${ref.spellcastingAbility ?? ''}:${prepared}`;
+    const fromSlots = ref.fromSlots === true;
+
+    const key = `${level}:${ref.spellcastingAbility ?? ''}:${prepared}:${fromSlots}`;
 
     let group = byKey.get(key);
 
@@ -1683,6 +1694,7 @@ function groupGrantedSpellRefs(
       group = listGrantedSpellGroup([], level > 1 ? level : undefined);
       group.spellcastingAbility = ref.spellcastingAbility;
       group.alwaysPrepared = prepared;
+      group.fromSlots = fromSlots;
       byKey.set(key, group);
       groups.push(group);
     }
@@ -1692,6 +1704,7 @@ function groupGrantedSpellRefs(
       requiredLevel: undefined,
       spellcastingAbility: undefined,
       alwaysPrepared: undefined,
+      fromSlots: undefined,
     });
   }
 
@@ -2583,6 +2596,8 @@ function applyGrantedSpellGroups(
           ? { spellcastingAbility: group.spellcastingAbility }
           : {}),
         alwaysPrepared: group.alwaysPrepared,
+        // Только взведённая: отсутствие поля и есть «без проверки ячеек»
+        ...(group.fromSlots ? { fromSlots: true } : {}),
       });
     }
   }

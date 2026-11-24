@@ -40,7 +40,12 @@ export function checkCreatureActionRangeOnScene(
     return null;
   }
 
-  const rangeResult = checkCreatureActionRange(action, measurement.distance);
+  // Пределы действия в футах — проверка пересчитывает их в единицы сцены
+  const rangeResult = checkCreatureActionRange(
+    action,
+    measurement.distance,
+    measurement.units,
+  );
 
   return {
     ...rangeResult,

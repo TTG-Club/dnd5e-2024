@@ -7,7 +7,10 @@
   import { computed } from 'vue';
 
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
-  import { formatChoiceCountRange } from '@vtt/shared/system/dnd.js';
+  import {
+    formatChoiceCountRange,
+    isClassFeatureChoiceReplacement,
+  } from '@vtt/shared/system/dnd.js';
 
   import {
     CLASS_DETAIL_LABELS,
@@ -66,6 +69,15 @@
     return `${CLASS_DETAIL_LABELS.choiceCountPrefix}${range}`;
   });
 
+  /** Можно ли менять взятый вариант при повышении уровня; нет — строки нет */
+  const replacementLabel = computed(() => {
+    const replacement = props.config?.replacement;
+
+    return isClassFeatureChoiceReplacement(replacement)
+      ? CLASS_DETAIL_LABELS.choiceReplacement[replacement]
+      : undefined;
+  });
+
   /**
    * Бейдж уровня доступа варианта: «С 5 уровня».
    *
@@ -93,6 +105,13 @@
         class="text-xs text-dimmed"
       >
         {{ countLabel }}
+      </span>
+
+      <span
+        v-if="replacementLabel"
+        class="text-xs text-dimmed"
+      >
+        {{ replacementLabel }}
       </span>
 
       <div

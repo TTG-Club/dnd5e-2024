@@ -348,6 +348,10 @@ export function resolveFeatSpellcastingAbility(feat: {
  * Собирает заклинания, которые запись даёт знать: перечисленные записью,
  * выбранные игроком и открытые уровнем персонажа.
  *
+ * У ссылки «при ячейке круга» (`fromSlots`) источник получает `maxLevel` —
+ * наибольший круг ячеек листа; заклинание круга выше отсеет разбор по пакам
+ * (`resolveGrantedSpellSourcesInPacks`), когда круг записи станет известен.
+ *
  * @param feat - запись с её `featData` и ответами игрока
  * @param feat.name - имя записи: им подписан источник выдачи и отката
  * @param feat.featData - блок даров записи с выдаваемыми заклинаниями
@@ -371,12 +375,23 @@ export function collectFeatGrantedSpellSources(
     ? getTotalLevel(actor.system.classes)
     : undefined;
 
+  // Наибольший круг ячеек листа — для выдачи «при ячейке круга»; считается, только
+  // когда такая выдача есть. Листа нет — границы нет, по той же причине, что и у
+  // уровня доступа: потерять заклинание хуже, чем выдать его раньше срока
+  const maxSlotLevel =
+    actor && feat.featData?.grantedSpells?.some((ref) => ref.fromSlots)
+      ? getMaxSpellSlotLevel(actor)
+      : undefined;
+
   const push = (
     spellId: string | undefined,
     packId?: string,
     // Значения группы выдачи: они старше значений записи — ради того группа и
     // заводится, чтобы один набор заклинаний считался не так, как другой
-    group?: { alwaysPrepared?: boolean; spellcastingAbility?: AbilityType },
+    group?: Pick<
+      GrantedSpellRef,
+      'alwaysPrepared' | 'fromSlots' | 'spellcastingAbility'
+    >,
     // Ответ игрока на выбор, а не выдача записи: мастер класса кладёт такое
     // заклинание подготовленным, пока есть место
     chosenByPlayer = false,
@@ -387,6 +402,10 @@ export function collectFeatGrantedSpellSources(
 
     seenSpellIds.add(spellId);
 
+    // Круг самого заклинания здесь неизвестен — только id, — поэтому граница
+    // едет с источником, а сверяет её разбор по найденной записи
+    const maxLevel = group?.fromSlots ? maxSlotLevel : undefined;
+
     sources.push({
       spellId,
       featureName: feat.name,
@@ -395,6 +414,7 @@ export function collectFeatGrantedSpellSources(
         group?.alwaysPrepared ?? feat.featData?.grantedSpellsAlwaysPrepared,
       castingAbility: group?.spellcastingAbility ?? castingAbility,
       ...(chosenByPlayer ? { chosenByPlayer: true } : {}),
+      ...(maxLevel === undefined ? {} : { maxLevel }),
     });
   };
 

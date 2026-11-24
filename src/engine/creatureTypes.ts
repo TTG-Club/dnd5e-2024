@@ -169,7 +169,8 @@ export interface CreatureAction {
    */
   reach?: number;
   /**
-   * Дальность — у `ranged` и `meleeOrRanged`: нормальная и максимальная
+   * Дальность — у `ranged` и `meleeOrRanged`: нормальная и максимальная.
+   * У действия без `rangeType` (спасбросок, эффект) — жёсткий предел без помехи
    */
   range?: { normal: number; long?: number };
   /** Единица измерения расстояния (по умолчанию ft) */

@@ -23,7 +23,10 @@
   } from '@vtt/shared/system/dnd.js';
 
   import type { WizardAsiState } from './wizard';
-  import type { ClassSpellListMode } from './wizard/useClassWizard';
+  import type {
+    ClassSpellListMode,
+    WizardFeatureReplacement,
+  } from './wizard/useClassWizard';
 
   import { computed, ref, toRef, watch } from 'vue';
 
@@ -391,6 +394,17 @@
   }
 
   /**
+   * Сохраняет замены взятых раньше вариантов в состоянии мастера.
+   *
+   * @param replacements - карта «ключ умения → что убрать и на что заменить»
+   */
+  function handleFeatureReplacementsUpdate(
+    replacements: Record<string, WizardFeatureReplacement>,
+  ) {
+    wizardState.featureReplacements = replacements;
+  }
+
+  /**
    * Сохраняет ответы на вопросы вариантов, заданные в карточке умения. Список
    * ответов общий с полями выбора внизу: у обоих один и тот же набор ключей.
    *
@@ -634,6 +648,7 @@
             v-if="activeStepKey === 'features'"
             :rows="levelRows"
             :feature-choices="wizardState.featureChoices"
+            :feature-replacements="wizardState.featureReplacements"
             :feat-selections="wizardState.featDataChoices"
             :feat-own-answers="wizardState.featOwnChoices"
             :feature-skills="wizardState.selectedFeatureSkills"
@@ -647,6 +662,7 @@
             :spells="featChoiceSpells"
             :granted-spells="resolvedGrantedSpells"
             @update:feature-choices="handleFeatureChoicesUpdate"
+            @update:feature-replacements="handleFeatureReplacementsUpdate"
             @update:subclass-key="wizardState.subclassKey = $event"
             @update:feat-selection="handleFeatSelection"
             @update:feat-selections="handleFeatSelectionsUpdate"

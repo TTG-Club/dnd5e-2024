@@ -6,12 +6,15 @@
  * движок (`attackKind.ts`); здесь — то, что требует сцены, плашки и чата.
  */
 
+import type { DistanceUnit } from '@vtt/shared';
 import type {
   AttackKind,
   CreatureAction,
   DnDGameItem,
   EffectVariantChoices,
 } from '@vtt/shared/system/dnd.js';
+
+import type { SceneTokenDistance } from './useSceneRangeCheck';
 
 import { useModalManager } from '@/shared_ui/composables/useModalManager';
 import { useChatStore } from '@/stores/chatStore';
@@ -48,8 +51,11 @@ import { useWorldEntities } from './useWorldEntities';
 interface AttackKindSetup<Source> {
   /** Какими видами источник вообще атакует */
   kinds: readonly AttackKind[];
-  /** Какими видами цель достаётся с этого расстояния */
-  listReachable: (distance: number) => readonly AttackKind[];
+  /** Какими видами цель достаётся с этого расстояния (в единицах сцены) */
+  listReachable: (
+    distance: number,
+    sceneUnit: DistanceUnit,
+  ) => readonly AttackKind[];
   /** Источник, атакующий выбранным видом */
   apply: (kind: AttackKind) => Source;
   /** Варианты вопроса */
@@ -62,18 +68,18 @@ interface AttackKindSetup<Source> {
  * Расстояние от атакующего до выбранной цели на сцене.
  *
  * @param attackerId - id атакующего (персонажа или существа)
- * @returns расстояние в единицах сцены либо `undefined` — цели или сцены нет
+ * @returns расстояние и единицы сцены либо `undefined` — цели или сцены нет
  */
 function measureDistanceToTarget(
   attackerId: string | undefined,
-): number | undefined {
+): SceneTokenDistance | undefined {
   const targetTokenId = useTargetStore().targetTokenId;
 
   if (!attackerId || !targetTokenId) {
     return undefined;
   }
 
-  return measureTokenDistanceOnScene(attackerId, targetTokenId)?.distance;
+  return measureTokenDistanceOnScene(attackerId, targetTokenId) ?? undefined;
 }
 
 /**
@@ -115,10 +121,11 @@ function runWithAttackKind<Source extends { name: string }>(
     proceed(setup.apply(kind));
   };
 
-  const distance = measureDistanceToTarget(attackerId);
+  const measurement = measureDistanceToTarget(attackerId);
 
-  const reachable =
-    distance === undefined ? setup.kinds : setup.listReachable(distance);
+  const reachable = measurement
+    ? setup.listReachable(measurement.distance, measurement.units)
+    : setup.kinds;
 
   // Цель не достаётся ни одним видом: спрашивать не о чем — дальнобойная
   // проверка расстояния сама остановит атаку сообщением в чат
@@ -200,8 +207,8 @@ export function runWeaponAttackChoices(
     weapon,
     {
       kinds: listWeaponAttackKinds(weapon),
-      listReachable: (distance) =>
-        listReachableWeaponAttackKinds(weapon, distance),
+      listReachable: (distance, sceneUnit) =>
+        listReachableWeaponAttackKinds(weapon, distance, sceneUnit),
       apply: (kind) => withWeaponAttackKind(weapon, kind),
       promptLabels: WEAPON_ATTACK_KIND_LABELS,
       chatLabels: WEAPON_ATTACK_KIND_CHAT_LABELS,
@@ -230,8 +237,8 @@ export function runCreatureActionChoices(
     action,
     {
       kinds: listCreatureActionAttackKinds(action),
-      listReachable: (distance) =>
-        listReachableCreatureActionAttackKinds(action, distance),
+      listReachable: (distance, sceneUnit) =>
+        listReachableCreatureActionAttackKinds(action, distance, sceneUnit),
       apply: (kind) => withCreatureActionAttackKind(action, kind),
       promptLabels: CREATURE_ATTACK_KIND_LABELS,
       chatLabels: CREATURE_ATTACK_KIND_CHAT_LABELS,

@@ -44,8 +44,14 @@
       availableSpells?: SpellOption[];
       /** WebSocket-клиент: окно выбора заклинания и список классов. */
       socket?: TypedWebSocketClient | null;
+      /**
+       * Показывать отметку «при ячейке круга» у перечисленных. Только там, где она
+       * доходит до выдачи: у черты. У умения класса перечень лежит полями записи,
+       * и отметке там негде храниться.
+       */
+      allowFromSlots?: boolean;
     }>(),
-    { availableSpells: () => [], socket: null },
+    { availableSpells: () => [], socket: null, allowFromSlots: false },
   );
 
   const groups = defineModel<EditableGrantedSpellGroup[]>({ required: true });
@@ -174,6 +180,16 @@
   /** Группа выдаёт весь список класса, а не перечисленные заклинания. */
   function isClassList(group: EditableGrantedSpellGroup): boolean {
     return group.source === 'classList';
+  }
+
+  /**
+   * Спрашивать ли у группы отметку «при ячейке круга»: только у перечисленных —
+   * у списка класса та же граница задаётся кругом «не выше доступного».
+   *
+   * @param group - группа выдачи
+   */
+  function showsFromSlots(group: EditableGrantedSpellGroup): boolean {
+    return props.allowFromSlots && !isClassList(group);
   }
 
   /**
@@ -356,6 +372,18 @@
           :label="GRANTED_SPELL_GROUPS_LABELS.alwaysPrepared"
           class="mb-2"
         />
+
+        <div
+          v-if="showsFromSlots(group)"
+          class="mb-2 flex items-center gap-1"
+        >
+          <UCheckbox
+            v-model="group.fromSlots"
+            :label="GRANTED_SPELL_GROUPS_LABELS.fromSlots"
+          />
+
+          <FieldHint :text="GRANTED_SPELL_GROUPS_LABELS.fromSlotsHint" />
+        </div>
 
         <!-- Паки спрашиваются, только когда их больше одного: с единственным
           компендиумом сужать нечего, а поле сбивало бы с толку -->

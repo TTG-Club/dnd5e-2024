@@ -64,8 +64,27 @@ export function toResolvedGrantedSpell(
 }
 
 /**
+ * Не выше ли круг записи границы источника (`source.maxLevel`). Заговор проходит
+ * всегда и без отдельной проверки: граница — наибольший круг ячеек листа, а он не
+ * меньше нуля.
+ *
+ * @param source - связь «заклинание → умение-источник»
+ * @param spell - найденная запись заклинания
+ */
+function isWithinSourceMaxLevel(
+  source: GrantedSpellSource,
+  spell: Spell,
+): boolean {
+  return source.maxLevel === undefined || spell.level <= source.maxLevel;
+}
+
+/**
  * Ищет каждое выдаваемое заклинание среди паков. Свой пак источника —
  * `source.packId`.
+ *
+ * Источник с границей круга (`maxLevel`, выдача «при ячейке круга») отдаёт
+ * заклинание, только если круг найденной записи её не превышает. Отсеянное — не
+ * «ненайденное»: оно придёт само, когда у персонажа появится нужная ячейка.
  *
  * @param packs - заклинания мира по пакам (компендиумы и записи мира)
  * @param sources - что выдаётся и кем
@@ -96,11 +115,21 @@ export function resolveGrantedSpellSourcesInPacks(
     );
 
     if (resolution.kind === 'found') {
-      result.resolved.push(
-        toResolvedGrantedSpell(source, resolution.candidate.entry),
-      );
+      if (isWithinSourceMaxLevel(source, resolution.candidate.entry)) {
+        result.resolved.push(
+          toResolvedGrantedSpell(source, resolution.candidate.entry),
+        );
+      }
     } else if (resolution.kind === 'ambiguous') {
-      result.ambiguous.push({ source, candidates: resolution.candidates });
+      // Копии в разных паках могут разойтись кругом — спрашивается только о тех,
+      // что проходят границу; не прошла ни одна — спрашивать не о чем
+      const candidates = resolution.candidates.filter((candidate) =>
+        isWithinSourceMaxLevel(source, candidate.entry),
+      );
+
+      if (candidates.length > 0) {
+        result.ambiguous.push({ source, candidates });
+      }
     } else {
       result.missing.push(source);
     }

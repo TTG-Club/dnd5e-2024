@@ -23,6 +23,7 @@ import type { BackgroundDefinition } from './backgroundTypes.js';
 import type { CounterRecovery } from './classTypes.js';
 import type { DnDGameItem } from './dndEntities.js';
 import type { FeatCounterDefinition, FeatData } from './featTypes.js';
+import type { GrantedSpellRef } from './speciesTypes.js';
 
 import { SENSE_LABELS } from './actorSenses.js';
 import { getConditionEntry } from './conditionTemplates.js';
@@ -542,6 +543,29 @@ function classSpellsLine(featData: FeatData): string | null {
 }
 
 /**
+ * Подпись выданного заклинания в сводке: имя и условия открытия — уровень
+ * персонажа и ячейка круга самого заклинания.
+ *
+ * @param spell - ссылка на выдаваемое заклинание
+ */
+function grantedSpellLabel(spell: GrantedSpellRef): string {
+  const details: string[] = [];
+
+  if (spell.requiredLevel && spell.requiredLevel > 1) {
+    details.push(fromLevelLabel(spell.requiredLevel));
+  }
+
+  if (spell.fromSlots) {
+    // Круга в ссылке нет — только имя, — поэтому без числа
+    details.push('при ячейке его круга');
+  }
+
+  return details.length > 0
+    ? `${spell.name} (${details.join(', ')})`
+    : spell.name;
+}
+
+/**
  * Собирает читаемую сводку даров записи — тот текст, который карточка
  * показывает под описанием.
  *
@@ -562,11 +586,7 @@ export function buildFeatGrantsSummary(
   if (featData?.grantedSpells?.length) {
     lines.push(
       `- **Заклинания:** ${featData.grantedSpells
-        .map((spell) =>
-          spell.requiredLevel && spell.requiredLevel > 1
-            ? `${spell.name} (${fromLevelLabel(spell.requiredLevel)})`
-            : spell.name,
-        )
+        .map(grantedSpellLabel)
         .join(', ')}`,
     );
   }
