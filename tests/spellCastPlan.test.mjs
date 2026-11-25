@@ -419,6 +419,8 @@ function createRollSession(plan) {
       finishSpellCast: () => Promise.resolve(),
       afterSpellCast: (_completion, proceed) => proceed(),
       applySpellTargetEffects() {},
+      // Целей, выбранных окном до каста, у этой сессии нет
+      claimChosenTargets: () => undefined,
       targetEffectsSourceOf: () => ({ casterId: 'caster', spellSaveDC: 13 }),
       resolveSpellTargets: (_session, damageTotal) => calls.push(damageTotal),
     },

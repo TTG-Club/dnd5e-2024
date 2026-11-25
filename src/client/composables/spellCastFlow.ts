@@ -18,6 +18,7 @@
 import type { MeasurementTemplate } from '@vtt/shared';
 import type {
   DnDActor,
+  DnDSceneEntity,
   RollContext,
   Spell,
   SpellCastPlan,
@@ -63,6 +64,7 @@ import {
   isVerbalSpellCast,
   limitCastLevels,
   MAX_SPELL_SLOT_LEVEL,
+  needsSpellEffectTargets,
   pickCantripTierParts,
   resolveDamagePartsForCast,
   resolveEntityActionBlocks,
@@ -120,8 +122,8 @@ import {
 import { beginSpellCast, setSpellCastLevel } from './spellCasts';
 import {
   applySpellTargetEffects,
+  createChosenEffectTargets,
   createProjectileCastValidator,
-  needsSpellEffectTargets,
   requestProjectileTargets,
   requestSpellEffectTargets,
   settleNoRollSpellTargets,
@@ -453,7 +455,9 @@ function chooseSpellCastTargets(
   port: SpellCasterPort,
   availableLevels: number[],
 ): void {
-  if (needsSpellEffectTargets(spell)) {
+  if (
+    needsSpellEffectTargets(spell, Math.max(spell.level, ...availableLevels))
+  ) {
     requestSpellEffectTargets(
       spell,
       caster.id,
@@ -838,6 +842,14 @@ export function settleSpellRoll(
     const { spell } = session.state;
     const { plan } = session;
 
+    // Цели, выбранные окном до каста, забираются один раз: их получают и
+    // разбор урона со спасбросками, и эффекты на цель
+    const chosenTargets = claimChosenTargets(session);
+
+    if (chosenTargets === null) {
+      return;
+    }
+
     // Спасброски, автопопадание, снаряды — разбор оркестратором. Эффекты на
     // цель без урона тоже его требуют: спасбросок и наложение при провале
     if (
@@ -847,6 +859,7 @@ export function settleSpellRoll(
       resolveSpellTargets(session, damageTotal, template, {
         chosenDamageType,
         attack,
+        targetEntities: chosenTargets,
       });
     }
 
@@ -860,11 +873,35 @@ export function settleSpellRoll(
       applySpellTargetEffects(
         spell,
         targetEffectsSourceOf(session),
-        plan.attackType ? undefined : session.effectTargets,
+        chosenTargets
+          ? createChosenEffectTargets(
+              spell,
+              session.port.casterId,
+              chosenTargets.map((entity) => entity.id),
+            )
+          : undefined,
         attack,
       );
     }
   });
+}
+
+/**
+ * Забирает цели, выбранные окном до каста. У атаки их нет: цель атаки —
+ * выбранная.
+ *
+ * @param session - каст
+ * @returns сущности целей; `undefined` — окна выбора не было; `null` — выбор
+ *   уже не действует, разбирать нечего
+ */
+function claimChosenTargets(
+  session: SpellCastSession,
+): DnDSceneEntity[] | null | undefined {
+  if (!session.effectTargets || session.plan.attackType) {
+    return undefined;
+  }
+
+  return session.effectTargets.claimEntities();
 }
 
 /**
@@ -876,15 +913,20 @@ export function settleSpellRoll(
  * @param options - что окно знает о броске
  * @param options.chosenDamageType - тип урона, выбранный в окне
  * @param options.attack - снимок броска атаки, если бросок попадания был
+ * @param options.targetEntities - цели, выбранные окном до каста
  */
 function resolveSpellTargets(
   session: SpellCastSession,
   damageTotal: number,
   template: MeasurementTemplate | null,
-  options: { chosenDamageType?: string; attack?: AttackRollSnapshot },
+  options: {
+    chosenDamageType?: string;
+    attack?: AttackRollSnapshot;
+    targetEntities?: readonly DnDSceneEntity[];
+  },
 ): void {
   const { spell } = session.state;
-  const { chosenDamageType, attack } = options;
+  const { chosenDamageType, attack, targetEntities } = options;
   const socket = useChatStore().getSocket();
 
   // Цели читаются после ожидания: эффекты прежнего каста уже сняты, а
@@ -925,6 +967,7 @@ function resolveSpellTargets(
       scene: useWorldStore().currentScene,
       cachedTemplate: template,
       bonusDamageParts: projectileBonusParts,
+      targetEntities,
     },
   );
 }
@@ -954,6 +997,12 @@ export function settleSpellRollParts(
       return;
     }
 
+    const chosenTargets = claimChosenTargets(session);
+
+    if (chosenTargets === null) {
+      return;
+    }
+
     void useSpellResolution().resolveSpellDamageWithParts(
       {
         spell: session.state.spell,
@@ -965,7 +1014,11 @@ export function settleSpellRollParts(
         attack,
       },
       parts,
-      { scene: useWorldStore().currentScene, cachedTemplate: template },
+      {
+        scene: useWorldStore().currentScene,
+        cachedTemplate: template,
+        targetEntities: chosenTargets,
+      },
     );
   });
 }

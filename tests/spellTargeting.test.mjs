@@ -47,7 +47,7 @@ const bundle = await build({
   stdin: {
     contents: `
       export * from './src/client/composables/spellEffectTargeting.ts';
-      export { castNeedsMultiPart, castReachesTargets, targetEffectsNeedResolution } from './src/engine/spellCastPlan.ts';
+      export { castNeedsMultiPart, castReachesTargets, needsSpellEffectTargets, targetEffectsNeedResolution } from './src/engine/spellCastPlan.ts';
       export { getSpellEffectTargetCount } from './src/engine/spellUtils.ts';
       export { resolveSpellCastPlan } from './src/engine/spellCastPlan.ts';
       export * from 'test:host';
@@ -593,7 +593,7 @@ it('effects with their own damage go through the orchestrator: one write with da
   assert.equal(runtime.updates.length, 1);
 });
 
-it('single effects use one target, while self, damage, save, area and projectile spells retain existing paths', () => {
+it('single effects use one target, while self, single-target save or damage, area and projectile spells retain existing paths', () => {
   assert.equal(
     runtime.getSpellEffectTargetCount(
       { ...bless, targetCount: undefined, scaling: undefined },
@@ -602,10 +602,12 @@ it('single effects use one target, while self, damage, save, area and projectile
     1,
   );
 
+  const singleTarget = { targetCount: undefined, scaling: undefined };
+
   for (const variation of [
     { activeEffects: [{ ...bless.activeEffects[0], effectTarget: 'self' }] },
-    { saveType: 'wisdom' },
-    { damageParts: [{ formula: '1d4', type: 'force' }] },
+    { ...singleTarget, saveType: 'wisdom' },
+    { ...singleTarget, damageParts: [{ formula: '1d4', type: 'force' }] },
     { areaOfEffect: { shape: 'sphere' } },
     { projectiles: { count: 3 } },
   ]) {
@@ -614,6 +616,42 @@ it('single effects use one target, while self, damage, save, area and projectile
       false,
     );
   }
+});
+
+it('save and damage spells pick several targets when the data grants more than one at the cast level', () => {
+  // «Удержание личности»: одна цель, +1 за каждый круг выше второго
+  const holdPerson = {
+    ...bless,
+    level: 2,
+    targetCount: undefined,
+    saveType: 'wisdom',
+    scaling: { additionalTargets: 1 },
+  };
+
+  assert.equal(runtime.needsSpellEffectTargets(holdPerson, 2), false);
+  assert.equal(runtime.needsSpellEffectTargets(holdPerson), false);
+  assert.equal(runtime.needsSpellEffectTargets(holdPerson, 3), true);
+
+  // Урон по нескольким целям со спасброском, без эффектов на цель
+  assert.equal(
+    runtime.needsSpellEffectTargets({
+      ...bless,
+      saveType: 'dexterity',
+      activeEffects: [],
+      damageParts: [{ formula: '2d6', type: 'fire' }],
+    }),
+    true,
+  );
+
+  // Целям нечего получить — окно не нужно
+  assert.equal(
+    runtime.needsSpellEffectTargets({
+      ...bless,
+      saveType: 'wisdom',
+      activeEffects: [],
+    }),
+    false,
+  );
 });
 
 it('final cast checks fresh regular or pact resources and respects disabled slot consumption', () => {
@@ -1169,3 +1207,50 @@ for (const [kind, instantSpell] of [
     assert.equal(appliedTargets, 2);
   });
 }
+
+it('a save spell sends the targets chosen before the cast to the saving-throw resolution', async () => {
+  const resolved = [];
+
+  const holdPerson = {
+    ...bless,
+    level: 2,
+    targetCount: undefined,
+    saveType: 'wisdom',
+    scaling: { additionalTargets: 1 },
+  };
+
+  const chosen = [{ id: 'enemy-1' }, { id: 'enemy-2' }];
+
+  const settle = await loadHandler(
+    'src/client/composables/spellEffectTargeting.ts',
+    'settleNoRollSpellTargets',
+    {
+      applySpellTargetEffects: () => resolved.push('direct'),
+      useChatStore: () => ({ getSocket: () => ({}) }),
+      useWorldEntities: () => ({ getCurrentWorldEntities: () => chosen }),
+      getTargetSpellEffects: (spell) => spell.activeEffects,
+      useWorldStore: () => ({ currentScene: null }),
+      useSpellResolution: () => ({
+        resolveSpellDamage: (_context, options) =>
+          resolved.push(options.targetEntities),
+      }),
+    },
+  );
+
+  settle(
+    holdPerson,
+    { casterId: 'caster', spellSaveDC: 13 },
+    { effectTargets: { claimEntities: () => chosen } },
+  );
+
+  assert.deepEqual(resolved, [chosen]);
+
+  // Выбор устарел — разбора нет вовсе
+  settle(
+    holdPerson,
+    { casterId: 'caster', spellSaveDC: 13 },
+    { effectTargets: { claimEntities: () => null } },
+  );
+
+  assert.equal(resolved.length, 1);
+});

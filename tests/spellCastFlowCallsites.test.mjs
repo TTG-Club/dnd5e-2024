@@ -146,6 +146,7 @@ const FLOW_FUNCTIONS = [
   'claimCastTemplate',
   'markSpellCastApplied',
   'abandonSpellCast',
+  'claimChosenTargets',
   'settleSpellRoll',
   'resolveSpellTargets',
   'settleSpellRollParts',
@@ -303,6 +304,7 @@ async function loadCastEnvironment(entities, { windowOpens = true } = {}) {
       completion.then(proceed);
     },
     applySpellTargetEffects: () => sends.push('targets:apply'),
+    createChosenEffectTargets: () => ({ apply: () => {} }),
     settleNoRollSpellTargets: () => sends.push('targets:noRoll'),
     useSpellResolution: () => ({
       resolveSpellDamage: () => sends.push('targets:resolve'),
@@ -322,10 +324,13 @@ async function loadCastEnvironment(entities, { windowOpens = true } = {}) {
     ports[name] = await loadHandler(REFUSAL_PATH, name, ports);
   }
 
-  // Выбор целей эффекта и снарядов — общий у персонажа и существа
-  for (const name of ['needsSpellEffectTargets', 'requestProjectileTargets']) {
-    ports[name] = await loadHandler(TARGETING_PATH, name, ports);
-  }
+  // Выбор снарядов — общий у персонажа и существа; правило «цели окном до
+  // каста» (`needsSpellEffectTargets`) приходит из движка
+  ports.requestProjectileTargets = await loadHandler(
+    TARGETING_PATH,
+    'requestProjectileTargets',
+    ports,
+  );
 
   ports.withFlatDamageBonusPart = await loadHandler(
     BONUS_PARTS_PATH,

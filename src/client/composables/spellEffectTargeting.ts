@@ -12,7 +12,6 @@ import { useWorldStore } from '@/stores/worldStore';
 import { generateId, isEntityOwner, isRecord } from '@vtt/shared';
 import {
   applyEffectsToEntity,
-  getSpellAttackType,
   getSpellEffectTargetCount,
   hasAvailableSpellSlot,
   isDndSceneEntity,
@@ -20,7 +19,6 @@ import {
   pickEffectVariants,
   readEffectVariantChoices,
   resolvePublicEntityName,
-  spellHasDamage,
   targetEffectsNeedResolution,
 } from '@vtt/shared/system/dnd.js';
 
@@ -207,21 +205,10 @@ export interface SpellTargetEffectsSource {
 }
 
 /**
- * Определяет безуронный эффект на выбранных существ без атаки и спасброска.
- *
- * @param spell - заклинание
- * @returns true — перед кастом нужно выбрать цели эффекта
+ * Проверка заклинателя перед расходом: чего не хватает касту, `null` — всё на
+ * месте. Своя у существа — ячеек и записи на листе у него нет.
  */
-export function needsSpellEffectTargets(spell: Spell): boolean {
-  return (
-    !spell.areaOfEffect
-    && !spell.projectiles
-    && !spellHasDamage(spell)
-    && !getSpellAttackType(spell)
-    && spell.saveType === 'none'
-    && getTargetSpellEffects(spell).length > 0
-  );
-}
+export type SpellEffectCasterCheck = () => SpellEffectTargetProblem | null;
 
 /** Что окно выбора снарядов показывает и чем продолжает каст */
 export interface ProjectileTargetsPrompt {
@@ -290,12 +277,15 @@ export function createProjectileCastValidator(
  * @param casterId - идентификатор заклинателя
  * @param availableSpellLevels - круги, доступные для каста
  * @param onConfirm - продолжение каста с выбранным кругом и зафиксированными целями
+ * @param checkCaster - своя проверка заклинателя (существо); без неё — лист
+ *   персонажа: запись заклинания, подготовка, заряды и ячейки
  */
 export function requestSpellEffectTargets(
   spell: Spell,
   casterId: string,
   availableSpellLevels: number[],
   onConfirm: (slotLevel: number, targets: SpellEffectTargets) => void,
+  checkCaster?: SpellEffectCasterCheck,
 ): void {
   const worldStore = useWorldStore();
   const { findCurrentWorldEntity } = useWorldEntities();
@@ -514,7 +504,7 @@ export function requestSpellEffectTargets(
         return 'changed';
       }
 
-      if (!hasCurrentSpellDefinition()) {
+      if (!checkCaster && !hasCurrentSpellDefinition()) {
         return 'spellChanged';
       }
 
@@ -522,10 +512,17 @@ export function requestSpellEffectTargets(
         return 'changed';
       }
 
-      const resourceProblem =
-        castLevel === undefined
-          ? null
-          : findResourceProblem(castLevel, consumeSlot, isPactSlot);
+      let resourceProblem: SpellEffectTargetProblem | null = null;
+
+      if (checkCaster) {
+        resourceProblem = checkCaster();
+      } else if (castLevel !== undefined) {
+        resourceProblem = findResourceProblem(
+          castLevel,
+          consumeSlot,
+          isPactSlot,
+        );
+      }
 
       if (resourceProblem) {
         return resourceProblem;
@@ -750,6 +747,16 @@ export function settleNoRollSpellTargets(
     return;
   }
 
+  // Цели, выбранные окном («Удержание личности» ячейкой выше), бросают
+  // спасбросок каждая; без них — выбранная цель
+  const targetEntities = options.effectTargets
+    ? options.effectTargets.claimEntities()
+    : undefined;
+
+  if (targetEntities === null) {
+    return;
+  }
+
   useSpellResolution().resolveSpellDamage(
     {
       spell,
@@ -764,6 +771,7 @@ export function settleNoRollSpellTargets(
       resolvedDamageFormula: '',
       scene: useWorldStore().currentScene,
       cachedTemplate: options.template ?? null,
+      targetEntities,
     },
   );
 }

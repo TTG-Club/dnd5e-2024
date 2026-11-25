@@ -600,6 +600,8 @@ async function loadCreatureSpell(windowOpens, overrides = {}) {
     SPELL_ATTACK_KEY: 'attack.spell',
     PAGE_UNLOAD_EVENT: 'beforeunload',
     beginSpellCast: () => {},
+    // Несколько целей эффекта — не про окно броска
+    needsSpellEffectTargets: () => false,
     resolveTargetedAttackRoll: () => ({ mode: 'normal' }),
     buildRollBonusEvaluator: () => () => [],
     getCreatureSpellRollButtonText: () => 'Урон',

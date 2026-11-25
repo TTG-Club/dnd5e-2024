@@ -122,6 +122,8 @@ async function loadCreatureCast() {
     closeRollWindow: () => false,
     useProjectileStore: () => projectileStore,
     isSpellTargetBlockedByRange: () => false,
+    // Несколько целей эффекта — не про снаряды
+    needsSpellEffectTargets: () => false,
     createProjectileCastValidator: (hasProjectiles) => {
       const session = projectileStore.sessionId;
 

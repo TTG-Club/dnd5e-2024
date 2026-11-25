@@ -25,6 +25,7 @@ import type { AttackRollSnapshot } from './attackRollSnapshot';
 import type { RollBonusEvaluator } from './rollBonusEvaluator';
 import type { SpellCasterSource } from './spellCastCompletion';
 import type { SpellCastRefusal } from './spellCastFlow';
+import type { SpellEffectTargets } from './spellEffectTargeting';
 import type { BonusPartsRollContext } from './useBonusDamageParts';
 import type {
   ProjectileAttackContext,
@@ -59,6 +60,7 @@ import {
   isSpellAreaPlacedAtRange,
   isTargetAtFullHp,
   isVerbalSpellCast,
+  needsSpellEffectTargets,
   resolveCreatureSpellSaveDC,
   resolveEntityCreatureType,
   resolveSpellAreaAtLevel,
@@ -108,6 +110,7 @@ import { beginSpellCast } from './spellCasts';
 import {
   createProjectileCastValidator,
   requestProjectileTargets,
+  requestSpellEffectTargets,
 } from './spellEffectTargeting';
 import { discardSpellTemplate } from './spellResolutionShared';
 import { useBonusDamageParts } from './useBonusDamageParts';
@@ -380,8 +383,12 @@ export function startCreatureSpellCast(
        * применение тратит бросок окна, а каст без окна — сразу.
        *
        * @param templateId - размещённый шаблон области
+       * @param effectTargets - цели, выбранные окном до каста
        */
-      const openRoll = (templateId: string | undefined): void => {
+      const openRoll = (
+        templateId: string | undefined,
+        effectTargets?: SpellEffectTargets,
+      ): void => {
         // Повторный каст того же заклинания заменяет своё прежнее окно: то
         // закрывается как отменённое и ничего не потратило
         const sourceKey = buildRollSourceKey(creature.id, 'spell', spell.id);
@@ -396,6 +403,7 @@ export function startCreatureSpellCast(
             placement,
             sourceKey,
             commitCastStart,
+            effectTargets,
           )
           && templateId
         ) {
@@ -405,14 +413,14 @@ export function startCreatureSpellCast(
 
       // Провал каста («Замедление», «Слово силы: Боль»): ход тратится,
       // применение — только если так велит правило
-      const castWithFailureCheck = (): void =>
+      const castWithFailureCheck = (effectTargets?: SpellEffectTargets): void =>
         runWithCastFailure(
           spell,
           creature,
           { loseUse: spendUse, spendTurn },
           () => {
             if (!spell.areaOfEffect) {
-              openRoll(undefined);
+              openRoll(undefined, effectTargets);
 
               return;
             }
@@ -434,6 +442,9 @@ export function startCreatureSpellCast(
           },
         );
 
+      // Ячеек у существа нет: круг в окнах выбора закреплён группой статблока
+      const castLevel = placement?.ref.castLevel ?? spell.level;
+
       // Снаряды («Волшебная стрела», «Палящий луч»): цели выбираются до
       // каста, как у персонажа, — закрытый выбор ни хода, ни применения не
       // тратит
@@ -443,12 +454,26 @@ export function startCreatureSpellCast(
       );
 
       if (projectileCount > 0) {
-        // Ячеек у существа нет: круг в окне выбора закреплён
         requestProjectileTargets(spell, creature.id, projectileCount, {
           casterLevel: CREATURE_PROJECTILE_CASTER_LEVEL,
-          availableSpellLevels: [placement?.ref.castLevel ?? spell.level],
-          onConfirm: castWithFailureCheck,
+          availableSpellLevels: [castLevel],
+          onConfirm: () => castWithFailureCheck(),
         });
+
+        return;
+      }
+
+      // Несколько целей («Удержание личности» кругом выше) — окном до каста,
+      // как у персонажа. Ячеек и записи на листе у существа нет —
+      // проверяется только, что оно на месте
+      if (needsSpellEffectTargets(spell, castLevel)) {
+        requestSpellEffectTargets(
+          spell,
+          creature.id,
+          [castLevel],
+          (_level, effectTargets) => castWithFailureCheck(effectTargets),
+          () => (readCreature(creature.id) ? null : 'changed'),
+        );
 
         return;
       }
@@ -475,6 +500,7 @@ export function startCreatureSpellCast(
  *   зовётся броском окна, у каста без окна — сразу и ДО доведения каста:
  *   запись заряда — полная запись сущности, и после доведения она вернула бы
  *   серверу эффекты из стора — прежнюю метку концентрации вместо новой
+ * @param effectTargets - цели, выбранные окном до каста
  * @returns `true` — окно открылось или каст применён сразу
  */
 export function openCreatureSpellRoll(
@@ -484,6 +510,7 @@ export function openCreatureSpellRoll(
   placement: CreatureSpellPlacement | undefined,
   sourceKey?: string,
   commitCastStart?: () => boolean,
+  effectTargets?: SpellEffectTargets,
 ): boolean {
   // Существо не атакует заклинанием со спасброском или областью
   const usesSaveOrArea =
@@ -572,6 +599,8 @@ export function openCreatureSpellRoll(
         templateId,
         casterSource,
         castKey,
+        undefined,
+        effectTargets,
       );
     });
 
@@ -619,6 +648,7 @@ export function openCreatureSpellRoll(
       casterSource,
       castKey,
       attack,
+      effectTargets,
     );
 
   const evaluateAttackBonusRollFormulas = usesAttack
@@ -879,6 +909,8 @@ function applyCreatureSpellProjectiles(
  * @param castKey - ключ каста: окно зовёт применение и по попаданию, и по частям
  * @param attack - снимок броска атаки: стороны удара считаются с эффектами,
  *   которые бросок израсходовал
+ * @param effectTargets - цели, выбранные окном до каста; без них — выбранная
+ *   цель или шаблон
  */
 export function applyCreatureSpellParts(
   creatureId: string,
@@ -888,6 +920,7 @@ export function applyCreatureSpellParts(
   casterSource: SpellCasterSource,
   castKey: string,
   attack?: AttackRollSnapshot,
+  effectTargets?: SpellEffectTargets,
 ): void {
   const templateStore = useSpellTemplateStore();
 
@@ -933,6 +966,14 @@ export function applyCreatureSpellParts(
         return;
       }
 
+      // Цели, выбранные окном, забираются один раз; выбор устарел — каст
+      // ни на кого не ложится
+      const targetEntities = effectTargets?.claimEntities();
+
+      if (targetEntities === null) {
+        return;
+      }
+
       void useSpellResolution().resolveSpellDamageWithParts(
         {
           spell: pseudoSpell,
@@ -944,7 +985,7 @@ export function applyCreatureSpellParts(
           attack,
         },
         parts,
-        { scene: useWorldStore().currentScene, cachedTemplate },
+        { scene: useWorldStore().currentScene, cachedTemplate, targetEntities },
       );
     },
   );

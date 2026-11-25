@@ -19,6 +19,7 @@ import { hasSourceTurnSaveDc } from './effectAutomation.js';
 import {
   damagePartIsHealing,
   getSpellAttackType,
+  getSpellEffectTargetCount,
   getTargetSpellEffects,
   spellHasDamage,
 } from './spellUtils.js';
@@ -131,6 +132,36 @@ export function targetEffectsNeedResolution(spell: Spell): boolean {
  */
 export function castReachesTargets(spell: Spell, partsCount: number): boolean {
   return partsCount > 0 || getTargetSpellEffects(spell).length > 0;
+}
+
+/**
+ * Выбираются ли цели заклинания окном до каста: безуронный эффект без
+ * спасброска — всегда, а заклинание со спасброском или уроном — когда по
+ * данным оно берёт больше одной цели («Удержание личности» ячейкой выше).
+ * Число целей задают только данные: `targetCount` и `scaling.additionalTargets`.
+ * Атакам и областям окно не нужно — у них свой выбор.
+ *
+ * @param spell - заклинание
+ * @param highestCastLevel - самый высокий круг, которым его можно наложить
+ * @returns `true` — перед кастом нужно выбрать цели эффекта
+ */
+export function needsSpellEffectTargets(
+  spell: Spell,
+  highestCastLevel: number = spell.level,
+): boolean {
+  if (spell.areaOfEffect || spell.projectiles || getSpellAttackType(spell)) {
+    return false;
+  }
+
+  const hasTargetEffects = getTargetSpellEffects(spell).length > 0;
+
+  if (getSpellEffectTargetCount(spell, highestCastLevel) > 1) {
+    return hasTargetEffects || spellHasDamage(spell);
+  }
+
+  return (
+    !spellHasDamage(spell) && spell.saveType === 'none' && hasTargetEffects
+  );
 }
 
 /**
