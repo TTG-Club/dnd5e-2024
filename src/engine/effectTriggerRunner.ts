@@ -2221,6 +2221,58 @@ function listTurnTriggers(
 }
 
 /**
+ * Есть ли у сущности что прогонять на ходу наложившего: срабатывания «ход
+ * наложившего» её эффектов и черт, наложенных этим участником, либо такие же
+ * срабатывания его аур «пока внутри».
+ *
+ * Ядро зовёт ход наложившего у каждой сущности мира на каждой границе хода, а
+ * у почти всех ответ «нечего». Проверка не спрашивает ядро ни об аурах на
+ * сцене, ни об окружении фишки: копия ауры несёт наложившим носителя ауры
+ * (`calculateAmbientAuras`), поэтому на ходу участника срабатывают только его
+ * собственные ауры — их список передаёт вызывающий. Ответ — с запасом: дошла
+ * ли аура до сущности, здесь не проверяется.
+ *
+ * @param entity - сущность, чьи эффекты проверяются
+ * @param timing - начало или конец хода
+ * @param sourceTurnActorId - чей ход идёт
+ * @param sourceAuraEffects - эффекты-ауры того, чей ход
+ * @returns `true`, если `processTurnEffects` на этом ходу найдёт срабатывания
+ */
+export function hasSourceTurnTriggers(
+  entity: DnDSceneEntity,
+  timing: EffectSaveTiming,
+  sourceTurnActorId: string,
+  sourceAuraEffects: readonly ActiveEffect[],
+): boolean {
+  const event = turnTriggerEventOf(timing);
+  const turnOptions = { sourceTurnActorId };
+
+  const hasTriggers = (effect: ActiveEffect): boolean =>
+    listTurnTriggers(effect, event, turnOptions).length > 0;
+
+  return (
+    (entity.activeEffects ?? []).some(hasTriggers)
+    || listTraitEffects(entity).some(hasTriggers)
+    || sourceAuraEffects.some(
+      (effect) =>
+        isStayAuraEffect(effect)
+        && hasTriggers({ ...effect, sourceActorId: sourceTurnActorId }),
+    )
+  );
+}
+
+/**
+ * Аура «пока внутри»: тикает на ходу того, кто в ней стоит. Ауры входа и
+ * выхода разовые — на границе хода они не срабатывают.
+ *
+ * @param effect - эффект ауры
+ * @returns `true`, если аура действует, пока цель внутри
+ */
+function isStayAuraEffect(effect: ActiveEffect): boolean {
+  return (effect.areaTrigger ?? 'stay') === 'stay';
+}
+
+/**
  * Прогоняет срабатывания сущности на границе хода (начало/конец): сперва урон и
  * лечение (со спасброском против урона, если он задан), затем снятие и
  * наложение (повторный спасбросок снимает эффект, «Зловоние» накладывает
@@ -2279,9 +2331,7 @@ export function processTurnEffects(
     ),
     // Аура «пока внутри» срабатывает на ходу того, кто в ней стоит
     ...buildTriggerSources(
-      ambientEffects.filter(
-        (effect) => (effect.areaTrigger ?? 'stay') === 'stay',
-      ),
+      ambientEffects.filter(isStayAuraEffect),
       EFFECT_TRIGGER_SOURCE_KINDS.aura,
       turnTriggersOf,
     ),

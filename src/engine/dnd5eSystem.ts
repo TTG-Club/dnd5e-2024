@@ -180,6 +180,7 @@ import {
 import {
   buildTriggerSources,
   EFFECT_TRIGGER_SOURCE_KINDS,
+  hasSourceTurnTriggers,
   processTurnEffects,
 } from './effectTriggerRunner.js';
 import { isLegacyTrigger, listEffectEventTriggers } from './effectTriggers.js';
@@ -559,6 +560,60 @@ function withScenePresence<Result extends SystemDeferredTriggerResult>(
     ...result,
     chatSummary: result.chatSummary ? `${result.chatSummary}\n${note}` : note,
   };
+}
+
+/**
+ * Сверка фишки с эффектами — только если хук что-то изменил. Для хуков, которые
+ * ядро зовёт у каждой сущности мира (границы хода и раунда): у неизменившейся
+ * сверять нечего, а сама сверка спрашивает ядро о фишке на сцене.
+ *
+ * @param entity - сущность, чьи эффекты могли измениться
+ * @param context - возможности ядра
+ * @param result - исход срабатывания
+ * @returns тот же исход; после сверки — со строкой в чат, если фишка вернулась
+ */
+function withChangedScenePresence<Result extends SystemDeferredTriggerResult>(
+  entity: SceneEntity,
+  context: SystemTriggerContext | undefined,
+  result: Result,
+): Result {
+  return result.changed ? withScenePresence(entity, context, result) : result;
+}
+
+/**
+ * Есть ли у сущности работа на ходу наложившего `turnActorId`
+ * ({@link hasSourceTurnTriggers}). Ауры того, чей ход, берутся с его живой
+ * записи; ядро, которое записи не отдаёт, проверку не проходит — тогда
+ * прогоняется всё, как раньше.
+ *
+ * @param entity - сущность мира
+ * @param turnActorId - чей ход
+ * @param timing - начало или конец хода
+ * @param context - возможности ядра
+ * @returns `false`, если прогонять заведомо нечего
+ */
+function hasSourceTurnWork(
+  entity: SceneEntity,
+  turnActorId: string,
+  timing: EffectSaveTiming,
+  context: SystemTriggerContext | undefined,
+): boolean {
+  if (!isDndSceneEntity(entity)) {
+    return false;
+  }
+
+  if (!context?.getEntity) {
+    return true;
+  }
+
+  const turnActor = context.getEntity(turnActorId);
+
+  const turnActorAuras =
+    turnActor && isDndSceneEntity(turnActor)
+      ? collectAllAuraEffects(turnActor)
+      : [];
+
+  return hasSourceTurnTriggers(entity, timing, turnActorId, turnActorAuras);
 }
 
 /**
@@ -1742,7 +1797,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.11.2';
+  readonly version = '0.11.3';
 
   /** Раунд D&D 5e — 6 игровых секунд: столько двигает часы мира новый раунд */
   readonly secondsPerRound = DND_SECONDS_PER_ROUND;
@@ -1975,6 +2030,13 @@ export class Dnd5eVttSystem implements VttSystem {
     timing: 'startOfTurn' | 'endOfTurn',
     context?: SystemTriggerContext,
   ): SystemDeferredTriggerResult {
+    // Ядро зовёт хук у каждой сущности мира дважды за смену хода: без этой
+    // проверки каждая спрашивала бы ядро об аурах и окружении фишки, и смена
+    // хода в большом мире на слабом сервере шла секундами
+    if (!hasSourceTurnWork(entity, turnActorId, timing, context)) {
+      return { changed: false, chatSummary: null };
+    }
+
     return withScenePresence(
       entity,
       context,
@@ -2013,7 +2075,7 @@ export class Dnd5eVttSystem implements VttSystem {
       this.outsidersGetTurnBoundaries = true;
     }
 
-    return withScenePresence(
+    return withChangedScenePresence(
       entity,
       context,
       expireWithConcentration(entity, context, (carrier) =>
@@ -2056,7 +2118,7 @@ export class Dnd5eVttSystem implements VttSystem {
       return other !== undefined && context?.isInCombat?.(other) === true;
     };
 
-    return withScenePresence(
+    return withChangedScenePresence(
       entity,
       context,
       expireWithConcentration(entity, context, (carrier) => {
