@@ -190,6 +190,114 @@ describe('выдача черты «при ячейке круга»', () => {
   });
 });
 
+describe('повтор и снятие заклинаний «при ячейке круга»', () => {
+  it('повтор того же заклинания без отметки не теряет выдачу', () => {
+    const feat = {
+      name: 'Адепт иллюзии',
+      featData: {
+        type: 'feat',
+        grantedSpells: [
+          {
+            name: 'Гипнотический узор',
+            spellId: 'hypnotic-pattern',
+            fromSlots: true,
+          },
+          { name: 'Гипнотический узор', spellId: 'hypnotic-pattern' },
+        ],
+      },
+    };
+
+    assert.deepEqual(grantedIds(feat, actorWith([paladin5])), [
+      'hypnotic-pattern',
+    ]);
+  });
+
+  /**
+   * Лист с выданными чертой заклинаниями.
+   *
+   * @param {object[]} classes - классы листа
+   * @param {object} feat - черта на листе
+   */
+  function sheetWith(classes, feat) {
+    return {
+      id: 'actor',
+      system: { classes },
+      features: [{ id: 'feat-1', ...feat }],
+      spells: [
+        {
+          id: 's0',
+          name: 'Малая иллюзия',
+          level: 0,
+          grantedByFeature: feat.name,
+        },
+        { id: 's1', name: 'Маскировка', level: 1, grantedByFeature: feat.name },
+        {
+          id: 's3',
+          name: 'Гипнотический узор',
+          level: 3,
+          grantedByFeature: feat.name,
+        },
+        { id: 'own', name: 'Огненный шар', level: 3 },
+      ],
+    };
+  }
+
+  it('без ячеек 3 круга снимается только закрытое заклинание черты', () => {
+    const sheet = sheetWith([paladin5], adeptFeat());
+
+    assert.deepEqual(
+      engine.withdrawLockedFeatSpells(sheet).map((spell) => spell.id),
+      ['s0', 's1', 'own'],
+    );
+  });
+
+  it('с ячейкой 3 круга ничего не снимается — тот же массив', () => {
+    const sheet = sheetWith([wizard5], adeptFeat());
+
+    assert.equal(engine.withdrawLockedFeatSpells(sheet), sheet.spells);
+  });
+
+  it('уровень ниже уровня открытия снимает заклинание', () => {
+    const feat = {
+      name: 'Метка',
+      featData: {
+        type: 'feat',
+        grantedSpells: [
+          { name: 'Маскировка', spellId: 'disguise-self', requiredLevel: 3 },
+        ],
+      },
+    };
+
+    const sheet = sheetWith([{ ...wizard3, level: 2 }], feat);
+
+    assert.deepEqual(
+      engine.withdrawLockedFeatSpells(sheet).map((spell) => spell.id),
+      ['s0', 's3', 'own'],
+    );
+  });
+
+  it('то же заклинание, выданное чертой и без условия, остаётся', () => {
+    const feat = {
+      name: 'Адепт иллюзии',
+      featData: {
+        type: 'feat',
+        grantedSpells: [
+          {
+            name: 'Гипнотический узор',
+            spellId: 'hypnotic-pattern',
+            fromSlots: true,
+          },
+          { name: 'Гипнотический узор', spellId: 'hypnotic-pattern' },
+        ],
+      },
+    };
+
+    const sheet = sheetWith([paladin5], feat);
+
+    assert.equal(engine.withdrawLockedFeatSpells(sheet), sheet.spells);
+  });
+});
+
 describe('редактор и сводка черты', () => {
   it('отметка переживает разбор и сборку формы и не сливает группы', () => {
     const grants = featEditor.featDataToGrants(adeptFeat().featData);

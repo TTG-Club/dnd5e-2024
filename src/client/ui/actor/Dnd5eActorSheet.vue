@@ -82,6 +82,7 @@
     resolveHitDiceSpendRules,
     spendShortRestHitDice,
     subspeciesFitsPack,
+    withdrawLockedFeatSpells,
   } from '@vtt/shared/system/dnd.js';
 
   import { changeEntityCombatState } from '../../composables/entityCombatWrite';
@@ -828,12 +829,48 @@
 
   function handleActorUpdate(updates: Partial<DnDActor>) {
     if (localActor.value) {
+      const previousClasses = localActor.value.system.classes;
+
       Object.assign(localActor.value, updates);
       isDirty.value = true;
+
+      // Уровень сменили не мастером класса (окно уровня «принудительно» или
+      // понижение): заклинания черт, привязанные к уровню и ячейкам, иначе
+      // не открылись бы и не снялись до следующего повышения мастером
+      const hasClassesChanged =
+        updates.system !== undefined
+        && JSON.stringify(previousClasses)
+          !== JSON.stringify(localActor.value.system.classes);
+
+      if (hasClassesChanged) {
+        withdrawLockedFeatSpellsFromSheet();
+      }
 
       if (!isEditMode.value) {
         handleImmediateSave();
       }
+
+      if (hasClassesChanged) {
+        void unlockFeatSpellsForLevel();
+      }
+    }
+  }
+
+  /**
+   * Снимает с листа заклинания черт, которые на текущих классах уже закрыты:
+   * не хватает уровня персонажа или ячейки нужного круга
+   * ({@link withdrawLockedFeatSpells}). Сохранение — за вызывающим.
+   */
+  function withdrawLockedFeatSpellsFromSheet(): void {
+    if (!localActor.value?.spells) {
+      return;
+    }
+
+    const spells = withdrawLockedFeatSpells(localActor.value);
+
+    if (spells !== localActor.value.spells) {
+      localActor.value.spells = spells;
+      isDirty.value = true;
     }
   }
 
@@ -2149,6 +2186,8 @@
       };
     }
 
+    withdrawLockedFeatSpellsFromSheet();
+
     isDirty.value = true;
     handleImmediateSave();
 
@@ -2610,6 +2649,10 @@
       );
     }
 
+    // Заклинания черт, открытые уровнем или ячейками снятого класса: «Огненный
+    // шар» Адепта Воплощения уходит вместе с последней ячейкой третьего круга
+    withdrawLockedFeatSpellsFromSheet();
+
     // Удаляем activeEffects, связанные с этим классом. Эффекты, заявленные
     // записью класса, узнаются по провенансу в id; эффекты повышения
     // характеристик его не имеют — они собираются мастером на месте и несут
@@ -2831,6 +2874,10 @@
 
     isDirty.value = true;
     handleImmediateSave();
+
+    // Черты, выбранные или выданные видом, мастер вида кладёт без заклинаний:
+    // их выдача идёт через компендиум, как у черт на повышении уровня
+    void unlockFeatSpellsForLevel();
   }
 
   /**

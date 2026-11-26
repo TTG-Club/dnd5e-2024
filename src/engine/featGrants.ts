@@ -16,7 +16,7 @@ import type {
   EffectFlagKey,
 } from './activeEffectTypes.js';
 import type { DamageDefenseKind } from './damageConstants.js';
-import type { DnDActor } from './dndEntities.js';
+import type { DnDActor, Spell } from './dndEntities.js';
 import type {
   FeatChoice,
   FeatChoiceOption,
@@ -52,6 +52,7 @@ import {
   openFeatChoicesAtLevel,
 } from './featChoices.js';
 import { hasSpellcastingFeature } from './featPrerequisites.js';
+import { normalizeSpellName } from './grantedSpells.js';
 import { buildResolvedFormulaContext } from './resolvedFormulaContext.js';
 import { getMaxSpellSlotLevel } from './spellSlotTable.js';
 
@@ -368,7 +369,8 @@ export function collectFeatGrantedSpellSources(
   actor?: DnDActor | null,
 ): GrantedSpellSource[] {
   const sources: GrantedSpellSource[] = [];
-  const seenSpellIds = new Set<string>();
+  // id заклинания → место его источника в `sources`
+  const sourceIndexById = new Map<string, number>();
   const castingAbility = resolveFeatSpellcastingAbility(feat);
 
   const characterLevel = actor
@@ -396,17 +398,32 @@ export function collectFeatGrantedSpellSources(
     // заклинание подготовленным, пока есть место
     chosenByPlayer = false,
   ): void => {
-    if (!spellId || seenSpellIds.has(spellId)) {
+    if (!spellId) {
       return;
     }
-
-    seenSpellIds.add(spellId);
 
     // Круг самого заклинания здесь неизвестен — только id, — поэтому граница
     // едет с источником, а сверяет её разбор по найденной записи
     const maxLevel = group?.fromSlots ? maxSlotLevel : undefined;
 
-    sources.push({
+    const seenIndex = sourceIndexById.get(spellId);
+
+    // Повтор того же заклинания: первое вхождение остаётся, но граница круга у
+    // него не строже повторного — заклинание, выданное ещё и без «при ячейке
+    // круга» (или выбранное игроком), не должно пропасть из-за порядка записей
+    if (seenIndex !== undefined) {
+      const seen = sources[seenIndex];
+
+      if (seen?.maxLevel !== undefined && maxLevel === undefined) {
+        const { maxLevel: _bound, ...unbounded } = seen;
+
+        sources[seenIndex] = unbounded;
+      }
+
+      return;
+    }
+
+    const source: GrantedSpellSource = {
       spellId,
       featureName: feat.name,
       packId,
@@ -415,7 +432,10 @@ export function collectFeatGrantedSpellSources(
       castingAbility: group?.spellcastingAbility ?? castingAbility,
       ...(chosenByPlayer ? { chosenByPlayer: true } : {}),
       ...(maxLevel === undefined ? {} : { maxLevel }),
-    });
+    };
+
+    sourceIndexById.set(spellId, sources.length);
+    sources.push(source);
   };
 
   for (const ref of feat.featData?.grantedSpells ?? []) {
@@ -453,6 +473,89 @@ export function collectFeatGrantedSpellSources(
   // ({@link collectActorSpellListExpansions})
 
   return sources;
+}
+
+/**
+ * Снимает с листа заклинания черт, которые персонажу уже не открыты: уровень
+ * понизили или убрали класс, и пропал нужный уровень персонажа (`requiredLevel`)
+ * или ячейка нужного круга (`fromSlots`).
+ *
+ * Выдача на повышении ({@link collectFeatGrantedSpellSources}) только
+ * добавляет; без этого прохода «Огненный шар» Адепта Воплощения остался бы у
+ * персонажа, у которого ячеек третьего круга больше нет.
+ *
+ * Снимается только запись, которую выдала сама черта (`grantedByFeature` —
+ * её имя), и только когда каждая ссылка черты с тем же названием закрыта:
+ * заклинание, выданное той же чертой ещё и без условия, остаётся. Запись игрока
+ * не трогается — у неё нет `grantedByFeature`. Заговор не снимается никогда.
+ *
+ * @param actor - лист персонажа с уже изменёнными классами
+ * @returns новый список заклинаний; снимать нечего — тот же массив
+ */
+export function withdrawLockedFeatSpells(actor: DnDActor): Spell[] {
+  const spells = actor.spells ?? [];
+  const features: FeatureWithGrants[] = actor.features ?? [];
+
+  // Имя черты → название заклинания → её ссылки с этим названием
+  const refsByFeat = new Map<string, Map<string, GrantedSpellRef[]>>();
+
+  for (const feature of features) {
+    const refs = feature.featData?.grantedSpells ?? [];
+
+    if (!feature.name || refs.length === 0) {
+      continue;
+    }
+
+    const byName =
+      refsByFeat.get(feature.name) ?? new Map<string, GrantedSpellRef[]>();
+
+    for (const ref of refs) {
+      const name = normalizeSpellName(ref.name);
+
+      byName.set(name, [...(byName.get(name) ?? []), ref]);
+    }
+
+    refsByFeat.set(feature.name, byName);
+  }
+
+  if (refsByFeat.size === 0) {
+    return spells;
+  }
+
+  const characterLevel = getTotalLevel(actor.system.classes);
+
+  let maxSlotLevel: number | undefined;
+
+  const isOpen = (ref: GrantedSpellRef, spell: Spell): boolean => {
+    if (!isSpellUnlocked(ref.requiredLevel, characterLevel)) {
+      return false;
+    }
+
+    if (!ref.fromSlots) {
+      return true;
+    }
+
+    maxSlotLevel ??= getMaxSpellSlotLevel(actor);
+
+    return spell.level <= maxSlotLevel;
+  };
+
+  const kept = spells.filter((spell) => {
+    const refs = spell.grantedByFeature
+      ? refsByFeat
+          .get(spell.grantedByFeature)
+          ?.get(normalizeSpellName(spell.name))
+      : undefined;
+
+    // Не из ссылок черты (выбор игрока, список класса) или заговор — остаётся
+    if (!refs || spell.level === 0) {
+      return true;
+    }
+
+    return refs.some((ref) => isOpen(ref, spell));
+  });
+
+  return kept.length === spells.length ? spells : kept;
 }
 
 /**
@@ -553,6 +656,8 @@ function isSpellUnlocked(
  */
 interface FeatureWithGrants {
   id: string;
+  /** Название: им подписаны выданные записью заклинания (`grantedByFeature`) */
+  name?: string;
   featData?: FeatData;
   /** Ответы игрока: от них зависит `@mod.spell` в максимуме ресурса */
   choices?: Record<string, string[]>;
