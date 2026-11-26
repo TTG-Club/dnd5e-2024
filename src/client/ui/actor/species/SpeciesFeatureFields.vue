@@ -104,46 +104,53 @@
          применяется, чтобы не вводить в заблуждение -->
     <template v-if="!feature.isInformationalOnly">
       <UFormField :label="SPECIES_FEATURE_LABELS.speedTitle">
+        <!-- Подпись над каждым полем, а не подсказкой внутри: подсказка видна
+          только в пустом поле, а у скорости всегда стоит число (хотя бы 0) -->
         <div class="grid grid-cols-2 gap-2 sm:grid-cols-5">
-          <UInputNumber
-            v-model="feature.movement.walk"
-            :min="0"
-            :max="200"
-            :ui="{ base: 'w-full' }"
-            :placeholder="SPECIES_FORM_LABELS.speedWalk"
-          />
+          <UFormField :label="SPECIES_FORM_LABELS.speedWalk">
+            <UInputNumber
+              v-model="feature.movement.walk"
+              :min="0"
+              :max="200"
+              :ui="{ base: 'w-full' }"
+            />
+          </UFormField>
 
-          <UInputNumber
-            v-model="feature.movement.fly"
-            :min="0"
-            :max="200"
-            :ui="{ base: 'w-full' }"
-            :placeholder="SPECIES_FORM_LABELS.speedFly"
-          />
+          <UFormField :label="SPECIES_FORM_LABELS.speedFly">
+            <UInputNumber
+              v-model="feature.movement.fly"
+              :min="0"
+              :max="200"
+              :ui="{ base: 'w-full' }"
+            />
+          </UFormField>
 
-          <UInputNumber
-            v-model="feature.movement.swim"
-            :min="0"
-            :max="200"
-            :ui="{ base: 'w-full' }"
-            :placeholder="SPECIES_FORM_LABELS.speedSwim"
-          />
+          <UFormField :label="SPECIES_FORM_LABELS.speedSwim">
+            <UInputNumber
+              v-model="feature.movement.swim"
+              :min="0"
+              :max="200"
+              :ui="{ base: 'w-full' }"
+            />
+          </UFormField>
 
-          <UInputNumber
-            v-model="feature.movement.climb"
-            :min="0"
-            :max="200"
-            :ui="{ base: 'w-full' }"
-            :placeholder="SPECIES_FORM_LABELS.speedClimb"
-          />
+          <UFormField :label="SPECIES_FORM_LABELS.speedClimb">
+            <UInputNumber
+              v-model="feature.movement.climb"
+              :min="0"
+              :max="200"
+              :ui="{ base: 'w-full' }"
+            />
+          </UFormField>
 
-          <UInputNumber
-            v-model="feature.movement.burrow"
-            :min="0"
-            :max="200"
-            :ui="{ base: 'w-full' }"
-            :placeholder="SPECIES_FORM_LABELS.speedBurrow"
-          />
+          <UFormField :label="SPECIES_FORM_LABELS.speedBurrow">
+            <UInputNumber
+              v-model="feature.movement.burrow"
+              :min="0"
+              :max="200"
+              :ui="{ base: 'w-full' }"
+            />
+          </UFormField>
         </div>
       </UFormField>
 
