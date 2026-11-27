@@ -1379,3 +1379,31 @@ export function isTriggerConditionMet(
     isConditionPartMet(entity, part, eventData),
   );
 }
+
+/**
+ * Ключи отметок, чьё число читает условие (`self.tagCount["ключ"] >= N`).
+ * Такое условие нельзя проверять, пока отметку этого же события ещё не
+ * поставили: ответ на спасбросок отложен, и порог видел бы старое число.
+ *
+ * @param condition - условие срабатывания
+ * @returns ключи отметок без повторов
+ */
+export function listConditionCountedTags(
+  condition: string | undefined,
+): string[] {
+  if (condition === undefined) {
+    return [];
+  }
+
+  const tags = splitConditionGroups(condition)
+    .flat()
+    .flatMap((text) => {
+      const part = parseTriggerConditionPart(text);
+
+      return part?.kind === 'selfTagCountAtLeast' && part.value !== undefined
+        ? [part.value]
+        : [];
+    });
+
+  return [...new Set(tags)];
+}

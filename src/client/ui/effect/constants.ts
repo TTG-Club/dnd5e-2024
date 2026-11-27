@@ -1229,6 +1229,14 @@ export const EFFECT_ACTIVE_ACTION_LABELS = {
   costSeparator: ' · ',
 } as const;
 
+/** Подпись числа отметок-счётчика у имени эффекта: «Лихорадка: провал ×2» */
+export const EFFECT_TAG_STACKS_LABELS = {
+  /** Между именем и числом ступеней */
+  separator: ' ×',
+  /** С какого числа ступеней число показывается: одна отметка — просто имя */
+  minShown: 2,
+} as const;
+
 /** Подписи плашки вопроса человеку */
 export const EFFECT_QUESTION_PROMPT_LABELS = {
   /** Заголовок без названия источника */

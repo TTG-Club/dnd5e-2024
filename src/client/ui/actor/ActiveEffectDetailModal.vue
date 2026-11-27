@@ -21,6 +21,7 @@
     EFFECT_ORIGIN_LABELS,
   } from '@vtt/shared/system/dnd.js';
 
+  import { formatTagStacksName } from '../effect/utils/tagStacksLabel';
   import {
     ACTIVE_EFFECT_DEFAULTS,
     ACTIVE_EFFECT_DETAIL_LABELS,
@@ -76,6 +77,13 @@
     props.effect ? EFFECT_ORIGIN_LABELS[props.effect.origin] : '',
   );
 
+  /** Заголовок: имя эффекта, у отметки-счётчика — с числом ступеней */
+  const title = computed(() =>
+    props.effect
+      ? formatTagStacksName(props.effect)
+      : ACTIVE_EFFECT_DETAIL_LABELS.fallbackTitle,
+  );
+
   /** Цвет значка эффекта: у отключённого он гаснет */
   const iconClass = computed(() =>
     props.effect?.disabled
@@ -87,7 +95,7 @@
 <template>
   <UDraggableModal
     :open="open"
-    :title="effect?.name ?? ACTIVE_EFFECT_DETAIL_LABELS.fallbackTitle"
+    :title="title"
     :subtitle="ownerName || undefined"
     :initial-width="480"
     :min-width="320"

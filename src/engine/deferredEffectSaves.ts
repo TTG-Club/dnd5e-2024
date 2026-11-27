@@ -35,6 +35,7 @@ import type {
   EntryEffectOptions,
   EntryEffectResult,
   TurnDamageOutcome,
+  TurnEffectsOptions,
   TurnHealingOutcome,
   TurnSaveOutcome,
 } from './turnEffects.js';
@@ -66,6 +67,7 @@ import {
   removeEffectsById,
   rollTriggerDamage,
   rollTriggerSave,
+  runHeldTurnTriggers,
   selfTriggerKey,
   settlePresenceTrigger,
   settleTriggerOutcome,
@@ -164,6 +166,35 @@ export function unchangedOutcome(notes: string[]): DeferredEffectOutcome {
     healingOutcomes: [],
     saveOutcomes: [],
     notes,
+  };
+}
+
+/** Часть итога, которая уходит в сводку чата: её дописывают к исходу ответа */
+export type OutcomeSummaryPart = Pick<
+  DeferredEffectOutcome,
+  'changed' | 'damageOutcomes' | 'healingOutcomes' | 'saveOutcomes' | 'notes'
+>;
+
+/**
+ * Дописывает к исходу ответа игрока то, что сделал прогон после него
+ * (продолжение событий урона, удержанные пороги хода): сводка в чате одна на
+ * весь ответ, иначе урон порога потерялся бы для неё.
+ *
+ * @param outcome - исход самого ответа
+ * @param extra - итог прогона после ответа
+ * @returns общий исход; остальные поля — из исхода ответа
+ */
+export function appendOutcomeSummary(
+  outcome: DeferredEffectOutcome,
+  extra: OutcomeSummaryPart,
+): DeferredEffectOutcome {
+  return {
+    ...outcome,
+    changed: outcome.changed || extra.changed,
+    damageOutcomes: [...outcome.damageOutcomes, ...extra.damageOutcomes],
+    healingOutcomes: [...outcome.healingOutcomes, ...extra.healingOutcomes],
+    saveOutcomes: [...outcome.saveOutcomes, ...extra.saveOutcomes],
+    notes: [...outcome.notes, ...extra.notes],
   };
 }
 
@@ -331,13 +362,10 @@ export function requestEntryEffect(
   );
 }
 
-/** Что искать на живой сущности, когда пришёл ответ на спасбросок хода */
-interface TurnTriggerAnswerTarget {
+/** Срабатывание, которое ищется на живой сущности заново, когда пришёл ответ */
+interface TurnTriggerRef {
   effectId: string;
   triggerId: string;
-  timing: EffectSaveTiming;
-  stage: DeferredTurnTrigger['stage'];
-  spec: EffectSaveSpec;
   ambient: boolean;
   instance: boolean;
   scope: string;
@@ -345,11 +373,114 @@ interface TurnTriggerAnswerTarget {
    * Снимок эффекта черты или ауры чужого токена: самого эффекта на сущности нет
    */
   snapshot?: ActiveEffect;
+}
+
+/** Что искать на живой сущности, когда пришёл ответ на спасбросок хода */
+interface TurnTriggerAnswerTarget extends TurnTriggerRef {
+  timing: EffectSaveTiming;
+  stage: DeferredTurnTrigger['stage'];
+  spec: EffectSaveSpec;
   /**
    * Опции наложения той же границы хода: ауры, чей ход и конец каста. Без них
    * «Закончить каст» по ответу игрока снимал бы только сам эффект.
    */
   effectOptions: EntryEffectOptions;
+  /** Пороги того же события, ждавшие отметок этого ответа */
+  held: TurnTriggerRef[];
+  /** Опции той же границы хода: по ним прогоняются удержанные пороги */
+  turnOptions: TurnEffectsOptions;
+}
+
+/**
+ * Ссылка на срабатывание для поиска на живой сущности: эффект черты и ауры
+ * на сущности не лежит — берётся его снимок.
+ *
+ * @param source - срабатывание с источником
+ * @returns ссылка
+ */
+function toTurnTriggerRef(source: EffectTriggerSource): TurnTriggerRef {
+  return {
+    effectId: source.effect.id,
+    triggerId: source.trigger.id,
+    ambient: source.ambient,
+    instance: source.instance,
+    scope: source.scope,
+    ...(source.instance ? {} : { snapshot: structuredClone(source.effect) }),
+  };
+}
+
+/**
+ * Находит срабатывание по ссылке на живой сущности. Пока игрок думал, эффект
+ * могли снять, выключить или поменять — тогда срабатывания нет.
+ *
+ * @param entity - живая сущность
+ * @param ref - ссылка на срабатывание
+ * @param timing - граница хода
+ * @returns срабатывание с источником либо `null`
+ */
+function findLiveTurnTrigger(
+  entity: DnDSceneEntity,
+  ref: TurnTriggerRef,
+  timing: EffectSaveTiming,
+): EffectTriggerSource | null {
+  const found = entity.activeEffects?.find(
+    (entry) => entry.id === ref.effectId,
+  );
+
+  // Живой эффект найден заново — числа владельца подставляются заново тоже;
+  // снимок черты и ауры их уже несёт
+  const effect =
+    ref.snapshot ?? (found && bindOwnEffectFormulas([found], entity)[0]);
+
+  const event = turnTriggerEventOf(timing);
+
+  const trigger = effect
+    ? listEffectListTriggers(effect).find(
+        (entry) => entry.id === ref.triggerId && entry.event === event,
+      )
+    : undefined;
+
+  if (!effect || effect.disabled || !trigger) {
+    return null;
+  }
+
+  return {
+    effect,
+    trigger,
+    ambient: ref.ambient,
+    instance: ref.instance,
+    scope: ref.scope,
+  };
+}
+
+/**
+ * Прогоняет пороги, ждавшие отметок ответа, и дописывает их исходы к исходу
+ * самого ответа: «третий провал» бьёт и заканчивает каст в тот же ход.
+ *
+ * @param entity - живая сущность
+ * @param target - что бросали: удержанные пороги и опции границы хода
+ * @param outcome - исход самого ответа
+ * @returns исход вместе с порогами
+ */
+function withHeldTurnTriggers(
+  entity: DnDSceneEntity,
+  target: TurnTriggerAnswerTarget,
+  outcome: DeferredEffectOutcome,
+): DeferredEffectOutcome {
+  const sources = target.held.flatMap((ref) => {
+    const source = findLiveTurnTrigger(entity, ref, target.timing);
+
+    return source ? [source] : [];
+  });
+
+  if (sources.length === 0) {
+    return outcome;
+  }
+
+  return appendOutcomeSummary(
+    outcome,
+    runHeldTurnTriggers(entity, sources, target.turnOptions),
+  );
 }
 
 /**
@@ -369,26 +500,13 @@ function applyTurnTriggerAnswer(
   target: TurnTriggerAnswerTarget,
   outcome: RollRequestOutcome,
 ): DeferredEffectOutcome {
-  const found = entity.activeEffects?.find(
-    (entry) => entry.id === target.effectId,
-  );
+  const source = findLiveTurnTrigger(entity, target, target.timing);
 
-  // Живой эффект найден заново — числа владельца подставляются заново тоже;
-  // снимок черты и ауры их уже несёт
-  const effect =
-    target.snapshot ?? (found && bindOwnEffectFormulas([found], entity)[0]);
-
-  const event = turnTriggerEventOf(target.timing);
-
-  const trigger = effect
-    ? listEffectListTriggers(effect).find(
-        (entry) => entry.id === target.triggerId && entry.event === event,
-      )
-    : undefined;
-
-  if (!effect || effect.disabled || !trigger?.save) {
+  if (!source?.trigger.save) {
     return unchangedOutcome([]);
   }
+
+  const { effect, trigger } = source;
 
   const acquisition = settleEffectSaveOutcome(entity, target.spec, outcome);
 
@@ -397,14 +515,6 @@ function applyTurnTriggerAnswer(
   }
 
   const save = toTriggerSaveOutcome(trigger, acquisition.save);
-
-  const source: EffectTriggerSource = {
-    effect,
-    trigger,
-    ambient: target.ambient,
-    instance: target.instance,
-    scope: target.scope,
-  };
 
   const skippedNotes: string[] = [];
 
@@ -437,7 +547,8 @@ function applyTurnTriggerAnswer(
     removeEffectsById(entity, new Set([target.effectId]));
   }
 
-  return {
+  // Отметки ответа уже лежат — пороги того же события видят новое число
+  return withHeldTurnTriggers(entity, target, {
     changed: damage !== null || removes || applied,
     damageOutcomes: damage ? [damage] : [],
     healingOutcomes: [],
@@ -446,6 +557,23 @@ function applyTurnTriggerAnswer(
       ...formatEffectNotes(target.spec, acquisition.note),
       ...skippedNotes,
     ],
+  });
+}
+
+/**
+ * Опции прогона границы хода из опций наложения: когда ядро не передало
+ * своих, удержанные пороги видят хотя бы ауры, конец каста и сцену.
+ *
+ * @param effectOptions - опции наложения этой границы хода
+ * @returns опции прогона
+ */
+function toTurnOptions(effectOptions: EntryEffectOptions): TurnEffectsOptions {
+  return {
+    ambientEffects: effectOptions.ambientEffects,
+    endCast: effectOptions.endCast,
+    surroundings: effectOptions.surroundings,
+    moveToken: effectOptions.moveToken,
+    moveArea: effectOptions.moveArea,
   };
 }
 
@@ -458,6 +586,9 @@ function applyTurnTriggerAnswer(
  * @param timing - граница хода
  * @param requestRoll - запрос броска от ядра
  * @param effectOptions - опции наложения этой границы хода
+ * @param turnOptions - опции прогона этой границы хода: по ним ответ
+ *   прогоняет удержанные пороги; без них — ауры, конец каста и сцена из
+ *   опций наложения
  * @returns отложенное срабатывание; `null`, если спасброска нет
  */
 export function requestTurnTriggerSave(
@@ -466,9 +597,9 @@ export function requestTurnTriggerSave(
   timing: EffectSaveTiming,
   requestRoll: ServerRollRequester,
   effectOptions: EntryEffectOptions = {},
+  turnOptions: TurnEffectsOptions = toTurnOptions(effectOptions),
 ): EngineDeferredTrigger | null {
-  const { effect, trigger, ambient, instance, scope, stage, eventData } =
-    deferred;
+  const { effect, trigger, stage, eventData } = deferred;
 
   // Режим «если…» и Сл формулой — по тем же данным хода, что у броска сервера
   const spec = buildTriggerSaveSpec(effect, trigger, { entity, eventData });
@@ -478,16 +609,13 @@ export function requestTurnTriggerSave(
   }
 
   const target: TurnTriggerAnswerTarget = {
-    effectId: effect.id,
-    triggerId: trigger.id,
+    ...toTurnTriggerRef(deferred),
     timing,
     stage,
     spec,
-    ambient,
-    instance,
-    scope,
     effectOptions,
-    ...(instance ? {} : { snapshot: structuredClone(effect) }),
+    held: (deferred.heldTriggers ?? []).map(toTurnTriggerRef),
+    turnOptions,
   };
 
   const resolution = requestRoll(

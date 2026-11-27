@@ -49,6 +49,7 @@ import { isEffectDormant, listLiveEffects } from './activeEffectTypes.js';
 import { countSceneRangeSteps } from './attackUtils.js';
 import { getRelativeDisposition } from './auraMath.js';
 import {
+  appendOutcomeSummary,
   formatEffectNotes,
   ignoreRejectedRollRequest,
   requestTriggerAsk,
@@ -331,11 +332,7 @@ function withContinuation(
   }
 
   return {
-    changed: outcome.changed || continued.changed,
-    damageOutcomes: [...outcome.damageOutcomes, ...continued.damageOutcomes],
-    healingOutcomes: [...outcome.healingOutcomes, ...continued.healingOutcomes],
-    saveOutcomes: [...outcome.saveOutcomes, ...continued.saveOutcomes],
-    notes: [...outcome.notes, ...continued.notes],
+    ...appendOutcomeSummary(outcome, continued),
     deferred: [...(outcome.deferred ?? []), ...continued.deferred],
   };
 }

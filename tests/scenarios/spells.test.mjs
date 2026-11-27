@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'vitest';
 
 import {
+  answeredSave,
   authoredScenario,
   BLESS,
   BLESS_CAST_ID,
@@ -13,6 +14,7 @@ import {
   createActor,
   createCreature,
   createEffect,
+  createRequestRoll,
   createSpellTemplate,
   createToken,
   createZone,
@@ -1023,6 +1025,261 @@ describe('каталог: срабатывания заклинаний', () => 
 
     assert.equal(engine.countEffectTag(target, failures), 3);
     assert.ok(third.damageTotal > 0, 'третий провал — урон в тот же ход');
+  });
+
+  /**
+   * «Мгновенная лихорадка» как на сайте: спасбросок ставит отметку провала
+   * или успеха, пороги на трёх отметках бьют и заканчивают заклинание.
+   *
+   * @param {string} ending - чем заканчивается: `removeSelf` или `endCast`
+   * @returns {object} эффект
+   */
+  const createFlashFever = (ending) =>
+    createEffect('Мгновенная лихорадка', {
+      effectTarget: 'target',
+      castId: 'cast-flash-fever',
+      triggers: [
+        {
+          id: 'trigger_flash_fever_save',
+          event: 'turnEnd',
+          save: { ability: 'constitution', dc: 0 },
+          actions: [
+            {
+              type: 'applyTag',
+              tag: 'flash-fever-fail',
+              label: 'Лихорадка: провал',
+              stack: true,
+              duration: { type: 'minutes', value: 1 },
+              on: 'failed',
+            },
+            {
+              type: 'applyTag',
+              tag: 'flash-fever-success',
+              label: 'Лихорадка: успех',
+              stack: true,
+              duration: { type: 'minutes', value: 1 },
+              on: 'saved',
+            },
+          ],
+        },
+        {
+          id: 'trigger_flash_fever_burst',
+          event: 'turnEnd',
+          condition: 'self.tagCount["flash-fever-fail"] >= 3',
+          actions: [
+            { type: 'damage', parts: [{ formula: '8d6', type: 'fire' }] },
+            { type: ending },
+          ],
+        },
+        {
+          id: 'trigger_flash_fever_recover',
+          event: 'turnEnd',
+          condition: 'self.tagCount["flash-fever-success"] >= 3',
+          actions: [{ type: ending }],
+        },
+      ],
+    });
+
+  /**
+   * Конец хода, спасбросок которого спросили у игрока, и его ответ.
+   *
+   * @param {object} target - цель лихорадки
+   * @param {boolean} passed - прошёл ли игрок спасбросок
+   * @param {Function} endCast - конец каста от ядра
+   * @returns {Promise<{ prompts: number, damage: number }>} сколько спросили и урон ответа
+   */
+  const answeredFeverTurn = async (target, passed, endCast) => {
+    const turnOptions = {
+      deferRecurringSave: () => true,
+      deferRecurringDamageSave: () => true,
+      endCast,
+    };
+
+    const turn = engine.processTurnEffects(target, 'endOfTurn', turnOptions);
+    const double = createRequestRoll();
+
+    let damage = turn.damageTotal;
+
+    for (const deferred of turn.deferredTriggers) {
+      const request = engine.requestTurnTriggerSave(
+        target,
+        deferred,
+        'endOfTurn',
+        double.requestRoll,
+        { endCast },
+        turnOptions,
+      );
+
+      double.answer(answeredSave(passed));
+
+      const outcome = (await request.resolution)(target);
+
+      damage += outcome.damageOutcomes.reduce(
+        (sum, rolled) => sum + rolled.total,
+        0,
+      );
+    }
+
+    return { prompts: double.requests.length, damage };
+  };
+
+  it('[S26c] Мгновенная лихорадка: третий провал по ответу игрока бьёт в тот же ход', async () => {
+    const target = createCreature({
+      activeEffects: [
+        engine.stampSourceTurnSaveDc(createFlashFever('removeSelf'), 15),
+      ],
+    });
+
+    const first = await answeredFeverTurn(target, false);
+    const second = await answeredFeverTurn(target, false);
+
+    assert.deepEqual(
+      [first, second],
+      [
+        { prompts: 1, damage: 0 },
+        { prompts: 1, damage: 0 },
+      ],
+    );
+
+    const third = await answeredFeverTurn(target, false);
+
+    assert.equal(third.prompts, 1);
+    assert.ok(third.damage > 0, 'третий провал — 8к6 по тому же ответу');
+
+    assert.ok(
+      !target.activeEffects.some(
+        (effect) => effect.name === 'Мгновенная лихорадка',
+      ),
+      'заклинание закончилось',
+    );
+
+    const fourth = await answeredFeverTurn(target, false);
+
+    assert.deepEqual(
+      fourth,
+      { prompts: 0, damage: 0 },
+      'четвёртого вопроса нет',
+    );
+  });
+
+  it('[S26d] Мгновенная лихорадка с «Закончить каст»: три провала и три успеха', async () => {
+    const endedCasts = [];
+
+    /**
+     * Ядро заканчивает каст: эффекты каста снимаются со всех.
+     *
+     * @param {object} effect - эффект, закончивший каст
+     */
+    const endCast = (effect) => {
+      endedCasts.push(effect.castId);
+    };
+
+    const failing = createCreature({
+      activeEffects: [
+        engine.stampSourceTurnSaveDc(createFlashFever('endCast'), 15),
+      ],
+    });
+
+    await answeredFeverTurn(failing, false, endCast);
+    await answeredFeverTurn(failing, false, endCast);
+
+    assert.deepEqual(endedCasts, []);
+
+    const burst = await answeredFeverTurn(failing, false, endCast);
+
+    assert.ok(burst.damage > 0, 'третий провал — урон');
+    assert.deepEqual(endedCasts, ['cast-flash-fever'], 'каст закончен');
+
+    const recovering = createCreature({
+      activeEffects: [
+        engine.stampSourceTurnSaveDc(createFlashFever('endCast'), 15),
+      ],
+    });
+
+    await answeredFeverTurn(recovering, true, endCast);
+    await answeredFeverTurn(recovering, true, endCast);
+
+    const recovered = await answeredFeverTurn(recovering, true, endCast);
+
+    assert.equal(recovered.damage, 0, 'успехи не бьют');
+
+    assert.deepEqual(
+      endedCasts,
+      ['cast-flash-fever', 'cast-flash-fever'],
+      'третий успех заканчивает каст',
+    );
+
+    assert.deepEqual(
+      await answeredFeverTurn(recovering, true, endCast),
+      { prompts: 0, damage: 0 },
+      'после третьего успеха спрашивать нечего',
+    );
+  });
+
+  it('[S26e] Отметка по чужому порогу ложится один раз за ход, когда спасбросок спрашивают у игрока', async () => {
+    // Счётчик «отметка B, если отметок A не меньше 1» на втором ходу уже
+    // выполнен до ответа — ответ на спасбросок A не должен выполнить его снова
+    const target = createCreature({
+      activeEffects: [
+        engine.stampSourceTurnSaveDc(
+          createEffect('Цепочка отметок', {
+            effectTarget: 'target',
+            triggers: [
+              {
+                id: 'trigger_chain_save',
+                event: 'turnEnd',
+                save: { ability: 'constitution', dc: 0 },
+                actions: [
+                  {
+                    type: 'applyTag',
+                    tag: 'chain-a',
+                    label: 'Отметка A',
+                    stack: true,
+                    duration: { type: 'minutes', value: 1 },
+                    on: 'failed',
+                  },
+                ],
+              },
+              {
+                id: 'trigger_chain_follow',
+                event: 'turnEnd',
+                condition: 'self.tagCount["chain-a"] >= 1',
+                actions: [
+                  {
+                    type: 'applyTag',
+                    tag: 'chain-b',
+                    label: 'Отметка B',
+                    stack: true,
+                    duration: { type: 'minutes', value: 1 },
+                  },
+                ],
+              },
+            ],
+          }),
+          15,
+        ),
+      ],
+    });
+
+    const counts = [];
+
+    for (let turn = 0; turn < 2; turn++) {
+      await answeredFeverTurn(target, false);
+
+      counts.push([
+        engine.countEffectTag(target, 'chain-a'),
+        engine.countEffectTag(target, 'chain-b'),
+      ]);
+    }
+
+    assert.deepEqual(
+      counts,
+      [
+        [1, 1],
+        [2, 2],
+      ],
+      'B — одна отметка за ход: первый ход по ответу, второй до него',
+    );
   });
 });
 

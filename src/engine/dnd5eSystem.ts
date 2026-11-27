@@ -68,6 +68,7 @@ import type {
   EntryEffectOptions,
   SceneMoveOptions,
   TurnDamageOutcome,
+  TurnEffectsOptions,
   TurnHealingOutcome,
 } from './turnEffects.js';
 
@@ -1335,7 +1336,8 @@ function settleTurnEffects(
   const ambientEffects = toAmbientResolver(context)(entity);
   const endCast = toCastEnder(context, entity.id);
 
-  const result = processTurnEffects(entity, timing, {
+  // Те же опции прогоняют и пороги, ждавшие ответа игрока на спасбросок
+  const turnOptions: TurnEffectsOptions = {
     deferRecurringSave: () => askOwner,
     deferRecurringDamageSave: () => askOwner,
     ambientEffects,
@@ -1346,7 +1348,9 @@ function settleTurnEffects(
     sight: toSceneSight(context),
     endCast,
     ...toSceneMoveOptions(entity, context),
-  });
+  };
+
+  const result = processTurnEffects(entity, timing, turnOptions);
 
   // Ответ игрока накладывает и заканчивает каст так же, как бросок сервера
   const answerOptions: EntryEffectOptions = {
@@ -1464,6 +1468,7 @@ function settleTurnEffects(
               timing,
               requestRoll,
               answerOptions,
+              turnOptions,
             );
       },
     };
@@ -1797,7 +1802,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.11.6';
+  readonly version = '0.11.7';
 
   /** Раунд D&D 5e — 6 игровых секунд: столько двигает часы мира новый раунд */
   readonly secondsPerRound = DND_SECONDS_PER_ROUND;

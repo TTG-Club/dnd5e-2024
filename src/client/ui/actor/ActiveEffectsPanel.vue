@@ -97,6 +97,7 @@
     EFFECT_ESCAPE_ICON,
   } from '../effect/escapeLabels';
   import { formatActiveActionLabel } from '../effect/utils/activeActionLabel';
+  import { formatTagStacksName } from '../effect/utils/tagStacksLabel';
   import {
     ACTIVE_EFFECT_DEFAULTS,
     ACTIVE_EFFECT_ICON_CLASS,
@@ -344,7 +345,10 @@
 
         return {
           effect,
-          name: props.isEditMode ? effect.name : formatRowName(effect),
+          name: formatTagStacksName(
+            effect,
+            props.isEditMode ? effect.name : formatRowName(effect),
+          ),
           canDrag: canDragToHotbar(effect),
           rowClass: effectRowClass(effect),
           stageLabel: formatEffectStageLabel(effect),

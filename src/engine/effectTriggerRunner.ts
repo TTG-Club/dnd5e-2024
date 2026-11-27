@@ -116,6 +116,7 @@ import {
   isLegacyTrigger,
   listEffectEventTriggers,
   listEffectListTriggers,
+  listTriggerTags,
   readEffectLandingTrigger,
   resolveGateScale,
   resolveTriggerActionGate,
@@ -167,6 +168,7 @@ import { MIN_SPELL_SLOT_LEVEL } from './spellSlotTable.js';
 import {
   countEffectTag,
   isTriggerConditionMet,
+  listConditionCountedTags,
   withCombatRound,
   withSceneSight,
 } from './triggerConditions.js';
@@ -214,6 +216,13 @@ export interface DeferredTurnTrigger extends EffectTriggerSource {
    * по ним режим «если…» так же, как бросок сервера
    */
   eventData: TriggerEventData;
+  /**
+   * Пороги того же события, ждущие этого ответа: их условие читает число
+   * отметок, которые поставит отложенный спасбросок. Проверять их до ответа
+   * значит видеть старое число — «третий провал» сработал бы на четвёртом.
+   * Ответ ставит отметки и прогоняет эти срабатывания ({@link runHeldTurnTriggers}).
+   */
+  heldTriggers?: EffectTriggerSource[];
 }
 
 /**
@@ -2272,6 +2281,55 @@ function isStayAuraEffect(effect: ActiveEffect): boolean {
   return (effect.areaTrigger ?? 'stay') === 'stay';
 }
 
+/** Отложенные счётчики с удержанными порогами */
+interface HeldCountThresholds {
+  /** Отложенные счётчики; пороги их отметок лежат в `heldTriggers` */
+  counters: DeferredTurnTrigger[];
+  /** Удержанные срабатывания: на этой границе хода сейчас не выполняются */
+  held: Set<EffectTrigger>;
+}
+
+/**
+ * Удерживает пороги `self.tagCount[...]`, чьи отметки поставит отложенный
+ * спасбросок счётчика: их проверит ответ, когда отметка уже ляжет. Порог
+ * достаётся первому счётчику, ставящему его отметку, — так он выполнится
+ * один раз.
+ *
+ * @param sources - срабатывания границы хода
+ * @param counters - отложенные счётчики
+ * @param skips - срабатывание уже ждёт человека или уже выполнено и не
+ *   удерживается
+ * @returns счётчики с удержанными порогами и множество удержанных
+ */
+function holdCountThresholds(
+  sources: readonly EffectTriggerSource[],
+  counters: readonly DeferredTurnTrigger[],
+  skips: (trigger: EffectTrigger) => boolean,
+): HeldCountThresholds {
+  const held = new Set<EffectTrigger>();
+
+  const withHeld = counters.map((counter): DeferredTurnTrigger => {
+    const counterTags = new Set(listTriggerTags([counter.trigger]));
+
+    const waiting = sources.filter(
+      (source) =>
+        !held.has(source.trigger)
+        && !skips(source.trigger)
+        && listConditionCountedTags(source.trigger.condition).some((tag) =>
+          counterTags.has(tag),
+        ),
+    );
+
+    for (const source of waiting) {
+      held.add(source.trigger);
+    }
+
+    return waiting.length > 0 ? { ...counter, heldTriggers: waiting } : counter;
+  });
+
+  return { counters: withHeld, held };
+}
+
 /**
  * Прогоняет срабатывания сущности на границе хода (начало/конец): сперва урон и
  * лечение (со спасброском против урона, если он задан), затем снятие и
@@ -2337,7 +2395,24 @@ export function processTurnEffects(
     ),
   ];
 
-  const result: TurnEffectsResult = {
+  const result = createTurnEffectsResult();
+
+  result.changed = stepped;
+
+  if (sources.length === 0) {
+    return result;
+  }
+
+  return runTurnTriggerSources(entity, sources, options, result);
+}
+
+/**
+ * Пустой итог границы хода.
+ *
+ * @returns итог без изменений
+ */
+function createTurnEffectsResult(): TurnEffectsResult {
+  return {
     changed: false,
     damageTotal: 0,
     saveOutcomes: [],
@@ -2349,13 +2424,63 @@ export function processTurnEffects(
     deferredTriggers: [],
     notes: [],
   };
+}
 
-  result.changed = stepped;
+/**
+ * Прогоняет удержанные пороги границы хода, когда пришёл ответ на спасбросок,
+ * поставивший их отметки (`DeferredTurnTrigger.heldTriggers`). Путь тот же,
+ * что у срабатываний самой границы: условие и лимит, урон, снятие, конец
+ * каста. Свой спасбросок порога бросает сервер — ответ уже пришёл, и второй
+ * вопрос на той же границе хода игрок не ждёт.
+ *
+ * Мутирует `entity.activeEffects`, `entity.system.hitPoints` и счётчики лимитов.
+ *
+ * @param entity - живая сущность
+ * @param sources - удержанные срабатывания, найденные на живой сущности заново
+ * @param options - ауры, чей ход, конец каста и данные сцены той же границы
+ * @returns урон, исходы бросков и были ли изменения
+ */
+export function runHeldTurnTriggers(
+  entity: DnDSceneEntity,
+  sources: readonly EffectTriggerSource[],
+  options: TurnEffectsOptions,
+): TurnEffectsResult {
+  const result = createTurnEffectsResult();
 
   if (sources.length === 0) {
     return result;
   }
 
+  // Удержанное уже ждало ответа — второй раз его не откладывают
+  return runTurnTriggerSources(
+    entity,
+    sources,
+    {
+      ...options,
+      deferRecurringSave: undefined,
+      deferRecurringDamageSave: undefined,
+    },
+    result,
+  );
+}
+
+/**
+ * Этапы границы хода над готовым списком срабатываний: согласие и выбор,
+ * отметки-счётчики, урон и лечение, снятие и наложение.
+ *
+ * @param entity - субъект срабатываний
+ * @param sources - срабатывания с источником
+ * @param options - какие спасброски отложить, ауры, чей ход
+ * @param result - итог, в который пишутся исходы
+ * @returns тот же итог
+ */
+function runTurnTriggerSources(
+  entity: DnDSceneEntity,
+  sources: readonly EffectTriggerSource[],
+  options: TurnEffectsOptions,
+  result: TurnEffectsResult,
+): TurnEffectsResult {
+  const ambientEffects = options.ambientEffects ?? [];
   const stats = resolveActorStats(entity, [...ambientEffects]);
 
   let savingThrowContext = buildEffectSavingThrowContext(
@@ -2478,6 +2603,7 @@ export function processTurnEffects(
   // обязан видеть отметку этого события: иначе «на третьем провале» урон ждал
   // бы четвёртого — этап урона идёт раньше наложений
   const countedTriggers = new Set<EffectTrigger>();
+  const deferredCounters: DeferredTurnTrigger[] = [];
 
   for (const source of sources) {
     const { effect, trigger, instance } = source;
@@ -2508,7 +2634,7 @@ export function processTurnEffects(
           result.deferredSaveEffects.push(effect);
         }
 
-        result.deferredTriggers.push({
+        deferredCounters.push({
           ...source,
           stage: 'effects',
           eventData: countedEvent.eventData,
@@ -2554,6 +2680,19 @@ export function processTurnEffects(
     countedTriggers.add(trigger);
   }
 
+  // Счётчик, уже выполненный на этапе 0, не удерживается: ответ выполнил бы
+  // его второй раз — вторая отметка и второй расход лимита
+  const heldTriggers = holdCountThresholds(
+    sources,
+    deferredCounters,
+    (trigger) =>
+      humanAskedTriggers.has(trigger)
+      || deferredSources.has(trigger)
+      || countedTriggers.has(trigger),
+  );
+
+  result.deferredTriggers.push(...heldTriggers.counters);
+
   let healedTotal = 0;
   let tempHpGranted = 0;
 
@@ -2576,6 +2715,7 @@ export function processTurnEffects(
       isEffectDormant(effect)
       || !sourceHasDamage(source)
       || humanAskedTriggers.has(trigger)
+      || heldTriggers.held.has(trigger)
       || (instance && effect.aura && !effect.aura.applyToSelf)
       || !allowTrigger(source)
     ) {
@@ -2673,6 +2813,7 @@ export function processTurnEffects(
       || humanAskedTriggers.has(trigger)
       || countedTriggers.has(trigger)
       || deferredSources.has(trigger)
+      || heldTriggers.held.has(trigger)
       || (instance && removedIds.has(effect.id))
       || !allowTrigger(source)
     ) {
