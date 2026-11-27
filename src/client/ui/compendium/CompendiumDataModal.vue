@@ -1511,14 +1511,35 @@
    * Все паки (бандл + скачиваемые + модули) живут на сервере — копирование
    * единообразно через серверный resolver.
    *
+   * Вместе с `id` уходит собственный тип записи: `id` уникален только внутри
+   * раздела (заклинание и доспех «Щит» оба `shield-phb`), и без типа сервер
+   * при совпадении отказывает, а не угадывает.
+   *
    * @param itemId - ID предмета
+   * @param entryType - собственное поле `type` записи; нет — сервер ищет по одному `id`
    */
-  function copyToItems(itemId: string): void {
+  function copyToItems(itemId: string, entryType: string | undefined): void {
     if (!props.socket) {
       return;
     }
 
-    props.socket.emit('items:copy-from-compendium', itemId);
+    props.socket.emit('items:copy-from-compendium', itemId, entryType);
+  }
+
+  /**
+   * Собственное поле `type` записи — ровно то, с чем сервер сверяет тип при
+   * копировании. `dataKind` узла сюда не подставляется: это вид раздела, а не
+   * поле записи, и с ним сервер записи бы не нашёл.
+   *
+   * @param entry - запись компендиума
+   * @returns тип записи или undefined, если поля нет или оно пустое
+   */
+  function ownEntryType(entry: object): string | undefined {
+    return 'type' in entry
+      && typeof entry.type === 'string'
+      && entry.type.length > 0
+      ? entry.type
+      : undefined;
   }
 
   /** Проверяет, является ли запись заклинанием */
@@ -1558,6 +1579,19 @@
     id?: string;
   }): string {
     return backgroundDef.id ?? backgroundDef.key;
+  }
+
+  /**
+   * Копирует предысторию в предметы мира: её `id` (или `key`) вместе с
+   * собственным типом записи.
+   *
+   * @param backgroundDef - определение предыстории из компендиума
+   */
+  function copyBackgroundToItems(backgroundDef: {
+    key: string;
+    id?: string;
+  }): void {
+    copyToItems(backgroundCopyId(backgroundDef), ownEntryType(backgroundDef));
   }
 
   /** Проверяет, является ли запись определением класса */
@@ -1603,7 +1637,7 @@
 
     card?.openDetail?.(item, {
       showCopyButton: true,
-      onCopy: () => copyToItems(item.id),
+      onCopy: () => copyToItems(item.id, ownEntryType(item)),
     });
   }
 
@@ -1709,7 +1743,7 @@
   }): void {
     getEntityCard('background')?.openDetail?.(backgroundDef, {
       showCopyButton: true,
-      onCopy: () => copyToItems(backgroundCopyId(backgroundDef)),
+      onCopy: () => copyBackgroundToItems(backgroundDef),
     });
   }
 
@@ -1926,10 +1960,7 @@
    * @returns вид записи; пустая строка — вида нет
    */
   function entryKind(entry: CompendiumDataItem): string {
-    const ownType =
-      'type' in entry && typeof entry.type === 'string' ? entry.type : '';
-
-    return ownType || dataKind.value;
+    return ownEntryType(entry) ?? dataKind.value;
   }
 
   /**
@@ -1966,7 +1997,7 @@
         kind: entryKind(entry),
         title: entryTitle(entry),
         image: null,
-        copyToWorld: () => copyToItems(backgroundCopyId(entry)),
+        copyToWorld: () => copyBackgroundToItems(entry),
       };
     }
 
@@ -1984,7 +2015,7 @@
         kind: entryKind(entry),
         title: entry.name,
         image: null,
-        copyToWorld: () => copyToItems(entry.id),
+        copyToWorld: () => copyToItems(entry.id, ownEntryType(entry)),
       };
     }
 
@@ -1993,7 +2024,7 @@
         kind: entryKind(entry),
         title: entry.name,
         image: null,
-        copyToWorld: () => copyToItems(entry.id),
+        copyToWorld: () => copyToItems(entry.id, ownEntryType(entry)),
         // Предмет ещё и кладётся копией в мешок, сундук, на землю или в лист
         gameItem: entry,
       };
@@ -2083,7 +2114,7 @@
   function openFeatDetail(feature: Feature): void {
     getEntityCard('feat')?.openDetail?.(feature, {
       showCopyButton: true,
-      onCopy: () => copyToItems(feature.id),
+      onCopy: () => copyToItems(feature.id, ownEntryType(feature)),
     });
   }
 
@@ -2469,7 +2500,7 @@
                         :show-edit="canAuthor"
                         :show-delete="canAuthor"
                         @click="openBackgroundDetail(entry)"
-                        @copy="copyToItems(backgroundCopyId(entry))"
+                        @copy="copyBackgroundToItems(entry)"
                         @edit="editEntry(entry)"
                         @delete="askDeleteEntry(entry)"
                       />
@@ -2508,7 +2539,7 @@
                       :show-edit="canAuthor"
                       :show-delete="canAuthor"
                       @click="openFeatDetail(entry)"
-                      @copy="copyToItems(entry.id)"
+                      @copy="copyToItems(entry.id, ownEntryType(entry))"
                       @edit="editEntry(entry)"
                       @delete="askDeleteEntry(entry)"
                     />
@@ -2525,7 +2556,7 @@
                       :show-edit="canAuthor"
                       :show-delete="canAuthor"
                       @click="openDetail(entry)"
-                      @copy="copyToItems(entry.id)"
+                      @copy="copyToItems(entry.id, ownEntryType(entry))"
                       @edit="editEntry(entry)"
                       @delete="askDeleteEntry(entry)"
                     />
