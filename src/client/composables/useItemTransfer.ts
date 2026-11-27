@@ -26,6 +26,7 @@
  */
 
 import type { ItemTransferOutcome } from '@/core/entityUtils';
+import type { DraggedGameItem } from '@/core/itemStorageDrag';
 import type { ItemStorageOutcome } from '@/core/itemStorageRequest';
 import type {
   CatalogItemSource,
@@ -126,6 +127,8 @@ interface StorageItemDrop {
   itemId: string;
   /** Название предмета для сообщения игроку */
   itemName: string;
+  /** Брошенное как есть: по нему ядро решает, спрашивать ли количество */
+  dragged: DraggedGameItem;
 }
 
 /**
@@ -148,6 +151,7 @@ function readStorageDrop(event: DragEvent): StorageItemDrop | null {
     from,
     itemId: dragged.item.id,
     itemName: dragged.item.name,
+    dragged,
   };
 }
 
@@ -312,19 +316,22 @@ export function useItemTransfer() {
    *
    * @param drop - предмет хранилища или компендиума
    * @param target - сущность-получатель
-   * @returns итог переноса
+   * @returns итог переноса; `null` — игрок передумал в окне «сколько
+   *   переложить», и предмет остался на месте
    */
   async function requestStorageTake(
     drop: StorageItemDrop,
     target: SceneEntity,
-  ): Promise<ItemTransferResult> {
-    const outcome = await itemStorageStore.moveItem({
-      from: drop.from,
-      to: { kind: 'entity', entityId: target.id },
-      itemId: drop.itemId,
+  ): Promise<ItemTransferResult | null> {
+    // Стопку ядро перекладывает с вопросом «сколько штук»
+    const outcome = await itemStorageStore.moveDraggedItem(drop.dragged, {
+      kind: 'entity',
+      entityId: target.id,
     });
 
-    return { kind: 'storage', outcome, itemName: drop.itemName };
+    return outcome
+      ? { kind: 'storage', outcome, itemName: drop.itemName }
+      : null;
   }
 
   /**
@@ -339,7 +346,8 @@ export function useItemTransfer() {
    * @param event - событие drop
    * @param target - сущность-получатель (лист, на который бросили предмет)
    * @param socket - сокет мира
-   * @returns обещание итога передачи; `null` — нагрузка не наша, и лист
+   * @returns обещание итога передачи (итог `null` — игрок передумал, сообщать
+   *   нечего); `null` вместо обещания — нагрузка не наша, и лист
    *   проверяет остальные её виды. Нашу нагрузку событие к этому моменту уже
    *   погасило
    */
@@ -347,7 +355,7 @@ export function useItemTransfer() {
     event: DragEvent,
     target: SceneEntity,
     socket: TypedWebSocketClient | null | undefined,
-  ): Promise<ItemTransferResult> | null {
+  ): Promise<ItemTransferResult | null> | null {
     const storageDrop = readStorageDrop(event);
 
     if (storageDrop) {

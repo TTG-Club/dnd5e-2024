@@ -40,10 +40,15 @@
 
   import { ClientHooks } from '@/core/clientHooks';
   import { generateEntityId, requireSocket } from '@/core/entityUtils';
+  import {
+    buildItemDropAttributes,
+    ITEM_DROP_ENTITY_ATTRIBUTE,
+  } from '@/core/itemStorageDrag';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useActiveTab } from '@/shared_ui/composables/useActiveTab';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { Z_INDEX } from '@/shared_ui/consts';
+  import { useItemStorageStore } from '@/stores/itemStorageStore';
   import { useWorldStore } from '@/stores/worldStore';
   import { generateId, isEntityOwner, isRecord } from '@vtt/shared';
   import {
@@ -231,6 +236,7 @@
   }>();
 
   const worldStore = useWorldStore();
+  const itemStorageStore = useItemStorageStore();
   const systemDataStore = useSystemDataStore();
   const toast = useToast();
   const { openModal, updateModalProps } = useModalManager();
@@ -1728,14 +1734,50 @@
   }
 
   /**
+   * Метка листа для значка предмета, который тащат с карты: по ней ядро
+   * кладёт предмет в инвентарь этого персонажа. В режиме правки метки нет —
+   * открыт черновик, и его «Сохранить» затёрло бы пришедший предмет.
+   */
+  const itemDropAttributes = computed(() =>
+    buildItemDropAttributes(
+      ITEM_DROP_ENTITY_ATTRIBUTE,
+      isEditMode.value ? undefined : localActor.value?.id,
+    ),
+  );
+
+  /**
+   * Над листом держат значок предмета, который тащат с карты. У такого
+   * перетаскивания нет событий `dragover` — цель под курсором сообщает ядро.
+   */
+  const isMapItemDropTarget = computed(() => {
+    const target = itemStorageStore.pointerDropTarget;
+
+    return (
+      target?.kind === 'entity'
+      && target.entityId === localActor.value?.id
+      && !isEditMode.value
+    );
+  });
+
+  /** Подсветка снаряжения: предмет тащат из окна, листа или с карты */
+  const isEquipmentDropActive = computed(
+    () => isEquipmentDragOver.value || isMapItemDropTarget.value,
+  );
+
+  /**
    * Дожидается ответа сервера на передачу и говорит игроку итог.
    *
    * @param transfer - обещание итога передачи
    */
   async function reportItemTransfer(
-    transfer: Promise<ItemTransferResult>,
+    transfer: Promise<ItemTransferResult | null>,
   ): Promise<void> {
     const result = await transfer;
+
+    // Игрок передумал в окне «сколько переложить» — сообщать нечего
+    if (!result) {
+      return;
+    }
 
     if (result.outcome.ok) {
       activeTab.value = 'equipment';
@@ -3115,6 +3157,7 @@
       <div
         ref="sheetBody"
         class="relative flex h-full flex-col"
+        v-bind="itemDropAttributes"
         @dragenter.prevent
         @dragover.prevent="handleDragOver"
         @dragleave="handleDragLeave"
@@ -3178,7 +3221,7 @@
                   :is-edit-mode="isEditMode"
                   :socket="socket"
                   :is-spell-drag-over="isSpellDragOver"
-                  :is-equipment-drag-over="isEquipmentDragOver"
+                  :is-equipment-drag-over="isEquipmentDropActive"
                   :is-feature-drag-over="isFeatureDragOver"
                   :has-main-tab="!isWide"
                   :can-edit="canEdit"

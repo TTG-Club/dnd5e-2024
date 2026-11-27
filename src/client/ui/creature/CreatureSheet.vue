@@ -26,13 +26,18 @@
   import { computed, ref, toRef, useTemplateRef, watch } from 'vue';
 
   import { generateEntityId, requireSocket } from '@/core/entityUtils';
-  import { hasDraggedGameItem } from '@/core/itemStorageDrag';
+  import {
+    buildItemDropAttributes,
+    hasDraggedGameItem,
+    ITEM_DROP_ENTITY_ATTRIBUTE,
+  } from '@/core/itemStorageDrag';
   import FieldsetLabel from '@/shared_ui/components/FieldsetLabel.vue';
   import ItemDescriptionRenderer from '@/shared_ui/components/ItemDescriptionRenderer.vue';
   import RichTextEditor from '@/shared_ui/components/RichTextEditor.vue';
   import UDraggableModal from '@/shared_ui/components/UDraggableModal.vue';
   import { useModalManager } from '@/shared_ui/composables/useModalManager';
   import { Z_INDEX } from '@/shared_ui/consts';
+  import { useItemStorageStore } from '@/stores/itemStorageStore';
   import { useWorldStore } from '@/stores/worldStore';
   import { generateId, isEntityOwner } from '@vtt/shared';
   import {
@@ -187,6 +192,7 @@
   const props = defineProps<Props>();
 
   const worldStore = useWorldStore();
+  const itemStorageStore = useItemStorageStore();
 
   /**
    * Режим только просмотр (компендиум, без сокета). Черновик своего
@@ -1485,14 +1491,50 @@
   }
 
   /**
+   * Метка листа для значка предмета, который тащат с карты: по ней ядро
+   * кладёт предмет в инвентарь этого существа. В режиме правки и у черновика
+   * своего компендиума метки нет — туда предметы не принимаются.
+   */
+  const itemDropAttributes = computed(() =>
+    buildItemDropAttributes(
+      ITEM_DROP_ENTITY_ATTRIBUTE,
+      isEditMode.value || props.draftSave ? undefined : localCreature.value?.id,
+    ),
+  );
+
+  /**
+   * Над листом держат значок предмета, который тащат с карты. У такого
+   * перетаскивания нет событий `dragover` — цель под курсором сообщает ядро.
+   */
+  const isMapItemDropTarget = computed(() => {
+    const target = itemStorageStore.pointerDropTarget;
+
+    return (
+      target?.kind === 'entity'
+      && target.entityId === localCreature.value?.id
+      && !isEditMode.value
+    );
+  });
+
+  /** Подсветка инвентаря: предмет тащат из окна, листа или с карты */
+  const isItemDropActive = computed(
+    () => isItemDragOver.value || isMapItemDropTarget.value,
+  );
+
+  /**
    * Дожидается ответа сервера на передачу и говорит игроку итог.
    *
    * @param transfer - обещание итога передачи
    */
   async function reportItemTransfer(
-    transfer: Promise<ItemTransferResult>,
+    transfer: Promise<ItemTransferResult | null>,
   ): Promise<void> {
     const result = await transfer;
+
+    // Игрок передумал в окне «сколько переложить» — сообщать нечего
+    if (!result) {
+      return;
+    }
 
     if (result.outcome.ok) {
       activeTab.value = 'equipment';
@@ -2276,6 +2318,7 @@
         v-if="localCreature"
         ref="sheetBody"
         class="relative flex h-full flex-col"
+        v-bind="itemDropAttributes"
         @dragover="handleSheetDragOver"
         @dragleave="handleSheetDragLeave"
         @drop="handleSheetDrop"
@@ -2357,7 +2400,7 @@
                     <CreatureEquipmentBlock
                       :creature="localCreature"
                       :is-edit-mode="isEditMode"
-                      :is-drag-over="isItemDragOver"
+                      :is-drag-over="isItemDropActive"
                       :is-read-only="isReadOnly || !canControl"
                       @update:creature="handleCreatureUpdate"
                     />
