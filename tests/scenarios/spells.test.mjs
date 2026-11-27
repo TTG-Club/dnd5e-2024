@@ -1832,6 +1832,101 @@ describe('каталог: заклинания, меняющие оружие', 
     );
   });
 
+  describe('[S33b] Подмога кончилась — хиты не выше максимума', () => {
+    /** Игровое время каста, секунды */
+    const CAST_TIME = 1000;
+
+    /** Восемь часов «Подмоги» в секундах */
+    const AID_SECONDS = 8 * 3600;
+
+    /**
+     * Цель после «Подмоги» 2-го круга: максимум +5, лечение тоже на 5.
+     *
+     * @param {number} current - хиты до каста (максимум 20)
+     * @returns {object} цель
+     */
+    function aidedTarget(current) {
+      const aid = createEffect('Подмога', {
+        origin: 'spell',
+        castId: 'cast_aid',
+        sourceActorId: 'actor_cleric',
+        effectTarget: 'target',
+        changes: [change('hitPoints.max', '5')],
+        duration: { type: 'hours', value: 8, remaining: 4800 },
+      });
+
+      const target = withHp(createActor, current, { activeEffects: [aid] }, 20);
+
+      // Лечение «при наложении» — тем же числом
+      target.system.hitPoints = {
+        ...target.system.hitPoints,
+        current: current + 5,
+        temp: 3,
+      };
+
+      return target;
+    }
+
+    /**
+     * Хиты цели: текущие, максимум с эффектами, временные.
+     *
+     * @param {object} target - цель
+     * @returns {number[]} хиты
+     */
+    function hitPointsOf(target) {
+      return [
+        engine.resolveEntityCurrentHp(target),
+        engine.resolveEntityMaxHp(target),
+        engine.resolveEntityTempHp(target),
+      ];
+    }
+
+    it('конец срока по часам: 25/25 → 20/20, 17/25 → 17/20', () => {
+      const system = new engine.Dnd5eVttSystem();
+
+      for (const [start, after] of [
+        [20, 20],
+        [12, 17],
+      ]) {
+        const target = aidedTarget(start);
+
+        assert.deepEqual(hitPointsOf(target), [start + 5, 25, 3]);
+
+        system.expireTimedEffects(target, CAST_TIME, {});
+
+        const result = system.expireTimedEffects(
+          target,
+          CAST_TIME + AID_SECONDS,
+          {},
+        );
+
+        assert.equal(result.changed, true);
+        assert.equal(target.activeEffects.length, 0);
+        assert.deepEqual(hitPointsOf(target), [after, 20, 3]);
+      }
+    });
+
+    it('конец каста и правка листа опускают хиты так же', () => {
+      const system = new engine.Dnd5eVttSystem();
+      const ended = aidedTarget(20);
+
+      system.removeCastEffects(ended, 'actor_cleric', new Set(['cast_aid']));
+      assert.deepEqual(hitPointsOf(ended), [20, 20, 3]);
+
+      const sheet = aidedTarget(20);
+      const patch = engine.buildEntityEffectsPatch(sheet, []);
+
+      assert.deepEqual(hitPointsOf({ ...sheet, ...patch }), [20, 20, 3]);
+      assert.equal(sheet.system.hitPoints.current, 25, 'исходник не тронут');
+
+      assert.equal(
+        engine.buildEntityEffectsPatch(aidedTarget(12), []).system,
+        undefined,
+        'хиты ниже максимума — запись хитов не нужна',
+      );
+    });
+  });
+
   it('[S34] Электрошок: цель без реакций до своего хода', () => {
     const shock = createEffect('Электрошок', {
       effectTarget: 'target',

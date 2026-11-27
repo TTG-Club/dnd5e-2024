@@ -151,23 +151,106 @@ function remainingDurationSeconds(
 }
 
 /**
+ * Ждёт ли эффект «до хода» границы хода в идущем бою: якорь (носитель или
+ * наложивший) — участник боя. Такой эффект снимает граница хода, а не часы.
+ */
+export type TurnBoundaryPending = (effect: ActiveEffect) => boolean;
+
+/** Боя нет — ни один эффект хода границы не ждёт */
+const NO_TURN_BOUNDARY_PENDING: TurnBoundaryPending = () => false;
+
+/**
+ * Длительность без момента окончания по часам: срок начнётся заново.
+ *
+ * @param duration - длительность эффекта
+ * @returns та же длительность без `expiresAt`
+ */
+function withoutClockEnd(duration: EffectDuration): EffectDuration {
+  const { expiresAt: _expiresAt, ...rest } = duration;
+
+  return rest;
+}
+
+/**
+ * Идёт ли эффект «до хода» по часам вне боя. Переключатель («Ярость») часы не
+ * трогают: истёкший по часам эффект снимается, а переключатель снимать с
+ * листа нельзя — его выключает граница хода. Выключенному отсчитывать нечего.
+ *
+ * @param effect - эффект с длительностью `turn`
+ * @returns `true`, если без боя срок эффекту ставят часы
+ */
+function runsTurnOnClock(effect: ActiveEffect): boolean {
+  return (
+    expiresOnTurnBoundary(effect)
+    && !isToggleActivatedEffect(effect)
+    && effect.disabled !== true
+  );
+}
+
+/**
+ * Ждёт ли эффект «до хода» границы хода в бою — тогда часы ему срок не ведут.
+ *
+ * @param effect - эффект сущности
+ * @param isTurnPending - ждёт ли эффект хода в идущем бою
+ * @returns `true` для эффекта хода, якорь которого в бою
+ */
+function waitsForCombatTurn(
+  effect: ActiveEffect,
+  isTurnPending: TurnBoundaryPending,
+): boolean {
+  return effect.duration.type === 'turn' && isTurnPending(effect);
+}
+
+/**
+ * Сколько игровых секунд эффекту ставят часы. Эффект «до хода» вне боя
+ * своего хода не дождётся — его срок раунд, а с пропуском хода наложения
+ * два: «до конца следующего хода».
+ *
+ * @param effect - эффект сущности
+ * @returns секунды либо `undefined`, если часы эффект не ведут
+ */
+function resolveClockSeconds(effect: ActiveEffect): number | undefined {
+  const { duration } = effect;
+
+  if (duration.type !== 'turn') {
+    return remainingDurationSeconds(duration);
+  }
+
+  if (!runsTurnOnClock(effect)) {
+    return undefined;
+  }
+
+  return duration.turnSkipFirst
+    ? 2 * DND_SECONDS_PER_ROUND
+    : DND_SECONDS_PER_ROUND;
+}
+
+/**
  * Нужна ли эффекту правка по игровым часам: срок ещё не начат или уже вышел.
+ * Эффекту хода, который ждёт границы в бою, — только снять момент окончания,
+ * поставленный до боя.
  *
  * @param effect - эффект сущности
  * @param worldTime - текущее игровое время, секунды
+ * @param isTurnPending - ждёт ли эффект хода в идущем бою
  * @returns `true`, если эффекту нужно поставить момент окончания или снять его
  */
 function needsWorldTimeUpdate(
   effect: ActiveEffect,
   worldTime: number,
+  isTurnPending: TurnBoundaryPending,
 ): boolean {
   const { expiresAt } = effect.duration;
+
+  if (waitsForCombatTurn(effect, isTurnPending)) {
+    return typeof expiresAt === 'number';
+  }
 
   if (typeof expiresAt === 'number') {
     return worldTime >= expiresAt;
   }
 
-  return remainingDurationSeconds(effect.duration) !== undefined;
+  return resolveClockSeconds(effect) !== undefined;
 }
 
 /**
@@ -176,15 +259,17 @@ function needsWorldTimeUpdate(
  *
  * @param entity - сущность
  * @param worldTime - текущее игровое время, секунды
+ * @param isTurnPending - ждёт ли эффект хода в идущем бою; по умолчанию боя нет
  * @returns `true`, если сверка что-то изменит
  */
 export function hasEffectsToSettleByWorldTime(
   entity: DnDSceneEntity,
   worldTime: number,
+  isTurnPending: TurnBoundaryPending = NO_TURN_BOUNDARY_PENDING,
 ): boolean {
   return (
     entity.activeEffects?.some((effect) =>
-      needsWorldTimeUpdate(effect, worldTime),
+      needsWorldTimeUpdate(effect, worldTime, isTurnPending),
     ) ?? false
   );
 }
@@ -195,21 +280,31 @@ export function hasEffectsToSettleByWorldTime(
  * снимает. Зовётся часто (раз в секунду, пока часы идут), поэтому без работы
  * выходит сразу и ничего не создаёт.
  *
+ * Эффект «до хода» вне боя получает срок по часам (раунд), иначе висел бы
+ * вечно: своего хода у носителя нет. В бою его снимает точная граница хода,
+ * и момент окончания, поставленный до боя, снимается — после боя срок
+ * начнётся заново.
+ *
  * Длительность пересоздаётся, а не правится на месте — по той же причине, что
  * в {@link decrementActorEffectDurations}: копии эффектов делят объект
  * `duration` с оригиналом.
  *
  * @param entity - сущность, чьи эффекты сверяются
  * @param worldTime - текущее игровое время, секунды
+ * @param isTurnPending - ждёт ли эффект хода в идущем бою; по умолчанию боя нет
  * @returns `true`, если сущность изменилась
  */
 export function settleEffectsByWorldTime(
   entity: DnDSceneEntity,
   worldTime: number,
+  isTurnPending: TurnBoundaryPending = NO_TURN_BOUNDARY_PENDING,
 ): boolean {
   const effects = entity.activeEffects;
 
-  if (!effects || !hasEffectsToSettleByWorldTime(entity, worldTime)) {
+  if (
+    !effects
+    || !hasEffectsToSettleByWorldTime(entity, worldTime, isTurnPending)
+  ) {
     return false;
   }
 
@@ -217,6 +312,16 @@ export function settleEffectsByWorldTime(
     NonNullable<DnDSceneEntity['activeEffects']>
   >((kept, effect) => {
     const { duration } = effect;
+
+    if (waitsForCombatTurn(effect, isTurnPending)) {
+      kept.push(
+        typeof duration.expiresAt === 'number'
+          ? { ...effect, duration: withoutClockEnd(duration) }
+          : effect,
+      );
+
+      return kept;
+    }
 
     if (typeof duration.expiresAt === 'number') {
       if (worldTime < duration.expiresAt) {
@@ -226,7 +331,7 @@ export function settleEffectsByWorldTime(
       return kept;
     }
 
-    const seconds = remainingDurationSeconds(duration);
+    const seconds = resolveClockSeconds(effect);
 
     kept.push(
       seconds === undefined
@@ -422,7 +527,13 @@ export function stampTurnDuration(
       anchor === 'source'
         ? (context.sourceId ?? effect.sourceActorId)
         : effect.sourceActorId,
-    duration: { ...duration, turnTiming: timing, turnSkipFirst: skipFirst },
+    // Срок по часам начинается заново: продлённый вне боя эффект иначе
+    // кончился бы по прежнему моменту
+    duration: {
+      ...withoutClockEnd(duration),
+      turnTiming: timing,
+      turnSkipFirst: skipFirst,
+    },
   };
 }
 
@@ -541,7 +652,7 @@ function expiresOnTurnBoundary(effect: ActiveEffect): boolean {
  * @param isInCombat - участвует ли сущность с таким id в бою
  * @returns id наложившего либо `undefined`, если якорь не он или он не в бою
  */
-function resolveReachableSourceId(
+export function resolveReachableSourceId(
   effect: ActiveEffect,
   isInCombat: (entityId: string) => boolean,
 ): string | undefined {

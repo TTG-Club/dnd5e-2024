@@ -67,6 +67,7 @@ import type { SystemClientEvent } from './systemClientEvents.js';
 import type {
   EntryEffectOptions,
   SceneMoveOptions,
+  TurnBoundaryPending,
   TurnDamageOutcome,
   TurnEffectsOptions,
   TurnHealingOutcome,
@@ -192,6 +193,8 @@ import { applyFallToEntity, resolveDndUnsupported } from './falling.js';
 import { buildFeatGrantsSummary } from './featGrantsSummary.js';
 import { validateFormula } from './formulaParser.js';
 import {
+  clampCurrentHpToLoweredMax,
+  removeEffectsWithinMaxHp,
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
   resolveEntityTempHp,
@@ -251,6 +254,7 @@ import {
   formatRecurringSaveStatus,
   formatTurnEffectsMessage,
   hasEffectsToSettleByWorldTime,
+  resolveReachableSourceId,
   resolveTurnSummaryLabel,
   settleEffectsByWorldTime,
 } from './turnEffects.js';
@@ -926,10 +930,70 @@ function toCastEnder(
 }
 
 /**
+ * В бою ли сущность с таким id — по живой записи мира.
+ *
+ * @param context - контекст срабатывания от ядра
+ * @param entityId - id сущности
+ * @returns `true`, если она участник идущего боя
+ */
+function isCombatantId(
+  context: SystemTriggerContext | undefined,
+  entityId: string,
+): boolean {
+  const other = context?.getEntity?.(entityId);
+
+  return other !== undefined && context?.isInCombat?.(other) === true;
+}
+
+/**
+ * Какие эффекты «до хода» сущности ждут границы хода в идущем бою: носитель
+ * или наложивший-якорь — участник. Остальным срок ведут часы. Ядро без ответа
+ * «в бою ли» часы в бою не двигает — тогда боя для них нет.
+ *
+ * @param entity - носитель эффектов
+ * @param context - контекст срабатывания от ядра
+ * @returns проверка эффекта
+ */
+function toTurnBoundaryPending(
+  entity: DnDSceneEntity,
+  context: SystemTriggerContext | undefined,
+): TurnBoundaryPending {
+  return (effect) =>
+    context?.isInCombat?.(entity) === true
+    || resolveReachableSourceId(effect, (entityId) =>
+      isCombatantId(context, entityId),
+    ) !== undefined;
+}
+
+/**
+ * Эффекты кастов, ушедшие с сущности: по сроку заклинание для носителя
+ * кончилось так же, как с концом каста.
+ *
+ * @param effectsBefore - эффекты до снятия
+ * @param effectsAfter - эффекты после снятия
+ * @returns снятые эффекты с кастом
+ */
+function listRemovedCastEffects(
+  effectsBefore: readonly ActiveEffect[],
+  effectsAfter: readonly ActiveEffect[],
+): ActiveEffect[] {
+  const keptIds = new Set(effectsAfter.map((effect) => effect.id));
+
+  return effectsBefore.filter(
+    (effect) => effect.castId !== undefined && !keptIds.has(effect.id),
+  );
+}
+
+/**
  * Снимает истёкшие эффекты и заканчивает касты меток концентрации, которые
  * истекли вместе с ними. Состояние, кончившееся по сроку, запускает
  * срабатывания «когда с носителя снимается состояние» — их исход уходит ядру
- * целиком.
+ * целиком. Упавший максимум хитов («Подмога» кончилась) опускает текущие.
+ *
+ * Эффект каста, истёкший по сроку, запускает «когда заклинание
+ * заканчивается»: метка концентрации и эффект «Ускорения» истекают одним
+ * проходом, и конец каста снять его уже не успевает — без этого вялость
+ * зависела бы от порядка снятия.
  *
  * @param entity - сущность
  * @param context - контекст срабатывания от ядра
@@ -943,7 +1007,7 @@ function expireWithConcentration(
 ): SystemDeferredTriggerResult {
   const before = listConcentrationEffects(entity.activeEffects);
   const effectsBefore = entity.activeEffects ?? [];
-  const changed = expire(entity);
+  const changed = removeEffectsWithinMaxHp(entity, expire);
 
   const remaining = new Set(
     listConcentrationEffects(entity.activeEffects).map((effect) => effect.id),
@@ -971,9 +1035,19 @@ function expireWithConcentration(
     buildTriggerEventOptions(entity, context),
   );
 
-  return mergeTriggerResults(
+  const conditionsResult = mergeTriggerResults(
     { changed: true, chatSummary: null },
     toDamageEventsTriggerResult(entity, events, CONDITION_LOST_SUMMARY_LABEL),
+  );
+
+  return mergeTriggerResults(
+    conditionsResult,
+    runCastEndTriggers(
+      entity,
+      listRemovedCastEffects(effectsBefore, entity.activeEffects ?? []),
+      resolveEntityCurrentHp(entity),
+      context,
+    ),
   );
 }
 
@@ -1802,7 +1876,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
   readonly name = 'Dungeons & Dragons 5th Edition';
 
-  readonly version = '0.11.7';
+  readonly version = '0.11.8';
 
   /** Раунд D&D 5e — 6 игровых секунд: столько двигает часы мира новый раунд */
   readonly secondsPerRound = DND_SECONDS_PER_ROUND;
@@ -2111,17 +2185,8 @@ export class Dnd5eVttSystem implements VttSystem {
     const isOutsider =
       context?.isInCombat !== undefined && !context.isInCombat(entity);
 
-    /**
-     * В бою ли сущность с таким id — по живой записи мира.
-     *
-     * @param entityId - id сущности
-     * @returns `true`, если она участник идущего боя
-     */
-    const isCombatantId = (entityId: string): boolean => {
-      const other = context?.getEntity?.(entityId);
-
-      return other !== undefined && context?.isInCombat?.(other) === true;
-    };
+    const isCombatant = (entityId: string): boolean =>
+      isCombatantId(context, entityId);
 
     return withChangedScenePresence(
       entity,
@@ -2132,7 +2197,7 @@ export class Dnd5eVttSystem implements VttSystem {
         const turnsChanged = isOutsider
           ? expireOutsiderTurnEffects(
               carrier,
-              this.outsidersGetTurnBoundaries ? isCombatantId : undefined,
+              this.outsidersGetTurnBoundaries ? isCombatant : undefined,
             )
           : false;
 
@@ -2155,20 +2220,25 @@ export class Dnd5eVttSystem implements VttSystem {
     worldTime: number,
     context?: SystemTriggerContext,
   ): SystemDeferredTriggerResult {
-    if (
-      !isDndSceneEntity(entity)
-      || !hasEffectsToSettleByWorldTime(entity, worldTime)
-    ) {
+    if (!isDndSceneEntity(entity)) {
       return { changed: false, chatSummary: null };
     }
 
-    return withScenePresence(
-      entity,
-      context,
-      expireWithConcentration(entity, context, (carrier) =>
-        settleEffectsByWorldTime(carrier, worldTime),
-      ),
+    const isTurnPending = toTurnBoundaryPending(entity, context);
+
+    if (!hasEffectsToSettleByWorldTime(entity, worldTime, isTurnPending)) {
+      return { changed: false, chatSummary: null };
+    }
+
+    const expired = expireWithConcentration(entity, context, (carrier) =>
+      settleEffectsByWorldTime(carrier, worldTime, isTurnPending),
     );
+
+    // Конец заклинания мог наложить эффект этим же проходом (вялость
+    // «Ускорения»): срок по часам ставится сразу — часы могут и стоять
+    settleEffectsByWorldTime(entity, worldTime, isTurnPending);
+
+    return withScenePresence(entity, context, expired);
   }
 
   /**
@@ -2194,9 +2264,15 @@ export class Dnd5eVttSystem implements VttSystem {
     }
 
     const removed = effects.filter((effect) => !kept.includes(effect));
-    const hpBefore = resolveEntityCurrentHp(entity);
+
+    const maxHpBefore = resolveEntityMaxHp(entity);
 
     entity.activeEffects = kept;
+    clampCurrentHpToLoweredMax(entity, maxHpBefore);
+
+    // Хиты — после опускания до максимума: срабатывания конца каста считают
+    // свой урон от них
+    const hpBefore = resolveEntityCurrentHp(entity);
 
     const removal: SystemDeferredTriggerResult = {
       changed: true,
@@ -2823,6 +2899,7 @@ export class Dnd5eVttSystem implements VttSystem {
 
     const hpBefore = resolveEntityCurrentHp(entity);
     const totalBefore = hpBefore + resolveEntityTempHp(entity);
+    const maxHpBefore = resolveEntityMaxHp(entity);
 
     const effectsBefore = [...(entity.activeEffects ?? [])];
 
@@ -2860,6 +2937,10 @@ export class Dnd5eVttSystem implements VttSystem {
 
     const rawHits = isRecord(state) ? parseDamageHits(state.damage) : [];
     const hits = clampDamageHits(rawHits, loss);
+
+    // Снимок выключил или снял «Подмогу» — хиты не выше нового максимума.
+    // После подсчёта потери: опускание до максимума — не урон
+    clampCurrentHpToLoweredMax(entity, maxHpBefore);
 
     const damageResult = withDamageEvents(
       entity,

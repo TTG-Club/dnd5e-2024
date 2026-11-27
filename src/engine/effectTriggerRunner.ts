@@ -156,6 +156,7 @@ import {
 } from './formulaParser.js';
 import { withTempHpGainBonus } from './healingLimits.js';
 import {
+  clampCurrentHpToLoweredMax,
   resolveEntityCurrentHp,
   resolveEntityMaxHp,
   resolveEntityTempHp,
@@ -916,7 +917,8 @@ export function listCarrierEventSources(
 }
 
 /**
- * Снимает с сущности эффекты по id одной записью.
+ * Снимает с сущности эффекты по id одной записью. Упавший максимум хитов
+ * опускает текущие: «Подмогу» сняло срабатывание.
  *
  * @param entity - сущность (мутируется)
  * @param effectIds - id снимаемых эффектов
@@ -929,10 +931,14 @@ export function removeEffectsById(
     return;
   }
 
+  const maxHpBefore = resolveEntityMaxHp(entity);
+
   entity.activeEffects = removeOrSwitchOffEffects(
     entity.activeEffects ?? [],
     (effect) => effectIds.has(effect.id),
   );
+
+  clampCurrentHpToLoweredMax(entity, maxHpBefore);
 }
 
 /**
@@ -1771,9 +1777,13 @@ function endEntityCastEffects(
 
   const endedIds = new Set(ended.map((effect) => effect.id));
 
+  const maxHpBefore = resolveEntityMaxHp(entity);
+
   entity.activeEffects = (entity.activeEffects ?? []).filter(
     (effect) => !endedIds.has(effect.id),
   );
+
+  clampCurrentHpToLoweredMax(entity, maxHpBefore);
 
   return true;
 }

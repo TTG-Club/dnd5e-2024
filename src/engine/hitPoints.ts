@@ -188,6 +188,120 @@ export function writeEntityHitPoints(
   }
 }
 
+/**
+ * Текущие хиты, до которых их надо опустить, когда эффекты ушли и максимум
+ * упал. Только при падении максимума: хиты выше максимума по другой причине
+ * (правка листа руками) не трогаем, и никогда не лечим.
+ *
+ * @param entity - сущность уже без снятых эффектов
+ * @param maxBefore - максимум хитов до снятия
+ * @returns новые текущие хиты либо `undefined`, если опускать нечего
+ */
+function resolveCurrentHpWithinLoweredMax(
+  entity: DnDSceneEntity,
+  maxBefore: number,
+): number | undefined {
+  const maxAfter = resolveEntityMaxHp(entity);
+
+  return maxAfter < maxBefore && resolveEntityCurrentHp(entity) > maxAfter
+    ? maxAfter
+    : undefined;
+}
+
+/**
+ * Опускает текущие хиты до упавшего максимума (МУТИРУЕТ сущность). Максимум
+ * считается от эффектов на лету, а текущие хиты — записанное число: конец
+ * «Подмоги» вернул бы 25 из 20, если их не опустить. Временные хиты не
+ * трогаются — они сверх максимума по правилам.
+ *
+ * @param entity - сущность уже без снятых эффектов
+ * @param maxBefore - максимум хитов до снятия
+ * @returns `true`, если хиты опущены
+ */
+export function clampCurrentHpToLoweredMax(
+  entity: DnDSceneEntity,
+  maxBefore: number,
+): boolean {
+  const current = resolveCurrentHpWithinLoweredMax(entity, maxBefore);
+
+  if (current === undefined) {
+    return false;
+  }
+
+  writeEntityHitPoints(entity, {
+    current,
+    temp: resolveEntityTempHp(entity),
+  });
+
+  return true;
+}
+
+/**
+ * Снимает эффекты и следом опускает хиты до упавшего максимума — общая
+ * обёртка путей снятия (срок, конец каста, срабатывание).
+ *
+ * @param entity - сущность (мутируется)
+ * @param remove - снятие эффектов; `true`, если сущность изменилась
+ * @returns `true`, если изменились эффекты или хиты
+ */
+export function removeEffectsWithinMaxHp(
+  entity: DnDSceneEntity,
+  remove: (carrier: DnDSceneEntity) => boolean,
+): boolean {
+  const maxBefore = resolveEntityMaxHp(entity);
+  const removed = remove(entity);
+
+  return clampCurrentHpToLoweredMax(entity, maxBefore) || removed;
+}
+
+/** Правка сущности листом при смене эффектов */
+export interface EntityEffectsPatch<Entity extends DnDSceneEntity> {
+  activeEffects: NonNullable<DnDSceneEntity['activeEffects']>;
+  /** Только когда хиты опущены до упавшего максимума */
+  system?: Entity['system'];
+}
+
+/**
+ * Правка листа под новый список эффектов: удалили или выключили «Подмогу» —
+ * текущие хиты не выше нового максимума. Исходная сущность не меняется:
+ * лист держит её общей со стором. `system` уходит только с опущенными
+ * хитами — иначе лист отправлял бы его целиком на каждый щелчок тумблера.
+ *
+ * @param entity - сущность с прежними эффектами
+ * @param nextEffects - новый список эффектов
+ * @returns новые эффекты и, если нужно, `system` с опущенными хитами
+ */
+export function buildEntityEffectsPatch<Entity extends DnDSceneEntity>(
+  entity: Entity,
+  nextEffects: NonNullable<DnDSceneEntity['activeEffects']>,
+): EntityEffectsPatch<Entity> {
+  const current = resolveCurrentHpWithinLoweredMax(
+    { ...entity, activeEffects: nextEffects },
+    resolveEntityMaxHp(entity),
+  );
+
+  if (current === undefined) {
+    return { activeEffects: nextEffects };
+  }
+
+  // Свежие `system` и `hitPoints`: запись хитов мутирует, а исходные — общие
+  // со стором. Запись, а не литерал хитов: у актора и существа формы разные
+  const clamped = {
+    ...entity,
+    system: {
+      ...entity.system,
+      hitPoints: { ...entity.system.hitPoints },
+    },
+  };
+
+  writeEntityHitPoints(clamped, {
+    current,
+    temp: resolveEntityTempHp(entity),
+  });
+
+  return { activeEffects: nextEffects, system: clamped.system };
+}
+
 // ── Окровавленность ───────────────────────────────────────────
 
 /**

@@ -26,6 +26,50 @@ const NOW = 1_000_000;
 /** Секунд в раунде D&D 5e */
 const ROUND = 6;
 
+/** Ядро отвечает: сущность в бою */
+const IN_COMBAT_CONTEXT = { isInCombat: () => true };
+
+/** Ядро отвечает: сущность вне боя */
+const OUT_OF_COMBAT_CONTEXT = { isInCombat: () => false };
+
+/** «До конца следующего хода носителя» */
+const CARRIER_TURN_END = {
+  type: 'turn',
+  turnAnchor: 'carrier',
+  turnTiming: 'end',
+};
+
+/** Заклинатель «Ускорения» — сам себе цель */
+const HASTE_CASTER_ID = 'actor_hero';
+
+/** Каст «Ускорения» */
+const HASTE_CAST_ID = 'cast_haste';
+
+/** «Ускорение»: концентрация на минуту, накладывается действием */
+const HASTE = {
+  id: 'spell_haste',
+  name: 'Ускорение',
+  level: 3,
+  concentration: true,
+  castingTimeUnit: 'action',
+  durationUnit: 'minute',
+  durationValue: 1,
+};
+
+/** Вялость после конца «Ускорения», как в записи сайта (haste-phb) */
+const HASTE_LETHARGY_TRIGGER = {
+  id: 'trigger_haste_lethargy',
+  event: 'castEnd',
+  actions: [
+    {
+      type: 'applyCondition',
+      flags: ['speed.zero'],
+      duration: CARRIER_TURN_END,
+      conditionKey: 'incapacitated',
+    },
+  ],
+};
+
 /**
  * Персонаж с одним эффектом.
  *
@@ -93,7 +137,7 @@ describe('сроки эффектов по игровым часам', () => {
     assert.equal(hero.activeEffects.length, 0);
   });
 
-  it('бессрочный эффект и «до конца хода» часы не трогают', () => {
+  it('бессрочный эффект и «до конца хода» в бою часы не трогают', () => {
     const system = new engine.Dnd5eVttSystem();
 
     for (const duration of [
@@ -104,13 +148,177 @@ describe('сроки эффектов по игровым часам', () => {
       const hero = heroWith(duration);
       const effects = hero.activeEffects;
 
-      assert.deepEqual(system.expireTimedEffects(hero, NOW, {}), {
-        changed: false,
-        chatSummary: null,
-      });
+      assert.deepEqual(
+        system.expireTimedEffects(hero, NOW, IN_COMBAT_CONTEXT),
+        { changed: false, chatSummary: null },
+      );
 
       assert.equal(hero.activeEffects, effects);
     }
+  });
+
+  it('«до конца хода» вне боя кончается через раунд, с пропуском хода — через два', () => {
+    const system = new engine.Dnd5eVttSystem();
+
+    for (const [turnSkipFirst, seconds] of [
+      [false, ROUND],
+      [true, 2 * ROUND],
+    ]) {
+      const hero = heroWith({ ...CARRIER_TURN_END, turnSkipFirst });
+
+      system.expireTimedEffects(hero, NOW, OUT_OF_COMBAT_CONTEXT);
+      assert.equal(hero.activeEffects[0].duration.expiresAt, NOW + seconds);
+
+      system.expireTimedEffects(hero, NOW + seconds, OUT_OF_COMBAT_CONTEXT);
+      assert.equal(hero.activeEffects.length, 0);
+    }
+  });
+
+  it('переключатель «до хода» часы не ведут: его выключает граница хода', () => {
+    const system = new engine.Dnd5eVttSystem();
+
+    const hero = withHp(createActor, 30, {
+      activeEffects: [
+        createEffect('Ярость', {
+          duration: CARRIER_TURN_END,
+          activation: { mode: 'toggle' },
+        }),
+      ],
+    });
+
+    assert.equal(
+      system.expireTimedEffects(hero, NOW, OUT_OF_COMBAT_CONTEXT).changed,
+      false,
+    );
+  });
+
+  it('в бою момент окончания с часов снимается, после боя срок идёт заново', () => {
+    const system = new engine.Dnd5eVttSystem();
+    const hero = heroWith(CARRIER_TURN_END);
+
+    system.expireTimedEffects(hero, NOW, OUT_OF_COMBAT_CONTEXT);
+
+    // Бой начался: эффект ждёт конца хода носителя, часы его не снимают
+    system.expireTimedEffects(hero, NOW + ROUND, IN_COMBAT_CONTEXT);
+    assert.equal(hero.activeEffects.length, 1);
+    assert.equal(hero.activeEffects[0].duration.expiresAt, undefined);
+
+    assert.equal(
+      system.expireTimedEffects(hero, NOW + 2 * ROUND, IN_COMBAT_CONTEXT)
+        .changed,
+      false,
+      'без работы сущность не пишется',
+    );
+
+    // Бой кончился, так и не дойдя до хода: раунд по часам с этого момента
+    const combatEnd = NOW + 10 * ROUND;
+
+    system.expireTimedEffects(hero, combatEnd, OUT_OF_COMBAT_CONTEXT);
+    assert.equal(hero.activeEffects[0].duration.expiresAt, combatEnd + ROUND);
+  });
+
+  describe('вялость «Ускорения»', () => {
+    /**
+     * Заклинатель с «Ускорением» на себе и меткой концентрации.
+     *
+     * @param {number} hasteSeconds - через сколько истекает эффект, секунды
+     * @returns {object} заклинатель
+     */
+    function hastedHero(hasteSeconds) {
+      return withHp(createActor, 30, {
+        activeEffects: [
+          engine.buildConcentrationEffect({
+            spell: HASTE,
+            casterId: HASTE_CASTER_ID,
+            castId: HASTE_CAST_ID,
+          }),
+          createEffect('Ускорение', {
+            origin: 'spell',
+            castId: HASTE_CAST_ID,
+            sourceActorId: HASTE_CASTER_ID,
+            duration: { type: 'minutes', value: 1, expiresAt: hasteSeconds },
+            triggers: [HASTE_LETHARGY_TRIGGER],
+          }),
+        ],
+      });
+    }
+
+    /**
+     * Отказ повторному касту «Ускорения».
+     *
+     * @param {object} hero - заклинатель
+     * @returns {string | null} причина отказа
+     */
+    function hasteCastBlock(hero) {
+      return engine.resolveSpellCastBlock(hero, HASTE);
+    }
+
+    it('метка и эффект истекают одним проходом — вялость ложится, через раунд уходит', () => {
+      const system = new engine.Dnd5eVttSystem();
+      const hero = hastedHero(NOW + 60);
+      const { context, ended } = castEndingContext(OUT_OF_COMBAT_CONTEXT);
+
+      // Метка концентрации получает срок; эффект его уже несёт
+      system.expireTimedEffects(hero, NOW, context);
+      system.expireTimedEffects(hero, NOW + 60, context);
+
+      assert.deepEqual(ended, [[HASTE_CASTER_ID, [HASTE_CAST_ID]]]);
+
+      assert.deepEqual(
+        hero.activeEffects.map((effect) => effect.conditionKey),
+        ['incapacitated'],
+      );
+
+      assert.equal(hasteCastBlock(hero), 'Действие недоступно: Недееспособный');
+
+      // Срок вялости поставлен тем же проходом
+      assert.equal(hero.activeEffects[0].duration.expiresAt, NOW + 60 + ROUND);
+
+      system.expireTimedEffects(hero, NOW + 60 + ROUND, context);
+      assert.equal(hero.activeEffects.length, 0);
+      assert.equal(hasteCastBlock(hero), null);
+    });
+
+    it('эффект истёк раньше метки — вялость всё равно ложится', () => {
+      const system = new engine.Dnd5eVttSystem();
+      const hero = hastedHero(NOW + 30);
+      const { context } = castEndingContext(OUT_OF_COMBAT_CONTEXT);
+
+      system.expireTimedEffects(hero, NOW, context);
+      system.expireTimedEffects(hero, NOW + 30, context);
+
+      assert.ok(
+        hero.activeEffects.some(
+          (effect) => effect.conditionKey === 'incapacitated',
+        ),
+      );
+    });
+
+    it('в бою вялость держится до конца хода носителя', () => {
+      const system = new engine.Dnd5eVttSystem();
+      const hero = hastedHero(NOW + 60);
+      const { context } = castEndingContext(IN_COMBAT_CONTEXT);
+
+      system.expireTimedEffects(hero, NOW, context);
+      system.expireTimedEffects(hero, NOW + 60, context);
+
+      const [lethargy] = hero.activeEffects;
+
+      assert.equal(lethargy.conditionKey, 'incapacitated');
+      assert.equal(lethargy.duration.expiresAt, undefined);
+
+      // Раунд боя сдвинул часы — вялость ждёт хода, а не часов
+      system.expireTimedEffects(hero, NOW + 60 + 3 * ROUND, context);
+      assert.equal(hero.activeEffects.length, 1);
+
+      const participants = new Set([HASTE_CASTER_ID]);
+
+      system.expireTurnEffects(hero, 'creature_other', 'end', participants);
+      assert.equal(hero.activeEffects.length, 1, 'чужой ход не снимает');
+
+      system.expireTurnEffects(hero, HASTE_CASTER_ID, 'end', participants);
+      assert.equal(hero.activeEffects.length, 0);
+    });
   });
 
   it('новый раунд не снимает эффект со сроком по часам — только уменьшает остаток', () => {

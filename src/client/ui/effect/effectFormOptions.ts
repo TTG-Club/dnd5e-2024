@@ -516,6 +516,22 @@ export function writeDurationType(
   };
 }
 
+/**
+ * Меняет число единиц длительности. Отсчёт начинается заново от нового числа,
+ * как при смене типа: прежние остаток раундов и момент окончания по часам
+ * сохранение не пересчитывает, и правка числа ничего бы не меняла.
+ *
+ * @param duration - длительность
+ * @param value - новое число единиц; `undefined` — число не задано
+ * @returns новая длительность
+ */
+export function writeDurationValue(
+  duration: EffectDuration,
+  value: number | undefined,
+): EffectDuration {
+  return writeDurationType({ ...duration, value }, duration.type);
+}
+
 /** Варианты «кого задевает аура» */
 export const EFFECT_AURA_TARGET_OPTIONS: ReadonlyArray<
   EffectSegmentOption<EffectAura['target']>

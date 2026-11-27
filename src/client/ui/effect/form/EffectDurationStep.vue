@@ -21,6 +21,7 @@
     EFFECT_TURN_TIMING_OPTIONS,
     isCountedDuration,
     writeDurationType,
+    writeDurationValue,
   } from '../effectFormOptions';
 
   defineProps<{
@@ -55,7 +56,7 @@
     set: (value: number | null) => {
       effect.value = {
         ...effect.value,
-        duration: { ...effect.value.duration, value: value ?? undefined },
+        duration: writeDurationValue(effect.value.duration, value ?? undefined),
       };
     },
   });
@@ -70,7 +71,7 @@
       effect.value = {
         ...effect.value,
         durationFormula: enabled ? '' : undefined,
-        duration: { ...effect.value.duration, value: undefined },
+        duration: writeDurationValue(effect.value.duration, undefined),
       };
     },
   });

@@ -1,6 +1,8 @@
 <script setup lang="ts">
   import type { ActiveEffect, DnDActor } from '@vtt/shared/system/dnd.js';
 
+  import { buildEntityEffectsPatch } from '@vtt/shared/system/dnd.js';
+
   import ActiveEffectsPanel from '../ActiveEffectsPanel.vue';
 
   interface Props {
@@ -23,7 +25,8 @@
    * @param effects - новый список активных эффектов
    */
   function handleEffectsUpdate(effects: ActiveEffect[]): void {
-    emit('update:actor', { activeEffects: effects });
+    // Хиты — вместе с эффектами: снятая «Подмога» опускает их до максимума
+    emit('update:actor', buildEntityEffectsPatch(props.actor, effects));
 
     if (!props.isEditMode) {
       setTimeout(() => emit('immediate-save'), 0);
