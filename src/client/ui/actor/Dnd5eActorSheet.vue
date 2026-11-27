@@ -147,6 +147,7 @@
     PACK_CHOICE_INITIAL_SELECTION,
     PACK_CHOICE_PICK_COUNT,
     REST_LABELS,
+    SHEET_BACKGROUND_IMAGE_CLASS,
     SHEET_FRAME_CLASSES,
     SHEET_SUMMARY_COMPACT_CLASSES,
     SHEET_SUMMARY_WIDE_CLASSES,
@@ -3119,11 +3120,11 @@
         @dragleave="handleDragLeave"
         @drop.prevent="handleDrop"
       >
-        <!-- Фоновая картинка с затуханием -->
+        <!-- Фоновая картинка с затуханием (раскладка — в константе) -->
         <img
           src="/assets/modals/actor_bg.webp"
           alt=""
-          class="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-8"
+          :class="SHEET_BACKGROUND_IMAGE_CLASS"
         />
 
         <div :class="sheetFrameClass">

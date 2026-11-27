@@ -5,6 +5,7 @@
 
   import {
     SHEET_ROLL_HINT_LABEL,
+    SHEET_ROW_TILE_HEIGHT_CLASS,
     SHEET_ROW_TOOLTIP_LINE_BREAK,
   } from './constants';
 
@@ -54,8 +55,7 @@
    * там нечего. `whitespace-nowrap` держит нижнюю границу ширины: без него
    * плитка сжималась бы до самого длинного слова и «2к6+5» переносилось бы.
    */
-  const STAT_LAYOUT_CLASSES =
-    'flex shrink-0 grow basis-0 flex-col items-center rounded border px-2 py-0.5 whitespace-nowrap @xl:grow-0 @xl:basis-auto';
+  const STAT_LAYOUT_CLASSES = `flex shrink-0 grow basis-0 flex-col items-center justify-center rounded border px-2 py-0.5 whitespace-nowrap @xl:grow-0 @xl:basis-auto ${SHEET_ROW_TILE_HEIGHT_CLASS}`;
 
   /**
    * Дополняет плитку классами оформления — логика не должна жить в шаблоне.

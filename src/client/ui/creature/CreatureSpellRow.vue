@@ -11,6 +11,8 @@
   import { SPELL_USES_RECOVERY_LABELS } from '@vtt/shared/system/dnd.js';
 
   import {
+    SHEET_ROW_CAST_BUTTON_CLASS,
+    SHEET_ROW_CAST_BUTTON_UI,
     SPELL_BADGE_HINTS,
     SPELL_BADGE_LABELS,
     SPELL_MENU_LABELS,
@@ -219,9 +221,9 @@
             <UButton
               icon="tabler:sparkles"
               color="primary"
-              variant="ghost"
-              size="xs"
-              square
+              variant="outline"
+              :class="SHEET_ROW_CAST_BUTTON_CLASS"
+              :ui="SHEET_ROW_CAST_BUTTON_UI"
               :aria-label="`${SPELL_MENU_LABELS.cast}: ${spell.name}`"
               @click.left.exact.prevent.stop="handleCast"
             />

@@ -1473,6 +1473,30 @@ export const FEATURE_ORIGIN_HINTS: Record<FeatureOriginKey, string> = {
 export const SHEET_ROLL_HINT_LABEL = 'нажмите, чтобы бросить';
 
 /**
+ * Фоновая картинка листа персонажа и листа существа. Картинка в родном
+ * размере и прибита к левому верхнему углу: при `object-cover` она
+ * растягивалась вслед за окном и съезжала относительно текста листа.
+ */
+export const SHEET_BACKGROUND_IMAGE_CLASS =
+  'pointer-events-none absolute inset-0 h-full w-full object-none object-left-top opacity-8';
+
+/**
+ * Высота плитки параметра строки. Задана явно, а не набирается из строк
+ * текста: кнопка «Применить» рядом берёт ту же высоту и стоит с плиткой
+ * урона вровень.
+ */
+export const SHEET_ROW_TILE_HEIGHT_CLASS = 'min-h-9';
+
+/**
+ * Кнопка «Применить» в строке заклинания: квадрат высотой с плитку урона,
+ * со скруглением плитки. Рамку даёт вариант `outline` самой кнопки.
+ */
+export const SHEET_ROW_CAST_BUTTON_CLASS = 'size-9 justify-center rounded';
+
+/** Крупный значок кнопки «Применить»: под размер квадрата */
+export const SHEET_ROW_CAST_BUTTON_UI = { leadingIcon: 'size-5' };
+
+/**
  * Подписи для скринридера в строках списков листа. К каждой дописывается
  * название записи («Открыть предмет: Кинжал»): по одной подписи на всю строку
  * список читался бы набором одинаковых кнопок.

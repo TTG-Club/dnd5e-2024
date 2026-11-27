@@ -17,6 +17,8 @@
 
   import {
     SHEET_ROW_ARIA_LABELS,
+    SHEET_ROW_CAST_BUTTON_CLASS,
+    SHEET_ROW_CAST_BUTTON_UI,
     SPELL_BADGE_HINTS,
     SPELL_BADGE_LABELS,
     SPELL_MENU_LABELS,
@@ -269,9 +271,9 @@
             <UButton
               icon="tabler:sparkles"
               :color="castButtonColor"
-              variant="ghost"
-              size="xs"
-              square
+              variant="outline"
+              :class="SHEET_ROW_CAST_BUTTON_CLASS"
+              :ui="SHEET_ROW_CAST_BUTTON_UI"
               :aria-disabled="isCastBlocked"
               :aria-label="`${SPELL_MENU_LABELS.cast}: ${spell.name}`"
               @click.left.exact.prevent.stop="handleCast"
