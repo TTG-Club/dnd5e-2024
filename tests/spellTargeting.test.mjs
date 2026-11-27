@@ -913,8 +913,7 @@ async function loadCastWindow(overrides) {
     beginSpellCast: () => {},
     getTotalLevel: () => 1,
     getCastProjectileCount: () => 0,
-    pickCantripTierParts: () => undefined,
-    getSpellDamageParts: (spell) => spell.damageParts ?? [],
+    getEffectiveSpellDamageParts: (spell) => spell.damageParts ?? [],
     useBonusDamageParts: () => ({
       hasSpellBonusDamage: () => false,
       buildSpellBonusEvaluator: () => undefined,

@@ -8,7 +8,8 @@ import type {
 import {
   combineDamagePartDisplays,
   formatDiceLetters,
-  getSpellDamageParts,
+  getEffectiveSpellDamageParts,
+  getTotalLevel,
   labelPaidTokens,
   resolveSpellDamageFormula,
   scaleDamageFormula,
@@ -63,6 +64,9 @@ function scalePartDisplay(
  * Общая для строки листа и для строки компендиума: расходиться показ урона в
  * двух списках не должен.
  *
+ * У владельца заговор показывает кости ступени его уровня
+ * (`cantripScalingTiers`) — те же, что бросает каст.
+ *
  * Известный круг наложения (`castLevel` — группа заклинаний существа, врождённый
  * каст на фиксированном круге) дописывает усиление высших кругов к ПЕРВОЙ части
  * урона — той же, что усиливает окно броска. Без него показ базовый.
@@ -86,7 +90,11 @@ export function describeSpellDamageDisplay(
 
   const scalingDice = spell.scaling?.additionalDice;
 
-  const parts = getSpellDamageParts(spell).map(
+  // У владельца заговор показывает кости своей ступени — те же, что катит каст;
+  // без владельца (список компендиума) уровня нет, показ базовый
+  const casterLevel = actor ? getTotalLevel(actor.system.classes) : 0;
+
+  const parts = getEffectiveSpellDamageParts(spell, casterLevel).map(
     (part, partIndex): DamagePartDisplay => {
       // Инлайн-токены @dmg.<type> — это метки типа, не переменные роллера;
       // убираем их до подстановки @-переменных (иначе resolveVariable падает).

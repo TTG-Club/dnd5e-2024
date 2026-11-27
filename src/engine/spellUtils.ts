@@ -2613,6 +2613,29 @@ export function pickCantripTierParts(
 }
 
 /**
+ * Части урона заклинания, которые реально бросаются у заклинателя данного
+ * уровня: у заговора — части действующей ступени (они целиком заменяют
+ * базовые), иначе — базовые `spell.damageParts`.
+ *
+ * Общая для каста и показа в листе: строка заговора должна показывать те же
+ * кости, что катит бросок («2к8» с 5-го уровня, а не базовые «1к8»).
+ *
+ * @param spell - заклинание
+ * @param casterLevel - суммарный уровень заклинателя
+ * @returns части урона/лечения (может быть пустым)
+ */
+export function getEffectiveSpellDamageParts(
+  spell: Spell,
+  casterLevel: number,
+): DamagePart[] {
+  if (spell.level !== 0) {
+    return getSpellDamageParts(spell);
+  }
+
+  return pickCantripTierParts(spell, casterLevel) ?? getSpellDamageParts(spell);
+}
+
+/**
  * Масштабирует формулу урона при усилении заклинания.
  *
  * Чистая функция, работающая с примитивами (без привязки к Spell).

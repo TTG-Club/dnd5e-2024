@@ -52,8 +52,8 @@ import {
   getAvailableSpellLevels,
   getCastProjectileCount,
   getDamageTemplateColor,
+  getEffectiveSpellDamageParts,
   getPactSlotInfo,
-  getSpellDamageParts,
   getSpellPrimaryDamageType,
   getTotalLevel,
   hasTargetToken,
@@ -65,7 +65,6 @@ import {
   limitCastLevels,
   MAX_SPELL_SLOT_LEVEL,
   needsSpellEffectTargets,
-  pickCantripTierParts,
   resolveDamagePartsForCast,
   resolveEntityActionBlocks,
   resolveEntityCreatureType,
@@ -1175,11 +1174,10 @@ export function openSpellCastWindow(
   const hasProjectiles = projectileCount > 0 && !template;
 
   // Ступень заговора целиком заменяет базовые части урона
-  const spellDamageParts =
-    sourceSpell.level === 0
-      ? (pickCantripTierParts(sourceSpell, casterLevel)
-        ?? getSpellDamageParts(sourceSpell))
-      : getSpellDamageParts(sourceSpell);
+  const spellDamageParts = getEffectiveSpellDamageParts(
+    sourceSpell,
+    casterLevel,
+  );
 
   // Кость-бонусы урона заклинаний с эффектов (и аур на карте) катаются
   // отдельными частями — каст идёт многочастным путём
